@@ -3,6 +3,6 @@
 # XlsxWriter is test-only: it independently produces cached-value fixtures.
 openpyxl==3.1.5
 defusedxml==0.7.1
-formualizer==0.9.3
+formualizer==0.10.0
 et-xmlfile==2.0.0
 XlsxWriter==3.2.9

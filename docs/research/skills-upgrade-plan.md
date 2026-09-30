@@ -108,8 +108,8 @@ Record actual checks and any unrun checks in the ledger.
 | SU-04 | SU-00 | Discovery cues, root markers and descriptions | complete; [PR #215](https://github.com/iokaio/vcp/pull/215) merged |
 | SU-05 | SU-02, SU-03 | Package migration to resource roles, and hygiene | complete; [PR #217](https://github.com/iokaio/vcp/pull/217) merged |
 | SU-06 | SU-02 | skill-authoring validator and guidance | complete; [PR #219](https://github.com/iokaio/vcp/pull/219) merged |
-| SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | planned |
-| SU-08 | SU-01, SU-05 | pdf-workflows robustness and operations | in review |
+| SU-07 | SU-01, SU-05 | spreadsheet-workflows compatibility and operations | in review |
+| SU-08 | SU-01, SU-05 | pdf-workflows robustness and operations | complete; [PR #245](https://github.com/iokaio/vcp/pull/245) merged |
 | SU-09 | SU-01 | webapp-testing fixes and accessibility checks | complete; [PR #221](https://github.com/iokaio/vcp/pull/221) merged |
 | SU-10 | None | mcp-development SDK and protocol refresh | complete; [PR #222](https://github.com/iokaio/vcp/pull/222) merged |
 | SU-11 | None | llm-integration provider references | complete; [PR #223](https://github.com/iokaio/vcp/pull/223) merged |

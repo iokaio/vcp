@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "spreadsheet-workflows",
-  "version": "1.2.0",
-  "description": "Inspect, create, edit and recalculate a bounded XLSX subset while preserving cell types, formulas and original files. Use when a task reads, creates or changes an Excel workbook.",
+  "version": "1.3.0",
+  "description": "Inspect, create, edit, recalculate and convert to or from CSV a bounded XLSX subset while preserving cell types, formulas and original files. Use when a task reads, creates or changes an Excel workbook, or moves typed data between CSV and XLSX.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "b730270c5a7fb6ebcced468b723670dc74b29425c9d29587c2500c3a5cc70324"
+    "sha256": "4f14555b17aa250ae8fde94cf38689ba1a28d3dbc7313fcc8cde6464a83f49b7"
   },
   "resources": [
     {
@@ -24,21 +24,21 @@
     },
     {
       "path": "NOTICE.md",
-      "sha256": "39caede9752f3864a83a4b7119ccc371f91018f85306ba2184133effbd02fa69",
+      "sha256": "53f205e7fcd218ffffa30068ccd4046589a54ca022c89d2234bd5b4a1d979925",
       "use": "file"
     },
     {
       "path": "references/tooling.md",
-      "sha256": "f946f503b02161d4c82ff7a552d7fdf03f168b8d2506acc79c8e086888acb563"
+      "sha256": "0f2c61de7a595bce6d1dd38d9310c22ff7647ec61f90bc32fbe9417f2d70c088"
     },
     {
       "path": "requirements.txt",
-      "sha256": "1becb09ba2ac7bc4f13ae3ad418952965a18a6dbe35fc8598235d8c6fef4a22d",
+      "sha256": "2b95e7efbc49a9c042c8670f38f4073ea5cefd867d12a5f848ac59d8cd7517a3",
       "use": "file"
     },
     {
       "path": "scripts/spreadsheet_workflows.py",
-      "sha256": "ea7954e515e2f9f787b94d90e3f2cad5bf6e942441b6609e5a85401bd2279f35",
+      "sha256": "e55f55067f189865982263a6df5313c5c1cb6753d698fdd155a77a62fef13f9b",
       "use": "file"
     }
   ]
