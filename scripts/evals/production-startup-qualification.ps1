@@ -3,6 +3,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$PackageResult,
+    [Parameter(Mandatory)][string]$PythonExecutable,
+    [string]$InstalledExecutable,
     [string]$FixtureManifest,
     [string[]]$FixtureResults = @(),
     [string]$OutputRoot,
@@ -12,6 +14,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+. (Join-Path $PSScriptRoot 'production-package.ps1')
 if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/p8-production-startup' }
 if ($FixtureManifest) {
     if ($FixtureResults.Count) { throw 'Select fixture manifest or explicit receipt paths' }
@@ -54,29 +57,13 @@ $snapshots = @()
 $executable = $null
 if ($FixtureManifest) { $report.fixture_manifest_sha256 = Hash $FixtureManifest }
 try {
-    $resultPath = (Get-Item -LiteralPath $PackageResult).FullName
-    $distribution = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
-    if ($distribution.schema -ne 'vcp-distribution-result/1' -or $distribution.package -ne 'vcp-windows-unsigned.zip') { throw 'Exact distribution result required' }
-    $archive = Join-Path (Split-Path $resultPath) $distribution.package
-    if ((Hash $archive) -cne $distribution.archive_sha256) { throw 'Archive identity mismatch' }
-    $package = Join-Path $root 'package'
-    $zip = [IO.Compression.ZipFile]::OpenRead($archive)
-    try {
-        foreach ($entry in $zip.Entries) {
-            if ($entry.FullName -match '(^/|\\|:|(^|/)\.\.?(/|$))') { throw 'Unsafe archive entry' }
-        }
-        $zipNames = @($zip.Entries | ForEach-Object FullName | Sort-Object)
-        $expectedNames = @($distribution.manifest.files.path + 'manifest.json' | Sort-Object)
-        if (($zipNames | ConvertTo-Json -Compress) -cne ($expectedNames | ConvertTo-Json -Compress)) { throw 'Archive inventory mismatch' }
-    } finally { $zip.Dispose() }
-    Expand-Archive -LiteralPath $archive -DestinationPath $package
-    foreach ($file in $distribution.manifest.files) {
-        $payload = Get-Item -LiteralPath (Join-Path $package $file.path)
-        if ($payload.Length -ne $file.bytes -or (Hash $payload.FullName) -cne $file.sha256) { throw 'Extracted package identity mismatch' }
-    }
-    $executable = Join-Path $package 'vcp.exe'
-    $report.package_result = $resultPath; $report.package_result_sha256 = Hash $resultPath
-    $report.archive_sha256 = Hash $archive; $report.executable_sha256 = Hash $executable
+    $candidate = Read-ProductionPackage -PackageResult $PackageResult -ExtractionRoot (Join-Path $root 'package') -SelectedExecutable $InstalledExecutable
+    $executable = $candidate.executable
+    $report.package_result = $candidate.receipt; $report.package_result_sha256 = $candidate.receipt_sha256
+    $report.archive_sha256 = $candidate.archive_sha256; $report.executable_sha256 = $candidate.executable_sha256
+    $report.release = $candidate.release; $report.build_receipt_sha256 = $candidate.build_receipt_sha256
+    $report.execution_origin = $candidate.execution_origin
+    $report.artifact_validation = $candidate.validation
     $report.host = [ordered]@{ os = [Environment]::OSVersion.VersionString; architecture = $env:PROCESSOR_ARCHITECTURE; processors = [Environment]::ProcessorCount; powershell = $PSVersionTable.PSVersion.ToString() }
     try {
         $osInfo=Get-CimInstance Win32_OperatingSystem; $systemInfo=Get-CimInstance Win32_ComputerSystem
@@ -85,7 +72,7 @@ try {
         $report.host.physical_memory_bytes=$systemInfo.TotalPhysicalMemory
         $report.host.logical_disks=@(Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,FileSystem,DriveType,Size,FreeSpace)
     } catch { $report.host.metadata_limitation=$_.Exception.Message }
-    $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+    $python = (Resolve-Path -LiteralPath $PythonExecutable).Path
     $report.counter_runtime = [ordered]@{ path = $python; sha256 = Hash $python }
     foreach ($fixtureReceiptPath in $FixtureResults) {
         $receiptPath = (Get-Item -LiteralPath $fixtureReceiptPath).FullName
@@ -261,13 +248,15 @@ try {
     if (-not $preserved) { $report.status='failed' }
     try {
         if ($report.executable_sha256) {
-            foreach ($file in $distribution.manifest.files) {
-                $payload=Get-Item -LiteralPath (Join-Path $package $file.path)
-                if ($payload.Length -ne $file.bytes -or (Hash $payload.FullName) -cne $file.sha256) { $report.status='failed'; $report.package_changed=$true }
+            foreach ($payloadRoot in @($candidate.package_root,(Split-Path -Parent $executable)) | Select-Object -Unique) {
+                foreach ($file in $candidate.manifest.files) {
+                    $payload=Get-Item -LiteralPath (Join-Path $payloadRoot $file.path)
+                    if ($payload.Length -ne $file.bytes -or (Hash $payload.FullName) -cne $file.sha256) { $report.status='failed'; $report.package_changed=$true }
+                }
             }
         }
-        if ($report.archive_sha256 -and (Hash $archive) -cne $report.archive_sha256) { $report.status='failed'; $report.archive_changed=$true }
-        if ($report.package_result_sha256 -and (Hash $resultPath) -cne $report.package_result_sha256) { $report.status='failed'; $report.package_result_changed=$true }
+        if ($report.archive_sha256 -and (Hash $candidate.archive) -cne $report.archive_sha256) { $report.status='failed'; $report.archive_changed=$true }
+        if ($report.package_result_sha256 -and (Hash $candidate.receipt) -cne $report.package_result_sha256) { $report.status='failed'; $report.package_result_changed=$true }
         if ((Hash $PSCommandPath) -cne $report.runner_sha256 -or (Hash (Join-Path $PSScriptRoot 'production-startup-counts.py')) -cne $report.counter_sha256) { $report.status='failed'; $report.runner_changed=$true }
     } catch { $report.status='failed'; $report.artifact_verification_error=$_.Exception.Message }
     $report.ended_at=[DateTime]::UtcNow.ToString('o')

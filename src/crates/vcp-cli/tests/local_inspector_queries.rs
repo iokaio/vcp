@@ -596,3 +596,181 @@ async fn local_startup_large_history_and_early_cancellation() {
         after.close().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "explicit strict production receipt, installed engine and private output required"]
+async fn final_production_startup_130_versions_both_stores() {
+    use std::{fs, os::windows::fs::MetadataExt};
+    let required = |name| PathBuf::from(std::env::var_os(name).expect(name));
+    let output = required("VCP_BETA_STARTUP_OUTPUT");
+    assert!(
+        output.is_absolute() && !output.exists(),
+        "fresh absolute private output required"
+    );
+    for parent in output.ancestors().skip(1) {
+        assert!(
+            !parent.join(".git").exists(),
+            "qualification output cannot be in a repository"
+        );
+        if let Ok(metadata) = fs::symlink_metadata(parent) {
+            assert_eq!(
+                metadata.file_attributes() & 0x400,
+                0,
+                "redirected output ancestor"
+            );
+        }
+    }
+    fs::create_dir(&output).unwrap();
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let mut report = json!({"schema":"vcp-production-startup130/1","status":"running",
+        "scope":"current-host synthetic 130-version history; no paid task or provider/model calls",
+        "fixture_retention":"synthetic fixture data and before/after state receipts are retained privately; no historical P8 evidence is claimed",
+        "qualification_executable":std::env::current_exe().unwrap(),"backends":[]});
+    let save = |report: &Value| {
+        fs::write(
+            output.join("result.json"),
+            serde_json::to_vec_pretty(report).unwrap(),
+        )
+        .unwrap()
+    };
+    save(&report);
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let mut fixture = Fixture::new(backend).await;
+        let fixture_root = fixture.preserve_private_root();
+        let started = Instant::now();
+        let mut input = seed(&fixture, 130).await;
+        let seed_ms = started.elapsed().as_millis();
+        let before = fixture.reopen_within(Duration::from_secs(45)).await;
+        assert_offline_paused(&before, &fixture.config);
+        let state = serde_json::to_value(before.state()).unwrap();
+        before.close().await.unwrap();
+        input["backend"] = json!(format!("{backend:?}"));
+        input["canonical_root"] = json!(fixture.config.canonical_root);
+        let name = format!("{backend:?}").to_lowercase();
+        let input_path = output.join(format!("{name}-input.json"));
+        fs::write(&input_path, serde_json::to_vec(&input).unwrap()).unwrap();
+        fs::write(
+            output.join(format!("{name}-state-before.json")),
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let mut command = tokio::process::Command::new(required("VCP_TEST_PWSH"));
+        command
+            .args(["-NoProfile", "-File"])
+            .arg(repo.join("scripts/evals/production-startup130.ps1"));
+        for (flag, variable) in [
+            ("-PackageResult", "VCP_BETA_NATIVE_RESULT"),
+            ("-InstalledExecutable", "VCP_BETA_INSTALLED_EXECUTABLE"),
+            ("-NodeExecutable", "VCP_TEST_NODE"),
+        ] {
+            command.arg(flag).arg(required(variable));
+        }
+        command
+            .arg("-FixtureInput")
+            .arg(&input_path)
+            .arg("-QualificationExecutable")
+            .arg(std::env::current_exe().unwrap())
+            .arg("-OutputRoot")
+            .arg(output.join(&name));
+        command.env_clear();
+        for name in [
+            "SystemRoot",
+            "WINDIR",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+            "TEMP",
+            "TMP",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "PROCESSOR_ARCHITECTURE",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        command
+            .stdin(Stdio::null())
+            .stdout(fs::File::create(output.join(format!("{name}-runner.stdout"))).unwrap())
+            .stderr(fs::File::create(output.join(format!("{name}-runner.stderr"))).unwrap())
+            .creation_flags(0x0800_0000);
+        let job = codex_utils_pty::JobObject::create_without_breakaway().unwrap();
+        let mut child = job.spawn_contained(&mut command).unwrap();
+        let began = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break Some(status);
+            }
+            let output_bytes: u64 = ["stdout", "stderr"]
+                .iter()
+                .map(|suffix| {
+                    fs::metadata(output.join(format!("{name}-runner.{suffix}")))
+                        .unwrap()
+                        .len()
+                })
+                .sum();
+            if began.elapsed() > Duration::from_secs(480) || output_bytes > 4 * 1024 * 1024 {
+                job.terminate().unwrap();
+                let _ = tokio::time::timeout(Duration::from_secs(10), child.wait()).await;
+                break None;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        let mut forced_cleanup = false;
+        let stopped = Instant::now();
+        while job.active_process_count().unwrap() != 0
+            && stopped.elapsed() < Duration::from_secs(10)
+        {
+            if !forced_cleanup {
+                job.terminate().unwrap();
+                forced_cleanup = true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let stopped = job.active_process_count().unwrap() == 0;
+        let successful = status.is_some_and(|value| value.success()) && stopped && !forced_cleanup;
+        let row = json!({"backend":format!("{backend:?}"),"versions":130,"seed_ms":seed_ms,
+            "fixture_root":fixture_root,
+            "runner_deadline_seconds":480,"runner_wall_ms":began.elapsed().as_millis(),"exit_code":status.and_then(|value|value.code()),
+            "job_active_processes_zero":stopped,"forced_descendant_cleanup":forced_cleanup,"canonical_unchanged":false,
+            "observations":output.join(&name).join("result.json"),"status":"failed"});
+        report["backends"].as_array_mut().unwrap().push(row);
+        report["status"] = json!("failed");
+        save(&report);
+        assert!(
+            successful,
+            "production startup runner failed; private evidence at {}",
+            output.display()
+        );
+        let after = fixture.reopen_within(Duration::from_secs(45)).await;
+        let after_state = serde_json::to_value(after.state()).unwrap();
+        fs::write(
+            output.join(format!("{name}-state-after.json")),
+            serde_json::to_vec(&after_state).unwrap(),
+        )
+        .unwrap();
+        assert_offline_paused(&after, &fixture.config);
+        after.close().await.unwrap();
+        let row = report["backends"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap();
+        row["canonical_unchanged"] = json!(after_state == state);
+        row["offline_paused_accounting"] = json!(true);
+        if after_state == state {
+            row["status"] = json!("passed");
+        }
+        save(&report);
+        assert_eq!(
+            after_state, state,
+            "startup and cancellation cannot mutate canonical state"
+        );
+    }
+    report["status"] = json!("passed");
+    save(&report);
+    eprintln!(
+        "Production startup130 evidence: {}",
+        output.join("result.json").display()
+    );
+}
