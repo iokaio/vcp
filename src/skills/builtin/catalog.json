@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.28.0",
+  "version": "1.29.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "634c037859f0b6ab0594afea0b07eccf0912ec630f42cad71e347bba1db29d38"
+    "sha256": "c24f6ee11eba7e97bb715df631ea2819839eb68507dfe613b2da0a88b02feafc"
   },
   "skills": [
     {
@@ -190,12 +190,12 @@
     },
     {
       "id": "dart",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "descriptor": "dart/skill.json",
-      "descriptor_sha256": "4d01e9b3d59bb4594b3c6888fbf1b58b77328c85e9af8522bcb9d6e3f66d1a60",
+      "descriptor_sha256": "e71b9fe38b1851274e35945d9421ab62375fb5d841a5b2b231d14b356349116d",
       "body": {
         "path": "SKILL.md",
-        "sha256": "89c990a52a33ea322f87b67f931df578bcd0876d9b9b3da45e843b2e95805623"
+        "sha256": "9f073e5931be433159b7e01c6ae92da1b22102c9908bcad0492ecd602452a12a"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
