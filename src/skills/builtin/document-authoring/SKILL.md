@@ -14,10 +14,18 @@ available context. Follow the project's template and the user's format. Ask
 only for missing information that changes the document's outcome; proceed when
 the brief already supplies it. Match detail to the reader's existing knowledge.
 
-For team updates, use references/project-updates.md. For other communication,
-use these adapted upstream principles: be clear and concise, use active voice,
-put the most important information first, include relevant links and references,
-and match the organization's communication style. Do not invent a brand policy.
+## Route by document type
+
+- Status or project updates: [references/project-updates.md](references/project-updates.md)
+- FAQs: [references/faq.md](references/faq.md)
+- Leadership updates and newsletters: [references/leadership-updates.md](references/leadership-updates.md)
+- ADRs and decision proposals: [references/decision-records.md](references/decision-records.md)
+- Specs, runbooks and incident reports: the structures below.
+
+For other communication, use these adapted upstream principles: be clear and
+concise, use active voice, put the most important information first, include
+relevant links and references, and match the organization's communication style.
+Do not invent a brand policy.
 
 ## Write the useful artifact
 
