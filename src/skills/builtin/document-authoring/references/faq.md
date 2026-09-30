@@ -35,7 +35,7 @@ answer one person's question.
 When the user has no other format, use a flat list:
 
 - **Question:** ...
-- **Answer:** ... ([source](...))
+- **Answer:** ... (source: link or document name)
 
 Before delivering, check each answer against its source and remove questions
 whose answers are only speculation.
