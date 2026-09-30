@@ -13,13 +13,13 @@ and only resources that the workflow needs. `skill.json` has these fields:
 | schema_version, vcp_version | Both integer `1` for this contract |
 | id | Stable lowercase ASCII identifier; follow existing hyphenated package names |
 | version | Explicit content version; do not reuse it for changed package bytes |
-| description | Concise workflow and selection guidance, not the full instructions |
+| description | What the skill does plus a "Use when ..." clause; it is the only text shown in discovery, so make it specific |
 | source, license | Accurate attribution and applicable license; original VCP packages use `vcp-original` and `Apache-2.0` |
-| cues | Caller-observed matching cues; not patterns granting filesystem traversal |
+| cues | Root marker cues observed by the host (see below); empty means always listed by description |
 | environments | Compatible environment names; empty means no metadata restriction, not qualified execution on every OS |
 | required_tools | Compatibility requirements, never grants; ordinary builtin analysis uses `vcp_list` and `vcp_read` |
 | body | Object with package-relative `path` and lowercase SHA-256 `sha256` |
-| resources | Array of the same content-reference objects, empty when unnecessary |
+| resources | Array of the same content-reference objects, plus optional `use`: `context` (default) or `file`; empty when unnecessary |
 
 Unknown descriptor fields are rejected. Content paths use forward slashes and
 normalized relative components, with no rooted path, traversal, Windows device
@@ -32,17 +32,58 @@ content hashes in the descriptor → descriptor hash and matching attribution/co
 references in `catalog.json`; coverage bytes → catalog coverage hash. Advance the
 catalog version for its change. Coverage must distinguish supplied guidance from
 observed runtime/usefulness evidence. Do not label fixture expectations as results.
-Use `scripts/skills/builtin-assets.cjs verify` and `stage` when working in VCP's
-repository; an installed user's custom skill need not modify the builtin catalog.
+Use `scripts/skills/builtin-assets.cjs rehash` to recompute content, descriptor,
+coverage and catalog digests after edits (versions stay your decision), then
+`verify` and `stage` when working in VCP's repository; an installed user's custom skill need not modify the builtin catalog.
 
 Metadata discovery reads descriptors, not bodies or resources. Observe both
 content-read counters when testing that boundary. Activation revalidates the
 selected descriptor and reads and verifies the body plus every declared resource
-within configured byte limits. Keep the complete activation small even when
-references are separate files.
-Explicit selection may resolve a compatible skill without a root-cue match;
-automatic suggestions depend on the existing matching logic. Do not change that
-logic, source precedence or activation authority in a content-only skill update.
+within configured byte limits.
+
+Resource roles (ADR-070). A `context` resource (the default) becomes model
+context on activation, so keep the body and context resources small. Mark
+licenses, notices, provenance records, requirement files and helper source
+`"use": "file"`: they are still read and hash-verified, but never sent to the
+model. A body that needs a helper tells the model to copy it with `vcp_skill`
+(action `materialize`) into an existing workspace directory and to run it only
+through an authorized `vcp_exec` process profile. Materialization accepts
+non-empty LF text up to 96 KiB that ends with a newline. The body is always context.
+
+Cues and discovery. The host emits a cue for each of these root files when it
+exists: `Cargo.toml`, `package.json`, `pyproject.toml`, `requirements.txt`,
+`setup.py`, `Pipfile`, `go.mod`, `go.work`, `pom.xml`, `build.gradle`,
+`build.gradle.kts`, `settings.gradle`, `settings.gradle.kts`, `CMakeLists.txt`,
+`Gemfile`, `composer.json`, `pubspec.yaml`, `Package.swift`, `global.json`,
+`deno.json` and `deno.jsonc`. It also emits `*.sln`, `*.slnx`, `*.csproj` or
+`*.fsproj` for ordinary root files with those extensions. A skill with cues is
+listed only when one matches. A skill with empty cues is always listed by its
+description, within a bounded budget. Listing never activates a skill or grants
+tools. Explicit selection may resolve a compatible skill without a cue match. Do
+not change matching logic, source precedence or activation authority in a
+content-only skill update.
+
+Example descriptor (hashes shortened for display; use real lowercase SHA-256):
+
+```json
+{
+  "schema_version": 1,
+  "id": "csv-cleanup",
+  "version": "1.0.0",
+  "description": "Normalize delimiters, encodings and headers in local CSV files without losing rows. Use when a task cleans or reshapes CSV data.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [],
+  "environments": [],
+  "required_tools": ["vcp_list", "vcp_read"],
+  "body": {"path": "SKILL.md", "sha256": "<sha256>"},
+  "resources": [
+    {"path": "references/dialects.md", "sha256": "<sha256>"},
+    {"path": "scripts/clean_csv.py", "sha256": "<sha256>", "use": "file"}
+  ]
+}
+```
 
 Version/hash validation proves identity, not safe or useful behavior. Run the
 owning fixture and artifact checks, retain prior evidence under its old identity,

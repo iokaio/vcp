@@ -9,19 +9,25 @@ function validateSkill(directory) {
   const root = path.resolve(directory);
   if (fs.lstatSync(root).isSymbolicLink()) throw Error('Linked package root');
   const manifestPath = path.join(root, 'skill.json');
+  if (!fs.existsSync(manifestPath)) throw Error('Missing skill.json in ' + root);
   if (!fs.lstatSync(manifestPath).isFile() || fs.lstatSync(manifestPath).isSymbolicLink()) throw Error('Invalid descriptor file');
   if (fs.statSync(manifestPath).size > 65536) throw Error('Descriptor too large');
   const descriptor = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const fields = ['schema_version', 'id', 'version', 'description', 'source', 'license', 'vcp_version', 'cues', 'environments', 'required_tools', 'body', 'resources'];
   if (!descriptor || Array.isArray(descriptor) || Object.keys(descriptor).some(k => !fields.includes(k)) || fields.some(k => !(k in descriptor))) throw Error('Unknown or missing descriptor field');
   if (descriptor.schema_version !== 1 || descriptor.vcp_version !== 1) throw Error('Unsupported VCP descriptor');
-  if (typeof descriptor.id !== 'string' || !/^[a-z0-9._-]+$/.test(descriptor.id) || descriptor.id.length > 128) throw Error('Invalid skill name');
+  // Stricter than the loader: start with a letter or digit, so no dot-only names.
+  if (typeof descriptor.id !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/.test(descriptor.id) || descriptor.id.length > 128) throw Error('Invalid skill name');
+  const warnings = [];
+  if (path.basename(root) !== descriptor.id) warnings.push('Package directory name differs from id');
   function text(value, maximum) {
     if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value) > maximum || /[\x00-\x1f\x7f-\x9f]/.test(value)) throw Error('Invalid metadata text');
   }
   for (const [key, maximum] of Object.entries({ version: 128, description: 1024, source: 2048, license: 256 })) text(descriptor[key], maximum);
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(descriptor.version)) warnings.push('Version is not semantic (MAJOR.MINOR.PATCH)');
+  if (!/\bUse when\b/.test(descriptor.description)) warnings.push('Description does not say when to use the skill ("Use when ...")');
   for (const key of ['cues', 'environments', 'required_tools']) {
-    if (!Array.isArray(descriptor[key]) || new Set(descriptor[key]).size > 32) throw Error('Invalid matching requirements');
+    if (!Array.isArray(descriptor[key]) || descriptor[key].length > 32 || new Set(descriptor[key]).size !== descriptor[key].length) throw Error('Invalid or duplicate matching requirements');
     for (const value of descriptor[key]) text(value, 128);
   }
   if (!Array.isArray(descriptor.resources) || descriptor.resources.length > 32) throw Error('Invalid resource count');
@@ -44,7 +50,19 @@ function validateSkill(directory) {
     const bytes = fs.readFileSync(file);
     if (crypto.createHash('sha256').update(bytes).digest('hex') !== item.sha256) throw Error('Content hash mismatch: ' + item.path);
   }
-  return {id: descriptor.id, files: seen.size, bytes: total};
+  // Undeclared files are neither verified nor installed by the builtin stager.
+  const stack = [''];
+  let entries = 0;
+  while (stack.length && entries <= 512) {
+    const relative = stack.pop();
+    for (const entry of fs.readdirSync(path.join(root, relative), {withFileTypes: true})) {
+      if (++entries > 512) { warnings.push('Package has more than 512 entries; undeclared-file check incomplete'); break; }
+      const child = relative ? relative + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) stack.push(child);
+      else if (!seen.has(child.toLowerCase())) warnings.push('Undeclared file: ' + child);
+    }
+  }
+  return {id: descriptor.id, files: seen.size, bytes: total, warnings};
 }
 if (require.main === module) {
   try {

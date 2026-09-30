@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "skill-authoring",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Create, port or improve native VCP skill packages, descriptors, reusable resources and focused behavioral checks. Use when writing a new skill, porting one from another tool, or validating a skill package.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/skill-creator",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "2b94bd12475c84983bd633de5e8681b79485f1babe64da9cec180423b707a4dc"
+    "sha256": "017eefc04223615fdb3a2938dd9ca0b4ee367ec016a7d25524879b4f9922c173"
   },
   "resources": [
     {
@@ -24,16 +24,16 @@
     },
     {
       "path": "NOTICE.md",
-      "sha256": "26be9de527675ebd43dac68f0bd172107a53e81a067559cf2a8020ab033cb2c1",
+      "sha256": "13eeb1b9456111504903da78e7543880859fefb1a7d02847e2c398f77d88811a",
       "use": "file"
     },
     {
       "path": "references/package-format.md",
-      "sha256": "4419e19ca0d78efc4889978ad7edaab77f5503b865f42128136909cedd7ce2db"
+      "sha256": "ec7dd886ce2f36da6267097ff51399ecfe5f084dc1addb5e7544840f8d60966b"
     },
     {
       "path": "scripts/validate.cjs",
-      "sha256": "4bff7236839276a1ca45dc141b0c19c352d8ad9762ac033f21134ece8bfd23aa",
+      "sha256": "8ca22f5b3e9886f5b14b1986c8e335aeda04795d515fc9b5e7c5ad9dc12ea302",
       "use": "file"
     }
   ]
