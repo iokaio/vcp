@@ -37,6 +37,21 @@ test('accepts context/file resource roles and rejects other roles or a file-role
   d.resources=[{...helper,use:'execute'}]; save(); assert.throws(()=>validateSkill(root),/resource role/);
   d.resources=[]; d.body.use='file'; save(); assert.throws(()=>validateSkill(root),/body must be context/);
 }));
+test('rejects duplicate matching values and dot-leading ids; warns on softer issues',()=>fixture((root,d,save)=>{
+  d.cues=['Cargo.toml','Cargo.toml']; save(); assert.throws(()=>validateSkill(root),/duplicate matching/);
+  d.cues=[];
+  for(const id of ['.','..','.hidden']) { d.id=id; save(); assert.throws(()=>validateSkill(root),/skill name/); }
+  d.id='fixture'; d.version='v1'; d.description='Synthetic fixture'; save();
+  fs.writeFileSync(path.join(root,'stray.txt'),'undeclared');
+  const {warnings}=validateSkill(root);
+  for(const expected of [/directory name differs/,/not semantic/,/Use when/,/Undeclared file: stray.txt/]) assert(warnings.some(w=>expected.test(w)),String(expected));
+  d.version='1.0.0'; d.description='Synthetic fixture. Use when testing.'; save(); fs.unlinkSync(path.join(root,'stray.txt'));
+  assert.deepEqual(validateSkill(root).warnings.filter(w=>!/directory name/.test(w)),[]);
+}));
+test('reports a missing descriptor clearly',()=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-authoring-missing-'));
+  try { assert.throws(()=>validateSkill(root),/Missing skill.json/); } finally { fs.rmSync(root,{recursive:true,force:true}); }
+});
 test('rejects traversal, case aliases and descriptor aliases',()=>fixture((root,d,save)=>{
   for(const p of ['../SKILL.md','/SKILL.md','CON.txt','skill.json','dir/../SKILL.md']) {
     d.body.path=p; save(); assert.throws(()=>validateSkill(root));

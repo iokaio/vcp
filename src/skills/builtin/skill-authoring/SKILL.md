@@ -26,8 +26,11 @@ rigid checklist. Generalize from feedback; avoid overfitting one test example.
 
 Keep the main body focused. Put reusable deterministic work in scripts and
 task-specific detail in references, linking the resources from the body. Bundle
-only resources that improve the task. In VCP every declared resource is verified
-and loaded during activation, so separate files do not imply zero context cost.
+only resources that improve the task. Every declared resource is verified on
+activation. Context resources are sent to the model, so keep them small. Mark
+licenses, notices and helper source `use: file` so they stay out of context, and
+have the body materialize helpers with `vcp_skill`. The description must say
+what the skill does and "Use when ..."; it is all discovery shows.
 Do not add a second loader, provider CLI or background evaluation loop.
 
 Use references/package-format.md for native descriptors. Skill content cannot
