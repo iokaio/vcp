@@ -107,14 +107,10 @@ jobs:
             src/third_party/codex/codex-rs/target/
           key: skill-runtime-${{ runner.os }}-${{ hashFiles('src/third_party/codex/codex-rs/rust-toolchain.toml', 'src/third_party/codex/codex-rs/Cargo.lock') }}
           restore-keys: skill-runtime-${{ runner.os }}-
-      # Platform-independent skill contracts; Windows-native tests stay in the
-      # manual Native Windows qualification job.
+      # Platform-independent skill contracts. vcp-lifecycle is Windows-only
+      # (ADR-068), so the frozen fixture contract runs in the Windows job.
       - name: Test descriptor, discovery and catalog contracts
         run: cargo test --locked -p vcp-extensions
-      # The vcp-lifecycle lib-test target is Windows-only; this integration test
-      # links the ordinary library and also checks the shared marker file.
-      - name: Test frozen builtin fixtures and the host marker contract
-        run: cargo test --locked -p vcp-lifecycle --test builtin_skill_qualification
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
@@ -209,6 +205,9 @@ jobs:
           ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline -Jobs 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale -Jobs 2
+      - name: Test frozen builtin skill fixtures and the host marker contract
+        working-directory: src/third_party/codex/codex-rs
+        run: cargo test --locked -p vcp-lifecycle --test builtin_skill_qualification
       - name: Build committed native CLI
         run: ./scripts/build.ps1 -Jobs 2
       - name: Test native patch and policy boundaries
