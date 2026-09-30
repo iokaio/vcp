@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+. (Join-Path $PSScriptRoot 'production-package.ps1')
 if (-not $OutputRoot) { $OutputRoot = Join-Path ([IO.Path]::GetTempPath()) 'vcp-production-distribution' }
 $root = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ([guid]::NewGuid().ToString())
 # Actual CLI state must live outside repository/sync roots, as in ordinary use.
@@ -54,40 +55,7 @@ function Assert-Case([string]$Name, [bool]$Condition) {
     if (-not $Condition) { throw "Assertion failed: $Name" }
 }
 function Read-Package([string]$ReceiptPath, [string]$Name) {
-    $path = [IO.Path]::GetFullPath($ReceiptPath)
-    $receipt = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-    $archive = Join-Path (Split-Path $path) $receipt.package
-    if ($receipt.archive_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
-        (Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -cne $receipt.archive_sha256) { throw "$Name archive digest mismatch" }
-    $binary = @($receipt.manifest.files | Where-Object path -ceq 'vcp.exe')
-    $installer = @($receipt.manifest.files | Where-Object path -ceq 'tools/package-install.ps1')
-    if ($binary.Count -ne 1 -or $installer.Count -ne 1) { throw "$Name executable or installer inventory missing" }
-    $bootstrap = Join-Path $root "$Name-package-install.ps1"
-    $buildDigest = $null
-    $zip = [IO.Compression.ZipFile]::OpenRead($archive)
-    try {
-        $entry = @($zip.Entries | Where-Object FullName -ceq 'tools/package-install.ps1')
-        if ($entry.Count -ne 1) { throw "$Name standalone installer missing" }
-        [IO.Compression.ZipFileExtensions]::ExtractToFile($entry[0], $bootstrap, $false)
-        if ($Name -ceq 'production') {
-            if ($receipt.manifest.build.status -cne 'recorded-local-build' -or $receipt.manifest.build.receipt -cne 'build-receipt.json') { throw 'Production package requires recorded build provenance' }
-            $buildEntry = @($zip.Entries | Where-Object FullName -ceq 'build-receipt.json')
-            $buildFile = @($receipt.manifest.files | Where-Object path -ceq 'build-receipt.json')
-            if ($buildEntry.Count -ne 1 -or $buildFile.Count -ne 1 -or $buildEntry[0].Length -gt 32MB -or $buildEntry[0].Length -ne $buildFile[0].bytes) { throw 'Production build receipt inventory mismatch' }
-            $inputStream = $buildEntry[0].Open()
-            $buffer = [IO.MemoryStream]::new()
-            try { $inputStream.CopyTo($buffer); $buildBytes = $buffer.ToArray() } finally { $inputStream.Dispose(); $buffer.Dispose() }
-            $buildDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($buildBytes)).ToLowerInvariant()
-            if ($buildDigest -cne $buildFile[0].sha256 -or $buildDigest -cne $receipt.manifest.build.receipt_sha256) { throw 'Production build receipt digest mismatch' }
-            $build = [Text.Encoding]::UTF8.GetString($buildBytes).TrimStart([char]0xFEFF) | ConvertFrom-Json
-            if ($build.schema -cne 'vcp-local-build/1' -or $build.exit_code -ne 0 -or $build.executable_sha256 -cne $binary[0].sha256 -or
-                $build.profile -cne 'release' -or $build.qualification_build -ne $false -or $build.source_stable -ne $true -or $build.target -cne 'x86_64-pc-windows-msvc') {
-                throw 'Production candidate requires a successful stable native release build without qualification features'
-            }
-        }
-    } finally { $zip.Dispose() }
-    if ((Get-FileHash -LiteralPath $bootstrap).Hash.ToLowerInvariant() -cne $installer[0].sha256) { throw "$Name installer digest mismatch" }
-    return @{ receipt=$path; archive=$archive; archive_sha256=$receipt.archive_sha256; executable_sha256=$binary[0].sha256; build_receipt_sha256=$buildDigest; installer=$bootstrap; manifest=$receipt.manifest }
+    return Read-ProductionPackage -PackageResult $ReceiptPath -ExtractionRoot (Join-Path $root "$Name-package")
 }
 function Invoke-Bounded([string]$Name, [string]$Program, [string[]]$Arguments, [bool]$ExpectSuccess=$true, [bool]$CleanEnvironment=$false, [string]$Fault='', [int]$DeadlineSeconds=120) {
     $info = [Diagnostics.ProcessStartInfo]::new($Program)
@@ -193,7 +161,7 @@ Save-Report
 try {
     $candidate=Read-Package $PackageResult 'production'
     $previous=Read-Package $PreviousPackageResult 'previous'
-    if ($candidate.archive_sha256 -ceq $previous.archive_sha256) { throw 'Distinct real package identities required' }
+    if ($candidate.archive_sha256 -ceq $previous.archive_sha256 -or $candidate.executable_sha256 -ceq $previous.executable_sha256 -or $candidate.release.native_version -ceq $previous.release.native_version) { throw 'Distinct production executable, archive and product versions required' }
     $report.candidate=$candidate; $report.previous=$previous; Save-Report
     # The existing smoke owns a separate fresh installation and empty environment.
     $null=Invoke-Bounded 'fresh-profile-smoke' $pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'distribution-qualification.ps1'),'-PackageResult',$candidate.receipt,'-OutputRoot',(Join-Path $root 'fresh-profile')) $true $false '' 180

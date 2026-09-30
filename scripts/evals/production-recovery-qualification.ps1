@@ -6,6 +6,7 @@
 # public receipts to repository artifacts after execution; preserve the private run.
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory)][string]$PackageResult,
     [Parameter(Mandatory)][string]$Executable,
     [Parameter(Mandatory)][string]$ExpectedSha256,
     [Parameter(Mandatory)][string]$FixtureRoot,
@@ -17,11 +18,13 @@ param(
     [Parameter(Mandatory)][string]$EnvelopeVerifier,
     [string]$RollbackExecutable,
     [string]$RollbackSha256,
+    [string]$RollbackPackageResult,
     [string[]]$SyncRoots = @(),
     [int]$DeadlineSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows required' }
+. (Join-Path $PSScriptRoot 'production-package.ps1')
 $exe = (Resolve-Path -LiteralPath $Executable).Path
 $fixtures = (Resolve-Path -LiteralPath $FixtureRoot).Path
 $git=(Resolve-Path -LiteralPath $GitExecutable).Path
@@ -29,11 +32,11 @@ $age=(Resolve-Path -LiteralPath $AgeExecutable).Path
 $node=(Resolve-Path -LiteralPath $NodeExecutable).Path
 $verifier=(Resolve-Path -LiteralPath $EnvelopeVerifier).Path
 $rollback=$null
-if ([bool]$RollbackExecutable -ne [bool]$RollbackSha256) { throw 'RollbackExecutable and RollbackSha256 must be supplied together' }
+if ([bool]$RollbackExecutable -ne [bool]$RollbackSha256 -or [bool]$RollbackExecutable -ne [bool]$RollbackPackageResult) { throw 'RollbackExecutable, RollbackSha256 and RollbackPackageResult must be supplied together' }
 if ($RollbackExecutable) {
     if ($RollbackSha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'RollbackSha256 must be a lowercase SHA-256 digest' }
     $rollback=(Resolve-Path -LiteralPath $RollbackExecutable).Path
-    if ((Get-FileHash -LiteralPath $rollback).Hash.ToLowerInvariant() -cne $RollbackSha256) { throw 'Prior debug rollback executable digest differs' }
+    if ((Get-FileHash -LiteralPath $rollback).Hash.ToLowerInvariant() -cne $RollbackSha256) { throw 'Prior production rollback executable digest differs' }
 }
 if ((Get-FileHash -LiteralPath $age).Hash.ToLowerInvariant() -cne '2821a4ed191da07372acd302e5f6feae7a7985e285e1417765ebe74025af45f0') { throw 'Independent Go age differs from pinned v1.3.2' }
 $root = [IO.Path]::GetFullPath($OutputRoot)
@@ -62,11 +65,19 @@ if (Test-Path -LiteralPath $root) { throw 'New output directory required' }
 if ((Get-FileHash -LiteralPath $exe).Hash.ToLowerInvariant() -cne $ExpectedSha256) { throw 'Candidate hash differs' }
 if ($DeadlineSeconds -lt 1 -or $DeadlineSeconds -gt 300) { throw 'Deadline must be 1..300 seconds' }
 New-Item -ItemType Directory -Path $root | Out-Null
+$candidate=Read-ProductionPackage -PackageResult $PackageResult -ExtractionRoot (Join-Path $root 'candidate-package') -SelectedExecutable $exe -NodeExecutable $node
+if ($candidate.executable_sha256 -cne $ExpectedSha256) { throw 'Explicit expected digest differs from strict production artifact' }
+$previous=$null
+if ($rollback) {
+    $previous=Read-ProductionPackage -PackageResult $RollbackPackageResult -ExtractionRoot (Join-Path $root 'previous-package') -SelectedExecutable $rollback -NodeExecutable $node
+    if ($previous.executable_sha256 -cne $RollbackSha256 -or $previous.executable_sha256 -ceq $candidate.executable_sha256 -or $previous.release.native_version -ceq $candidate.release.native_version) { throw 'Distinct compatible production rollback version and executable required' }
+}
 $report = [ordered]@{
     schema='vcp-production-local-recovery/1'; status='running'; executable_sha256=$ExpectedSha256
     script_sha256=(Get-FileHash -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()
     created_at=[DateTime]::UtcNow.ToString('o'); fixtures=@(); steps=@(); backends=@()
-    rollback_candidate=@{kind='prior debug qualification executable';executable=$rollback;sha256=$RollbackSha256;scope='Same-format canonical read compatibility after production restore/rebind/encrypted publication; no downgrade write or format migration'}
+    release=$candidate.release; package_result_sha256=$candidate.receipt_sha256; archive_sha256=$candidate.archive_sha256; build_receipt_sha256=$candidate.build_receipt_sha256; execution_origin=$candidate.execution_origin;artifact_validation=$candidate.validation
+    rollback_candidate=@{kind='prior strict production executable';executable=$rollback;sha256=$RollbackSha256;package=$previous;scope='Same-format canonical read compatibility after production restore/rebind/encrypted publication; no downgrade write or format migration'}
     restore_configuration='Fresh default restore without known/declared sync roots, plus explicit disjoint sync-root preview and overlapping sync-root rejection; mandatory staging remains excluded from trust/canonical/key storage'
     tools=@{git_sha256=(Get-FileHash -LiteralPath $git).Hash.ToLowerInvariant();age_sha256=(Get-FileHash -LiteralPath $age).Hash.ToLowerInvariant();node_sha256=(Get-FileHash -LiteralPath $node).Hash.ToLowerInvariant();verifier_sha256=(Get-FileHash -LiteralPath $verifier).Hash.ToLowerInvariant()}
     limitations=@('Current-host local restore only; machine handoff skipped', 'No physical full-volume exhaustion', 'No deterministic production crash-barrier injection', 'No model inference', 'Unknown third-party synchronization roots must be supplied explicitly through SyncRoots', 'Vault plaintext scan is of final published inventory, not a concurrent interrupted-write observer', 'Finite CLI authentication, path, and fresh encrypted-write checks; historical full crypto matrix retained separately')
@@ -158,7 +169,7 @@ function Invoke-Helper([string]$Name,[string]$Program,[string]$WorkingDirectory,
 function Invoke-Candidate([string]$Name,[string]$Data,[string]$Workspace,[string[]]$Arguments,[bool]$Reject=$false,[string]$ExpectedDiagnostic='',[string]$CandidateExecutable=$exe) {
     $candidateHash=Hash $CandidateExecutable
     $candidateKind=if ($CandidateExecutable -ceq $exe -and $candidateHash -ceq $ExpectedSha256) { 'production' }
-        elseif ($rollback -and $CandidateExecutable -ceq $rollback -and $candidateHash -ceq $RollbackSha256) { 'prior debug qualification executable' }
+        elseif ($rollback -and $CandidateExecutable -ceq $rollback -and $candidateHash -ceq $RollbackSha256) { 'prior strict production executable' }
         else { throw 'Candidate path/digest differs from an explicitly frozen executable' }
     $info=[Diagnostics.ProcessStartInfo]::new($CandidateExecutable)
     $info.UseShellExecute=$false; $info.CreateNoWindow=$true
@@ -323,17 +334,17 @@ try {
         $verifiedText=Invoke-Helper "$backend-independent-write-verify" $node $case @($verifier) $independentInput
         $verified=$verifiedText | ConvertFrom-Json
         Assert-True ($verified.status -eq 'pass' -and $verified.signature_verified -eq $true -and $verified.source_files_verified -eq @($fixture.expected_files.PSObject.Properties).Count) 'Independent production snapshot validation failed'
-        $rollbackResult=@{status='not_run';reason='No validated prior debug executable supplied'}
+        $rollbackResult=@{status='not_run';reason='No distinct strict prior production package and executable supplied'}
         if ($rollback) {
             # The independent snapshot verifier just proved the captured task
             # and ledger records survive production checkpoint/publication.
-            # Read those same records with the prior debug artifact, then fresh
+            # Read those same records with the prior production artifact, then fresh
             # production processes: exactly six additional CLI invocations.
             $writtenDescriptorHash=Hash $descriptor
             $publishedCiphertextHash=Hash $objects[0].FullName
             $baselineLedger=@($records | Where-Object collection -eq 'ledger' | Sort-Object id | ForEach-Object { $_.value })
             $baselineLedgerJson=ConvertTo-Json -InputObject $baselineLedger -Depth 100 -Compress
-            foreach ($reader in @(@{name='prior-debug-rollback';path=$rollback},@{name='production-after-rollback';path=$exe})) {
+            foreach ($reader in @(@{name='prior-production-rollback';path=$rollback},@{name='production-after-rollback';path=$exe})) {
                 foreach ($task in @($fixture.root_task,$fixture.child_task)) {
                     $observed=Invoke-Candidate -Name "$backend-$($reader.name)-$task" -Data $data -Workspace $dest -Arguments @('tasks','status',$task) -CandidateExecutable $reader.path
                     $baseline=@($records | Where-Object { $_.collection -eq 'task' -and $_.id -ceq $task })
@@ -350,8 +361,8 @@ try {
                 Assert-True ((Hash $descriptor) -ceq $writtenDescriptorHash) 'Rollback or production reopen changed selected descriptor'
                 Assert-True ((Hash $objects[0].FullName) -ceq $publishedCiphertextHash) 'Rollback or production reopen changed published snapshot'
             }
-            Assert-True ((Hash $rollback) -ceq $RollbackSha256) 'Prior debug executable changed during rollback checks'
-            $rollbackResult=@{status='pass';prior_candidate_kind='debug qualification';prior_executable_sha256=$RollbackSha256;production_executable_sha256=$ExpectedSha256;task_records_compared=2;ledger_records_compared=$baselineLedger.Count;descriptor_sha256=$writtenDescriptorHash;published_ciphertext_sha256=$publishedCiphertextHash;production_fresh_reopen=$true;scope='same-format canonical task/ledger read compatibility'}
+            Assert-True ((Hash $rollback) -ceq $RollbackSha256) 'Prior production executable changed during rollback checks'
+            $rollbackResult=@{status='pass';prior_candidate_kind='strict production';prior_executable_sha256=$RollbackSha256;production_executable_sha256=$ExpectedSha256;task_records_compared=2;ledger_records_compared=$baselineLedger.Count;descriptor_sha256=$writtenDescriptorHash;published_ciphertext_sha256=$publishedCiphertextHash;production_fresh_reopen=$true;scope='same-format canonical task/ledger read compatibility'}
         }
         Assert-True ((Hash $source) -ceq $sourceHash -and (Hash $fixturePath) -ceq $fixtureHash -and (Hash $key) -ceq $keyHash) 'Original fixture changed'
         $report.backends += @{backend=$backend;status='pass';restored_descriptor_sha256=$descriptorHash;final_descriptor_sha256=(Hash $descriptor);source_files_verified=$fixture.expected_files.PSObject.Properties.Name;root_task=$fixture.root_task;child_task=$fixture.child_task;fresh_encryption=$verified;canonical_rollback=$rollbackResult}
