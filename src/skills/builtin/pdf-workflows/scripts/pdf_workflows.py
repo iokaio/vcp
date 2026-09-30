@@ -15,6 +15,7 @@ MAX_INPUT = 20 * 1024 * 1024
 MAX_PAGES = 200
 MAX_TEXT = 100_000
 MAX_MERGE_INPUTS = 20
+MAX_STDOUT = 8192  # info JSON printed without --output
 # pypdf decoders stop once a single stream would exceed this, instead of decoding it fully first.
 DECODE_LIMITS = ("maximum_declared_stream_length", "array_based_stream_maximum_output_length",
                  "jbig2_maximum_output_length", "lzw_maximum_output_length", "run_length_maximum_output_length",
@@ -23,14 +24,6 @@ PAGE_SIZES = {"letter": (612.0, 792.0), "a4": (595.2756, 841.8898)}
 
 
 class WorkflowError(ValueError):
-    pass
-
-
-class PasswordRequired(WorkflowError):
-    pass
-
-
-class PermissionRestricted(WorkflowError):
     pass
 
 
@@ -43,8 +36,12 @@ def local_path(root, name, existing=True):
         if any(ord(char) < 32 or char in '<>:"|?*' for char in part) or part.endswith((".", " ")) or re.match(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", part, re.I):
             raise WorkflowError("Use portable ordinary file names")
         current = current / part
+        # Path.is_junction exists from Python 3.12; before that, the resolved-path check below
+        # still refuses a junction that leads outside the root.
         if current.is_symlink() or (hasattr(current, "is_junction") and current.is_junction()):
             raise WorkflowError("Linked paths are outside the supported file boundary")
+    if not existing and not current.parent.is_dir():
+        raise WorkflowError("Output parent directory does not exist; create it first")
     resolved = current.resolve(strict=existing)
     if not resolved.is_relative_to(root) or not resolved.parent.is_dir():
         raise WorkflowError("Path must stay inside the existing workspace")
@@ -54,31 +51,45 @@ def local_path(root, name, existing=True):
 
 
 def read_input(root, name, maximum=MAX_INPUT):
-    path = local_path(root, name)
-    with path.open("rb") as stream:
+    with local_path(root, name).open("rb") as stream:
         data = stream.read(maximum + 1)
     if len(data) > maximum:
-        raise WorkflowError("Input exceeds the supported byte limit")
+        raise WorkflowError(f"Input exceeds the {maximum}-byte limit")
     return data
+
+
+def check_output(root, name):
+    # Validate the destination before any input is parsed; write_new still creates it exclusively.
+    if local_path(root, name, existing=False).exists():
+        raise WorkflowError("Output already exists; choose a new file")
 
 
 def write_new(root, name, data):
     path = local_path(root, name, existing=False)
     if len(data) > MAX_INPUT:
-        raise WorkflowError("Output exceeds the supported byte limit")
+        raise WorkflowError(f"Output exceeds the {MAX_INPUT}-byte limit")
     # Exclusive creation preserves originals, including an output created meanwhile.
     with path.open("xb") as stream:
         stream.write(data)
+
+
+class PasswordRequired(WorkflowError):
+    pass
+
+
+class PermissionRestricted(WorkflowError):
+    pass
 
 
 def write_json(root, name, value):
     write_new(root, name, (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
-def selected_pages(value, count):
+def selected_pages(value, count, ordered=False):
+    """Sorted, de-duplicated pages; ordered=True keeps the requested order and refuses repeats."""
     if value is None:
         return list(range(1, count + 1))
-    pages = set()
+    pages, seen = [], set()
     for part in value.split(","):
         ends = part.split("-")
         if len(ends) not in (1, 2) or not all(end.isascii() and end.isdecimal() for end in ends):
@@ -86,8 +97,14 @@ def selected_pages(value, count):
         first, last = int(ends[0]), int(ends[-1])
         if not 1 <= first <= last <= count:
             raise WorkflowError("Requested page is outside the document")
-        pages.update(range(first, last + 1))
-    return sorted(pages)
+        for page in range(first, last + 1):
+            if page in seen:
+                if ordered:
+                    raise WorkflowError("Split pages must not repeat; list each page once in output order")
+                continue
+            seen.add(page)
+            pages.append(page)
+    return pages if ordered else sorted(pages)
 
 
 def printable(value, limit):
@@ -139,11 +156,14 @@ def pdf_parsing():
         logger.propagate = propagate
 
 
-def open_pdf(root, name, purpose=None, maximum=MAX_INPUT):
+def open_pdf(root, name, purpose=None):
+    return parse_pdf(read_input(root, name), purpose)
+
+
+def parse_pdf(source, purpose=None):
     from pypdf import PasswordType, PdfReader
     from pypdf.constants import UserAccessPermissions
 
-    source = read_input(root, name, maximum)
     # Non-strict reading recovers common malformations; recoveries are reported as parser warnings.
     reader = PdfReader(io.BytesIO(source), strict=False)
     encryption = "none"
@@ -232,6 +252,8 @@ def info(root, args, diagnostics):
               "encryption": encryption, "permissions": permissions, "metadata": metadata, "pages": pages,
               "parser_warnings": diagnostics.summary}
     if args.output is None:
+        if len(json.dumps(result)) > MAX_STDOUT:
+            raise WorkflowError(f"info output exceeds {MAX_STDOUT} bytes; rerun with --output to write it to a new file")
         return result
     write_json(root, args.output, result)
     return {"status": "ok", "output": args.output, "page_count": len(reader.pages), "encryption": encryption,
@@ -247,8 +269,11 @@ def merge(root, args, diagnostics):
     remaining = MAX_INPUT
     sources = []
     for name in args.input:
-        reader, source, encryption = open_pdf(root, name, "assemble", remaining)
+        source = read_input(root, name)
         remaining -= len(source)
+        if remaining < 0:
+            raise WorkflowError(f"Merge inputs exceed the {MAX_INPUT}-byte (20 MiB) combined input limit")
+        reader, source, encryption = parse_pdf(source, "assemble")
         if len(writer.pages) + len(reader.pages) > MAX_PAGES:
             raise WorkflowError("Merged document exceeds 200 pages")
         for page in reader.pages:
@@ -264,7 +289,7 @@ def split(root, args, diagnostics):
     from pypdf import PdfWriter
 
     reader, source, encryption = open_pdf(root, args.input, "assemble")
-    pages = selected_pages(args.pages, len(reader.pages))
+    pages = selected_pages(args.pages, len(reader.pages), ordered=True)
     writer = PdfWriter()
     for number in pages:
         writer.add_page(reader.pages[number - 1])
@@ -380,14 +405,14 @@ def main():
     command.add_argument("--pages", help="One-based pages, e.g. 1,3-5")
     command = subparsers.add_parser("info", help="Page count, sizes, metadata and encryption status")
     command.add_argument("--input", required=True)
-    command.add_argument("--output", help=f"{new_file}; omit to print the JSON")
+    command.add_argument("--output", help=f"{new_file}; omit to print the JSON (at most 8192 bytes)")
     command = subparsers.add_parser("merge", help="Concatenate PDFs into a new PDF")
     command.add_argument("--input", required=True, action="append", help="Repeat in output order")
     command.add_argument("--output", required=True, help=new_file)
-    command = subparsers.add_parser("split", help="Copy selected pages into a new PDF")
+    command = subparsers.add_parser("split", help="Copy selected pages, in the listed order, into a new PDF")
     command.add_argument("--input", required=True)
     command.add_argument("--output", required=True, help=new_file)
-    command.add_argument("--pages", required=True, help="One-based pages, e.g. 1,3-5")
+    command.add_argument("--pages", required=True, help="One-based pages in output order, each once, e.g. 3,1-2")
     command = subparsers.add_parser("rotate", help="Rotate selected pages clockwise in a new PDF")
     command.add_argument("--input", required=True)
     command.add_argument("--output", required=True, help=new_file)
@@ -406,6 +431,8 @@ def main():
         root = Path(args.root).resolve(strict=True)
         if not root.is_dir():
             raise WorkflowError("Workspace root must be a directory")
+        if args.output is not None:
+            check_output(root, args.output)
         if args.command == "create":
             result = create(root, args)
         else:

@@ -308,12 +308,17 @@ class PdfWorkflows(unittest.TestCase):
         self.assertFalse((self.root / "single.pdf").exists())
         self.assertFalse((self.root / "huge.pdf").exists())
 
-    def test_split_copies_selected_pages(self):
+    def test_split_copies_selected_pages_in_requested_order(self):
         original = self.make_pdf("source.pdf", "Page one", "Page two", "Page three", "Page four")
         result = self.run_helper("split", "--input", "source.pdf", "--pages", "4,2-3", "--output", "part.pdf")
-        self.assertEqual(result["pages"], [2, 3, 4])
-        self.assertEqual(self.page_texts("part.pdf"), ["Page two", "Page three", "Page four"])
+        self.assertEqual(result["pages"], [4, 2, 3])
+        self.assertEqual(self.page_texts("part.pdf"), ["Page four", "Page two", "Page three"])
         self.assertEqual((self.root / "source.pdf").read_bytes(), original)
+        refused = self.run_helper("split", "--input", "source.pdf", "--pages", "1-3,2", "--output", "denied.pdf", success=False)
+        self.assertIn("must not repeat", refused["message"])
+        # Extraction and rotation keep their sorted, de-duplicated selections.
+        rotated = self.run_helper("rotate", "--input", "source.pdf", "--degrees", "90", "--pages", "3,1-2,2", "--output", "turned.pdf")
+        self.assertEqual(rotated["rotated_pages"], [1, 2, 3])
         for selection in ("0", "5", "3-2", "x"):
             self.run_helper("split", "--input", "source.pdf", "--pages", selection, "--output", "denied.pdf", success=False)
         self.assertFalse((self.root / "denied.pdf").exists())
@@ -352,6 +357,100 @@ class PdfWorkflows(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "info.json").read_text(encoding="utf-8")), result)
         self.run_helper("info", "--input", "doc.pdf", "--output", "info.json", success=False)
         self.assertEqual((self.root / "doc.pdf").read_bytes(), original)
+
+    def test_output_paths_are_checked_before_inputs_are_parsed(self):
+        (self.root / "malformed.pdf").write_bytes(b"not a PDF")
+        (self.root / "taken.json").write_bytes(b"user-owned bytes")
+        refused = self.run_helper("extract", "--input", "malformed.pdf", "--output", "missing/out.json", success=False)
+        self.assertEqual(refused["message"], "Output parent directory does not exist; create it first")
+        refused = self.run_helper("extract", "--input", "malformed.pdf", "--output", "taken.json", success=False)
+        self.assertEqual(refused["message"], "Output already exists; choose a new file")
+        self.assertEqual((self.root / "taken.json").read_bytes(), b"user-owned bytes")
+        self.make_text()
+        refused = self.run_helper("create", "--input", "source.txt", "--output", "missing/deeper/report.pdf", success=False)
+        self.assertIn("Output parent directory does not exist", refused["message"])
+        self.assertFalse((self.root / "missing").exists())
+        (self.root / "reports").mkdir()
+        self.run_helper("create", "--input", "source.txt", "--output", "reports/report.pdf")
+        self.assertEqual(self.page_texts("reports/report.pdf"), ["Useful report\nTotal: 42"])
+
+    def test_linked_paths_are_rejected(self):
+        outside = Path(self.owner.name) / "outside"
+        outside.mkdir()
+        self.make_pdf("real.pdf", "Inside")
+        (outside / "secret.pdf").write_bytes((self.root / "real.pdf").read_bytes())
+        try:
+            os.symlink(self.root / "real.pdf", self.root / "file-link.pdf")
+            os.symlink(outside, self.root / "dir-link", target_is_directory=True)
+        except OSError as error:
+            # Windows needs Developer Mode or SeCreateSymbolicLinkPrivilege to create symlinks.
+            self.skipTest(f"symbolic links cannot be created here: {error}")
+        for arguments in (("info", "--input", "file-link.pdf"), ("info", "--input", "dir-link/secret.pdf"),
+                          ("split", "--input", "real.pdf", "--pages", "1", "--output", "dir-link/copy.pdf")):
+            with self.subTest(arguments=arguments):
+                refused = self.run_helper(*arguments, success=False)
+                self.assertEqual(refused["message"], "Linked paths are outside the supported file boundary")
+        self.assertFalse((outside / "copy.pdf").exists())
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows junctions")
+    def test_junction_outside_the_root_is_rejected(self):
+        import _winapi
+
+        outside = Path(self.owner.name) / "outside"
+        outside.mkdir()
+        self.make_pdf("real.pdf", "Inside")
+        (outside / "secret.pdf").write_bytes((self.root / "real.pdf").read_bytes())
+        _winapi.CreateJunction(str(outside), str(self.root / "junction"))
+        # Python 3.12+ detects the junction itself; earlier versions refuse the resolved path.
+        expected = ("Linked paths are outside the supported file boundary" if sys.version_info >= (3, 12)
+                    else "Path must stay inside the existing workspace")
+        for arguments in (("info", "--input", "junction/secret.pdf"),
+                          ("split", "--input", "real.pdf", "--pages", "1", "--output", "junction/copy.pdf")):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(self.run_helper(*arguments, success=False)["message"], expected)
+        self.assertFalse((outside / "copy.pdf").exists())
+
+    def test_aes_without_crypto_provider_reports_dependency_error(self):
+        try:
+            import cryptography  # noqa: F401  (needed only to write the AES fixture)
+        except ImportError:
+            self.skipTest("cryptography is not installed, so no AES fixture can be written")
+        self.make_pdf("plain.pdf", "AES page")
+        writer = PdfWriter(clone_from=self.root / "plain.pdf")
+        writer.encrypt(user_password="", owner_password="synthetic-owner-password", algorithm="AES-128")
+        with (self.root / "aes.pdf").open("wb") as output:
+            writer.write(output)
+        self.assertEqual(self.run_helper("info", "--input", "aes.pdf")["encryption"], "empty_user_password")
+        # Hide every AES provider pypdf can use, then run the helper as a script.
+        launcher = ("import runpy, sys; sys.modules.update(dict.fromkeys(('cryptography', 'Crypto'))); "
+                    "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')")
+        result = subprocess.run([sys.executable, "-c", launcher, str(HELPER), "--root", str(self.root), "extract",
+                                 "--input", "aes.pdf", "--output", "aes.json"],
+                                capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        refused = json.loads(result.stderr)
+        self.assertEqual(refused["error"], "WorkflowError")
+        self.assertIn("optional pypdf dependency", refused["message"])
+        self.assertFalse((self.root / "aes.json").exists())
+
+    def test_merge_combined_limit_is_named(self):
+        small = self.make_pdf("small.pdf", "Small")
+        # Each input is under the per-file limit; together they exceed the combined limit.
+        (self.root / "padding.pdf").write_bytes(b"%PDF-1.7\n%" + b"0" * (20 * 1024 * 1024 - len(small) - 9))
+        refused = self.run_helper("merge", "--input", "small.pdf", "--input", "padding.pdf", "--output", "merged.pdf", success=False)
+        self.assertEqual(refused["message"], "Merge inputs exceed the 20971520-byte (20 MiB) combined input limit")
+        self.assertFalse((self.root / "merged.pdf").exists())
+
+    def test_info_on_stdout_is_bounded(self):
+        writer = PdfWriter()
+        for _ in range(150):
+            writer.add_blank_page(width=612, height=792)
+        with (self.root / "long.pdf").open("wb") as output:
+            writer.write(output)
+        refused = self.run_helper("info", "--input", "long.pdf", success=False)
+        self.assertIn("rerun with --output", refused["message"])
+        self.run_helper("info", "--input", "long.pdf", "--output", "long.json")
+        self.assertEqual(len(json.loads((self.root / "long.json").read_text(encoding="utf-8"))["pages"]), 150)
 
     def test_missing_dependencies_are_unavailable(self):
         result = self.run_helper("create", "--input", "source.txt", "--output", "report.pdf", success=False, isolated=True)
