@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
-use vcp_extensions::skill_manifest::{ResourceUse, SkillDescriptor};
+use vcp_extensions::skill_manifest::SkillDescriptor;
 
 // SP-12 installation/context smoke. The mock proves delivery of the selected
 // package bytes, not model usefulness or execution of the bundled helpers.
-// ADR-070: only context-role content reaches the provider; file-role bytes
-// (licenses, provenance, helpers) stay installed and verified but unsent.
+// ADR-070/071: only context-role content reaches the provider on activation;
+// file/reference bytes stay installed and verified, with metadata in a manifest.
 // Integrity failure and revocation remain covered by the existing skill tests.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn installed_ported_skills_reach_the_provider_with_complete_resources_without_edits() {
@@ -60,6 +60,7 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
         assert_eq!(descriptor.resources, entry.resources);
         let package = installed.join(&entry.id);
         let mut withheld = Vec::new();
+        let mut expected_manifest = Vec::new();
         let mut expected: Vec<(String, Vec<u8>)> = std::iter::once(&descriptor.body)
             .chain(&descriptor.resources)
             .filter_map(|content| {
@@ -73,9 +74,14 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
                 );
                 // These ports ship text instructions, code and license notices.
                 // Binary assets require their own explicit conversion contract.
-                std::str::from_utf8(&bytes).unwrap();
-                if content.use_ == ResourceUse::File {
-                    withheld.push(content.sha256.clone());
+                let text = std::str::from_utf8(&bytes).unwrap();
+                if !content.use_.is_context() {
+                    withheld.push((content.sha256.clone(), text.to_owned()));
+                    expected_manifest.push(json!({
+                        "path": content.path,
+                        "bytes": bytes.len().to_string(),
+                        "use": content.use_,
+                    }));
                     return None;
                 }
                 Some((content.sha256.clone(), bytes))
@@ -132,12 +138,15 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
         );
-        let parts: Vec<Value> = request["input"]
+        let context_parts: Vec<Value> = request["input"]
             .as_array()
             .unwrap()
             .iter()
             .flat_map(|message| message["content"].as_array().unwrap())
             .filter_map(|content| serde_json::from_str::<Value>(content["text"].as_str()?).ok())
+            .collect();
+        let parts: Vec<_> = context_parts
+            .iter()
             .filter(|part| part["kind"] == "skill")
             .collect();
         assert_eq!(
@@ -149,12 +158,25 @@ async fn installed_ported_skills_reach_the_provider_with_complete_resources_with
             !withheld.is_empty(),
             "each ported workflow withholds its license and provenance: {qualified}"
         );
-        for sha256 in &withheld {
+        for (sha256, text) in &withheld {
             assert!(
-                !request.to_string().contains(sha256.as_str()),
-                "file-role content must not reach the provider: {qualified}"
+                !request.to_string().contains(sha256.as_str())
+                    && context_parts.iter().all(|part| {
+                        !part["text"]
+                            .as_str()
+                            .is_some_and(|context| context.contains(text.as_str()))
+                    }),
+                "file/reference content must not reach the provider on activation: {qualified}"
             );
         }
+        let manifests: Vec<Value> = context_parts
+            .iter()
+            .filter_map(|part| serde_json::from_str(part["text"].as_str()?).ok())
+            .filter(|manifest: &Value| manifest["schema"] == "skill-resources/1")
+            .collect();
+        assert_eq!(manifests.len(), 1, "one resource manifest for {qualified}");
+        assert_eq!(manifests[0]["skill"], qualified);
+        assert_eq!(manifests[0]["resources"], json!(expected_manifest));
         for part in parts {
             assert_eq!(part["trust"], "active_skill", "{qualified}");
             let position = expected
