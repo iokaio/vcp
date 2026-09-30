@@ -27,7 +27,7 @@ try {
             VCP_BETA_SETUP_RESULT=[IO.Path]::GetFullPath($SetupResult)
             VCP_BETA_INSTALLED_LAUNCHER=$installed.launcher
             VCP_BETA_LAUNCHER_CONSOLE_OUTPUT=$consoleRoot
-            VCP_TEST_NODE=(Get-Command node -CommandType Application).Source
+            VCP_TEST_NODE=(Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             RUST_MIN_STACK='16777216'
         }
         $observed=Invoke-BetaProcess $ConsoleTestExecutable @('--ignored','--exact','final_installed_launcher_console_cancellation_preserves_both_stores','--nocapture','--test-threads=1') $root $environment 1200

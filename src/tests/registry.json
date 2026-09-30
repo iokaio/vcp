@@ -94,7 +94,7 @@
     },
     "p8-distribution": {
       "task_ids": ["P8-04"],
-      "args": ["--test", "src/tests/contracts/package-inventory.test.cjs", "src/tests/contracts/package-install.test.cjs", "src/tests/contracts/release-provenance.test.cjs", "src/tests/contracts/release-notices.test.cjs", "src/tests/contracts/release-evidence.test.cjs", "src/tests/contracts/production-package.test.cjs", "src/tests/contracts/recovery-fixture.test.cjs", "src/tests/contracts/editor-lifecycle.test.cjs", "src/tests/contracts/candidate-storage.test.cjs"],
+      "args": ["--test", "src/tests/contracts/package-inventory.test.cjs", "src/tests/contracts/package-install.test.cjs", "src/tests/contracts/release-provenance.test.cjs", "src/tests/contracts/release-notices.test.cjs", "src/tests/contracts/release-evidence.test.cjs", "src/tests/contracts/production-package.test.cjs", "src/tests/contracts/recovery-fixture.test.cjs", "src/tests/contracts/editor-lifecycle.test.cjs", "src/tests/contracts/candidate-storage.test.cjs", "src/tests/contracts/candidate-tools.test.cjs", "src/tests/contracts/editor-layout.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,
