@@ -3,7 +3,7 @@
   "families": [
     {
       "id": "architecture",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -41,7 +41,7 @@
     },
     {
       "id": "review-debug",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -79,7 +79,7 @@
     },
     {
       "id": "testing",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -117,7 +117,7 @@
     },
     {
       "id": "git-workflow",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -157,7 +157,7 @@
     },
     {
       "id": "javascript-typescript",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -198,7 +198,7 @@
     },
     {
       "id": "python",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -239,7 +239,7 @@
     },
     {
       "id": "rust",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -280,7 +280,7 @@
     },
     {
       "id": "dotnet-powershell",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -321,7 +321,7 @@
     },
     {
       "id": "jvm",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -362,7 +362,7 @@
     },
     {
       "id": "go",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -403,7 +403,7 @@
     },
     {
       "id": "cpp",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -444,7 +444,7 @@
     },
     {
       "id": "ruby",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -485,7 +485,7 @@
     },
     {
       "id": "php",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -526,7 +526,7 @@
     },
     {
       "id": "swift",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -567,7 +567,7 @@
     },
     {
       "id": "dart",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -608,7 +608,7 @@
     },
     {
       "id": "shell",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -621,7 +621,7 @@
         "declared shell",
         "configured lint/test runner"
       ],
-      "selection": "explicit_only_current_host",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "shell-normal-v1",
@@ -649,7 +649,7 @@
     },
     {
       "id": "sql",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -661,7 +661,7 @@
       "conditional_execution_prerequisites": [
         "declared SQL parser or disposable database runner"
       ],
-      "selection": "explicit_only_current_host",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "sql-normal-v1",
@@ -689,7 +689,7 @@
     },
     {
       "id": "data",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -702,7 +702,7 @@
         "declared transformation engine",
         "schema/check runner"
       ],
-      "selection": "explicit_only_current_host",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "data-normal-v1",
@@ -730,7 +730,7 @@
     },
     {
       "id": "infrastructure",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -743,7 +743,7 @@
         "declared infrastructure/schema tools",
         "container engine only for authorized builds"
       ],
-      "selection": "explicit_only_current_host",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "infrastructure-normal-v1",
@@ -771,7 +771,7 @@
     },
     {
       "id": "project-optimize",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -811,7 +811,7 @@
     },
     {
       "id": "memory-hygiene",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided_unqualified",
         "review": "provided_unqualified",
@@ -851,7 +851,7 @@
     },
     {
       "id": "document-authoring",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -861,14 +861,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-04"
     },
     {
       "id": "skill-authoring",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -878,14 +878,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-05"
     },
     {
       "id": "frontend-design",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -895,14 +895,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-06"
     },
     {
       "id": "mcp-development",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -912,14 +912,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-07"
     },
     {
       "id": "llm-integration",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -929,14 +929,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-08"
     },
     {
       "id": "webapp-testing",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -946,14 +946,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-11"
     },
     {
       "id": "pdf-workflows",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -963,14 +963,14 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-09"
     },
     {
       "id": "spreadsheet-workflows",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "guidance": {
         "analyze": "provided",
         "review": "provided",
@@ -980,7 +980,7 @@
       "live_quality": "not_measured",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "explicit_request",
+      "selection": "description_discovery",
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-10"
@@ -991,6 +991,6 @@
     "Frozen fixture expectations are not observed model behavior; actual results are stored outside shipped assets.",
     "No language/toolchain execution or live model qualification performed.",
     "Empty environments allows analysis guidance; it does not qualify runtime execution on another host.",
-    "explicit:* cues are not emitted by the current host; those packages require explicit selection."
+    "Cue-less packages are listed by description in bounded discovery context; listing never activates a skill or grants tools. Marker cues are observed at the workspace root only."
   ]
 }

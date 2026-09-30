@@ -13,6 +13,7 @@ These SHA-256 values identify raw Git commit contents, before checkout line-endi
 
 ## VCP modifications
 
+- The upstream YAML front matter is not retained; `skill.json` is the only package metadata, and its description drives discovery.
 - SKILL.md and references/browser-patterns.md port the static/dynamic testing decision, rendered reconnaissance, selector discovery, actions, screenshots, console diagnostics and owned-browser cleanup.
 - scripts/check-page.cjs translates the upstream Python Playwright discovery and console examples to Node and the project-installed Playwright module. VCP adds locator/state waits, one button action with an exact text assertion, bounded diagnostic output, explicit screenshot output and finally cleanup.
 - The helper opens a new context with Chromium sandboxing enabled, blocks service workers, sockets, off-origin requests and all redirects, and never installs dependencies, starts a server or reuses a signed-in browser profile. Request routing is a test guard, not a substitute for host network/process enforcement.

@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "spreadsheet-workflows",
-  "version": "1.0.0",
-  "description": "Inspect, create, edit and recalculate a bounded XLSX subset while preserving cell types, formulas and original files.",
+  "version": "1.1.0",
+  "description": "Inspect, create, edit and recalculate a bounded XLSX subset while preserving cell types, formulas and original files. Use when a task reads, creates or changes an Excel workbook.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:spreadsheet-workflows"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",

@@ -22,6 +22,7 @@ SHA-256 values below identify the original Git commit bytes, before adaptation o
 
 ## VCP modifications
 
+- The upstream YAML front matter is not retained; `skill.json` is the only package metadata, and its description drives discovery.
 - SKILL.md and references/integration-patterns.md adapt SDK helper reuse, tool definitions and loops, complete response preservation, streaming argument validation, typed errors, context and cache-stability workflows.
 - references/anthropic.md retains optional Anthropic wire-format guidance without changing the provider of unrelated projects.
 - assets/tool-schema.json ports the weather-tool definition from shared/tool-use-concepts.md; VCP changes add a use condition, bounded location string, rejection of additional properties and explicit application-owned unit defaults.

@@ -1,8 +1,3 @@
----
-name: llm-integration
-description: Build or revise applications using the selected LLM provider and SDK, including streaming, tool calls, structured results, retries and context handling.
----
-
 # Integrate the selected LLM provider
 
 Adapted from Anthropic's Apache-2.0 claude-api skill and references, with provider-specific assumptions separated from general integration guidance. See [UPSTREAM.md](UPSTREAM.md).

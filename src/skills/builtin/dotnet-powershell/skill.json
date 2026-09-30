@@ -1,12 +1,16 @@
 {
   "schema_version": 1,
   "id": "dotnet-powershell",
-  "version": "1.0.0",
-  "description": "Respect solution targets, SDK pins, PowerShell semantics, and Windows paths when selecting checks.",
+  "version": "1.1.0",
+  "description": "Respect solution targets, SDK pins, PowerShell semantics, and Windows paths when selecting checks. Use when the project has a solution, project file or global.json, or when editing C#, F# or PowerShell.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
   "cues": [
+    "*.csproj",
+    "*.fsproj",
+    "*.sln",
+    "*.slnx",
     "global.json"
   ],
   "environments": [],

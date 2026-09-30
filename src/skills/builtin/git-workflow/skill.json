@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "git-workflow",
-  "version": "1.0.0",
-  "description": "Inspect changes and isolate integration work while preserving staged, unstaged, and untracked user state.",
+  "version": "1.1.0",
+  "description": "Inspect changes and isolate integration work while preserving staged, unstaged, and untracked user state. Use when committing, branching, rebasing, merging, resolving conflicts or preparing a pull request.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,

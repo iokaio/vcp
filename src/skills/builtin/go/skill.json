@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
   "id": "go",
-  "version": "1.0.0",
-  "description": "Respect Go module/workspace boundaries, version declarations, build tags, and focused checks.",
+  "version": "1.1.0",
+  "description": "Respect Go module/workspace boundaries, version declarations, build tags, and focused checks. Use when the project has go.mod or go.work, or when editing Go code or tests.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
   "cues": [
-    "go.mod"
+    "go.mod",
+    "go.work"
   ],
   "environments": [],
   "required_tools": [

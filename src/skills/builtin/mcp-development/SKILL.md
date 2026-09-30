@@ -1,8 +1,3 @@
----
-name: mcp-development
-description: Build MCP servers for a requested service using clear tools, bounded schemas, pagination and actionable errors in the project's chosen SDK and transport.
----
-
 # MCP server development
 
 Adapted from Anthropic's Apache-2.0 mcp-builder skill and implementation references; see [UPSTREAM.md](UPSTREAM.md).

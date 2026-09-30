@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "document-authoring",
-  "version": "2.0.0",
-  "description": "Write or revise specs, ADRs, runbooks, project updates and incident reports for their intended readers.",
+  "version": "2.1.0",
+  "description": "Write or revise specs, ADRs, runbooks, project updates and incident reports for their intended readers. Use when asked to draft, edit or restructure a technical or project document.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/internal-comms",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:document-authoring"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",

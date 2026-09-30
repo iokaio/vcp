@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "sql",
-  "version": "1.0.0",
-  "description": "Review schema/migration ordering, dialect, transactions, and rollback without assuming database authority.",
+  "version": "1.1.0",
+  "description": "Review schema/migration ordering, dialect, transactions, and rollback without assuming database authority. Use when writing or reviewing SQL queries, schema changes or migrations.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:sql"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",

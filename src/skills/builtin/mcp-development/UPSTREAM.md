@@ -22,6 +22,7 @@ SHA-256 values below identify the original Git commit bytes, before adaptation o
 
 ## VCP modifications
 
+- The upstream YAML front matter is not retained; `skill.json` is the only package metadata, and its description drives discovery.
 - SKILL.md and references/server-patterns.md port task-oriented tool design, naming, typed registration patterns, pagination, result formatting, transport, annotations and actionable errors.
 - assets/paginated_result.py adapts the Pagination Implementation response construction from reference/python_mcp_server.md into a dependency-free function; VCP adds strict integer/range and page consistency checks, rejects nonprogressing empty pages, and returns a dictionary for SDK serialization.
 - VCP changes preserve the project SDK/transport, limit exposed operations to the task, retain authorization and cancellation behavior, and replace mandatory broad API coverage, universal dual output formats and LLM evaluation campaigns with focused project checks.

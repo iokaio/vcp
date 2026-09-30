@@ -1,14 +1,17 @@
 {
   "schema_version": 1,
   "id": "jvm",
-  "version": "1.0.0",
-  "description": "Use Maven/Gradle wrapper, JVM version, module, and test conventions from the project.",
+  "version": "1.1.0",
+  "description": "Use Maven/Gradle wrapper, JVM version, module, and test conventions from the project. Use when the project has pom.xml or Gradle build files, or when editing Java, Kotlin or other JVM code.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
   "cues": [
+    "build.gradle",
+    "build.gradle.kts",
     "pom.xml",
-    "build.gradle"
+    "settings.gradle",
+    "settings.gradle.kts"
   ],
   "environments": [],
   "required_tools": [
