@@ -20,7 +20,7 @@ async fn execute_kind(
     operation: Option<Operation>,
 ) -> Result<serde_json::Value> {
     reject_links(&spec.catalog)?;
-    let raw = vcp_cli::settings::read_bounded(&spec.catalog, 64 * 1024)?;
+    let raw = crate::settings::read_bounded(&spec.catalog, 64 * 1024)?;
     let catalog_value: serde_json::Value = serde_json::from_slice(&raw)?;
     let served_provider = catalog_value["data"]["endpoints"]
         .as_array()
@@ -44,8 +44,8 @@ async fn execute_kind(
             } else {
                 1
             }
-        || vcp_cli::args::parse_usd(&spec.cap_usd)?.get() == 0
-        || vcp_cli::args::parse_usd(&spec.cap_usd)?.get() > 25_000_000
+        || crate::args::parse_usd(&spec.cap_usd)?.get() == 0
+        || crate::args::parse_usd(&spec.cap_usd)?.get() > 25_000_000
     {
         return Err("native spec catalog/time/sentinel bounds".into());
     }
@@ -212,7 +212,7 @@ async fn run_kind(args: &[std::ffi::OsString], operation: Option<Operation>) -> 
     }
     let spec_path = Path::new(&args[0]);
     reject_links(spec_path)?;
-    let bytes = vcp_cli::settings::read_bounded(spec_path, 1024 * 1024)?;
+    let bytes = crate::settings::read_bounded(spec_path, 1024 * 1024)?;
     if args[2].to_str() != Some(digest_bytes(&bytes).as_str()) {
         return Err("native authorization spec hash mismatch".into());
     }
@@ -233,12 +233,12 @@ async fn run_kind(args: &[std::ffi::OsString], operation: Option<Operation>) -> 
     if output.starts_with(&repository) || repository.starts_with(&output) {
         return Err("native output must be outside repository".into());
     }
-    let output = vcp_cli::settings::local_path(&output, &repository)?;
+    let output = crate::settings::local_path(&output, &repository)?;
     std::fs::create_dir(&output)?;
     let binary = std::env::current_exe()?;
     fresh_file(
         &output.join("claim.json"),
-        &json!({"spec_sha256":digest_bytes(&bytes),"binary_sha256":digest_bytes(&vcp_cli::settings::read_bounded(&binary,1024*1024*1024)?),"source_sha256":{"binary":digest_bytes(include_bytes!("native.rs")),"lease":digest_bytes(include_bytes!("../../../../vcp-lifecycle/src/foundation/conformance/native.rs")),"settlement":digest_bytes(include_bytes!("../../../../vcp-lifecycle/src/foundation/worker/conformance.rs")),"admission":digest_bytes(include_bytes!("../../../../vcp-lifecycle/src/foundation/worker.rs")),"native_bound":digest_bytes(include_bytes!("../../../../vcp-models/src/decision/native_bound.rs"))},"spec":spec,"claimed_at":now(),"scope":"exactly one closed synthetic decision request; shared budget owned by coordinator"}),
+        &json!({"spec_sha256":digest_bytes(&bytes),"binary_sha256":digest_bytes(&crate::settings::read_bounded(&binary,1024*1024*1024)?),"source_sha256":{"binary":digest_bytes(include_bytes!("native.rs")),"lease":digest_bytes(include_bytes!("../../../../vcp-lifecycle/src/foundation/conformance/native.rs")),"settlement":digest_bytes(include_bytes!("../../../../vcp-lifecycle/src/foundation/worker/conformance.rs")),"admission":digest_bytes(include_bytes!("../../../../vcp-lifecycle/src/foundation/worker.rs")),"native_bound":digest_bytes(include_bytes!("../../../../vcp-models/src/decision/native_bound.rs"))},"spec":spec,"claimed_at":now(),"scope":"exactly one closed synthetic decision request; shared budget owned by coordinator"}),
     )?;
     let key = std::env::var("OPENROUTER_API_KEY").map_err(|_| "OPENROUTER_API_KEY is required")?;
     fresh_file(

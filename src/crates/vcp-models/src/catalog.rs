@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{accounting::*, Micros, Timestamp, Units};
 
-#[cfg(feature = "qualification")]
 pub mod attribution;
 
 /// Exact nonnegative decimal conversion, including bounded scientific notation.
@@ -365,7 +364,6 @@ impl Snapshot {
 
 /// Qualification tooling may price a candidate without claiming its protocol or
 /// provider-policy conformance. This type grants no production Snapshot.
-#[cfg(feature = "qualification")]
 #[derive(Clone, Debug, Serialize)]
 pub struct CandidateMetadata {
     pub raw_sha256: String,
@@ -374,7 +372,6 @@ pub struct CandidateMetadata {
     pub max_output: Units,
     pub price: PriceSnapshot,
 }
-#[cfg(feature = "qualification")]
 impl CandidateMetadata {
     pub fn from_endpoints(
         raw: &[u8],

@@ -17,7 +17,6 @@ mod scheduler;
 use scheduler::{EffectLease, Scheduler};
 #[cfg(windows)]
 pub mod coding;
-#[cfg(feature = "qualification")]
 pub mod conformance;
 #[cfg(windows)]
 pub mod decision;

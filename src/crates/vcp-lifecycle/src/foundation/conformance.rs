@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Qualification-only fixed probes. Candidate metadata never becomes a qualified
+//! Explicit fixed provider setup probes. Candidate metadata never becomes a qualified
 //! Snapshot. The canonical owner still captures, reserves and settles every call.
 use super::*;
+#[cfg(feature = "qualification")]
 pub mod cohort;
+#[cfg(feature = "qualification")]
 pub mod native;
 use vcp_models::{
     catalog::CandidateMetadata,

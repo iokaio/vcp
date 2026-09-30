@@ -21,7 +21,7 @@ struct Input {
 }
 fn read(source: &Source) -> Result<Vec<u8>> {
     reject_links(&source.path)?;
-    let bytes = vcp_cli::settings::read_bounded(&source.path, 4 * 1024 * 1024)?;
+    let bytes = crate::settings::read_bounded(&source.path, 4 * 1024 * 1024)?;
     if digest_bytes(&bytes) != source.sha256 {
         return Err("qualification source changed".into());
     }
@@ -30,7 +30,7 @@ fn read(source: &Source) -> Result<Vec<u8>> {
 pub(super) fn run(spec_path: &Path, output: &Path, authorized: &str) -> Result<()> {
     reject_links(spec_path)?;
     reject_links(output)?;
-    let bytes = vcp_cli::settings::read_bounded(spec_path, 1024 * 1024)?;
+    let bytes = crate::settings::read_bounded(spec_path, 1024 * 1024)?;
     if digest_bytes(&bytes) != authorized {
         return Err("qualification authorization hash differs".into());
     }
@@ -54,7 +54,7 @@ pub(super) fn run(spec_path: &Path, output: &Path, authorized: &str) -> Result<(
     {
         return Err("completed current probe, catalog and accounted cost required".into());
     }
-    let original = vcp_cli::settings::read_bounded(&spec.catalog, 4 * 1024 * 1024)?;
+    let original = crate::settings::read_bounded(&spec.catalog, 4 * 1024 * 1024)?;
     if digest_bytes(&original) != spec.catalog_sha256 {
         return Err("original probe catalog changed".into());
     }
@@ -151,9 +151,5 @@ pub(super) fn run(spec_path: &Path, output: &Path, authorized: &str) -> Result<(
         &json!({"schema":"p6-provider-qualification/1","authorized_sources_sha256":authorized,"attribution":attributions,"limitations":["Catalog tag inferred only through unique complete-catalog provider-name mapping and exact catalog model-id/name revision binding; internal UUID retained separately.","Qualification applies only to observed alias/revision and dated catalog; no global tokenizer or quality proof."]}),
     )?;
     fresh_file(&output.join("snapshot.json"), &snapshot)?;
-    println!(
-        "{}",
-        json!({"snapshot":output.join("snapshot.json"),"snapshot_id":snapshot.id,"byte_ceiling_qualified":false})
-    );
     Ok(())
 }
