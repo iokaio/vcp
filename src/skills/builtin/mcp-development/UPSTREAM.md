@@ -1,6 +1,6 @@
 # Upstream attribution and modifications
 
-This VCP 2.0.0 skill package contains material adapted from Anthropic, PBC's [anthropics/skills](https://github.com/anthropics/skills) repository. Upstream attribution and license notices are retained.
+This VCP skill package contains material adapted from Anthropic, PBC's [anthropics/skills](https://github.com/anthropics/skills) repository. Upstream attribution and license notices are retained.
 
 - Upstream revision: `8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4`.
 - Source directory: [skills/mcp-builder](https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/mcp-builder).
@@ -23,7 +23,7 @@ SHA-256 values below identify the original Git commit bytes, before adaptation o
 ## VCP modifications
 
 - The upstream YAML front matter is not retained; `skill.json` is the only package metadata, and its description drives discovery.
-- SKILL.md and references/server-patterns.md port task-oriented tool design, naming, typed registration patterns, pagination, result formatting, transport, annotations and actionable errors.
+- SKILL.md and the references (originally references/server-patterns.md; split in SH-12) port task-oriented tool design, naming, typed registration patterns, pagination, result formatting, transport, annotations and actionable errors.
 - assets/paginated_result.py adapts the Pagination Implementation response construction from reference/python_mcp_server.md into a dependency-free function; VCP adds strict integer/range and page consistency checks, rejects nonprogressing empty pages, and returns a dictionary for SDK serialization.
 - VCP changes preserve the project SDK/transport, limit exposed operations to the task, retain authorization and cancellation behavior, and replace mandatory broad API coverage, universal dual output formats and LLM evaluation campaigns with focused project checks.
 - No SDK, inspector, evaluator runner, credential, installer or registration command is bundled.
@@ -38,5 +38,16 @@ The following material is VCP-authored and is not derived from the upstream revi
 - Adds concise coverage of tools versus resources and prompts, output schemas and structured content, elicitation (form and URL), HTTP authorization at pointer level, DNS-rebinding defaults and the MCP Inspector (`@modelcontextprotocol/inspector`). Host approval and VCP permission rules are unchanged.
 - assets/paginated_result.py: the fixed 1..100 limit is now a validated `max_limit` parameter (default 100). Other behavior is unchanged.
 - No SDK source or example code is copied; the short snippets are VCP-written usage examples.
+
+### SH-12 split and verification record (2026-09-29)
+
+- references/server-patterns.md was split without adding API claims. references/python.md, references/typescript.md and references/protocol.md now use the ADR-071 `reference` role. The model reads them on demand with `vcp_skill` action `read`, so they are no longer sent on activation. SKILL.md names each reference and says to read only the project's language plus protocol.md when designing tool, resource or prompt shapes.
+- Context size on activation (body plus context resources) fell from 18,651 bytes to the 4,985-byte SKILL.md body. The ADR-071 resource manifest adds a small listing.
+- How the API claims were checked. This records the SU-10 evidence above; no new SDK run was made for SH-12.
+  - Python claims in python.md were checked against the PyPI wheels `mcp` 2.2.0 and `mcp-types` 2.2.0. An in-process client exercised typed tools, strict integer bounds, Pydantic `outputSchema`/`structuredContent`, `ToolError` versus unexpected exceptions, and `Resolve`/`Elicit` on both handshake flows. The remaining statements were checked against the same packages but not exercised by a client: the `mcp.server.fastmcp` import error, ignored unknown arguments, loopback `streamable-http` defaults and `AuthSettings`.
+  - TypeScript claims in typescript.md were checked against `@modelcontextprotocol/sdk` 1.31.0 from npm. A `tsc` type-check and an in-memory run with Zod 4.6.5 covered `registerTool` with Zod field maps and `structuredContent`. The remaining statements come from the same package: the deprecated overloads, the `zod` peer range, `isError` results, `createMcpExpressApp` defaults and `LATEST_PROTOCOL_VERSION` `2025-11-25`.
+  - Protocol claims in protocol.md: the published `2026-07-28` specification and `mcp_types.version.LATEST_PROTOCOL_VERSION` in `mcp-types` 2.2.0.
+- In-repository evidence is structural. `src/tests/skills/test_mcp_port.py` parses every Python snippet with `ast.parse` and checks the TypeScript snippet structurally: balanced fences and brackets, plus the documented `McpServer`/`registerTool` usage. When `node` is on PATH, it also runs `node --check` on the snippet as an ES module; the snippet has no TypeScript-only syntax. This is not a type-check against the SDK. The test honors `VCP_SKILLS_ROOT`.
+- assets/paginated_result.py now carries an SPDX line, the upstream URL and the Apache-2.0 license URL instead of a `../LICENSE.txt` pointer, so it stays attributed after materialization into another project.
 
 Only the listed permissively licensed skill material is used. No material from the restricted document skills or unlicensed doc-coauthoring skill is included. Runtime permissions, explicit activation and VCP package integrity remain unchanged.

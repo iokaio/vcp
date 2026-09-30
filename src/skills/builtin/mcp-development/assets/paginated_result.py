@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded offset-page response adapted from Anthropic mcp-builder.
 
-Source: reference/python_mcp_server.md, Pagination Implementation.
-Licensed under Apache-2.0; see ../LICENSE.txt and ../UPSTREAM.md.
-VCP modifications: isolate response construction, reject invalid/nonprogressing
-pages, make the maximum page size a validated parameter, and return a
-dictionary for the target SDK to serialize.
+Upstream (Anthropic, PBC; Pagination Implementation section):
+https://github.com/anthropics/skills/blob/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/mcp-builder/reference/python_mcp_server.md
+Licensed under the Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+Modified by VCP contributors: isolate response construction, reject
+invalid/nonprogressing pages, make the maximum page size a validated
+parameter, and return a dictionary for the target SDK to serialize.
 """
 
 DEFAULT_MAX_LIMIT = 100

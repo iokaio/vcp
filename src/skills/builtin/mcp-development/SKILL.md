@@ -8,7 +8,15 @@ A server is useful when its tools let a client accomplish the requested task. In
 
 Balance focused workflow tools with composable service operations. Expose the operations the task needs; do not mirror an entire API by default. Use descriptive, action-oriented names with a service prefix where collisions are likely, such as `issues_search` or `issues_create`. Descriptions should say what a tool does and when to use it.
 
-For a new server or tool surface, read [references/server-patterns.md](references/server-patterns.md), which includes verified Python/TypeScript registration, output schemas, resources and prompts, elicitation, pagination, transport, authorization and error patterns. The optional [assets/paginated_result.py](assets/paginated_result.py) ports the upstream pagination response into a dependency-free bounded helper; use it only when the target project uses Python and offset pagination. It is a `file` resource: copy it into the project with `vcp_skill` (action `materialize`), then adapt it there.
+## Read only the reference you need
+
+Detailed, version-checked patterns are on-demand references, not preloaded. For a new server or tool surface, read only the reference for the project's language with `vcp_skill` action `read`, for example `{"action":"read","skill":"mcp-development","resource":"references/python.md"}`:
+
+- `references/python.md`: `mcp` 2.x `MCPServer` registration, output schemas, resources and prompts, elicitation, errors, HTTP security, authorization and in-process tests.
+- `references/typescript.md`: `McpServer.registerTool` with Zod, resources and prompts, elicitation, errors, HTTP security, authorization and in-memory tests.
+- `references/protocol.md`: also read it when designing tool, resource or prompt shapes. It covers the `2026-07-28` revision, schemas, annotations, output schemas and structured content, pagination, elicitation, errors, transports, authorization and the MCP Inspector.
+
+The optional [assets/paginated_result.py](assets/paginated_result.py) ports the upstream pagination response into a dependency-free bounded helper; use it only when the target project uses Python and offset pagination. It is a `file` resource: copy it into the project with `vcp_skill` (action `materialize`), then adapt it there.
 
 ## Implement the service boundary
 
