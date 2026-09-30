@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "shell",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Review script shell/version, quoting, pipelines, exit status, and effect boundaries before execution. Use when writing, reviewing or running Bash, POSIX sh or other shell scripts.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "d9cb3ec466ce12185342e11d52621e41776a9e7b8818f7822da256a3acbd1504"
+    "sha256": "56a883b09ca3d6eebc7d43031df932a76f396ca7fc2a4b0ca73cc9aa99b6a0d3"
   },
   "resources": []
 }
