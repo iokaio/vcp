@@ -87,7 +87,7 @@ impl Manifest {
             .validate()?;
             text(&entry.version, 128)?;
             text(&entry.source, 2048)?;
-            text(&entry.license, 128)?;
+            text(&entry.license, LICENSE_BYTES)?;
             if entry.resources.len() > 32 {
                 return Err(Error::Limit("catalog resources"));
             }

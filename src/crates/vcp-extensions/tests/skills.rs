@@ -147,7 +147,14 @@ fn precedence_is_explicit_same_level_conflicts_fail_and_qualified_selection_surv
     assert!(value.resolve("project::one::rust", &context()).is_ok());
     value.disabled.insert("project::one::rust".into());
     assert!(value.resolve("project::one::rust", &context()).is_err());
-    assert!(value.resolve("rust", &context()).is_err());
+    // Disabled copies no longer compete, so the remaining enabled copy at the
+    // highest precedence resolves (SH-03).
+    assert_eq!(
+        value.resolve("rust", &context()).unwrap().qualified_id,
+        "project::two::rust"
+    );
+    value.disabled.insert("project::two::rust".into());
+    assert_eq!(value.resolve("rust", &context()).unwrap().source_id, "user");
 }
 #[test]
 fn suggestions_match_cues_but_explicit_selection_never_installs_missing_tools() {
@@ -357,16 +364,80 @@ mod native {
         for code in ["malformed_descriptor", "descriptor_read", "ambiguous_id"] {
             assert!(value.diagnostics.iter().any(|d| d.code == code), "{code}");
         }
-        let limited = Limits {
-            max_entries: 1,
-            ..limits.clone()
+        // A source over its own budget contributes no skills and one
+        // diagnostic instead of failing discovery for every source.
+        for limited in [
+            Limits {
+                max_entries: 1,
+                ..limits.clone()
+            },
+            Limits {
+                max_descriptors: 1,
+                ..limits
+            },
+        ] {
+            let value = discover(&registry, &limited).unwrap();
+            assert!(value.skills.is_empty());
+            assert!(value.diagnostics.iter().any(|d| d.code == "source_limit"));
+        }
+    }
+    #[test]
+    fn one_source_over_budget_leaves_other_sources_discoverable() {
+        let big = tempfile::tempdir().unwrap();
+        let small = tempfile::tempdir().unwrap();
+        for index in 0..6 {
+            package(
+                big.path(),
+                &format!("p{index}"),
+                &format!("s{index}"),
+                b"big",
+            );
+        }
+        package(small.path(), "one", "rust", b"small");
+        let mut second = registry(small.path()).sources.remove(0);
+        let mut sources = registry(big.path());
+        sources.sources[0].id = "a-big".into();
+        second.id = "z-small".into();
+        sources.sources.push(second);
+        let limits = Limits {
+            max_descriptors: 3,
+            ..Limits::default()
         };
-        assert!(discover(&registry, &limited).is_err());
-        let limited = Limits {
-            max_descriptors: 1,
-            ..limits
-        };
-        assert!(discover(&registry, &limited).is_err());
+        let value = discover(&sources, &limits).unwrap();
+        assert_eq!(value.skills.len(), 1);
+        assert_eq!(value.skills[0].source_id, "z-small");
+        assert!(value
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "source_limit" && d.source_id == "a-big"));
+        assert!(value.resolve("rust", &context()).is_ok());
+    }
+    #[test]
+    fn disabled_override_falls_back_and_shadowing_is_reported() {
+        let user = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        package(user.path(), "base", "rust", b"user");
+        package(project.path(), "override", "rust", b"project");
+        let mut workspace = registry(project.path()).sources.remove(0);
+        let mut sources = registry(user.path());
+        sources.sources[0].id = "user".into();
+        sources.sources[0].kind = SourceKind::User;
+        workspace.id = "project".into();
+        sources.sources.push(workspace);
+        let value = discover(&sources, &Limits::default()).unwrap();
+        assert_eq!(
+            value.resolve("rust", &context()).unwrap().source_id,
+            "project"
+        );
+        assert!(value.diagnostics.iter().any(|d| d.code == "shadowed"));
+        sources.disabled.insert("project::override::rust".into());
+        let value = discover(&sources, &Limits::default()).unwrap();
+        let selected = value.resolve("rust", &context()).unwrap();
+        assert_ne!(selected.source_id, "project");
+        assert!(value
+            .resolve("project::override::rust", &context())
+            .is_err());
+        assert_eq!(value.matching(&context()).unwrap().len(), 1);
     }
     #[test]
     fn junction_escape_is_never_traversed_or_loaded_as_resource() {
