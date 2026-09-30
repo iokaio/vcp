@@ -134,6 +134,14 @@ impl Catalog {
     }
     /// Explicit selection bypasses cue suggestions, never environment/tool requirements.
     pub fn resolve(&self, id: &str, context: &MatchContext) -> Result<&DiscoveredSkill> {
+        self.resolve_with_disabled(id, context, &BTreeSet::new())
+    }
+    fn resolve_with_disabled(
+        &self,
+        id: &str,
+        context: &MatchContext,
+        disabled: &BTreeSet<String>,
+    ) -> Result<&DiscoveredSkill> {
         context.validate()?;
         let candidates: Vec<_> = self
             .skills
@@ -144,7 +152,10 @@ impl Catalog {
         let mut selected: Vec<_> = candidates
             .iter()
             .copied()
-            .filter(|skill| !self.disabled.contains(&skill.qualified_id))
+            .filter(|skill| {
+                !self.disabled.contains(&skill.qualified_id)
+                    && !disabled.contains(&skill.qualified_id)
+            })
             .collect();
         if selected.is_empty() {
             if let Some(skill) = candidates.first() {
@@ -160,9 +171,20 @@ impl Catalog {
             [skill] => *skill,
             [] => return Err(Error::Unavailable(format!("missing skill {id}"))),
             _ => {
+                let candidates = selected
+                    .iter()
+                    .take(8)
+                    .map(|skill| skill.qualified_id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 return Err(Error::Unavailable(format!(
-                    "ambiguous skill {id}; select a qualified identity"
-                )))
+                    "ambiguous skill {id}; select a qualified identity from: {candidates}{}",
+                    if selected.len() > 8 {
+                        format!(" ({} more; use /skills list)", selected.len() - 8)
+                    } else {
+                        String::new()
+                    }
+                )));
             }
         };
         if !skill.compatible(context) {
@@ -174,6 +196,15 @@ impl Catalog {
         Ok(skill)
     }
     pub fn matching(&self, context: &MatchContext) -> Result<Vec<&DiscoveredSkill>> {
+        self.matching_with_disabled(context, &BTreeSet::new())
+    }
+    /// Apply task-local disables before precedence, just like registry disables.
+    /// Filtering the selected result afterwards would hide an enabled fallback.
+    pub fn matching_with_disabled(
+        &self,
+        context: &MatchContext,
+        disabled: &BTreeSet<String>,
+    ) -> Result<Vec<&DiscoveredSkill>> {
         context.validate()?;
         Ok(self
             .skills
@@ -181,7 +212,7 @@ impl Catalog {
             .filter(|skill| {
                 skill.matches(context)
                     && self
-                        .resolve(&skill.descriptor.id, context)
+                        .resolve_with_disabled(&skill.descriptor.id, context, disabled)
                         .is_ok_and(|selected| selected.qualified_id == skill.qualified_id)
             })
             .collect())
@@ -360,7 +391,11 @@ pub fn discover(registry: &SourceRegistry, limits: &Limits) -> Result<Catalog> {
         .skills
         .sort_by(|a, b| a.qualified_id.cmp(&b.qualified_id));
     let mut duplicates: BTreeMap<(&str, SourceKind), Vec<&str>> = BTreeMap::new();
-    for skill in &catalog.skills {
+    for skill in catalog
+        .skills
+        .iter()
+        .filter(|skill| !catalog.disabled.contains(&skill.qualified_id))
+    {
         duplicates
             .entry((&skill.descriptor.id, skill.source_kind))
             .or_default()
@@ -368,7 +403,11 @@ pub fn discover(registry: &SourceRegistry, limits: &Limits) -> Result<Catalog> {
     }
     // Cross-precedence overrides are legitimate but should never be silent.
     let mut kinds: BTreeMap<&str, Vec<&DiscoveredSkill>> = BTreeMap::new();
-    for skill in &catalog.skills {
+    for skill in catalog
+        .skills
+        .iter()
+        .filter(|skill| !catalog.disabled.contains(&skill.qualified_id))
+    {
         kinds.entry(&skill.descriptor.id).or_default().push(skill);
     }
     let mut shadowed = Vec::new();

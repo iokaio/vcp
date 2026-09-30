@@ -56,9 +56,10 @@ function prepare(specFile,destination) {
   if(within(repo,destination)||within(destination,repo)||fs.existsSync(destination)) throw Error('New private directory outside repository required');
   noParentInstructions(path.dirname(destination)); privateDirectory(destination);
   const executable=plain(path.resolve(spec.executable));
-  const assets=packaged(executable), executableHash=sha(read(executable,1024*1024*1024));
   const profileFile=plain(path.resolve(spec.profile)), profileBytes=read(profileFile), profile=JSON.parse(profileBytes); noSecrets(profile);
   const reasons=profileReasons(profile); if(reasons.length) throw Error(reasons.join('; '));
+  // Reject invalid authority and limits before scanning the complete asset trees.
+  const assets=packaged(executable), executableHash=sha(read(executable,1024*1024*1024));
   const catalog=plain(path.resolve(profile.catalog)), catalogHash=sha(read(catalog));
   const selected=pool(), cap=prior.micros(spec.aggregate_cap_usd), allocation=Math.floor(cap/(selected.cases.length*2));
   if(allocation<1) throw Error('Positive per-run allocations required');

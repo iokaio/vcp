@@ -143,7 +143,9 @@ fn precedence_is_explicit_same_level_conflicts_fail_and_qualified_selection_surv
     value
         .skills
         .push(discovered(SourceKind::Workspace, "project", "two"));
-    assert!(value.resolve("rust", &context()).is_err());
+    let ambiguous = value.resolve("rust", &context()).unwrap_err().to_string();
+    assert!(ambiguous.contains("project::one::rust"));
+    assert!(ambiguous.contains("project::two::rust"));
     assert!(value.resolve("project::one::rust", &context()).is_ok());
     value.disabled.insert("project::one::rust".into());
     assert!(value.resolve("project::one::rust", &context()).is_err());
@@ -155,6 +157,26 @@ fn precedence_is_explicit_same_level_conflicts_fail_and_qualified_selection_surv
     );
     value.disabled.insert("project::two::rust".into());
     assert_eq!(value.resolve("rust", &context()).unwrap().source_id, "user");
+}
+#[test]
+fn task_disabled_overrides_reveal_enabled_fallbacks_without_changing_the_catalog() {
+    let mut value = catalog(vec![
+        discovered(SourceKind::Builtin, "builtin", "rust"),
+        discovered(SourceKind::User, "user", "rust"),
+        discovered(SourceKind::Workspace, "project", "rust"),
+    ]);
+    let disabled = BTreeSet::from(["project::rust::rust".into()]);
+    let selected = value.matching_with_disabled(&context(), &disabled).unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].source_id, "user");
+    assert_eq!(
+        value.resolve("rust", &context()).unwrap().source_id,
+        "project"
+    );
+    value.disabled.insert("user::rust::rust".into());
+    let selected = value.matching_with_disabled(&context(), &disabled).unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].source_id, "builtin");
 }
 #[test]
 fn suggestions_match_cues_but_explicit_selection_never_installs_missing_tools() {
@@ -438,6 +460,7 @@ mod native {
             .resolve("project::override::rust", &context())
             .is_err());
         assert_eq!(value.matching(&context()).unwrap().len(), 1);
+        assert!(!value.diagnostics.iter().any(|d| d.code == "shadowed"));
     }
     #[test]
     fn junction_escape_is_never_traversed_or_loaded_as_resource() {

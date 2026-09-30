@@ -26,15 +26,15 @@
     },
     {
       "name": "formualizer",
-      "version": "0.9.3",
+      "version": "0.10.0",
       "license": "MIT OR Apache-2.0",
       "license_files": [
         {
-          "path": "formualizer-0.9.3.dist-info/licenses/LICENSE-APACHE",
+          "path": "formualizer-0.10.0.dist-info/licenses/LICENSE-APACHE",
           "sha256": "3ddf9be5c28fe27dad143a5dc76eea25222ad1dd68934a047064e56ed2fa40c5"
         },
         {
-          "path": "formualizer-0.9.3.dist-info/licenses/LICENSE-MIT",
+          "path": "formualizer-0.10.0.dist-info/licenses/LICENSE-MIT",
           "sha256": "afec2f38d49255f65114812c44cc464ef10448d002e5c95e07349ae40439e85e"
         }
       ],

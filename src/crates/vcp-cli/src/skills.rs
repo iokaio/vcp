@@ -376,19 +376,12 @@ pub fn inspect(
     offset: usize,
 ) -> Result<serde_json::Value, String> {
     let mut configuration = prepare(profile, config)?;
-    let mut integrity = None;
-    for source in configuration
-        .registry
-        .sources
-        .iter()
-        .filter(|source| source.enabled)
-    {
-        let root =
-            vcp_lifecycle::foundation::skills::check_source_read_access(state, config, source)?;
-        if source.id == vcp_extensions::catalog::SOURCE_ID {
-            integrity = Some(vcp_extensions::catalog::verify(&root).map_err(|e| e.to_string())?);
-        }
-    }
+    let (mut catalog, integrity, _) = vcp_lifecycle::foundation::skills::discover_authorized(
+        state,
+        config,
+        &configuration.registry,
+        &configuration.limits,
+    )?;
     let cue_root = vcp_lifecycle::foundation::skills::check_source_read_access(
         state,
         config,
@@ -410,13 +403,6 @@ pub fn inspect(
         &cue_root,
         configuration.context.tools,
     )?;
-    let mut catalog =
-        vcp_extensions::discovery::discover(&configuration.registry, &configuration.limits)
-            .map_err(|e| e.to_string())?;
-    if let Some(integrity) = &integrity {
-        vcp_extensions::catalog::verify_discovery(integrity, &catalog)
-            .map_err(|e| e.to_string())?;
-    }
     missing_builtin(&mut catalog, &configuration.registry);
     let mut result = catalog_page(&catalog, Some(&configuration.context), offset);
     result["integrity"] = serde_json::to_value(integrity).map_err(|e| e.to_string())?;
