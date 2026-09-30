@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "frontend-design",
-  "version": "2.2.0",
-  "description": "Design and implement interfaces with a deliberate visual direction, clear copy, responsive layout and complete interaction states in the user's existing stack. Use when building or restyling UI screens, components or pages.",
+  "version": "2.3.0",
+  "description": "Design and implement interfaces with a deliberate visual direction, clear copy, responsive and accessible (WCAG 2.2 AA) layout, theming and complete interaction states in the user's existing stack and component library. Use when building or restyling UI screens, components or pages, adding dark mode or localized layouts, or fixing UI accessibility.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/frontend-design",
   "license": "Apache-2.0",
   "vcp_version": 1,
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "086ee5a7f525dd3e2808de72443df8cc25e709354778df63247d91ec710050b6"
+    "sha256": "4cc721253b774f49c6b09065dd4b6992c9dd76a089db9b518cf4d9b5a9bb74aa"
   },
   "resources": [
     {
@@ -24,12 +24,20 @@
     },
     {
       "path": "UPSTREAM.md",
-      "sha256": "5a3e967fa7b14c5bdcf4739f7a48cf1c02f0a27354ef2735469c614b65570839",
+      "sha256": "3fceec27a65909eb33a0f8748825b5c9d6540bc11eda97f55195db219e8fd445",
       "use": "file"
     },
     {
       "path": "references/design-and-copy.md",
-      "sha256": "a834d1c34bc7af39694176aff2be80277a706a3963fd52b4de8cd9b0b13a38ca"
+      "sha256": "eb6068dfbc5bbd8c29d8f9736376bc0fc95acd21ce59ee992d2ab49f0dfeaaf6"
+    },
+    {
+      "path": "references/accessibility.md",
+      "sha256": "0cc3faf60a3d06f019deda06dc7d95eb333eaac219f6e9d65d13fa87693e6ed3"
+    },
+    {
+      "path": "references/theming-and-performance.md",
+      "sha256": "e6b7b60fed1338ef543184b4fdcfb0237b776020b8cbb0634e5e4c7a91de2844"
     }
   ]
 }
