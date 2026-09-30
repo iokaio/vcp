@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.27.0",
+  "version": "1.28.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "96ba15bcade0b1e77e89e33ea204773843de5be57fde96697bd770d65a39fc31"
+    "sha256": "634c037859f0b6ab0594afea0b07eccf0912ec630f42cad71e347bba1db29d38"
   },
   "skills": [
     {
@@ -177,12 +177,12 @@
     },
     {
       "id": "swift",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "descriptor": "swift/skill.json",
-      "descriptor_sha256": "37367c95c5084fb39d276dae9e04512e6435f7c5e1d0dbbcb7299171adcce1dd",
+      "descriptor_sha256": "e7663b86f3bd222ced0a441d9dc020e69c10729f216f23896af9c5f7aa9382ce",
       "body": {
         "path": "SKILL.md",
-        "sha256": "00cd9cee70b9245c4c0f650a44dbb00967644b188074f7afc61c7c7aea28c95f"
+        "sha256": "2ba66a14892416fd681efe092b054dd0317f5fdf5c10d2003c6dd684ae3de108"
       },
       "source": "vcp-original",
       "license": "Apache-2.0",
