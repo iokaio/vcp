@@ -76,6 +76,16 @@ unrun, and successful reviewed apply still requires a live task binding.
 
 ## Current environment limitations
 
+The independent installed-helper runner covers exact installed PDF, spreadsheet,
+MCP pagination, catalog authoring and loopback browser helpers while binding the
+native payload and dependency bytes before and after. Four focused contracts
+passed, including changed catalog/resource bytes and redirected dependencies.
+Two native regressions passed for sync-root exclusion and owned process-tree
+supervision; the final installed test remains ignored until final artifacts exist.
+Python and Playwright prerequisite inventories passed without dependency downloads
+or browser/helper execution. This prepares BETA-09 evidence and does not complete
+its final-artifact or clean-host rows.
+
 The development workstation is Windows `10.0.26300.0` with development tools and
 caches. Results from it cannot fill the clean-Windows row. GitHub authentication
 works through the host keyring outside the restricted execution sandbox. No
