@@ -203,6 +203,19 @@ impl CanonicalHost {
         arguments: Value,
         event_id: String,
     ) -> Result<(ToolProposal, Vec<HookOutcome>), String> {
+        self.prepare_gated_tool_with_origin(thread, request, arguments, event_id, None)
+            .await
+    }
+    /// `origin` tells before-hooks where host-built arguments came from, such
+    /// as the skill resource a `vcp_skill` materialization copies.
+    pub async fn prepare_gated_tool_with_origin(
+        &self,
+        thread: ThreadId,
+        request: vcp_tools::Request,
+        arguments: Value,
+        event_id: String,
+        origin: Option<Value>,
+    ) -> Result<(ToolProposal, Vec<HookOutcome>), String> {
         if !self.has_tool_hooks(thread)? {
             return Ok((self.prepare_tool(thread, request)?, vec![]));
         }
@@ -228,7 +241,10 @@ impl CanonicalHost {
                 event_id,
                 0,
                 vec![],
-                json!({"tool":tool,"arguments":arguments,"operation_digest":digest}),
+                match origin {
+                    Some(origin) => json!({"tool":tool,"arguments":arguments,"operation_digest":digest,"materialized_from":origin}),
+                    None => json!({"tool":tool,"arguments":arguments,"operation_digest":digest}),
+                },
             )
             .await?;
         gate_decision(&outcomes)?;

@@ -1059,15 +1059,18 @@ impl Context {
             "vcp_list" | "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
             "vcp_exec" => self.child_process_scope(binding)?,
             // A materialization is an Add File at its destination.
-            "vcp_skill" => self.child_tool_request(
-                binding,
-                &vcp_tools::Request::Patch {
-                    patch: format!(
-                        "*** Begin Patch\n*** Add File: {}\n*** End Patch\n",
-                        skill_destination(&call.arguments)?
-                    ),
-                },
-            )?,
+            "vcp_skill" => {
+                let destination = skill_destination(&call.arguments)?;
+                self.check_skill_destination_parent(binding, destination)?;
+                self.child_tool_request(
+                    binding,
+                    &vcp_tools::Request::Patch {
+                        patch: format!(
+                            "*** Begin Patch\n*** Add File: {destination}\n*** End Patch\n"
+                        ),
+                    },
+                )?
+            }
             _ => {}
         }
         let paths = match call.name.as_str() {
@@ -1195,13 +1198,6 @@ fn skill_destination(arguments: &serde_json::Value) -> Result<&str> {
     let destination = arguments["destination"]
         .as_str()
         .ok_or("materialize destination missing")?;
-    if destination.is_empty()
-        || destination.len() > 1024
-        || destination.chars().any(char::is_control)
-        || destination.contains('\\')
-        || vcp_repository::path::relative(std::path::Path::new(destination))? != destination
-    {
-        return Err("materialize destination must be a normalized workspace-relative path".into());
-    }
+    super::skills::checked_skill_destination(destination)?;
     Ok(destination)
 }
