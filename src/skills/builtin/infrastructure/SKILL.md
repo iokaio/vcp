@@ -1,6 +1,6 @@
 # Infrastructure, containers, and CI configuration
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
@@ -13,13 +13,13 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 
 ## Identify the configuration system
 
-Read the relevant Terraform/provider lock, container build/compose files, CI workflow, environment selection, and repository deployment guidance. Activate explicitly where current root cues do not detect these files. Do not treat all YAML as one schema or infer the target account from a sample value.
+Read the relevant Terraform/provider lock, container build/compose files, CI workflow, environment selection, and repository deployment guidance. This skill is always listed by its description rather than detected from root files. Do not treat all YAML as one schema or infer the target account from a sample value.
 
 Trace inputs, secrets references, artifact provenance, runner permissions and network boundaries. Review immutable dependency pins, destructive replacements, state ownership, cache isolation and deployment ordering. A plan can refresh remote state or evaluate external providers, so it is not automatically an offline read.
 
 ## Proceed and verify
 
-1. Find the project's format, validate and test commands from instructions, task-runner targets and CI. Candidates to confirm include the IaC formatter and validator, a manifest or chart linter, a workflow linter, container lint, and policy checks the repository already configures.
+1. Find the project's format, validate and test commands from instructions, task-runner targets and CI. Low-effect candidates to confirm: `terraform fmt -check`; `terraform init -backend=false` then `terraform validate` (init still downloads providers and modules, so it needs network authority unless they are cached); `helm lint` and `helm template`; `kubectl apply --dry-run=client -f <file>`, which persists nothing but may still read the current context's cluster, whereas `--dry-run=server` sends the request to the cluster; `docker compose config` to render compose files; `actionlint` for GitHub Actions workflows; and container or policy linters the repository configures.
 2. Use the installed declared formatter/schema validator or bounded fixture when authorized. Prefer checks that need no credentials or backend.
 3. Plan before apply. A plan, diff, preview, template render or dry-run is still a proposal; apply, deploy, push and release are separate effects that need explicit authority for the named environment.
 4. Container builds can fetch bases and execute build steps; Terraform init/plan/apply and CI reruns may have external effects. Never use discovered credentials or contact a remote environment without its explicit scope.
@@ -31,7 +31,7 @@ Evidence is the tool reported by the host, the exact command and working directo
 
 - Resource renames or changed immutable fields forcing destroy-and-recreate; review replacements in any plan.
 - Unpinned images, floating tags and actions referenced by mutable tags.
-- Overly broad CI token permissions, secrets exposed to untrusted pull request triggers, and caches shared across trust levels.
+- Overly broad CI token permissions and caches shared across trust levels. `pull_request_target` and `workflow_run` workflows run with repository secrets and a write token, so checking out or executing pull-request code in them exposes both. Secrets can also leak through logs, artifacts and debug output.
 - Environment drift between overlays or values files, and defaults that silently target production.
 - State edits, imports or force-unlocks performed to fix a local problem; these are remote effects.
 - Windows: CRLF in shell steps and container entrypoints, executable bits lost on checkout, path separators and drive letters in volume mounts, case-insensitive paths hiding duplicate manifests, and long paths in provider caches.
