@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "git-workflow",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Inspect changes and isolate integration work while preserving staged, unstaged, and untracked user state. Use when committing, branching, rebasing, merging, resolving conflicts or preparing a pull request.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "8b890673e7e5ab9f9d2f30e5b987c8484953b30194b6a8c43172ab6022fe96a3"
+    "sha256": "6bc9f535f983c762a8671573bedc508b032bd9444408dcb1cfbc2ffdf367bae2"
   },
   "resources": []
 }
