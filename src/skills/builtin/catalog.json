@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "version": "1.71.0",
+  "version": "1.72.0",
   "coverage": {
     "path": "coverage.json",
-    "sha256": "4642d368e708b23b6a905781f2c6e74297778dc22c2ecbbd6b2b8da0378af5a4"
+    "sha256": "8ceefb0e57ed350633f2ffab187b37d6d6e29d10becc1e217e8e776c38c077d1"
   },
   "skills": [
     {
@@ -502,33 +502,33 @@
     },
     {
       "id": "webapp-testing",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "descriptor": "webapp-testing/skill.json",
-      "descriptor_sha256": "ccc1611b82165f3b4cfea095160f8ffd8b68a81593475b43bcc0f72d3ee1745a",
+      "descriptor_sha256": "eb61fddcb0f92a447893ead2eaa091ce5a919177abba5e9fe9a86eb064805ab8",
       "body": {
         "path": "SKILL.md",
-        "sha256": "f7d540c612fec89b609c7e393573e4fd5ef9e462d4234845d340d60cc115b1dd"
+        "sha256": "304c97d18fda658521d58272f67f4bc48dfb358fa7120eac97e39ac728159f35"
       },
       "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/webapp-testing",
       "license": "Apache-2.0",
       "resources": [
         {
           "path": "LICENSE.txt",
-          "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362",
+          "sha256": "14099b9c79d031b9d4b32c736a4e20f2b941f52dd79500532d62d26dd716110c",
           "use": "file"
         },
         {
           "path": "UPSTREAM.md",
-          "sha256": "ccfb7f5a90aca7f917ece3cff97f24ad862e9fe3306d1b0a3d8c2053dbe24f7e",
+          "sha256": "17672c78898ab17115ce5bc14ce170b608c9e46d98c30cbdbef06d2bbd05e8cb",
           "use": "file"
         },
         {
           "path": "references/browser-patterns.md",
-          "sha256": "46e004def1d550c3729ef09c26d0b200acece82613b5505b1f1baf6bd4503456"
+          "sha256": "b7c334a0dc39cde1227223c46e29061bf1bcfb246a08604c66391fdcdc45c8b3"
         },
         {
           "path": "scripts/check-page.cjs",
-          "sha256": "76a5dd0892b6574ac702cdf24f5dbaca641909fff4e031a44f3dff0b37f42db5",
+          "sha256": "d0749e542c0421fa2ae07715b9b7aad13c3dbe2cc11d84636399f53a11ab091e",
           "use": "file"
         }
       ]

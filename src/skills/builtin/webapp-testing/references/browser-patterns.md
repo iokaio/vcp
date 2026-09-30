@@ -49,19 +49,19 @@ finally { await context.tracing.stop({path: 'trace.zip'}); }
 
 ## Run the small example
 
-From a project that already has Playwright and its Chromium browser installed:
+Materialize the helper as `check-page.cjs` in the root of a project that already has Playwright and its Chromium browser installed (see SKILL.md), then run the copy from that project root:
 
 ```text
-node <skill-path>/scripts/check-page.cjs --help
-node <skill-path>/scripts/check-page.cjs --url http://127.0.0.1:5173/ --ready "#contact" --button "Save" --expect-selector "#status" --expect-text "Name is required."
+node check-page.cjs --help
+node check-page.cjs --url http://127.0.0.1:5173/ --ready "#contact" --button "Save" --expect-selector "#status" --expect-text "Name is required."
 ```
 
-The example resolves `playwright`, `@playwright/test` or `playwright-core` from the current project. It makes no downloads and launches Chromium with its sandbox enabled. For a different installed runner, use that runner's normal tests instead of forcing this example into the project.
+The example resolves `playwright`, `@playwright/test` or `playwright-core` from the current directory's project. It makes no downloads and launches Chromium with its sandbox enabled. For a different installed runner, use that runner's normal tests instead of forcing this example into the project.
 
-It can also be imported into a project test:
+A project test can also import the materialized copy (the path is relative to the test file):
 
 ```javascript
-const {runCheck} = require('<skill-path>/scripts/check-page.cjs');
+const {runCheck} = require('../check-page.cjs');
 const playwright = require('playwright');
 const result = await runCheck(playwright, {
   url: 'http://127.0.0.1:5173/',
@@ -72,14 +72,14 @@ const result = await runCheck(playwright, {
 });
 ```
 
-Each run performs reconnaissance, one optional button action and one required exact text assertion. Selectors use Playwright's selector engine for both the wait and the text assertion, so `text=Saved`, `role=status` and `>>` chains work as well as CSS. The example supports loopback hosts (`127.0.0.1`, `[::1]` or `localhost`, which Chromium resolves only to loopback) with HTTP/HTTPS and restricts browser requests to that exact origin. `--ignore-https-errors` tolerates a self-signed development certificate; it is off by default and honored only for those loopback hosts. It blocks all redirects, service workers and WebSockets; apps requiring those features should use an appropriately scoped project runner. It does not claim to be a network sandbox, inspect WebRTC or supervise an OS process tree. Browser/host background networking requires the host's existing controls.
+Each run performs reconnaissance, one optional button action and one required exact text assertion. Selectors use Playwright's selector engine for both the wait and the text assertion, so `text=Saved`, `role=status` and `>>` chains work as well as CSS. The example supports loopback hosts (`127.0.0.1`, `[::1]` or `localhost`, which Chromium resolves only to loopback) with HTTP/HTTPS and restricts browser requests to that exact origin. `--ignore-https-errors` tolerates a self-signed development certificate; it is off by default and honored only for those loopback hosts. It blocks all redirects, service workers and WebSockets; apps requiring those features should use an appropriately scoped project runner. Any blocked request or socket fails the check, even an incidental one such as a web font or stylesheet from a CDN; serve such assets from the tested origin or use a project runner. The failure names up to five blocked origins (scheme, host and port only, never paths or queries), and a thrown error from `runCheck` carries up to ten in `error.blockedOrigins`. It does not claim to be a network sandbox, inspect WebRTC or supervise an OS process tree. Browser/host background networking requires the host's existing controls.
 
 The browser context is fresh, has no persisted user storage and does not accept downloads. Context and browser close in `finally` on ordinary success or error. Host process supervision remains responsible for forced interruption or owner loss.
 
 ## Diagnostics and limitations
 
-The example returns console counts, page-error counts and the discovered button labels. Add `--capture-console` only for non-sensitive fixtures; it retains at most 40 messages of 300 characters each. `--screenshot <new-path>` saves a viewport screenshot only to a previously nonexistent output file whose parent directory already exists. It does not create output directories or overwrite user artifacts. `--aria-snapshot <new-path>` writes Playwright's built-in `ariaSnapshot()` of the page body (roles, names and text as YAML) under the same new-file rule; it is a text view of the accessibility tree, useful without image review.
+The example always returns console counts, page-error counts and up to 20 discovered button labels (page text, at most 100 characters each). Any page error fails the check; its message is not echoed. Add `--capture-console` only for non-sensitive fixtures; it retains at most 40 messages of 300 characters each. `--screenshot <new-path>` saves a viewport screenshot only to a previously nonexistent output file whose parent directory already exists under the current project root. Absolute paths outside the root, `..` escapes, parent links that resolve outside the root and existing entries, including links, are rejected before the browser starts. It does not create output directories or overwrite user artifacts. `runCheck` uses the current directory as the root unless given `{outputRoot}` as its third argument. `--aria-snapshot <new-path>` writes Playwright's built-in `ariaSnapshot()` of the page body (roles, names and text as YAML) under the same new-file rule; it is a text view of the accessibility tree, useful without image review.
 
 `--axe` runs an accessibility scan only when the current project already resolves `axe-core`; the example never bundles or installs it. Without it the result reports `"axe": "unavailable"` and the check still passes or fails on its assertion. With it, the result lists at most 50 violations as rule id, impact and node count. An axe pass is automated coverage, not a complete accessibility review.
 
-Missing Playwright or browser binaries, denied navigation and failed assertions produce a nonzero exit status. The normal timeout is ten seconds per operation; `--timeout <ms>` sets it from 1 to 60000; a project/host command deadline should bound the overall run. A browser result validates this interaction in this environment, not all possible browser versions or VCP native browser adapters.
+Missing Playwright or browser binaries, denied navigation and failed assertions produce a nonzero exit status. The CLI prints only the first line of the error, at most 300 characters, because Playwright call logs can include element HTML or page text. The normal timeout is ten seconds per operation; `--timeout <ms>` sets it from 1 to 60000; a project/host command deadline should bound the overall run. A browser result validates this interaction in this environment, not all possible browser versions or VCP native browser adapters.
