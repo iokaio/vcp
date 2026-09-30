@@ -56,3 +56,72 @@ if (Get-Command node -CommandType Application -ErrorAction SilentlyContinue) { t
   assert.match(run.failure, /node.*not recognized/i);
   assert.match(fs.readFileSync(run.stages[0].log, 'utf8'), /node.*not recognized/i);
 });
+
+test('candidate source gate selects physical temporary paths before child fixtures and private qualification', {skip: process.platform !== 'win32'}, t => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-candidate-temp-')));
+  const target = path.join(root, 'physical temp'), alias = path.join(root, 'redirected temp');
+  fs.mkdirSync(target); fs.symlinkSync(target, alias, 'junction');
+  t.after(() => { fs.unlinkSync(alias); fs.rmSync(root, {recursive: true, force: true}); });
+  const runner = path.join(root, 'exercise.ps1'), input = path.join(root, 'input.json');
+  fs.writeFileSync(runner, `param([string]$Script,[string]$InputFile)
+$ErrorActionPreference='Stop'
+$settings=Get-Content -LiteralPath $InputFile -Raw | ConvertFrom-Json
+$tokens=$null; $errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Script,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Candidate script parse failed'}
+$names=@('Assert-CandidateOrdinaryPath','Set-CandidateTemporaryDirectory')
+$functions=@($ast.FindAll({param($item) $item -is [Management.Automation.Language.FunctionDefinitionAst] -and $item.Name -in $names},$true))
+if($functions.Count -ne 2){throw 'Expected candidate temporary-directory functions'}
+foreach($function in $functions){. ([scriptblock]::Create($function.Extent.Text))}
+$gate=@($ast.FindAll({param($item) $item -is [Management.Automation.Language.CommandAst] -and $item.GetCommandName() -ceq 'Stage' -and $item.CommandElements[1].Value -ceq 'source-gate'},$true))
+if($gate.Count -ne 1){throw 'Expected one actual source gate'}
+# Execute the actual source-gate body with the current test Node selected. Its
+# final source-inventory check is outside this environment-selection contract.
+$tools=@{node=$settings.node_version}; $run=@{environment=@{}}
+$repository=$settings.repository; $ReviewedCommit='0'*40
+$script:sourceChecked=$false
+function Checked([string]$File,[string[]]$Arguments) {
+    if($Arguments[1] -cne 'source'){throw 'Unexpected command after tool selection'}
+    $script:sourceChecked=$true
+}
+$env:PATH=$settings.node_directory+';'+$env:PATH
+$env:TEMP=$settings.temporary; $env:TMP=$settings.temporary
+$failure=$null; $observed=$null
+try {
+    & $gate[0].CommandElements[-1].ScriptBlock.GetScriptBlock()
+    $observed=& $node '-e' "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const root=fs.mkdtempSync(path.join(os.tmpdir(),'child-'));console.log(JSON.stringify({temporary:os.tmpdir(),root,physical:fs.realpathSync.native(root)}))"
+    if($LASTEXITCODE -ne 0){throw 'Child temporary-directory observation failed'}
+    $observed=$observed | ConvertFrom-Json
+    $null=Assert-CandidateOrdinaryPath $observed.root $true
+} catch { $failure=$_.Exception.Message }
+@{environment=$run.environment;temp=$env:TEMP;tmp=$env:TMP;child=$observed;failure=$failure;source_checked=$sourceChecked} | ConvertTo-Json -Depth 10
+exit 0
+`);
+  const physicalNode = fs.realpathSync.native(process.execPath);
+  const execute = temporary => {
+    fs.writeFileSync(input, JSON.stringify({temporary, node_version: process.versions.node,
+      node_directory: path.dirname(physicalNode), repository: path.resolve(__dirname, '../../..')}));
+    const result = spawnSync('pwsh', ['-NoProfile', '-File', runner, '-Script', path.resolve(__dirname, '../../../scripts/release/candidate.ps1'), '-InputFile', input],
+      {encoding: 'utf8', windowsHide: true, timeout: 15000});
+    assert.ifError(result.error); assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const selected = execute(alias), evidence = selected.environment.temporary_directory;
+  assert.equal(selected.failure, null); assert.equal(selected.source_checked, true);
+  assert.equal(evidence.inherited_temp, alias); assert.equal(evidence.inherited_tmp, alias);
+  assert.equal(evidence.requested, alias); assert.equal(evidence.selected, target);
+  assert.equal(selected.temp, target); assert.equal(selected.tmp, target);
+  assert.equal(selected.child.temporary, target); assert.equal(selected.child.root, selected.child.physical);
+  assert.equal(path.dirname(selected.environment.qualification_root), target);
+  assert.match(path.basename(selected.environment.qualification_root), /^vcp-beta-private-[a-f0-9-]{36}$/);
+  assert.equal(fs.existsSync(selected.environment.qualification_root), false, 'selection does not create qualification/install state');
+  const file = path.join(root, 'not a directory'); fs.writeFileSync(file, 'preserve sentinel');
+  for (const temporary of [file, path.join(root, 'missing')]) {
+    const refused = execute(temporary);
+    assert.equal(typeof refused.failure, 'string'); assert.equal(refused.source_checked, false);
+    assert.equal(refused.environment.temporary_directory.selected, 'not observed');
+    assert.equal(refused.environment.qualification_root, undefined);
+    assert.equal(refused.temp, temporary); assert.equal(refused.tmp, temporary);
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), 'preserve sentinel');
+});

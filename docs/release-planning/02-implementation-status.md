@@ -79,6 +79,27 @@ same sanitized harness and physical Node 24.10.0; no speculative test fix or gat
 waiver was applied. All five retained retry files passed checksum verification
 under `artifacts/beta-delivery/candidate-failure-36786623642`.
 
+[PR #305](https://github.com/iokaio/vcp/pull/305) delivered that evidence fix with
+all required checks passing. The next [candidate attempt](https://github.com/iokaio/vcp/actions/runs/36790344329)
+selected `937cb80a79b7ad90ae3abc3174f01b2084193acb` and again stopped in the same
+two contract groups before compilation. This time all 52 retained files passed
+checksum verification, and the child diagnostics identify copied temporary
+fixtures failing the existing redirected/noncanonical-path guards. The hosted
+temporary-directory spelling was not recorded, so an exact inherited alias is
+not claimed. Local Windows observation confirms that DOS short paths can differ
+from both .NET's full path and Node's physical path. Candidate preparation must
+select an ordinary canonical temporary directory before constructing test or
+private qualification roots, while preserving the guards themselves.
+That selection now happens inside the recorded source gate. Three tool-selection
+tests passed, including real child/private-root selection through an owned
+junction and refusal of missing/file temporary roots. Both actual sanitized
+harness groups failed under the reproduced junction and passed after selection:
+WEB 36/36 and distribution 51 passed, with its existing prepared-editor-archive
+case conditionally skipped because the general harness excludes that input.
+The candidate runs that pinned-archive case separately. Syntax, diff and
+independent review passed. This reproduction does not assert the exact unrecorded
+host alias. Its receipt is `artifacts/beta-delivery/candidate-temp-repro.json`.
+
 The separate BETA-09 editor refusal runner now covers actual restricted mode,
 uninitialized/wrong-data/unselected-root failures and unsaved drafts invalidated
 by typing, undo or close/reopen. It binds the final native/setup/VSIX bytes and
@@ -89,7 +110,7 @@ Rust 1.95. Independent review corrected background-context timing and error
 classification. These are runner checks; final installed observations remain
 unrun, and successful reviewed apply still requires a live task binding.
 
-## Current environment limitations
+## Installed helper qualification
 
 [PR #304](https://github.com/iokaio/vcp/pull/304) delivered the independent
 installed-helper runner with all required checks passing. It covers exact installed PDF, spreadsheet,
@@ -104,7 +125,9 @@ its final-artifact or clean-host rows.
 
 ## Hook responsiveness regression
 
-BETA-09 reproduced the hook test failure retained by the SH close-out. The
+[PR #306](https://github.com/iokaio/vcp/pull/306) delivered this test correction
+and the acceptance map with all required checks passing. BETA-09 reproduced
+the hook test failure retained by the SH close-out. The
 session-start status/pause case passed; the completion case failed before its
 hook began. A bounded diagnostic observed completion-hook start after 41.48
 seconds, beyond the fixture's 35-second readiness limit, following unrelated
