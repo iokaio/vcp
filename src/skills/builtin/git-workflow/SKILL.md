@@ -1,6 +1,6 @@
 # Git and change preservation
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
@@ -29,11 +29,14 @@ Evidence is the before/after status, the staged diff that was committed, commit 
 
 ## Pitfalls
 
-- `reset --hard`, `clean`, `checkout -- <path>`, `restore`, forced branch switches and stash drops destroy uncommitted work; do not use them on work you did not create.
+- `reset --hard`, `clean`, `checkout -- <path>`, `restore <path>`, forced branch switches (`switch -f`, `checkout -f`), `worktree remove --force` and stash drops destroy uncommitted work; do not use them on work you did not create. `git restore --staged <path>` only unstages and keeps the working-tree change, while `git restore <path>` discards the working-tree change.
+- `push --force` and `push --force-with-lease` rewrite remote history; the lease only guards against unseen remote commits. Do not force-push shared or protected branches without explicit authority.
+- `branch -D` deletes a branch even when its commits are unmerged.
 - Amending or rebasing commits that others already have; prefer a new commit unless the project says otherwise.
 - `add -A` or `commit -a` sweeping in unrelated files, build output or local configuration.
 - Interactive commands and editors that wait for input in a non-interactive session.
-- Hooks rewriting files during commit; review what they changed rather than bypassing them.
+- Hooks rewriting files during commit; review what they changed rather than bypassing them. Do not use `--no-verify` or `--no-gpg-sign` to skip hooks or signing unless the user explicitly asks.
+- Changing user or global `git config` (identity, `core.autocrlf`, credential helpers, `safe.directory`) affects other repositories; do not change it without authority, and prefer per-command options.
 - Windows: `core.autocrlf` producing whole-file line-ending diffs, case-only renames ignored on case-insensitive file systems, long paths failing checkout, files locked by an editor or running process blocking checkout or rebase, and lost executable bits.
 
 ## Delivery evidence
