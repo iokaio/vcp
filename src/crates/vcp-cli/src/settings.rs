@@ -195,7 +195,28 @@ pub fn within(path: &Path, root: &Path) -> bool {
     path.starts_with(&root)
 }
 
+/// The exact native bytes and selected, chain-validated import revision. Even
+/// a rollback with identical preferences is a new owner selection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProfileSelection {
+    base_sha256: String,
+    #[cfg(windows)]
+    imported: Option<(u64, String)>,
+}
+
+pub(crate) struct EffectiveProfile {
+    pub profile: Profile,
+    pub selection: ProfileSelection,
+}
+
 pub fn load(path: &Path, workspace: &Path) -> Result<Profile, String> {
+    load_effective(path, workspace).map(|loaded| loaded.profile)
+}
+
+/// All execution clients use the same binding, import validation and ceiling
+/// materialization. Reading also refuses corrupt history when a prior selection
+/// appears unchanged; a hash of the base file alone cannot prove that state.
+pub(crate) fn load_effective(path: &Path, workspace: &Path) -> Result<EffectiveProfile, String> {
     #[cfg(not(windows))]
     let path = local_path(path, workspace)?;
     #[cfg(windows)]
@@ -205,6 +226,13 @@ pub fn load(path: &Path, workspace: &Path) -> Result<Profile, String> {
     )?;
     #[cfg(not(windows))]
     let bytes = read_bounded(&path, 256 * 1024)?;
+    let selection = ProfileSelection {
+        base_sha256: vcp_protocol::digest_bytes(&bytes),
+        #[cfg(windows)]
+        imported: imported
+            .as_ref()
+            .map(|revision| (revision.revision, revision.revision_sha256.clone())),
+    };
     #[allow(unused_mut)]
     let mut profile: Profile =
         serde_json::from_slice(&bytes).map_err(|_| "invalid user profile or unknown setting")?;
@@ -219,12 +247,12 @@ pub fn load(path: &Path, workspace: &Path) -> Result<Profile, String> {
     }
     #[cfg(windows)]
     if let Some(imported) = imported {
-        if imported.base_sha256 != vcp_protocol::digest_bytes(&bytes) {
+        if imported.base_sha256 != selection.base_sha256 {
             return Err("native profile changed since import; review config import preview or rollback-preview before using its imported preferences".into());
         }
         crate::config_import::materialize(&mut profile, &imported.preferences)?;
     }
-    Ok(profile)
+    Ok(EffectiveProfile { profile, selection })
 }
 
 pub fn autonomy(mode: crate::args::Autonomy) -> Autonomy {

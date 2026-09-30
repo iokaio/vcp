@@ -176,7 +176,7 @@ pub(super) struct Supervisor {
     config: Config,
     data: PathBuf,
     configuration: Configuration,
-    profile_digest: String,
+    profile_selection: crate::settings::ProfileSelection,
     state: Mutex<State>,
 }
 impl Supervisor {
@@ -186,18 +186,16 @@ impl Supervisor {
         data: PathBuf,
         configuration: Configuration,
     ) -> Result<Arc<Self>, String> {
-        let path = crate::settings::local_path(
+        let loaded = crate::settings::load_effective(
             &configuration.profile,
             std::path::Path::new(&config.binding.root),
         )?;
-        let profile_digest =
-            vcp_protocol::digest_bytes(&crate::settings::read_bounded(&path, 256 * 1024)?);
         Ok(Arc::new(Self {
             host,
             config,
             data,
             configuration,
-            profile_digest,
+            profile_selection: loaded.selection,
             state: Mutex::new(State {
                 session: None,
                 pump: None,
@@ -214,10 +212,9 @@ impl Supervisor {
         previous_policy: Option<&str>,
     ) -> Result<(crate::settings::PreparedProfile, String), String> {
         let workspace = std::path::Path::new(&self.config.binding.root);
-        let path = crate::settings::local_path(&self.configuration.profile, workspace)?;
-        let bytes = crate::settings::read_bounded(&path, 256 * 1024)?;
-        if vcp_protocol::digest_bytes(&bytes) != self.profile_digest {
-            return Err("execution profile changed; relaunch required".into());
+        let loaded = crate::settings::load_effective(&self.configuration.profile, workspace)?;
+        if loaded.selection != self.profile_selection {
+            return Err("execution profile or import selection changed; relaunch required".into());
         }
         let state = self.host.snapshot()?;
         let selected: Workspace = state
@@ -240,18 +237,7 @@ impl Supervisor {
         if previous_policy.is_some_and(|previous| previous != pin) {
             return Err("execution policy changed; relaunch required".into());
         }
-        let profile: crate::settings::Profile =
-            serde_json::from_slice(&bytes).map_err(|_| "invalid execution profile")?;
-        if profile.version != 1
-            || profile
-                .workspace
-                .canonicalize()
-                .map_err(|_| "profile workspace unavailable")?
-                != workspace
-        {
-            return Err("execution profile workspace differs from bound root".into());
-        }
-        let prepared = profile.prepare(policy.mode)?;
+        let prepared = loaded.profile.prepare(policy.mode)?;
         let profile = &prepared.profile;
         if let Some(accepted) = self.retained_budget(&state)? {
             if accepted.budget.max_requests != profile.max_requests
@@ -282,12 +268,12 @@ impl Supervisor {
         {
             return Err("execution profile differs from durable owner policy or model".into());
         }
-        // Recheck bytes after validation too; an altered profile never silently
-        // replaces the private bootstrap's selected profile.
-        if vcp_protocol::digest_bytes(&crate::settings::read_bounded(&path, 256 * 1024)?)
-            != self.profile_digest
+        // Revalidate both the native bytes and complete import chain after
+        // preparation. Start and every fresh resume retain the launch selection.
+        if crate::settings::load_effective(&self.configuration.profile, workspace)?.selection
+            != self.profile_selection
         {
-            return Err("execution profile changed during preparation".into());
+            return Err("execution profile or import selection changed during preparation".into());
         }
         Ok((prepared, pin))
     }

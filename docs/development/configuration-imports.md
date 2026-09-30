@@ -70,6 +70,15 @@ The source file and native profile are never overwritten.
 Preferences take effect when the profile is next loaded. Import does not hot-reload
 or change the authority of an already running owner.
 
+CLI execution and the local editor/SDK server use the same validated effective
+profile. The server pins the base-profile hash and selected import revision/hash
+at launch, then validates them and the full import chain before new start or
+resume admission. A changed base, new import/rollback revision (even with the same
+preferences), missing revision or corrupt history refuses execution. Relaunch
+after reviewing a changed selection; reconcile a changed base with a fresh import
+or rollback preview first. Replaying an existing command receipt still reports
+the original result without dispatching work.
+
 ## Recovery and rollback
 
 `profile.json.vcp-imports` stores safe immutable preference revisions and source
