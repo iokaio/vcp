@@ -13,7 +13,7 @@ Original VCP guidance.
 - `.editorconfig`: formatting and analyzer severity.
 - PowerShell: module manifests (`*.psd1`), `#Requires` statements, parameter validation, module dependencies, `PSScriptAnalyzerSettings.psd1`, and Pester tests (`*.Tests.ps1`) and configuration.
 
-Root `*.sln`, `*.slnx`, `*.csproj`, `*.fsproj` and `global.json` files are detected. `*.vbproj`, nested-only projects and PowerShell-only repositories are not yet detected; the user can activate it with `/skills activate <id>` (the ID `/skills list` shows) or `vcp run --skill <id>`.
+Root `*.sln`, `*.slnx`, `*.csproj`, `*.fsproj`, `*.vbproj` and `global.json` files are detected. Nested-only projects and PowerShell-only repositories are not yet detected; the user can activate it with `/skills activate <id>` (the ID `/skills list` shows) or `vcp run --skill <id>`.
 
 ## Discover commands in this order
 
