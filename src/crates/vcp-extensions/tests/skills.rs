@@ -19,6 +19,7 @@ fn descriptor(id: &str, body: &[u8]) -> SkillDescriptor {
         body: ContentRef {
             path: "SKILL.md".into(),
             sha256: vcp_protocol::digest_bytes(body),
+            use_: Default::default(),
         },
         resources: vec![],
     }
@@ -90,8 +91,36 @@ fn descriptor_is_closed_bounded_data_with_portable_paths() {
     bad.resources.push(ContentRef {
         path: "skill.MD".into(),
         sha256: "a".repeat(64),
+        use_: Default::default(),
     });
     assert!(bad.validate().is_err());
+}
+#[test]
+fn resource_use_defaults_to_context_without_changing_descriptor_bytes() {
+    let context = descriptor("rust", b"review");
+    let bytes = serde_json::to_vec(&context).unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains("\"use\""));
+    let parsed: SkillDescriptor = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(parsed, context);
+    let mut file = context.clone();
+    file.resources.push(ContentRef {
+        path: "LICENSE.txt".into(),
+        sha256: "a".repeat(64),
+        use_: ResourceUse::File,
+    });
+    file.validate().unwrap();
+    let json = serde_json::to_value(&file).unwrap();
+    assert_eq!(json["resources"][0]["use"], "file");
+    assert_eq!(
+        serde_json::from_value::<SkillDescriptor>(json).unwrap(),
+        file
+    );
+    let mut unknown = serde_json::to_value(&file).unwrap();
+    unknown["resources"][0]["use"] = serde_json::json!("execute");
+    assert!(serde_json::from_value::<SkillDescriptor>(unknown).is_err());
+    let mut body = context;
+    body.body.use_ = ResourceUse::File;
+    assert!(body.validate().is_err());
 }
 #[test]
 fn precedence_is_explicit_same_level_conflicts_fail_and_qualified_selection_survives() {
@@ -367,6 +396,7 @@ mod native {
         value.resources.push(ContentRef {
             path: "escape/secret.txt".into(),
             sha256: vcp_protocol::digest_bytes(b"outside secret"),
+            use_: Default::default(),
         });
         fs::write(
             temp.path().join("one/skill.json"),
@@ -400,6 +430,7 @@ mod native {
         descriptor.resources.push(ContentRef {
             path: "guide.txt".into(),
             sha256: vcp_protocol::digest_bytes(b"untrusted guide"),
+            use_: Default::default(),
         });
         fs::write(
             temp.path().join("one/skill.json"),
@@ -416,6 +447,34 @@ mod native {
         assert_eq!(active.resources[0].bytes, b"untrusted guide");
         // Core only returns attributed bytes; actual broker denial is a host integration gate.
         fs::write(temp.path().join("one/guide.txt"), b"changed guide").unwrap();
+        assert!(revalidate(&registry, &active).is_err());
+        assert!(activate(&registry, &value, "rust", &context(), "explicit", &limits).is_err());
+    }
+    #[test]
+    fn file_resources_are_read_and_hash_pinned_but_marked_for_no_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let body = b"Use the helper.";
+        package(temp.path(), "one", "rust", body);
+        fs::write(temp.path().join("one/helper.py"), b"print('helper')").unwrap();
+        let mut descriptor = descriptor("rust", body);
+        descriptor.resources.push(ContentRef {
+            path: "helper.py".into(),
+            sha256: vcp_protocol::digest_bytes(b"print('helper')"),
+            use_: ResourceUse::File,
+        });
+        fs::write(
+            temp.path().join("one/skill.json"),
+            serde_json::to_vec(&descriptor).unwrap(),
+        )
+        .unwrap();
+        let registry = registry(temp.path());
+        let limits = Limits::default();
+        let value = discover(&registry, &limits).unwrap();
+        let active = activate(&registry, &value, "rust", &context(), "explicit", &limits).unwrap();
+        assert_eq!(active.reads.resources, 1);
+        assert_eq!(active.resources[0].bytes, b"print('helper')");
+        assert_eq!(active.resource_refs, descriptor.resources);
+        fs::write(temp.path().join("one/helper.py"), b"print('tampered')").unwrap();
         assert!(revalidate(&registry, &active).is_err());
         assert!(activate(&registry, &value, "rust", &context(), "explicit", &limits).is_err());
     }

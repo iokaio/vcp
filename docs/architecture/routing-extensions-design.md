@@ -179,7 +179,9 @@ descriptors must not run scripts or load every body.
 
 Activation resolves the exact descriptor and its resources, rechecks hashes and
 scope, records user/engine trigger and body refs, then passes content through normal
-context precedence. A skill body cannot override explicit instructions, trusted
+context precedence. Per [ADR-070](../adr/070-skill-resource-roles-and-discovery.md),
+a resource may be `use: "file"`: it is read, hash-checked and captured like any
+resource but never becomes model context. A skill body cannot override explicit instructions, trusted
 denials or current grants. Tool requirements are eligibility/setup information,
 not permission to install tools. Surface activation and unavailable prerequisites
 in CLI events, including why an explicitly requested skill could not load.

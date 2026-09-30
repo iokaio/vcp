@@ -7,7 +7,7 @@ use vcp_context::manifest::{Kind, Part, Trust as ContextTrust};
 use vcp_extensions::{
     activation,
     discovery::{self, Catalog, MatchContext},
-    skill_manifest::{SkillSource, SourceRegistry},
+    skill_manifest::{ResourceUse, SkillSource, SourceRegistry},
 };
 use vcp_protocol::{
     digest_bytes,
@@ -25,6 +25,13 @@ pub(super) struct Runtime {
 struct Captured {
     artifact: ArtifactId,
     file: vcp_repository::FileVersion,
+    /// File-role resources are captured and verified but never become context.
+    #[serde(
+        rename = "use",
+        default,
+        skip_serializing_if = "ResourceUse::is_context"
+    )]
+    use_: ResourceUse,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -438,7 +445,9 @@ impl Context {
                 )?;
                 let mut resources = Vec::new();
                 let mut artifacts = vec![body.spec.id.clone()];
-                for resource in activated.resources {
+                for (resource, reference) in
+                    activated.resources.into_iter().zip(activated.resource_refs)
+                {
                     let captured = self.capture(
                         &binding.scope,
                         Channel::Evidence,
@@ -449,6 +458,7 @@ impl Context {
                     resources.push(Captured {
                         artifact: captured.spec.id,
                         file: resource.version,
+                        use_: reference.use_,
                     });
                 }
                 let activation=self.capture(&binding.scope,Channel::Evidence,&canonical_bytes(&serde_json::json!({"scope":binding.scope,"qualified_id":activated.qualified_id,"version":activated.version,"reason":activated.reason,"registry_digest":activated.registry_digest,"registry_revision":activated.registry_revision,"source_id":activated.source_id,"descriptor":activated.descriptor_version,"body":body.spec.id,"resources":resources}))?,"canonical-skill-activation/1")?;
@@ -468,6 +478,7 @@ impl Context {
                         body: Captured {
                             artifact: body.spec.id,
                             file: activated.body.version,
+                            use_: ResourceUse::Context,
                         },
                         resources,
                         activation: activation.spec.id,
@@ -597,6 +608,7 @@ impl Context {
             for (index, captured) in std::iter::once(&active.body)
                 .chain(active.resources.iter())
                 .enumerate()
+                .filter(|(_, captured)| captured.use_.is_context())
             {
                 let descriptor: ArtifactDescriptor = self
                     .engine

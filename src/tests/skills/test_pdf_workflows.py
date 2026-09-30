@@ -11,6 +11,9 @@ import sys
 import tempfile
 import unittest
 
+# Importing the shipped helper must not write __pycache__ into the hash-pinned package.
+sys.dont_write_bytecode = True
+
 from pypdf import PdfReader, PdfWriter
 import reportlab
 from reportlab.pdfbase import pdfmetrics

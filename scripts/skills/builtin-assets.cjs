@@ -66,7 +66,14 @@ function inspectAssets(root, expectedCatalog = bounded(path.join(source, 'catalo
     expected.set(relative, sha256);
   }
   add(catalog.coverage.path, catalog.coverage.sha256);
-  const sameContent = (left, right) => left?.path === right?.path && left?.sha256 === right?.sha256;
+  // ADR-070: an omitted resource role means context; bodies are always context.
+  const role = content => {
+    const value = content?.use ?? 'context';
+    if (!['context', 'file'].includes(value)) throw Error('Invalid builtin resource role');
+    return value;
+  };
+  const sameContent = (left, right) => left?.path === right?.path && left?.sha256 === right?.sha256 &&
+    role(left) === role(right);
   for (const skill of catalog.skills) {
     if (!/^[a-z][a-z0-9-]*$/.test(skill.id) || identities.has(skill.id) ||
         skill.descriptor !== skill.id + '/skill.json' || !Array.isArray(skill.resources)) {
@@ -74,6 +81,7 @@ function inspectAssets(root, expectedCatalog = bounded(path.join(source, 'catalo
     }
     identities.add(skill.id);
     add(skill.descriptor, skill.descriptor_sha256);
+    if (role(skill.body) !== 'context') throw Error('Builtin skill body must be context');
     add(skill.id + '/' + portable(skill.body.path), skill.body.sha256);
     for (const resource of skill.resources) add(skill.id + '/' + portable(resource.path), resource.sha256);
   }
@@ -117,13 +125,48 @@ function stageAssets(root, destination, expectedCatalog) {
   inspectAssets(destination, captured.get('catalog.json'));
   return inventory;
 }
+// Authoring aid: recompute content, descriptor and coverage digests after edits.
+// Versions stay explicit author decisions; coverage family versions follow descriptors.
+function rehashAssets(root) {
+  root = path.resolve(root);
+  const json = value => JSON.stringify(value, null, 2) + '\n';
+  const read = relative => bounded(path.join(root, portable(relative)));
+  const catalog = JSON.parse(read('catalog.json'));
+  const coverage = JSON.parse(read(catalog.coverage.path));
+  const writes = new Map();
+  for (const entry of catalog.skills) {
+    const descriptor = JSON.parse(read(entry.descriptor));
+    if (descriptor.id !== entry.id) throw Error('Descriptor id differs from catalog entry: ' + entry.id);
+    for (const content of [descriptor.body, ...descriptor.resources]) {
+      content.sha256 = digest(read(entry.id + '/' + content.path));
+    }
+    const bytes = Buffer.from(json(descriptor));
+    writes.set(entry.descriptor, bytes);
+    Object.assign(entry, {
+      version: descriptor.version, descriptor_sha256: digest(bytes), body: descriptor.body,
+      source: descriptor.source, license: descriptor.license, resources: descriptor.resources,
+    });
+    const family = coverage.families?.find(item => item.id === entry.id);
+    if (family) family.version = descriptor.version;
+  }
+  const coverageBytes = Buffer.from(json(coverage));
+  writes.set(catalog.coverage.path, coverageBytes);
+  catalog.coverage.sha256 = digest(coverageBytes);
+  writes.set('catalog.json', Buffer.from(json(catalog)));
+  const changed = [];
+  for (const [relative, bytes] of writes) {
+    if (!read(relative).equals(bytes)) { fs.writeFileSync(path.join(root, relative), bytes); changed.push(relative); }
+  }
+  return { changed, inventory: inspectAssets(root, writes.get('catalog.json')).inventory };
+}
 if (require.main === module) {
   try {
     const [command, root, destination, ...extra] = process.argv.slice(2);
-    if (extra.length || !root || !['verify', 'stage'].includes(command) ||
-        (command === 'stage') !== Boolean(destination)) throw Error('Use verify <assets> or stage <assets> <new-directory>');
-    const result = command === 'verify' ? inspectAssets(root).inventory : stageAssets(root, destination);
+    if (extra.length || !root || !['verify', 'stage', 'rehash'].includes(command) ||
+        (command === 'stage') !== Boolean(destination)) throw Error('Use verify <assets>, rehash <assets> or stage <assets> <new-directory>');
+    const result = command === 'verify' ? inspectAssets(root).inventory
+      : command === 'rehash' ? { changed: rehashAssets(root).changed } : stageAssets(root, destination);
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
-module.exports = { inspectAssets, stageAssets, portable };
+module.exports = { inspectAssets, stageAssets, rehashAssets, portable };

@@ -61,6 +61,12 @@ impl Manifest {
         }
         text(&self.version, 128)?;
         self.coverage.validate()?;
+        if !self.coverage.use_.is_context() || self.skills.iter().any(|e| !e.body.use_.is_context())
+        {
+            return Err(Error::Metadata(
+                "catalog coverage and bodies are context".into(),
+            ));
+        }
         let mut paths = BTreeSet::from(["catalog.json".to_owned(), self.coverage.path.clone()]);
         if paths.len() != 2 {
             return Err(Error::Metadata("catalog coverage path collision".into()));
@@ -76,6 +82,7 @@ impl Manifest {
             ContentRef {
                 path: entry.descriptor.clone(),
                 sha256: entry.descriptor_sha256.clone(),
+                use_: ResourceUse::Context,
             }
             .validate()?;
             text(&entry.version, 128)?;
