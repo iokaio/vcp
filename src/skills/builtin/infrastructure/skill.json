@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "infrastructure",
-  "version": "1.0.0",
-  "description": "Review declared infrastructure/CI tools, identities, environments, and change plans without implicit deployment.",
+  "version": "1.1.0",
+  "description": "Review declared infrastructure/CI tools, identities, environments, and change plans without implicit deployment. Use when editing CI workflows, containers, infrastructure-as-code or deployment configuration.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:infrastructure"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",

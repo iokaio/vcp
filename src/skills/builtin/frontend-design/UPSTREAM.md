@@ -19,6 +19,7 @@ SHA-256 values below identify the original Git commit bytes, before adaptation o
 
 ## VCP modifications
 
+- The upstream YAML front matter is not retained; `skill.json` is the only package metadata, and its description drives discovery.
 - SKILL.md and references/design-and-copy.md adapt the upstream subject-first design process, typography, layout, motion, restraint and interface-writing sections.
 - VCP changes preserve the existing stack and user direction, make planning proportional to the UI task, add complete states and truthful preview checks, and remove compulsory client confirmation and claims about client preferences.
 - No upstream fonts, branding, images or external tool installers are included.

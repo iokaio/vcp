@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "skill-authoring",
-  "version": "2.0.0",
-  "description": "Create, port or improve native VCP skill packages, descriptors, reusable resources and focused behavioral checks.",
+  "version": "2.1.0",
+  "description": "Create, port or improve native VCP skill packages, descriptors, reusable resources and focused behavioral checks. Use when writing a new skill, porting one from another tool, or validating a skill package.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/skill-creator",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:skill-authoring"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",

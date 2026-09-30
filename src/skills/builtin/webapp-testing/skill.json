@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "webapp-testing",
-  "version": "2.0.0",
-  "description": "Exercise local web applications with the project's browser runner, discover rendered controls, verify interactions and collect useful console or screenshot diagnostics.",
+  "version": "2.1.0",
+  "description": "Exercise local web applications with the project's browser runner, discover rendered controls, verify interactions and collect useful console or screenshot diagnostics. Use when testing or debugging a locally running web app in a browser.",
   "source": "https://github.com/anthropics/skills/tree/8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4/skills/webapp-testing",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:webapp-testing"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",
@@ -16,7 +14,7 @@
   ],
   "body": {
     "path": "SKILL.md",
-    "sha256": "f36ec33725aa25566488cedd9726f08bcdb73fc34de9709ebc1f78e87df4b5d0"
+    "sha256": "aa8a8beba38d381f027085bae88c764672c45ab7c3776e1c81390e6760dde776"
   },
   "resources": [
     {
@@ -25,7 +23,7 @@
     },
     {
       "path": "UPSTREAM.md",
-      "sha256": "6173faf59b703fd7f63d792444ae24da5e07de4ceb148fbe6f7008657766a84c"
+      "sha256": "743c710b5116bece62c9d5c71e4c0cba15de259ad6491421378254f110e51e0b"
     },
     {
       "path": "references/browser-patterns.md",

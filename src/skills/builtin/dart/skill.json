@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "dart",
-  "version": "1.0.0",
-  "description": "Honor Dart/Flutter SDK, package constraints, generated-code, and project test conventions.",
+  "version": "1.1.0",
+  "description": "Honor Dart/Flutter SDK, package constraints, generated-code, and project test conventions. Use when the project has pubspec.yaml or when editing Dart or Flutter code.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,

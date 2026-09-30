@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
   "id": "data",
-  "version": "1.0.0",
-  "description": "Inspect schema, provenance, transformation semantics, and bounded data checks without exposing sensitive rows.",
+  "version": "1.1.0",
+  "description": "Inspect schema, provenance, transformation semantics, and bounded data checks without exposing sensitive rows. Use when building or reviewing data pipelines, transformations, notebooks or dataset checks.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
-  "cues": [
-    "explicit:data"
-  ],
+  "cues": [],
   "environments": [],
   "required_tools": [
     "vcp_list",

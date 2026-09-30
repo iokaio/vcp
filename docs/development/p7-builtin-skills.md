@@ -14,6 +14,14 @@ helpers are independently authored using permitted libraries because the
 corresponding Anthropic packages have restrictive licenses. Package notices pin
 the selected sources and describe adaptations and host dependencies.
 
+Catalog 1.11.0 (SU-04, [ADR-070](../adr/070-skill-resource-roles-and-discovery.md))
+removes the never-emitted `explicit:*` cues. Workflow and general packages are
+cue-less, so their descriptions appear in the bounded description-only discovery
+context. Language families match root markers, including `build.gradle.kts`,
+`requirements.txt`, `setup.py`, `Pipfile`, `deno.json(c)`, `go.work`, and root
+`*.sln`/`*.slnx`/`*.csproj`/`*.fsproj` files. Each description states when to use
+the skill. Listing a skill never activates it or grants tools.
+
 The [replacement skills plan](../research/skillsplan-new.md) and
 [ADR-069](../adr/069-practical-skill-ports.md) govern these additions. Development
 uses scoped functional checks, package verification, and ordinary repository

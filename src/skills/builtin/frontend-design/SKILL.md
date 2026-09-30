@@ -1,8 +1,3 @@
----
-name: frontend-design
-description: Design and implement interfaces with a deliberate visual direction, clear copy, responsive layout and complete interaction states in the user's existing stack.
----
-
 # Frontend design
 
 Adapted from Anthropic's Apache-2.0 frontend-design skill; see [UPSTREAM.md](UPSTREAM.md) for the pinned source and modifications.

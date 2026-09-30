@@ -1,8 +1,3 @@
----
-name: webapp-testing
-description: Exercise local web applications with the project's browser runner, discover rendered controls, verify interactions and collect useful console or screenshot diagnostics.
----
-
 # Test the web application
 
 Adapted from Anthropic's Apache-2.0 webapp-testing skill and Playwright examples. See [UPSTREAM.md](UPSTREAM.md).

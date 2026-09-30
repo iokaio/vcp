@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "architecture",
-  "version": "1.1.0",
-  "description": "Map existing module boundaries and propose focused changes grounded in source evidence.",
+  "version": "1.2.0",
+  "description": "Map existing module boundaries and propose focused changes grounded in source evidence. Use when a change crosses modules, alters dependency direction or ownership, or needs a design choice that must fit existing contracts.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "id": "cpp",
-  "version": "1.0.0",
-  "description": "Honor configured compiler, generator, build directory, ABI, and native test conventions.",
+  "version": "1.1.0",
+  "description": "Honor configured compiler, generator, build directory, ABI, and native test conventions. Use when the project has CMakeLists.txt or when editing C or C++ code, builds or native tests.",
   "source": "vcp-original",
   "license": "Apache-2.0",
   "vcp_version": 1,
