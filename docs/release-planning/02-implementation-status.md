@@ -16,7 +16,7 @@ manual-test preparation. Publication and paid execution remain separate gates.
 | BETA-07 | Implementation delivered | [PR #296](https://github.com/iokaio/vcp/pull/296) merged with routine checks passing. Strict beta VSIX binds original native build evidence and freshly compiled locked SDK/editor tools; setup guidance uses explicit User settings and the resolved installed engine. SDK 35/35 and editor 163/163 passed, followed by eight focused release/package regressions, candidate-output preservation and stale SDK/extension output checks. Review fixes reject ancestor compiler fallback, redirected compiler output and missing original native evidence. Final installed candidate and clean-host rows remain not run. |
 | BETA-10 | Documentation and staging delivered | [PR #297](https://github.com/iokaio/vcp/pull/297) merged with routine checks passing. Current README, installation/onboarding, recovery, known issues and safe support instructions. Native ZIP stages four source-bound guides and identifies the entry point. Eleven inventory/provenance tests, actual Windows ZIP/document hashes, repository links and PowerShell example parsing passed. Debug assembly proves staging only; final clean-installed walkthrough remains a BETA-09 gate. |
 | BETA-08 | Workflow and evidence delivered | [PR #298](https://github.com/iokaio/vcp/pull/298) merged with routine checks passing. Exact-main dispatch gate, pinned tools, fresh production engine/setup/VSIX construction, separate native qualification target and actual installed synthetic observer smoke. Seven evidence regressions passed, the installed-editor target compiled, and a clean-fixture directory race was corrected and rechecked. Evidence validation preserves failed installation roots and refuses incomplete or changed build records. No final production run yet. |
-| BETA-09 | Runner prerequisites verified; final matrix not run | Strict package/installed-payload validation, distinct-version guards, final-byte 130-version startup/cancellation runner and private recovery-fixture preparation. Five package/startup/root-boundary tests passed; startup and editor targets compiled. Existing synthetic recovery generator passed both stores with independent keys, tasks/claims and retained accounting. Historical P8 private inputs and an eligible distinct prior production candidate were unavailable; their evidence is not claimed. Final candidate execution, clean host, real upgrade, independent-machine/full-volume and live/owner rows remain open. |
+| BETA-09 | Runner prerequisites verified; final matrix not run | [PR #299](https://github.com/iokaio/vcp/pull/299) merged with routine checks passing. Strict package/installed-payload validation, distinct-version guards, final-byte 130-version startup/cancellation runner and private recovery-fixture preparation. Five package/startup/root-boundary tests passed; startup and editor targets compiled. Existing synthetic recovery generator passed both stores with independent keys, tasks/claims and retained accounting. Historical P8 private inputs and an eligible distinct prior production candidate were unavailable; their evidence is not claimed. Final candidate execution, clean host, real upgrade, independent-machine/full-volume and live/owner rows remain open. |
 | BETA-11 | Not ready | Owner acceptance and distribution authorization depend on a qualified candidate. |
 
 ## Current environment limitations
@@ -24,7 +24,21 @@ manual-test preparation. Publication and paid execution remain separate gates.
 The development workstation is Windows `10.0.26300.0` with development tools and
 caches. Results from it cannot fill the clean-Windows row. GitHub authentication
 works through the host keyring outside the restricted execution sandbox. No
-provider calls, model downloads, public release or signing operation has run.
+provider calls, public release or signing operation has run. Explicit MiniLM
+acquisition and independent verification passed for all ten pinned files
+(91,578,299 bytes), retained outside the repository for final-engine tests;
+no inference has run. The local receipt is
+`artifacts/beta-03/minilm-acquisition.json`.
+
+Candidate review corrected failure-log discovery to recognize the setup builder's
+32-character GUID directories and the production builder's hyphenated GUIDs.
+Eight evidence tests passed, including exclusion of private and nested files.
+The final Windows fast-suite attempt on source `351160fb` exposed a workstation
+Node junction rejected by existing plain-path checks; the eleven affected
+provider-runner tests passed with Node's ordinary filesystem path. That attempt
+also timed out in the skills group. The complete rerun with the ordinary Node
+path passed, including that group, without changing any timeout or security check:
+`artifacts/tests/0acbc416-2a24-4b1c-9e39-3305925be6aa/manifest.json`.
 
 The original source-hashing failure was reproduced and traced to the restricted
 sandbox's different Windows owner: sanitized child environments omit the injected

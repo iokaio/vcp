@@ -111,6 +111,29 @@ test('deleted or changed before/after inventories cannot retain production ident
     }
   }
 });
+test('failed builders retain exact public log names from their actual GUID directory formats only',t=>{
+  const f=fixture(t);f.run.status='fail';f.run.stages=[];
+  const buildId='01234567-89ab-cdef-0123-456789abcdef',setupId='0123456789abcdef0123456789abcdef';
+  const expected=[];
+  for(const [stage,id,names] of [
+    ['build',buildId,['build.log','upstream-verification.log','upstream-verification-after.log']],
+    ['setup',setupId,['setup-build.log','compiler-provision.log']],
+  ]){
+    const directory=path.join(f.root,stage,id);fs.mkdirSync(directory,{recursive:true});
+    for(const name of names){fs.writeFileSync(path.join(directory,name),'public builder failure');expected.push(`logs/${stage}-${id}-${name}`)}
+    fs.writeFileSync(path.join(directory,'private-profile.json'),'must remain private');
+    fs.mkdirSync(path.join(directory,'private-state'));fs.writeFileSync(path.join(directory,'private-state',names[0]),'must not recurse');
+  }
+  for(const [stage,id,name] of [
+    ['build',setupId,'build.log'],['setup',buildId,'setup-build.log'],
+    ['build','-'.repeat(36),'build.log'],['setup','g'.repeat(32),'compiler-provision.log'],
+  ]){
+    const directory=path.join(f.root,stage,id);fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(path.join(directory,name),'unrecognized directory');
+  }
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.pipeline_status,'fail');assert(result.matrix.every(row=>row.status==='not run'));
+  assert.deepEqual(result.files.map(row=>row.path).sort(),expected.sort());
+});
 test('Windows candidate child capture preserves outputs, excludes credentials and enforces a deadline',{skip:process.platform!=='win32'},t=>{
   const f=fixture(t);
   const script=f.file('process-test.ps1',`param([string]$Helper,[string]$Node,[string]$Root)

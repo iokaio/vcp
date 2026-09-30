@@ -189,8 +189,10 @@ function packet(runFile, output) {
   ]) {
     const root = path.join(path.dirname(path.resolve(runFile)), stage);
     if (!fs.existsSync(root)) continue;
+    // build-production uses Guid.ToString(); build-setup uses ToString('N').
+    const directoryName = stage === 'setup' ? /^[a-f0-9]{32}$/ : /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
     for (const child of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!child.isDirectory() || !/^[a-f0-9-]{36}$/i.test(child.name)) continue;
+      if (!child.isDirectory() || !directoryName.test(child.name)) continue;
       for (const name of names) {
         const file = path.join(root, child.name, name);
         if (fs.existsSync(file)) log(file, `logs/${stage}-${child.name}-${name}`);
