@@ -1,6 +1,6 @@
 # .NET and PowerShell on Windows
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Read the project
 
@@ -13,14 +13,14 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 - `.editorconfig`: formatting and analyzer severity.
 - PowerShell: module manifests (`*.psd1`), `#Requires` statements, parameter validation, module dependencies, `PSScriptAnalyzerSettings.psd1`, and Pester tests (`*.Tests.ps1`) and configuration.
 
-PowerShell-only projects can be selected explicitly.
+Root `*.sln`, `*.slnx`, `*.csproj`, `*.fsproj` and `global.json` files are detected. `*.vbproj`, nested-only projects and PowerShell-only repositories are not yet detected; the user can activate it with `/skills activate <id>` (the ID `/skills list` shows) or `vcp run --skill <id>`.
 
 ## Discover commands in this order
 
 1. Project-declared tasks: build scripts (`build.ps1`, `build.cmd`, Cake, Nuke, Invoke-Build or psake), `Makefile`, CI workflow files, CONTRIBUTING and AGENTS.md.
-2. Ecosystem defaults, only when the project supports them. Candidates to confirm: `dotnet build <project-or-solution> -c <config>`; `dotnet test <test-project> --filter <expression>`; `--no-restore` only when dependencies are already restored; `dotnet format --verify-no-changes` when the project uses it; `Invoke-Pester -Path <tests>` with the repository's declared configuration; `Invoke-ScriptAnalyzer` when configured.
+2. Ecosystem defaults, only when the project supports them. Candidates to confirm: `dotnet build <project-or-solution> -c <config> --no-restore`; `dotnet test <test-project> --no-restore --filter <expression>`; `dotnet format --verify-no-changes --no-restore` when the project uses it; `Invoke-Pester -Path <tests>` with the repository's declared configuration; `Invoke-ScriptAnalyzer` when configured.
 
-Restore and module installation require separate authority.
+`dotnet build`, `test`, `format` and `run` restore implicitly unless given `--no-restore`, and restore contacts NuGet feeds, possibly private feeds with stored credentials. Pass `--no-restore` by default when `obj/project.assets.json` exists for the projects involved; otherwise treat `dotnet restore` as a separate network effect needing authority and report dependent checks as not run. Module installation (`Install-Module`, `Install-PSResource`) also requires separate authority.
 
 ## Toolchain variants
 
