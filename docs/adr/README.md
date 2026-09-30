@@ -115,3 +115,5 @@ Return to the [documentation index](../README.md).
 [ADR-070](070-skill-resource-roles-and-discovery.md) adds context/file skill resource roles, verified helper materialization and description discovery for cue-less skills.
 
 [ADR-071](071-on-demand-skill-references.md) adds on-demand `reference` resources read through `vcp_skill`, scopes that tool to root tasks under the read ceiling, and records how ADR-070 materialization was implemented.
+
+[ADR-072](072-internal-windows-beta.md) selects the internal Windows beta channel, versions, installer and unsigned disposition while retaining qualification and publication gates.
