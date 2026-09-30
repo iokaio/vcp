@@ -40,7 +40,7 @@ const pairs={
  ],
  jvm:[
   {'pom.xml':'<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId><artifactId>root</artifactId><version>1</version><packaging>pom</packaging><modules><module>service</module></modules><properties><maven.compiler.release>17</maven.compiler.release></properties></project>\n','service/pom.xml':'<project><modelVersion>4.0.0</modelVersion><parent><groupId>fixture</groupId><artifactId>root</artifactId><version>1</version></parent><artifactId>service</artifactId></project>\n','.mvn/wrapper/maven-wrapper.properties':'distributionUrl=https://invalid.example/fixture/apache-maven-3.9.9-bin.zip\n','mvnw.cmd':'@echo off\necho Fixture wrapper source only: distribution is intentionally not provisioned. 1>&2\nexit /b 4\n','service/src/main/java/Amount.java':'final class Amount { static int parse(String value) { return Integer.parseInt(value); } }\n','AGENTS.md':'Use the declared Maven wrapper and service module, Java 17. No download or credentials are authorized; source-only wrapper inspection is meaningful.\n'},
-  {'settings.gradle.kts':'rootProject.name = "fixture-kotlin"\n','build.gradle.kts':'plugins { kotlin("jvm") version "2.0.21" }\nkotlin { jvmToolchain(21) }\n','gradle/wrapper/gradle-wrapper.properties':'distributionUrl=https://invalid.example/fixture/gradle-8.10.2-bin.zip\n','toolchain-state.json':'{"JDK21":"absent","Gradle_distribution":"absent"}\n','AGENTS.md':'Kotlin DSL files require explicit selection with current root cues. Do not replace the absent wrapper with global Gradle.\n'}
+  {'settings.gradle.kts':'rootProject.name = "fixture-kotlin"\n','build.gradle.kts':'plugins { kotlin("jvm") version "2.0.21" }\nkotlin { jvmToolchain(21) }\n','gradle/wrapper/gradle-wrapper.properties':'distributionUrl=https://invalid.example/fixture/gradle-8.10.2-bin.zip\n','toolchain-state.json':'{"JDK21":"absent","Gradle_distribution":"absent"}\n','AGENTS.md':'Kotlin DSL root files are host cues; they do not provision Gradle or a JDK. Do not replace the absent wrapper with global Gradle.\n'}
  ],
  go:[
   {'go.mod':'module example.invalid/root\n\ngo 1.22.0\n','go.work':'go 1.22.0\nuse (\n .\n ./lib\n)\n','lib/go.mod':'module example.invalid/lib\n\ngo 1.22.0\n','lib/value.go':'package lib\nfunc Value() int { return 42 }\n','lib/value_test.go':'//go:build fixture\n\npackage lib\nimport "testing"\nfunc TestValue(t *testing.T) { if Value() != 42 { t.Fatal("value") } }\n','AGENTS.md':'The relevant check is the lib module with build tag fixture. No module downloads or go generate are authorized.\n'},
@@ -90,11 +90,15 @@ const pairs={
   {'claims-fixture.json':'{"schema":"skill-memory-evidence-fixture/1","workspace":"A","claims":[{"id":"old","status":"superseded","evidence":"retained"},{"id":"current","status":"confirmed"},{"id":"accounting","protected":true}],"older_backup_retained":true}\n','request.md':'Prepare an exact preview for superseded recall exclusion. Do not purge accounting or claim external backups are erased.\n','AGENTS.md':'Use governed inspectors/controller previews, never edit index or store files directly. Fixture rows are not a canonical store.\n'},
   {'claims-fixture.json':'{"schema":"skill-memory-evidence-fixture/1","workspace":"A","claims":[{"id":"foreign","workspace":"B"},{"id":"unsettled","protected":true}],"preview_revision":1,"current_revision":2}\n','request.md':'Explain why this old broad purge preview cannot be applied.\n','AGENTS.md':'Cross-workspace and unsettled evidence must remain protected. Reject the stale preview.\n'}
  ]};
-const markers=['Cargo.toml','package.json','pyproject.toml','go.mod','pom.xml','build.gradle','CMakeLists.txt','Gemfile','composer.json','pubspec.yaml','Package.swift','global.json'];
+// Host observation contract shared with vcp-lifecycle (a Rust test keeps them equal).
+const hostMarkers=JSON.parse(fs.readFileSync(path.resolve(root,'../../../skills/markers.json'),'utf8'));
+const markers=hostMarkers.root_markers;
+const patternCue=relative=>{const m=/^[^/]+[.]([A-Za-z0-9]+)$/.exec(relative);return m&&hostMarkers.root_pattern_extensions.includes(m[1].toLowerCase())?'*.'+m[1].toLowerCase():null;};
 const shipped=path.resolve(root,'../../../skills/builtin');
 const coverage=JSON.parse(fs.readFileSync(path.join(shipped,'coverage.json')));
 const cases=[];
-for(const row of coverage.families){
+// Fixtures cover the 21 original families; later workflow packages have none.
+for(const row of coverage.families.filter(family=>family.fixtures.length)){
  if(!pairs[row.id]||pairs[row.id].length!==2)throw Error('missing fixture pair '+row.id);
  for(const [index,files] of pairs[row.id].entries()){
   const fixture=row.fixtures[index];const directory=path.join(root,'projects',fixture.id);const inventory=[];
@@ -106,12 +110,14 @@ for(const row of coverage.families){
    inventory.push({path:relative,bytes:Buffer.byteLength(normalized),sha256:hash(Buffer.from(normalized))});
   }
   inventory.sort((a,b)=>a.path.localeCompare(b.path,'en'));
-  const cues=markers.filter(marker=>Object.hasOwn(files,marker)).sort();
+  const cues=[...new Set([...markers.filter(marker=>Object.hasOwn(files,marker)),...Object.keys(files).map(patternCue).filter(Boolean)])].sort();
   // Independent, predeclared labels: do not derive these from the descriptor or
   // production matching output being evaluated.
-  const explicitOnly=new Set(['shell','sql','data','infrastructure']);
-  const negativeWithoutRootMarker=new Set(['python','dotnet-powershell','jvm']);
-  const matches=!explicitOnly.has(row.id)&&!(index===1&&negativeWithoutRootMarker.has(row.id));
+  // v2: families without cues are always listed by description (ADR-070);
+  // language families are listed when the fixture root has one of their markers.
+  const alwaysListed=new Set(['architecture','review-debug','testing','git-workflow','project-optimize','memory-hygiene','shell','sql','data','infrastructure']);
+  const familyMarkers={'javascript-typescript':['package.json','deno.json','deno.jsonc'],python:['pyproject.toml','requirements.txt','setup.py','Pipfile'],rust:['Cargo.toml'],'dotnet-powershell':['global.json','*.sln','*.slnx','*.csproj','*.fsproj'],jvm:['pom.xml','build.gradle','build.gradle.kts','settings.gradle','settings.gradle.kts'],go:['go.mod','go.work'],cpp:['CMakeLists.txt'],ruby:['Gemfile'],php:['composer.json'],swift:['Package.swift'],dart:['pubspec.yaml']};
+  const matches=alwaysListed.has(row.id)||(familyMarkers[row.id]||[]).some(cue=>cues.includes(cue));
   cases.push({id:fixture.id,skill:row.id,kind:index===0?'normal':'negative_or_missing_tool',project:'projects/'+fixture.id,
    prompt:fixture.setup+'. '+fixture.expected.join('. ')+'. Analyze the fixture; do not install dependencies or contact external services.',
    context:{environment:'windows',tools:['vcp_list','vcp_read']},
@@ -120,5 +126,6 @@ for(const row of coverage.families){
    execution:{requested:false,toolchain_qualification:'not_run',live_quality:'not_run',additional_setup:row.id==='git-workflow'?'real Git index/worktree setup required for Git state behavior assertions':null}});
  }
 }
-fs.writeFileSync(path.join(root,'manifest.json'),JSON.stringify({schema_version:1,revision:'p7-02-builtin-fixtures-v1',declared_before_execution:true,source:'vcp-original',license:'Apache-2.0',case_count:42,required_contract_pass_rate_bps:10000,model_calls:0,live_quality:'not_run',cases},null,2)+'\n');
+// v1 stays frozen in manifest.json for historical runners; v2 is a new file.
+fs.writeFileSync(path.join(root,'manifest-v2.json'),JSON.stringify({schema_version:1,revision:'p7-02-builtin-fixtures-v2',declared_before_execution:true,source:'vcp-original',license:'Apache-2.0',case_count:42,required_contract_pass_rate_bps:10000,model_calls:0,live_quality:'not_run',cases},null,2)+'\n');
 process.stdout.write(JSON.stringify({families:Object.keys(pairs).length,cases:cases.length,project_files:cases.reduce((n,c)=>n+c.expected.preserve_files.length,0)})+'\n');

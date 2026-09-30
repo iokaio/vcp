@@ -747,9 +747,9 @@ Docs drift:
 
 | Item | Dependency | Deliverable | State |
 |---|---|---|---|
-| SH-00 | Owner direction | This review, ADR-071 and the SH ledger | in review |
+| SH-00 | Owner direction | This review, ADR-071 and the SH ledger | complete; [PR #248](https://github.com/iokaio/vcp/pull/248) merged |
 | SH-01 | SH-02 | Ubuntu Rust CI job | planned |
-| SH-02 | None | Fixture v2 revision and shared marker source | planned |
+| SH-02 | None | Fixture v2 revision and shared marker source | in review |
 | SH-03 | None | Discovery robustness and resolution fixes | planned |
 | SH-04 | SH-00 | `reference` role, `vcp_skill read`, scoped tool, resource manifest | planned |
 | SH-05 | None | Runtime performance caching | planned |

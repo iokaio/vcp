@@ -6,7 +6,7 @@ use vcp_domain::{Revision, RootId, WorkspaceId};
 use vcp_extensions::{activation, catalog, discovery, skill_manifest::*};
 use vcp_repository::{Root, RootIdentity};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-const FIXTURE: &[u8] = include_bytes!("../../../evals/skills/builtin/manifest.json");
+const FIXTURE: &[u8] = include_bytes!("../../../evals/skills/builtin/manifest-v2.json");
 fn identity(root: &str) -> RootIdentity {
     RootIdentity {
         workspace: WorkspaceId::new(),
@@ -104,7 +104,8 @@ fn run_case(
         "project_files":after,"command_execution":"not_run","behavior_rubric":"not_graded","live_quality":"not_run"}),
     )
 }
-fn main() -> Result<()> {
+/// Runs every frozen case and returns the report; `pass` is the contract result.
+pub fn evaluate() -> Result<Value> {
     let declared: Value = serde_json::from_slice(FIXTURE)?;
     let cases = declared["cases"]
         .as_array()
@@ -162,6 +163,12 @@ fn main() -> Result<()> {
         "No compiler, package manager, Git index mutation, database, or external service was invoked.",
         "Read costs include separate catalog integrity metadata, normal discovery and activation dependency revalidation.",
         "Project cue and fixture-preservation reads are not included in catalog counters."]});
+    Ok(report)
+}
+#[allow(dead_code)]
+fn main() -> Result<()> {
+    let report = evaluate()?;
+    let pass = report["pass"] == true;
     let output = std::env::args_os()
         .nth(1)
         .ok_or("new report path required")?;

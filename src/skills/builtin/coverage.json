@@ -13,7 +13,7 @@
       "live_quality": "not_run",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "generic_suggestion",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "architecture-normal-v1",
@@ -51,7 +51,7 @@
       "live_quality": "not_run",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "generic_suggestion",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "review-debug-normal-v1",
@@ -89,7 +89,7 @@
       "live_quality": "not_run",
       "validated_host_toolchains": [],
       "conditional_execution_prerequisites": [],
-      "selection": "generic_suggestion",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "testing-normal-v1",
@@ -129,7 +129,7 @@
       "conditional_execution_prerequisites": [
         "git"
       ],
-      "selection": "generic_suggestion",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "git-workflow-normal-v1",
@@ -229,7 +229,7 @@
           "kind": "negative_or_missing_tool",
           "setup": "requirements-only or invalid copied virtual environment",
           "expected": [
-            "Require explicit activation if current root cues do not match",
+            "Treat requirements.txt as a Python cue without inferring a working environment",
             "Do not execute an unrelated global interpreter as equivalent validation"
           ],
           "path": "src/evals/skills/builtin/projects/python-negative-v1",
@@ -348,14 +348,14 @@
           "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
         },
         {
-          "id": "jvm-negative-v1",
+          "id": "jvm-negative-v2",
           "kind": "negative_or_missing_tool",
-          "setup": "Missing wrapper distribution or JDK; Kotlin-only root cue absent",
+          "setup": "Missing wrapper distribution or JDK in a Kotlin-DSL-only root",
           "expected": [
-            "Report explicit-selection and prerequisite limits",
+            "Report missing wrapper and JDK prerequisites as not run",
             "Do not silently substitute a global build tool"
           ],
-          "path": "src/evals/skills/builtin/projects/jvm-negative-v1",
+          "path": "src/evals/skills/builtin/projects/jvm-negative-v2",
           "expectations_kind": "predeclared_behavior_rubric_not_observed_result"
         }
       ]
@@ -639,7 +639,7 @@
           "kind": "negative_or_missing_tool",
           "setup": "Bash-only script without compatible shell on Windows",
           "expected": [
-            "Require explicit selection and report not-run execution",
+            "Report the missing compatible shell as not-run execution",
             "Do not translate shell semantics implicitly"
           ],
           "path": "src/evals/skills/builtin/projects/shell-negative-v1",
@@ -783,7 +783,7 @@
       "conditional_execution_prerequisites": [
         "existing local optimize/report controls"
       ],
-      "selection": "generic_suggestion",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "project-optimize-normal-v1",
@@ -823,7 +823,7 @@
       "conditional_execution_prerequisites": [
         "existing governed memory/history/prune controls"
       ],
-      "selection": "generic_suggestion",
+      "selection": "description_discovery",
       "fixtures": [
         {
           "id": "memory-hygiene-normal-v1",
@@ -991,6 +991,7 @@
     "Frozen fixture expectations are not observed model behavior; actual results are stored outside shipped assets.",
     "No language/toolchain execution or live model qualification performed.",
     "Empty environments allows analysis guidance; it does not qualify runtime execution on another host.",
-    "Cue-less packages are listed by description in bounded discovery context; listing never activates a skill or grants tools. Marker cues are observed at the workspace root only."
+    "Cue-less packages are listed by description in bounded discovery context; listing never activates a skill or grants tools. Marker cues are observed at the workspace root only.",
+    "Historical P7-02 toolchain and live evidence applied to the 1.x bodies of that time; it does not carry forward to later rewritten bodies."
   ]
 }

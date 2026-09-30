@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "description": "Host-observed project cues (vcp-lifecycle actual_match_context). Root files named here become cues of the same name; ordinary root files with these extensions become *.ext cues. Rust constants and the builtin fixture author must match this file.",
+  "root_markers": [
+    "Cargo.toml",
+    "package.json",
+    "pyproject.toml",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "CMakeLists.txt",
+    "Gemfile",
+    "composer.json",
+    "pubspec.yaml",
+    "Package.swift",
+    "global.json",
+    "build.gradle.kts",
+    "settings.gradle",
+    "settings.gradle.kts",
+    "requirements.txt",
+    "setup.py",
+    "Pipfile",
+    "deno.json",
+    "deno.jsonc",
+    "go.work"
+  ],
+  "root_pattern_extensions": [
+    "sln",
+    "slnx",
+    "csproj",
+    "fsproj"
+  ]
+}
