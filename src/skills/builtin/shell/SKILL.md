@@ -1,6 +1,6 @@
 # Shell scripts and command boundaries
 
-Original VCP guidance. This package supplies instructions, not a tool executor or authority.
+Original VCP guidance.
 
 ## Inspect first
 
@@ -12,7 +12,7 @@ Original VCP guidance. This package supplies instructions, not a tool executor o
 
 ## Establish the interpreter
 
-Inspect the script's declared interpreter, repository instructions, shell options, call sites, and test/lint configuration. Determine Bash, POSIX shell, PowerShell, or another actual contract; these languages and their error rules are not interchangeable. Current automatic root cues do not identify shell-only projects, so select this skill explicitly.
+Inspect the script's declared interpreter, repository instructions, shell options, call sites, and test/lint configuration. Determine Bash, POSIX shell, PowerShell, or another actual contract; these languages and their error rules are not interchangeable. This skill is always listed by its description rather than detected from root files.
 
 Trace each input into arguments, expansions, redirections and filesystem operations. Preserve spaces, Unicode and metacharacters as data. Check pipeline failure propagation, cleanup traps/finally blocks, temporary-path ownership and the distinction between an exit code and a partial side effect.
 
