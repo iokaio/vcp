@@ -67,7 +67,8 @@ references are removed, because Excel reports a chain listing a non-formula cell
 as corruption. The summary lists changed and removed parts; every other part is
 copied byte-for-byte. Text is written as inline strings; new cells take the default
 style unless a number format is given; dates in cells without a date format get
-`yyyy-mm-dd` (`yyyy-mm-dd h:mm:ss` for datetimes). Edits are
+`yyyy-mm-dd` (`yyyy-mm-dd h:mm:ss` for datetimes). Adding a first custom number
+format expands an existing empty format container and preserves unrelated styles. Edits are
 refused for table header/totals rows, non-anchor merged cells, shared or array
 formula anchors, and package XML that is prefixed or not UTF-8.
 
@@ -137,9 +138,10 @@ workbook, worksheets, shared strings, styles, themes, core/app/custom document
 properties, `calcChain.xml`, tables, printer settings and `docProps/thumbnail`
 images (opaque, never parsed), custom XML items and their relationships, and
 comments: legacy `commentsN.xml`, threaded comments, `persons/person.xml` and the
-comment VML drawing. VML is often not well-formed XML, so it is kept opaque and
-accepted only when every shape is a comment note; VML with form controls,
-formulas, images or OLE objects is refused. These parts are copied byte-for-byte
+comment VML drawing. VML must be well-formed XML without a DTD; every shape must
+contain an actual comment-note declaration. Malformed VML, other drawing shapes,
+form controls, formulas, images, hyperlinks and OLE objects are refused. Validation
+does not rewrite the drawing. These parts are copied byte-for-byte
 by `edit` and must be unchanged after `recalculate`. `xl/metadata.xml` is refused:
 Excel writes it for dynamic-array formulas and linked data types, whose array
 formulas and rich-value parts are outside this subset, so admitting the part alone

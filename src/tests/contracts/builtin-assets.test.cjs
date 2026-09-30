@@ -107,6 +107,80 @@ test('linked asset directories are rejected without traversing or deleting their
     assert.equal(fs.readFileSync(path.join(outside.root, 'sentinel'), 'utf8'), 'preserve outside');
   } finally { temp.cleanup(); outside.cleanup(); }
 });
+
+test('rehash validates the prospective inventory before writing any metadata', () => {
+  const temp = ownedRoot(os.tmpdir());
+  try {
+    for (const mode of ['body-role', 'resource-role', 'extra', 'descriptor-alias', 'metadata-limit']) {
+      const target = path.join(temp.root, mode);
+      stageAssets(assets, target);
+      const catalogPath = path.join(target, 'catalog.json');
+      const catalog = JSON.parse(fs.readFileSync(catalogPath));
+      const entry = catalog.skills.find(skill => skill.resources.length);
+      const descriptorPath = path.join(target, entry.descriptor);
+      const descriptor = JSON.parse(fs.readFileSync(descriptorPath));
+      if (mode === 'body-role') descriptor.body.use = 'file';
+      if (mode === 'resource-role') descriptor.resources[0].use = 'execute';
+      if (mode === 'extra') fs.writeFileSync(path.join(target, 'unlisted'), 'preserve\n');
+      if (mode === 'descriptor-alias') entry.descriptor = entry.id + '/alias.json';
+      if (mode === 'metadata-limit') {
+        descriptor.description = '';
+        // Compact input fits the read bound; pretty-printed output would exceed it.
+        descriptor.description = 'x'.repeat(1024 * 1024 - Buffer.byteLength(JSON.stringify(descriptor)) - 1);
+      }
+      fs.writeFileSync(mode === 'descriptor-alias' ? path.join(target, entry.descriptor) : descriptorPath,
+        JSON.stringify(descriptor) + '\n');
+      fs.writeFileSync(catalogPath, JSON.stringify(catalog) + '\n');
+      // Force a valid earlier edit too, so an eventual error must preserve all pending writes.
+      fs.appendFileSync(path.join(target, 'rust/SKILL.md'), 'Edited guidance.\n');
+      const metadata = ['catalog.json', catalog.coverage.path, ...catalog.skills.map(skill => skill.descriptor)];
+      const before = metadata.map(relative => fs.readFileSync(path.join(target, relative)));
+      for (const check of [false, true]) {
+        assert.throws(() => rehashAssets(target, { check, requireCheckout: false }),
+          /body must be context|Invalid builtin resource role|unexpected builtin assets|builtin skill identity|byte limit/, mode);
+        assert.deepEqual(metadata.map(relative => fs.readFileSync(path.join(target, relative))), before,
+          mode + ': failed validation must not update metadata');
+      }
+    }
+  } finally { temp.cleanup(); }
+});
+
+test('rehash rejects linked package parents before updating outside descriptors', () => {
+  const temp = ownedRoot(os.tmpdir()), outside = ownedRoot(os.tmpdir());
+  try {
+    const target = path.join(temp.root, 'assets');
+    stageAssets(assets, target);
+    const packagePath = path.join(target, 'rust');
+    fs.renameSync(packagePath, path.join(outside.root, 'rust'));
+    fs.symlinkSync(path.join(outside.root, 'rust'), packagePath, process.platform === 'win32' ? 'junction' : 'dir');
+    fs.appendFileSync(path.join(outside.root, 'rust/SKILL.md'), 'Edited outside guidance.\n');
+    const descriptorPath = path.join(outside.root, 'rust/skill.json');
+    const before = fs.readFileSync(descriptorPath);
+    for (const check of [false, true]) {
+      assert.throws(() => rehashAssets(target, { check, requireCheckout: false }), /Linked asset/);
+      assert.deepEqual(fs.readFileSync(descriptorPath), before);
+    }
+  } finally { temp.cleanup(); outside.cleanup(); }
+});
+
+test('rehash rejects an ordinary selected root below a linked checkout ancestor', () => {
+  const temp = ownedRoot(os.tmpdir()), outside = ownedRoot(os.tmpdir());
+  try {
+    const installed = path.join(outside.root, 'installed-assets');
+    stageAssets(assets, installed);
+    fs.mkdirSync(path.join(temp.root, '.git'));
+    fs.symlinkSync(outside.root, path.join(temp.root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    const selected = path.join(temp.root, 'linked', 'installed-assets');
+    assert.equal(fs.lstatSync(selected).isSymbolicLink(), false);
+    fs.appendFileSync(path.join(installed, 'rust/SKILL.md'), 'Edited installed guidance.\n');
+    const metadata = ['catalog.json', 'coverage.json', 'rust/skill.json'];
+    const before = metadata.map(relative => fs.readFileSync(path.join(installed, relative)));
+    for (const check of [false, true]) {
+      assert.throws(() => rehashAssets(selected, { check }), /Linked asset ancestors/);
+      assert.deepEqual(metadata.map(relative => fs.readFileSync(path.join(installed, relative))), before);
+    }
+  } finally { temp.cleanup(); outside.cleanup(); }
+});
 test('archive asset paths reject traversal, aliases, rooted paths and Windows device names', () => {
   for (const relative of ['../escape', '/root', 'C:/root', 'a\\b', 'a//b', 'a/./b', 'NUL.txt', 'a/COM1', 'a/trailing.', 'a/trailing ']) {
     assert.throws(() => portable(relative), /portable asset path/);

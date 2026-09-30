@@ -236,6 +236,34 @@ class SpreadsheetWorkflows(unittest.TestCase):
         self.assertEqual(edited["Data"]["B1"].value, 2)
         self.assertEqual(edited["Untouched"]["B2"].value, "preserve this sheet")
 
+    def test_edit_adds_first_custom_format_to_empty_style_container(self):
+        from defusedxml.ElementTree import fromstring
+
+        book = openpyxl.Workbook()
+        book.active.title = "Data"
+        book.active["A1"] = 12.5
+        book.active["B1"] = "preserve me"
+        book.active["B1"].font = Font(bold=True)
+        book.save(self.root / "original.xlsx")
+        original = (self.root / "original.xlsx").read_bytes()
+        source = zip_parts(self.root / "original.xlsx")
+        self.assertRegex(source["xl/styles.xml"], rb'<numFmts count="0"\s*/>')
+        self.write_spec({"A1": {"type": "number", "value": 13.25, "number_format": "0.000000"},
+                         "A2": {"type": "date", "value": "2026-09-30"}})
+        self.run_helper("edit", "--input", "original.xlsx", "--changes", "spec.json", "--output", "edited.xlsx")
+        edited = openpyxl.load_workbook(self.root / "edited.xlsx")["Data"]
+        self.assertEqual((edited["A1"].value, edited["A1"].number_format), (13.25, "0.000000"))
+        self.assertEqual(edited["A2"].value, datetime(2026, 9, 30))
+        self.assertEqual(edited["B1"].value, "preserve me")
+        self.assertTrue(edited["B1"].font.bold)
+        output = zip_parts(self.root / "edited.xlsx")
+        containers = fromstring(output["xl/styles.xml"]).findall(f"{{{MAIN}}}numFmts")
+        self.assertEqual(len(containers), 1)
+        self.assertEqual(int(containers[0].get("count")), len(containers[0]))
+        for name in source.keys() - {"xl/styles.xml", "xl/worksheets/sheet1.xml"}:
+            self.assertEqual(source[name], output[name], name)
+        self.assertEqual((self.root / "original.xlsx").read_bytes(), original)
+
     def test_independent_writer_cache_is_returned_as_unverified(self):
         with xlsxwriter.Workbook(self.root / "cached.xlsx") as book:
             sheet = book.add_worksheet("Data")
@@ -879,6 +907,32 @@ class SpreadsheetWorkflows(unittest.TestCase):
                 failure = self.run_helper("edit", "--input", f"{label}.xlsx", "--changes", "spec.json", "--output", "denied.xlsx", success=False)
                 self.assertIn(message, failure["message"])
                 self.assertFalse((self.root / "denied.xlsx").exists())
+
+    def test_vml_requires_actual_comment_notes_for_every_shape(self):
+        source = excel365_workbook(self.root / "notes.xlsx")
+        drawing = "xl/drawings/vmlDrawing1.vml"
+        original = source[drawing]
+        cases = {
+            "comment_spoof": original.replace(b'ObjectType="Note"', b'').replace(b'</xml>', b'<!-- ObjectType="Note" --></xml>'),
+            "extra_shape": original.replace(b'</xml>', b'<v:shape id="untyped"/></xml>'),
+            "extra_rectangle": original.replace(b'</xml>', b'<v:rect id="unsupported"/></xml>'),
+            "linked_note": original.replace(b'<v:shape ', b'<v:shape href="https://invalid.example/" ', 1),
+            "image_fill": original.replace(b'<v:fill ', b'<v:fill src="https://invalid.example/image" ', 1),
+            "image_relationship": original.replace(b'<v:fill ',
+                                                    f'<v:fill xmlns:r="{REL}" r:id="rId1" '.encode(), 1),
+            "malformed": original.replace(b'</v:shape>', b''),
+            "doctype": b'<!DOCTYPE xml [<!ENTITY marker "value">]>' + original,
+        }
+        for label, drawing_bytes in cases.items():
+            with self.subTest(case=label):
+                parts = dict(source)
+                parts[drawing] = drawing_bytes
+                write_parts(self.root / f"{label}.xlsx", parts)
+                before = (self.root / f"{label}.xlsx").read_bytes()
+                failure = self.run_helper("sheets", "--input", f"{label}.xlsx", "--output", f"{label}.json", success=False)
+                self.assertIn("comment notes", failure["message"])
+                self.assertFalse((self.root / f"{label}.json").exists())
+                self.assertEqual((self.root / f"{label}.xlsx").read_bytes(), before)
 
     def test_missing_dependencies_are_unavailable(self):
         result = self.run_helper("create", "--input", "spec.json", "--output", "new.xlsx", success=False, isolated=True)

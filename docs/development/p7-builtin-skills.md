@@ -60,6 +60,13 @@ canonical read policy still apply. Configured workspace and user sources retain
 precedence. Only an available default source consumes a source slot; a bare
 binary can retain the existing 32-source configuration limit.
 
+A configured optional user source whose directory is missing reports
+`source_unavailable` without preventing discovery from other sources. Restore the
+directory and configure skills again to include it. Missing workspace sources,
+configured shipped assets and read-authority failures still stop discovery.
+Task-local disables apply before source precedence, so disabling an override
+allows an enabled lower-priority copy to appear in discovery.
+
 `vcp skills list` and `/skills list` expose descriptors, setup diagnostics and
 integrity read costs. Missing sidecar assets report `builtin_assets_missing` in
 offline inspection and `builtin_source_unavailable` through the interactive host;
@@ -87,6 +94,12 @@ inventory. Its result records the final ZIP digest. It does not establish that a
 arbitrary supplied executable was built from current source; native smoke tests
 must exercise those exact staged bytes. The existing `scripts/build.ps1` remains
 an upstream baseline builder and is not a VCP installer.
+
+For source edits, `node scripts/skills/builtin-assets.cjs rehash src/skills/builtin`
+validates the complete proposed inventory before updating metadata. Invalid roles,
+unexpected files, descriptor aliases and linked directories (including ancestors
+of the selected root) are rejected before writing. `--check` applies the same
+validation and reports stale hashes without writing.
 
 ## Qualification boundaries
 

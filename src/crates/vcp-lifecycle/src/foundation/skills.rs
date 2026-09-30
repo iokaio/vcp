@@ -31,7 +31,16 @@ pub fn check_source_read_access(
     config: &Config,
     source: &SkillSource,
 ) -> Result<vcp_repository::Root, String> {
-    let check = || -> Result<vcp_repository::Root, Box<dyn std::error::Error + Send + Sync>> {
+    check_source_access(state, config, source, false)?
+        .ok_or_else(|| "skill source unavailable".into())
+}
+fn check_source_access(
+    state: &State,
+    config: &Config,
+    source: &SkillSource,
+    allow_missing: bool,
+) -> Result<Option<vcp_repository::Root>, String> {
+    let check = || -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
         if (source.id == vcp_extensions::catalog::SOURCE_ID
             || source.root.root.as_str() == vcp_extensions::catalog::ROOT_ID)
             && (source.id != vcp_extensions::catalog::SOURCE_ID
@@ -70,7 +79,18 @@ pub fn check_source_read_access(
         if denied(&source.root.root) {
             return Err("trusted read denial prevents skill discovery".into());
         }
-        let root = vcp_repository::Root::open(source.root.clone(), &source.path)?;
+        let root = match vcp_repository::Root::open(source.root.clone(), &source.path) {
+            Ok(root) => root,
+            Err(vcp_repository::Error::Io(error))
+                if allow_missing
+                    && source.kind == SourceKind::User
+                    && source.id != vcp_extensions::catalog::SOURCE_ID
+                    && error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        };
         let workspace_root = vcp_repository::Root::open(
             vcp_repository::RootIdentity {
                 workspace: workspace.id.clone(),
@@ -91,9 +111,63 @@ pub fn check_source_read_access(
                 "trusted read denial prevents skill discovery through workspace root alias".into(),
             );
         }
-        Ok(root)
+        Ok(Some(root))
     };
     check().map_err(|error| error.to_string())
+}
+/// Missing optional user roots are source diagnostics. Authorization failures and
+/// missing shipped assets remain fatal. Exclude missing roots from discovery
+/// so a concurrently created directory cannot bypass the access check.
+pub fn discover_authorized(
+    state: &State,
+    config: &Config,
+    registry: &SourceRegistry,
+    limits: &Limits,
+) -> Result<
+    (
+        vcp_extensions::discovery::Catalog,
+        Option<vcp_extensions::catalog::Verification>,
+        std::collections::BTreeSet<String>,
+    ),
+    String,
+> {
+    let digest = registry.digest().map_err(|error| error.to_string())?;
+    let mut available = registry.clone();
+    let mut missing = Vec::new();
+    let mut missing_sources = std::collections::BTreeSet::new();
+    let mut integrity = None;
+    for source in registry.sources.iter().filter(|source| source.enabled) {
+        match check_source_access(state, config, source, true)? {
+            Some(root) if source.id == vcp_extensions::catalog::SOURCE_ID => {
+                integrity = Some(
+                    vcp_extensions::catalog::verify(&root).map_err(|error| error.to_string())?,
+                );
+            }
+            Some(_) => {}
+            None => {
+                missing_sources.insert(source.id.clone());
+                available
+                    .sources
+                    .retain(|candidate| candidate.id != source.id);
+                missing.push(vcp_extensions::discovery::Diagnostic {
+                    source_id: source.id.clone(),
+                    path: String::new(),
+                    code: "source_unavailable".into(),
+                    message: "Optional skill source directory does not exist; configure skills again after restoring it.".into(),
+                });
+            }
+        }
+    }
+    let mut catalog = vcp_extensions::discovery::discover(&available, limits)
+        .map_err(|error| error.to_string())?;
+    // Activation compares against the owner's complete configured registry.
+    catalog.registry_digest = digest;
+    catalog.diagnostics.extend(missing);
+    if let Some(verified) = &integrity {
+        vcp_extensions::catalog::verify_discovery(verified, &catalog)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok((catalog, integrity, missing_sources))
 }
 /// Root files whose presence becomes a cue of the same name.
 pub const ROOT_MARKERS: [&str; 22] = [

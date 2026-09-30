@@ -35,8 +35,8 @@ PART = re.compile(r"(?:\[Content_Types\]\.xml|_rels/\.rels|docProps/(?:app|core|
                   r"|xl/tables/table[0-9]+\.xml|xl/printerSettings/printerSettings[0-9]+\.bin"
                   r"|xl/comments[0-9]+\.xml|xl/drawings/vmlDrawing[0-9]+\.vml|xl/threadedComments/threadedComment[0-9]+\.xml|xl/persons/person\.xml"
                   r"|customXml/(?:item|itemProps)[0-9]+\.xml|customXml/_rels/item[0-9]+\.xml\.rels)\Z")
-# Opaque parts are never parsed or changed. Legacy VML is often not well-formed XML;
-# it is admitted only when every shape is a comment note (see vml_notes_only).
+# Binary parts are never parsed or changed. VML is validated as comment notes only,
+# then preserved byte-for-byte rather than rewritten (see vml_notes_only).
 BINARY_PART = re.compile(r"(?:xl/printerSettings/printerSettings[0-9]+\.bin|docProps/thumbnail\.(?:jpeg|png|emf|wmf)|xl/drawings/vmlDrawing[0-9]+\.vml)\Z")
 EXTENSION_PARTS = {"xl/styles.xml", "xl/workbook.xml"}
 RESERVED_NAMES = {"_xlnm.Print_Area", "_xlnm.Print_Titles", "_xlnm._FilterDatabase"}
@@ -164,10 +164,36 @@ def part_contents(data):
 
 
 def vml_notes_only(content):
+    from defusedxml.common import DefusedXmlException
+    from defusedxml.ElementTree import ParseError, fromstring
+
     # Excel stores comment boxes as VML shapes with ObjectType "Note"; the same format
     # also carries legacy form controls and header images, which remain unsupported.
-    kinds = re.findall(rb"\bObjectType\s*=\s*[\"']([^\"']*)[\"']", content)
-    return bool(kinds) and all(kind == b"Note" for kind in kinds) and not re.search(rb"<(?:\w+:)?(?:Fmla\w*|imagedata|OLEObject)\b", content, re.I)
+    # Lexical matches are insufficient: a comment can spoof ObjectType, and one
+    # real note must not grant access to every other shape in the drawing.
+    try:
+        root = fromstring(content, forbid_dtd=True)
+    except (ParseError, DefusedXmlException):
+        return False
+    vml = "urn:schemas-microsoft-com:vml"
+    client_tag = "{urn:schemas-microsoft-com:office:excel}ClientData"
+    shapes, notes = [], []
+    other_shapes = {"arc", "curve", "group", "image", "line", "oval", "polyline", "rect", "roundrect"}
+    for node in root.iter():
+        tag = local_name(node.tag).lower()
+        if (tag.startswith("fmla") or tag in {"imagedata", "oleobject"} or tag in other_shapes
+                or any(local_name(name).lower() in {"href", "src", "relid"}
+                       or name.startswith(f"{{{OFFICE_REL}}}") for name in node.attrib)):
+            return False
+        if tag == "shape":
+            if node.tag != f"{{{vml}}}shape":
+                return False
+            declarations = node.findall(client_tag)
+            if len(declarations) != 1 or declarations[0].get("ObjectType") != "Note":
+                return False
+            shapes.append(node)
+            notes.append(declarations[0])
+    return bool(shapes) and set(root.iter(client_tag)) == set(notes)
 
 
 def validate_archive(data):
@@ -178,7 +204,7 @@ def validate_archive(data):
         if BINARY_PART.fullmatch(name):
             if name.endswith(".vml") and not vml_notes_only(content):
                 raise WorkflowError(f"{name} holds legacy drawing shapes other than comment notes; preserve it with another tool")
-            continue  # Printer settings, thumbnails and comment VML are opaque, preserved unchanged.
+            continue  # Printer settings, thumbnails and validated comment VML are preserved unchanged.
         element = fromstring(content)
         for node in element.iter():
             tag = local_name(node.tag)
@@ -748,11 +774,11 @@ class Styles:
         if identifier is None:
             identifier = max([163, *self.used_ids]) + 1
             entry = f'<numFmt numFmtId="{identifier}" formatCode="{escape_attribute(code)}"/>'
-            existing = re.search(r"<numFmts\b([^>]*)>(.*?)</numFmts>", self.text, re.S)
+            existing = re.search(r"<numFmts\b([^>]*?)(?:\s*/>|>(.*?)</numFmts>)", self.text, re.S)
             if existing:
                 count = str(len(self.custom) + 1)
                 self.text = (self.text[:existing.start()] + f"<numFmts{set_attribute(existing.group(1), 'count', count)}>"
-                             + existing.group(2) + entry + "</numFmts>" + self.text[existing.end():])
+                             + (existing.group(2) or "") + entry + "</numFmts>" + self.text[existing.end():])
             else:
                 opening = re.search(r"<styleSheet\b[^>]*>", self.text)
                 self.text = self.text[:opening.end()] + f'<numFmts count="1">{entry}</numFmts>' + self.text[opening.end():]

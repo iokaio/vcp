@@ -2186,6 +2186,12 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     let server = MockServer::start().await;
     let mut fixture = Fixture::new(&server.uri(), "budget");
     let assets = fixture.package(true);
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["skills"] = json!({"version":1,"revision":"0","sources":[{
+        "id":"missing-optional","kind":"user","enabled":true,
+        "root_id":vcp_domain::RootId::new(),"path":fixture._temp.path().join("missing-skills"),
+    }]});
+    fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
     let output = fixture
         .run(&[
             "run",
@@ -2225,6 +2231,12 @@ async fn executable_packaged_skills_are_relocatable_lazy_and_integrity_checked()
     assert_eq!(data["reads"]["bodies"], 0);
     assert_eq!(data["reads"]["resources"], 0);
     assert!(!data["integrity"].is_null());
+    assert!(data["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|diagnostic| diagnostic["source_id"] == "missing-optional"
+            && diagnostic["code"] == "source_unavailable"));
     assert!(data["skills"]
         .as_array()
         .unwrap()

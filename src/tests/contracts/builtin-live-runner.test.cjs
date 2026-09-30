@@ -59,7 +59,10 @@ test('unknown first-run liability stops dispatch, retains denominator and preven
 });
 test('unsafe provider profiles are rejected without creating trial state',t=>{
   const f=setup(t);f.profile.processes=[{name:'unauthorized'}];fs.writeFileSync(f.profileFile,JSON.stringify(f.profile));
+  fs.unlinkSync(path.join(f.root,'skills/builtin/catalog.json'));
   assert.throws(f.prepare,/external tools/);assert.equal(fs.existsSync(path.join(f.root,'trial')),false);
+  f.profile.processes=[];fs.writeFileSync(f.profileFile,JSON.stringify(f.profile));
+  assert.throws(f.prepare,/Exact current packaged skill assets/);assert.equal(fs.existsSync(path.join(f.root,'trial')),false);
 });
 
 test('P7 coding bounds are independent of frozen P6 and reject invalid capacity before preparation',t=>{

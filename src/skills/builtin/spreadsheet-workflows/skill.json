@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "spreadsheet-workflows",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Inspect, create, edit, recalculate and convert to or from CSV a bounded XLSX subset while preserving cell types, formulas and original files. Use when a task reads, creates or changes an Excel workbook, or moves typed data between CSV and XLSX.",
   "source": "vcp-original",
   "license": "Apache-2.0",
@@ -29,7 +29,7 @@
     },
     {
       "path": "references/tooling.md",
-      "sha256": "c2df870aac584729b2581c1e1d01cec10b93d6ce7f2229509654836c4a812341"
+      "sha256": "56e372eb1b819a637623951233b296e19a5a58857215c686b70f9cd40efe8477"
     },
     {
       "path": "requirements.txt",
@@ -38,7 +38,7 @@
     },
     {
       "path": "scripts/spreadsheet_workflows.py",
-      "sha256": "5d2e350b053cb5f9dc3d2ad61ffde72516e3a3c0132bd5d2ff9d01907a2b6f68",
+      "sha256": "b5e2fa00c698233fef596d8c6d20cf1b77ba890852a4f263f2c300d292b96ce9",
       "use": "file"
     }
   ]

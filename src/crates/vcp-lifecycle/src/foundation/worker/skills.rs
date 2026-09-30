@@ -18,6 +18,7 @@ pub(super) struct Runtime {
     configuration: Configuration,
     catalog: Catalog,
     integrity: std::cell::RefCell<Option<vcp_extensions::catalog::Verification>>,
+    missing_sources: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -188,18 +189,19 @@ impl Context {
         &self,
         registry: &SourceRegistry,
         limits: &discovery::Limits,
-    ) -> Result<(Catalog, Option<vcp_extensions::catalog::Verification>)> {
-        let mut integrity = None;
-        for source in registry.sources.iter().filter(|source| source.enabled) {
-            let root = self.skill_source_access(source)?;
-            if source.id == vcp_extensions::catalog::SOURCE_ID {
-                integrity = Some(vcp_extensions::catalog::verify(&root)?);
-            }
-        }
-        let mut catalog = discovery::discover(registry, limits)?;
-        if let Some(verified) = &integrity {
-            vcp_extensions::catalog::verify_discovery(verified, &catalog)?;
-        } else if !registry
+    ) -> Result<(
+        Catalog,
+        Option<vcp_extensions::catalog::Verification>,
+        BTreeSet<String>,
+    )> {
+        let (mut catalog, integrity, missing_sources) =
+            crate::foundation::skills::discover_authorized(
+                self.engine.store().state(),
+                &self.config,
+                registry,
+                limits,
+            )?;
+        if !registry
             .sources
             .iter()
             .any(|source| source.id == vcp_extensions::catalog::SOURCE_ID)
@@ -210,7 +212,7 @@ impl Context {
                 message: "Bundled skill source is not registered; packaged assets may be missing (for example a bare development binary).".into(),
             });
         }
-        Ok((catalog, integrity))
+        Ok((catalog, integrity, missing_sources))
     }
     fn validate_builtin_skills(&self) -> Result<()> {
         let Some(runtime) = &self.skills else {
@@ -256,11 +258,8 @@ impl Context {
             return Err("skill inspection requires current owner".into());
         }
         registry.validate()?;
-        for source in registry.sources.iter().filter(|source| source.enabled) {
-            self.skill_source_access(source)?;
-        }
         let context = self.skill_match_task_context(&self.config.root_task)?;
-        let (catalog, integrity) =
+        let (catalog, integrity, _) =
             self.discover_skills(&registry, &discovery::Limits::default())?;
         Ok(serde_json::json!({"catalog":catalog,"context":context,"integrity":integrity}))
     }
@@ -349,11 +348,8 @@ impl Context {
             {
                 return Err("skill source differs from current workspace binding".into());
             }
-            if source.enabled {
-                self.skill_source_access(source)?;
-            }
         }
-        let (catalog, integrity) =
+        let (catalog, integrity, missing_sources) =
             self.discover_skills(&configuration.registry, &configuration.limits)?;
         let scope = Scope {
             workspace: self.config.workspace.clone(),
@@ -372,6 +368,7 @@ impl Context {
             configuration,
             catalog,
             integrity: std::cell::RefCell::new(integrity),
+            missing_sources,
         });
         Ok(())
     }
@@ -467,7 +464,9 @@ impl Context {
                         .registry
                         .sources
                         .iter()
-                        .filter(|source| source.enabled)
+                        .filter(|source| {
+                            source.enabled && !runtime.missing_sources.contains(&source.id)
+                        })
                     {
                         self.skill_source_access(source)?;
                     }
@@ -626,7 +625,7 @@ impl Context {
                 .registry
                 .sources
                 .iter()
-                .filter(|source| source.enabled)
+                .filter(|source| source.enabled && !runtime.missing_sources.contains(&source.id))
             {
                 self.skill_source_access(source)?;
             }
@@ -920,7 +919,9 @@ impl Context {
                 Some(matches) => matches,
                 None => self.skill_match_context(binding)?,
             };
-            let mut matching = runtime.catalog.matching(&matches)?;
+            let mut matching = runtime
+                .catalog
+                .matching_with_disabled(&matches, &state.disabled)?;
             // Cue-matched skills first, then cue-less ones, higher precedence
             // first, so unrelated sources cannot push relevant skills past the bound.
             matching.sort_by(|a, b| {
@@ -939,11 +940,7 @@ impl Context {
                 .count();
             let mut metadata = Vec::new();
             let mut metadata_bytes = 0usize;
-            for skill in matching
-                .iter()
-                .filter(|skill| !state.disabled.contains(&skill.qualified_id))
-                .take(128)
-            {
+            for skill in matching.iter().take(128) {
                 let item = serde_json::json!({"id":skill.qualified_id,"description":skill.descriptor.description,"required_tools":skill.descriptor.required_tools});
                 let size = canonical_bytes(&item)?.len() + 1;
                 if metadata_bytes + size > 60 * 1024 {

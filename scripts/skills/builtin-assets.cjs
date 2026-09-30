@@ -54,6 +54,9 @@ function inspectAssets(root, expectedCatalog = bounded(path.join(source, 'catalo
   root = path.resolve(root);
   const paths = enumerate(root);
   const catalogBytes = bounded(path.join(root, 'catalog.json'));
+  return inspectContents(paths, catalogBytes, expectedCatalog, relative => bounded(path.join(root, relative)));
+}
+function inspectContents(paths, catalogBytes, expectedCatalog, read) {
   if (!catalogBytes.equals(expectedCatalog)) throw Error('Catalog does not match selected source inventory');
   const catalog = JSON.parse(catalogBytes);
   if (catalog.schema_version !== 1 || typeof catalog.version !== 'string' ||
@@ -91,7 +94,8 @@ function inspectAssets(root, expectedCatalog = bounded(path.join(source, 'catalo
   const captured = new Map();
   let total = 0;
   for (const relative of wanted) {
-    const bytes = bounded(path.join(root, relative));
+    const bytes = read(relative);
+    if (bytes.length > 1024 * 1024) throw Error('Asset byte limit exceeded');
     if (digest(bytes) !== expected.get(relative)) throw Error('Asset hash mismatch: ' + relative);
     if ((total += bytes.length) > 16 * 1024 * 1024) throw Error('Total asset byte limit exceeded');
     captured.set(relative, bytes);
@@ -127,9 +131,13 @@ function stageAssets(root, destination, expectedCatalog) {
   return inventory;
 }
 function insideSourceCheckout(root) {
+  let found = false;
   for (let directory = root; ; directory = path.dirname(directory)) {
-    if (fs.existsSync(path.join(directory, '.git'))) return true;
-    if (path.dirname(directory) === directory) return false;
+    // A selected root can itself be ordinary while a preceding component is
+    // a junction into an installed tree. Inspect lexical ancestors as well.
+    if (fs.lstatSync(directory).isSymbolicLink()) throw Error('Linked asset ancestors are not allowed');
+    if (fs.existsSync(path.join(directory, '.git'))) found = true;
+    if (path.dirname(directory) === directory) return found;
   }
 }
 // Authoring aid: recompute content, descriptor and coverage digests after edits.
@@ -138,7 +146,11 @@ function insideSourceCheckout(root) {
 function rehashAssets(root, { check = false, requireCheckout = true } = {}) {
   root = path.resolve(root);
   // An installed tree must keep matching the catalog embedded in its binary.
-  if (!check && requireCheckout && !insideSourceCheckout(root)) throw Error('rehash writes only inside a source checkout');
+  const inCheckout = insideSourceCheckout(root);
+  if (!check && requireCheckout && !inCheckout) throw Error('rehash writes only inside a source checkout');
+  // Reject linked package parents and unsupported entries before reading content
+  // or constructing writes. Checking only each leaf would follow a junction.
+  const paths = enumerate(root);
   const json = value => JSON.stringify(value, null, 2) + '\n';
   const read = relative => bounded(path.join(root, portable(relative)));
   const catalog = JSON.parse(read('catalog.json'));
@@ -170,6 +182,10 @@ function rehashAssets(root, { check = false, requireCheckout = true } = {}) {
   writes.set(catalog.coverage.path, coverageBytes);
   catalog.coverage.sha256 = digest(coverageBytes);
   writes.set('catalog.json', Buffer.from(json(catalog)));
+  // Validate the complete prospective inventory, including roles, attribution,
+  // aliases and extra files, before either reporting success or changing disk.
+  inspectContents(paths, writes.get('catalog.json'), writes.get('catalog.json'),
+    relative => writes.get(relative) ?? read(relative));
   const changed = [...writes].filter(([relative, bytes]) => !read(relative).equals(bytes)).map(([relative]) => relative);
   if (check) return { changed, warnings };
   for (const relative of changed) fs.writeFileSync(path.join(root, relative), writes.get(relative));
