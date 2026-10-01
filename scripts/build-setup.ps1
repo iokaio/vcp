@@ -49,7 +49,7 @@ $release = $releaseJson | ConvertFrom-Json
 if ($release.candidate_id -cne $native.manifest.release.candidate_id) { throw 'Native release candidate differs from build' }
 $launcherValidation = & $node -e 'const p=require(process.argv[1]);p.peArchitecture(process.argv[2]);const r=p.json(process.argv[3]);const fs=require("node:fs"),path=require("node:path");const rows=fs.readFileSync(path.join(path.dirname(process.argv[3]),"build.log"),"utf8").split(/\r?\n/).filter(x=>x.startsWith("{")).map(x=>JSON.parse(x));if(!rows.some(x=>JSON.stringify(x)===JSON.stringify(r.launcher_compiler_artifact)))throw Error("Launcher compiler artifact absent from build log");' $provenance $Launcher $BuildReceipt
 if ($LASTEXITCODE -ne 0) { throw 'Launcher architecture or compiler evidence rejected' }
-foreach ($relative in @('scripts/build-setup.ps1','scripts/installer/vcp.iss','scripts/installer/shell.ps1','scripts/installer/notices.cjs','scripts/package-install.ps1','release/internal-beta.json')) {
+foreach ($relative in @('scripts/build-setup.ps1','scripts/installer/vcp.iss','scripts/installer/shell.ps1','scripts/installer/notices.cjs','scripts/installer/path-limits.cjs','scripts/package-install.ps1','release/internal-beta.json')) {
     $row = @($receipt.inputs | Where-Object path -CEQ $relative)
     if ($row.Count -ne 1 -or $row[0].sha256 -cne (Hash (Join-Path $repository $relative))) { throw "Setup source differs from reviewed inputs: $relative" }
 }
@@ -86,14 +86,33 @@ $noticesRoot = Join-Path $repository 'release/installer-notices'
 $noticeJson = & $node (Join-Path $PSScriptRoot 'installer/notices.cjs') $noticesRoot (Join-Path $repository 'release/internal-beta.json') $compiler
 if ($LASTEXITCODE -ne 0) { throw 'Setup runtime notice inventory failed' }
 $notices = $noticeJson | ConvertFrom-Json -Depth 20
-Copy-Item -LiteralPath $noticesRoot -Destination (Join-Path $out 'setup-notices') -Recurse
+$setupFiles = Join-Path $out 'setup-files'
+New-Item -ItemType Directory -Path (Join-Path $setupFiles 'maintenance') | Out-Null
+Copy-Item -LiteralPath $Launcher -Destination (Join-Path $setupFiles 'vcp.exe')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'installer/shell.ps1'),(Join-Path $PSScriptRoot 'package-install.ps1') -Destination (Join-Path $setupFiles 'maintenance')
+$stagedNotices = Join-Path $setupFiles 'setup-notices'
+Copy-Item -LiteralPath $noticesRoot -Destination $stagedNotices -Recurse
+$pathLimitsJson = & $node (Join-Path $PSScriptRoot 'installer/path-limits.cjs') $setupFiles
+if ($LASTEXITCODE -ne 0) { throw 'Staged setup path inventory rejected' }
+$pathLimits = $pathLimitsJson | ConvertFrom-Json -Depth 20
+$expectedSetupFiles = @(
+    @{path='vcp.exe';sha256=$receipt.launcher_sha256}
+    @{path='maintenance/shell.ps1';sha256=(Hash (Join-Path $PSScriptRoot 'installer/shell.ps1'))}
+    @{path='maintenance/package-install.ps1';sha256=(Hash (Join-Path $PSScriptRoot 'package-install.ps1'))}
+    @{path='setup-notices/inventory.json';sha256=$notices.inventory_sha256}
+) + @($notices.files | ForEach-Object { @{path=('setup-notices/' + $_.path);sha256=$_.sha256} })
+if ($pathLimits.files.Count -ne $expectedSetupFiles.Count) { throw 'Unexpected staged setup file inventory' }
+foreach ($expected in $expectedSetupFiles) {
+    $actual = @($pathLimits.files | Where-Object path -CEQ $expected.path)
+    if ($actual.Count -ne 1 -or $actual[0].sha256 -cne $expected.sha256) { throw 'Staged setup file differs from its reviewed source' }
+}
 # The script checks the compiler's own encoded Ver. These upstream binaries do
 # not expose a useful Windows ProductVersion resource (reported as 0.0.0.0).
 $compilerFiles = @(Get-ChildItem -LiteralPath $compiler -File -Recurse | Sort-Object FullName | ForEach-Object {
     @{path=$_.FullName.Substring($compiler.Length+1).Replace('\','/');sha256=(Hash (Ordinary-File $_.FullName))}
 })
 $log = Join-Path $out 'setup-build.log'
-$arguments = @('/Q',('/O' + $out),('/DNativeArchive=' + $archive),('/DLauncher=' + $Launcher),('/DProductVersion=' + $channel.native_version),('/DNativeSha256=' + $native.archive_sha256),('/DCandidateId=' + $release.candidate_id),('/DShellSha256=' + (Hash (Join-Path $PSScriptRoot 'installer/shell.ps1'))),('/DEngineScriptSha256=' + (Hash (Join-Path $PSScriptRoot 'package-install.ps1'))),('/DNoticesSha256=' + $notices.inventory_sha256),(Join-Path $PSScriptRoot 'installer/vcp.iss'))
+$arguments = @('/Q',('/O' + $out),('/DNativeArchive=' + $archive),('/DSetupFiles=' + $setupFiles),('/DMaxAppRootLength=' + $pathLimits.max_app_root_utf16),('/DProductVersion=' + $channel.native_version),('/DNativeSha256=' + $native.archive_sha256),('/DCandidateId=' + $release.candidate_id),('/DShellSha256=' + (Hash (Join-Path $PSScriptRoot 'installer/shell.ps1'))),('/DEngineScriptSha256=' + (Hash (Join-Path $PSScriptRoot 'package-install.ps1'))),('/DNoticesSha256=' + $notices.inventory_sha256),(Join-Path $PSScriptRoot 'installer/vcp.iss'))
 & $iscc @arguments *> $log
 if ($LASTEXITCODE -ne 0) { throw "Setup compilation failed; retained $log" }
 $setup = Ordinary-File (Join-Path $out ('vcp-' + $channel.native_version + '-windows-x64-unsigned-setup.exe'))
@@ -101,8 +120,10 @@ $setup = Ordinary-File (Join-Path $out ('vcp-' + $channel.native_version + '-win
 & $node $provenance verify-build $repository $BuildReceipt (Ordinary-File $receipt.executable) $ReviewedCommit | Out-Null
 if ($LASTEXITCODE -ne 0 -or (Hash $archive) -cne $native.archive_sha256 -or (Hash $Launcher) -cne $receipt.launcher_sha256 -or (Hash $CompilerInstaller) -cne $channel.installer.sha256) { throw 'Setup inputs changed during compilation' }
 foreach ($file in $compilerFiles) { if ((Hash (Join-Path $compiler $file.path)) -cne $file.sha256) { throw 'Compiler changed during setup construction' } }
-& $node (Join-Path $PSScriptRoot 'installer/notices.cjs') (Join-Path $out 'setup-notices') (Join-Path $repository 'release/internal-beta.json') $compiler | Out-Null
+& $node (Join-Path $PSScriptRoot 'installer/notices.cjs') $stagedNotices (Join-Path $repository 'release/internal-beta.json') $compiler | Out-Null
 if ($LASTEXITCODE -ne 0 -or (Hash (Join-Path $noticesRoot 'inventory.json')) -cne $notices.inventory_sha256) { throw 'Runtime notice copies changed during setup construction' }
+$afterPaths = & $node (Join-Path $PSScriptRoot 'installer/path-limits.cjs') $setupFiles
+if ($LASTEXITCODE -ne 0 -or ($afterPaths -join "`n") -cne ($pathLimitsJson -join "`n")) { throw 'Staged setup files changed during compilation' }
 $result = [ordered]@{
     schema='vcp-setup-result/1'; status='qualification-required'; candidate_id=$release.candidate_id
     native_archive_sha256=$native.archive_sha256; build_receipt_sha256=(Hash $BuildReceipt); launcher_sha256=$receipt.launcher_sha256
@@ -110,7 +131,7 @@ $result = [ordered]@{
     compiler=@{name='Inno Setup';version=$channel.installer.version;source_commit=$channel.installer.source_commit;installer_sha256=$channel.installer.sha256;files=$compilerFiles}
     source=@{reviewed_commit=$ReviewedCommit;content_sha256=$release.source_content_sha256}
     log_sha256=(Hash $log); signing=@{status='unsigned'}
-    notices=$notices
+    notices=$notices; path_limits=$pathLimits
     limitations=@('Setup compilation is not installed-product qualification.','PowerShell 7 is an explicit prerequisite; no tools or models are downloaded.','Uninstall preserves the separately chosen data directory.','Outer setup lock covers registered integration; inner package lock covers engine lifecycle. Direct expert engine operations do not alter registered integration.')
 }
 $resultPath = Join-Path $out 'setup-result.json'
