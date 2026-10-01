@@ -203,6 +203,10 @@
     {
       "path": "src/third_party/patches/codex/0043-beta-native-version.patch",
       "sha256": "000401657b217474222fbc1d8858b0ded92b871db0702cf783cd43166c5e384e"
+    },
+    {
+      "path": "src/third_party/patches/codex/0044-beta-signed-native-version.patch",
+      "sha256": "42323d1d5505d756cf757ce73e38bf67f88834b6c7756ace2bbfa5dce3886ed9"
     }
   ],
   "licenses": [
