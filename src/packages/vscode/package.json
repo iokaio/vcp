@@ -5,7 +5,7 @@
   "publisher": "iokaio",
   "homepage": "https://downloads.ioka.io",
   "bugs": { "url": "https://github.com/iokaio/vcp/issues" },
-  "categories": ["Other"],
+  "categories": ["AI"],
   "keywords": ["vcp", "local", "agent"],
   "icon": "media/marketplace.png",
   "version": "0.2.2",
