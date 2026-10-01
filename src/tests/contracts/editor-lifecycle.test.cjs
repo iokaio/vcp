@@ -61,18 +61,19 @@ test('initial installed runtime binds final VSIX files and normalizes only root 
   const crypto = require('node:crypto');
   const packageJson = {name: 'vcp-local', version: '0.2.1', main: './dist/extension.js'};
   const payload = new Map([
+    ['.vsixmanifest', '<PackageManifest><Metadata>reviewed container metadata</Metadata></PackageManifest>'],
     ['package.json', JSON.stringify(packageJson, null, 2) + '\n'],
     ['dist/extension.js', 'reviewed runtime'],
     ['dist/engine_connection.js', 'reviewed engine connection'],
     ['node_modules/@vcp/sdk/package.json', '{"version":"0.2.1"}'],
   ]);
-  const manifest = {schema: 'vcp-vsix-package/1', files: [...payload].map(([name, text]) => ({path: 'extension/' + name, bytes: Buffer.byteLength(text), sha256: crypto.createHash('sha256').update(text).digest('hex')}))};
+  const manifest = {schema: 'vcp-vsix-package/1', files: [...payload].map(([name, text]) => ({path: name === '.vsixmanifest' ? 'extension.vsixmanifest' : 'extension/' + name, bytes: Buffer.byteLength(text), sha256: crypto.createHash('sha256').update(text).digest('hex')}))};
   const restore = () => { for (const [name, text] of payload) { fs.mkdirSync(path.dirname(path.join(root, name)), {recursive: true}); fs.writeFileSync(path.join(root, name), text); } };
   restore();
   assert.equal(verifiedInventory(root, manifest).shipped_payload_verified, true);
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({...packageJson, __metadata: {installedTimestamp: 1, targetPlatform: 'win32-x64', isPreReleaseVersion: true}}));
   assert.equal(verifiedInventory(root, manifest).shipped_payload_verified, true);
-  for (const name of ['dist/extension.js', 'dist/engine_connection.js']) {
+  for (const name of ['.vsixmanifest', 'dist/extension.js', 'dist/engine_connection.js']) {
     fs.writeFileSync(path.join(root, name), 'wrong initial installed content');
     assert.throws(() => verifiedInventory(root, manifest), /differs from final VSIX/);
     restore();
@@ -86,6 +87,12 @@ test('initial installed runtime binds final VSIX files and normalizes only root 
   fs.writeFileSync(path.join(root, 'node_modules/@vcp/sdk/package.json'), '{"version":"0.2.1","__metadata":{}}');
   assert.throws(() => verifiedInventory(root, manifest), /differs from final VSIX/);
   restore();
+  const metadata = manifest.files.find(row => row.path === 'extension.vsixmanifest');
+  for (const alias of ['extension/.vsixmanifest', 'extension/.VSIXMANIFEST']) {
+    assert.throws(() => verifiedInventory(root, {...manifest, files: [...manifest.files, {...metadata, path: alias}]}), /Colliding installed VSIX paths/);
+    assert.throws(() => verifiedInventory(root, {...manifest, files: [{...metadata, path: alias}, ...manifest.files]}), /Colliding installed VSIX paths/);
+  }
+  assert.throws(() => verifiedInventory(root, {...manifest, files: manifest.files.filter(row => row !== metadata)}), /Unexpected installed extension file/);
   fs.writeFileSync(path.join(root, 'extra.js'), 'not shipped');
   assert.throws(() => verifiedInventory(root, manifest), /Unexpected installed extension file/);
 });
