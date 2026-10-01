@@ -398,6 +398,29 @@ if (-not $refused) { throw 'Timeout accepted' }
   execFileSync('pwsh',['-NoProfile','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Node',process.execPath,'-Root',f.root],{windowsHide:true,timeout:20000,stdio:'pipe'});
 });
 
+test('Windows candidate PowerShell child invokes absolute native commands with a fixed PATHEXT',{skip:process.platform!=='win32'},t=>{
+  const f=fixture(t);
+  const child=f.file('native-child.ps1',String.raw`param([string]$Node)
+$ErrorActionPreference='Stop'
+& $Node -e 'process.stdout.write(JSON.stringify({extension:process.env.PATHEXT,credential:process.env.VCP_SECRET??null}))'
+if ($LASTEXITCODE -ne 0) { throw 'Native child did not complete successfully' }
+`);
+  const script=f.file('native-parent.ps1',String.raw`param([string]$Helper,[string]$Node,[string]$Child,[string]$Root)
+$ErrorActionPreference='Stop'
+. $Helper
+$env:PATHEXT='.UNSELECTED'
+$env:VCP_SECRET='must-not-enter-candidate'
+$baseline=Invoke-BetaProcess $Node @('-p','process.env.PATHEXT') $Root @{} 10
+if ($baseline.stdout.Trim() -cne '.EXE') { throw 'Child executable-extension baseline differs' }
+$result=Invoke-BetaProcess ([Environment]::ProcessPath) @('-NoProfile','-File',$Child,'-Node',$Node) $Root @{} 10
+$observed=$result.stdout | ConvertFrom-Json
+# PowerShell may augment its own extension list (for example, .CPL). Verify the
+# actual native call and the selected baseline without depending on that detail.
+if ($result.exit_code -ne 0 -or $result.stderr -or $null -ne $observed.credential -or $observed.extension -match 'UNSELECTED' -or '.EXE' -cnotin ($observed.extension -split ';')) { throw 'Scrubbed PowerShell did not invoke the selected native command' }
+`);
+  execFileSync('pwsh',['-NoProfile','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Node',process.execPath,'-Child',child,'-Root',f.root],{windowsHide:true,timeout:15000,stdio:'pipe'});
+});
+
 test('Windows candidate uninstall waits for deferred removal and preserves real leftovers',{skip:process.platform!=='win32'},t=>{
   const f=fixture(t);
   const script=f.file('uninstall-test.ps1',String.raw`param([string]$Helper,[string]$Root)

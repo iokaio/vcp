@@ -9,6 +9,9 @@ function Invoke-BetaProcess([string]$Executable,[string[]]$Arguments,[string]$Di
         $value=[Environment]::GetEnvironmentVariable($name); if ($value) { $info.Environment[$name]=$value }
     }
     $info.Environment['PATH']="$env:SystemRoot\System32;$env:SystemRoot"
+    # PowerShell's native invocation operator requires an executable extension
+    # even for an absolute .exe path. Do not inherit the caller's extension list.
+    $info.Environment['PATHEXT']='.EXE'
     foreach ($entry in $Environment.GetEnumerator()) { $info.Environment[$entry.Key]=$entry.Value }
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
     $capture=Join-Path $Directory ('process-'+[guid]::NewGuid())

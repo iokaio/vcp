@@ -498,6 +498,27 @@ file rename to exceed the Windows path limit. That failure remains recorded in
 The shorter-root observer retry and installer path-limit handling are separate
 observations; no installed-editor pass is claimed by the argument repair.
 
+[PR #317](https://github.com/iokaio/vcp/pull/317) delivered the directory-argument
+repair with successful PR and main Delivery checks. The shorter-root observer
+installed the native candidate and VSIX, then failed because VSCE scanned a
+capture file exclusively held by the runner inside its working directory.
+All three private driver manifests now list only their runtime files; actual
+VSCE packaging reproduced the old locked-file error and passed with exact
+archive inventories and preserved excluded evidence. Secret scanning stays on.
+A separate real PowerShell probe showed that the scrubbed environment omitted
+`PATHEXT`, preventing native invocation even by absolute path. The runner now
+supplies a fixed `.EXE` baseline while retaining credential isolation.
+
+The failed attempt's installation was retired only after matching its recorded
+registration, launcher, engine/data selection, full payload and naturally
+quiescent process tree. The complete retained workspace/data fixture was
+byte-identical after uninstall; original failure evidence remains preserved.
+The retirement pointer is
+`artifacts/beta-delivery/candidate-36824747405-editor-retirement.json`.
+Focused repair evidence is retained under
+`artifacts/beta-delivery/editor-driver-fix/`; a fresh both-store observer retry
+remains separate from these regression and retirement checks.
+
 A separate BETA-08 evidence review found that native qualification's final
 output drain was absent from the console mirror, and private editor runner
 failures exposed only temporary paths in the retained stage log. The collector
