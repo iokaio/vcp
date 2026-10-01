@@ -2,8 +2,9 @@
 
 Started September 30, 2026 from source `b0d84a2df6e5fa7ed3163a3b1920fcf620623213`.
 Contract: [release plan](00-release-plan.md). Decisions: [ADR-072](../adr/072-internal-windows-beta.md).
-The owner's request covers implementation through internal-beta readiness and
-manual-test preparation. Publication and paid execution remain separate gates.
+The original request covers implementation through internal-beta readiness and
+manual-test preparation. Subsequent limited publication authority is recorded
+below; paid execution remains a separate gate.
 The [FR/I/U acceptance map](03-acceptance-map.md) joins current changes and
 historical dispositions without granting final-artifact or owner acceptance.
 
@@ -35,8 +36,24 @@ installation, offline onboarding, installed observer/setup-guide checks on both
 stores, uninstall and retained-file checks passed with no model calls or forced
 process cleanup. The [handoff record](05-manual-candidate.md) identifies exact
 artifacts, local evidence, corrected invocation/provisioning failures and unrun
-rows. Full BETA-09/BETA-11 remain open. Stop implementation here; the next action
-is the owner manual walkthrough, not another qualification infrastructure increment.
+rows. Full BETA-09/BETA-11 remain open. That handoff stopped qualification
+implementation; it did not authorize publication.
+
+## Subsequent publication authorization
+
+The owner explicitly selected GitHub Releases and Pages under
+[ADR-074](../adr/074-github-beta-downloads.md), abandoning the Azure proposal.
+Implement `publish-beta.yml` to select an existing successful candidate attempt
+and exact pair, verify and publish unchanged assets as an unsigned prerelease,
+then deploy the download index. The [publication guide](../development/beta-publication.md)
+records `downloads.ioka.io` setup and the owner's CNAME step. Release publication,
+Pages deployment and HTTPS are **pending**, not observed passes. The owner-created
+CNAME resolves `downloads.ioka.io` to `iokaio.github.io`; GitHub certificate
+validation remains pending.
+GitHub Pages is configured for workflow deployment and that custom domain, with
+the `github-pages` environment restricted to `main`.
+No Azure resources were changed. This bounded BETA-08/BETA-11 follow-up does not
+complete full qualification, authorize paid calls or reopen the deferred patch.
 
 | Item | Status | Implementation and evidence |
 | --- | --- | --- |

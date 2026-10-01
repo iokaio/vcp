@@ -119,3 +119,5 @@ Return to the [documentation index](../README.md).
 [ADR-072](072-internal-windows-beta.md) selects the internal Windows beta channel, versions, installer and unsigned disposition while retaining qualification and publication gates.
 
 [ADR-073](073-manual-testing-candidate.md) permits a focused owner manual-testing handoff before the full qualification matrix, preserving runtime safeguards and later release gates.
+
+[ADR-074](074-github-beta-downloads.md) records subsequent owner authorization for limited unsigned beta publication through GitHub Releases and a Pages download index, without closing full qualification.

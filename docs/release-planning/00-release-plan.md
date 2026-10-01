@@ -2,7 +2,7 @@
 
 Review date: September 30, 2026. Reviewed source: `b0d84a2df6e5fa7ed3163a3b1920fcf620623213` (`main` merge of PR #289).
 
-Status, revised October 1, 2026: **candidate handed off for owner manual testing**. The [selected installer/ZIP/VSIX pair and focused installed results](05-manual-candidate.md) complete the limited milestone below. Implementation stops at this handoff; the next action is the owner walkthrough. Full qualification and publication remain incomplete.
+Status, revised October 1, 2026: **candidate handed off; limited beta publication authorized**. The [selected installer/ZIP/VSIX pair and focused installed results](05-manual-candidate.md) complete the manual-testing milestone below. The subsequent [GitHub publication decision](../adr/074-github-beta-downloads.md) authorizes an unsigned prerelease and Pages download index. Publication/deployment are pending; full qualification remains incomplete.
 
 This document records the original code review and implementation contract. Implementation was authorized on September 30, 2026 for an **internal beta and manual testing**. Current decisions and delivery evidence are tracked in [the implementation ledger](02-implementation-status.md) and [ADR-072](../adr/072-internal-windows-beta.md). The review findings below are historical baseline observations, not claims about later implementation. Neither the review nor the implementation request authorizes paid qualification or publication.
 
@@ -11,6 +11,13 @@ the disproportionate effort spent on qualification infrastructure.
 [ADR-073](../adr/073-manual-testing-candidate.md) supersedes ADR-072's requirement
 to finish the full qualification matrix before beginning owner manual testing.
 It preserves runtime safeguards, truthful evidence and the separate publication gate.
+
+The owner subsequently chose GitHub Releases and Pages and explicitly authorized
+limited beta downloads under [ADR-074](../adr/074-github-beta-downloads.md).
+Implement the [publication workflow](../development/beta-publication.md) using
+the existing verified pair without rebuilding it. This extends BETA-08/BETA-11
+only for that publication; it does not reopen the deferred qualification work or
+grant signing, Marketplace or paid-provider authority. The owner handles DNS.
 
 ## Immediate milestone and stopping rule
 
