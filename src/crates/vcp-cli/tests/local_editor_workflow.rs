@@ -112,7 +112,7 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
         let installed_extension = if let Some(package) = &package {
             package.install(&code, &user, &extensions)
         } else {
-            let target = extensions.join("iokaio.vcp-local-0.1.0");
+            let target = extensions.join("iokaio.vcp-0.1.0");
             copy_extension(&repo.join("artifacts/p4-vscode-extension"), &target);
             target
         };

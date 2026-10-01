@@ -181,7 +181,7 @@ async fn installed_editor_publishes_encrypted_backup_and_reloads_only_as_observe
         assert!(seeded.success());
         let extensions = profile.path().join("extensions");
         fs::create_dir(&extensions).unwrap();
-        let installed = extensions.join("iokaio.vcp-local-0.1.0");
+        let installed = extensions.join("iokaio.vcp-0.1.0");
         copy_extension(&repo.join("artifacts/p4-vscode-extension"), &installed);
         let driver = extensions.join("vcp-test.editor-publisher-driver-0.0.1");
         fs::create_dir(&driver).unwrap();

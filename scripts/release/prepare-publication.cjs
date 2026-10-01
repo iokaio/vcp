@@ -156,7 +156,7 @@ function preparePublication(options) {
     return { kind, name, sha256: digest, bytes: fs.statSync(entry.file).size, href: href(name) };
   });
   const result = {
-    version: release.native_version, vsixVersion: release.vsix_version, pairId: pair.pair_id,
+    version: release.native_version, vsixVersion: release.vsix_version, extensionId: vsix.extension.id, pairId: pair.pair_id,
     commit: expectedCommit, tag, candidateRunId: runId, candidateAttempt: attempt,
     runUrl: `${repository}/actions/runs/${runId}/attempts/${attempt}`,
     candidateAt: new Date(paired.ended_at).toISOString(), manifestHref: href('release.json'), checksumHref: href('SHA256SUMS'),

@@ -116,7 +116,7 @@ async fn installed_editor_optimizer_actions_and_cost_use_real_configured_engine_
         assert!(seeded.success());
         let extensions = profile.path().join("extensions");
         fs::create_dir(&extensions).unwrap();
-        let installed_extension = extensions.join("iokaio.vcp-local-0.1.0");
+        let installed_extension = extensions.join("iokaio.vcp-0.1.0");
         copy_extension(
             &repo.join("artifacts/p4-vscode-extension"),
             &installed_extension,

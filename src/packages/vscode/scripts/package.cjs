@@ -47,7 +47,7 @@ async function main() {
   manifest.repository = { type: 'git', url: 'https://github.com/iokaio/vcp.git' };
   fs.writeFileSync(packagePath, JSON.stringify(manifest, null, 2) + '\n');
   fs.writeFileSync(path.join(stage, '.vscodeignore'), '.vcp-stage.json\n.vscodeignore\n');
-  const file = `vcp-local-${manifest.version}${strict ? '-win32-x64' : ''}.vsix`;
+  const file = `${manifest.name}-${manifest.version}${strict ? '-win32-x64' : ''}.vsix`;
   const { createVSIX } = require('@vscode/vsce');
   await createVSIX({ cwd: stage, packagePath: path.join(output, file), target: 'win32-x64', useYarn: false, rewriteRelativeLinks: false, preRelease: strict });
   const files = await inventory(path.join(output, file));

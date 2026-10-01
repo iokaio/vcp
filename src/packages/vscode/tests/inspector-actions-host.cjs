@@ -8,7 +8,7 @@ const vscode=require('vscode');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 exports.run=async()=>{
  const input=JSON.parse(fs.readFileSync(process.env.VCP_EXTENSION_TEST_INPUT,'utf8'));
- const extension=vscode.extensions.getExtension('iokaio.vcp-local');assert(extension);
+ const extension=vscode.extensions.getExtension('iokaio.vcp');assert(extension);
  const target=createRequire(path.join(extension.extensionPath,'dist','extension.js'))('vscode');
  const calls=[],restores=[],errors=[],coverage={};let phase='activate',api,renderer,client,holdEvents=false,releaseEvents;
  const eventGate=new Promise(resolve=>releaseEvents=resolve);

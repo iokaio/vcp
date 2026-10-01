@@ -6,7 +6,7 @@ mod inspector_fixture;
 #[path = "support/local_fixture.rs"]
 mod local_fixture;
 use local_fixture::{Client, Fixture};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -118,7 +118,7 @@ async fn installed_editor_inspectors_use_real_renderer_and_preserve_controller_b
         assert!(seeded.success());
         let extensions = profile.path().join("extensions");
         fs::create_dir(&extensions).unwrap();
-        let installed_extension = extensions.join("iokaio.vcp-local-0.1.0");
+        let installed_extension = extensions.join("iokaio.vcp-0.1.0");
         copy_extension(
             &repo.join("artifacts/p4-vscode-extension"),
             &installed_extension,

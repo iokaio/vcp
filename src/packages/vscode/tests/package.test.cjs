@@ -16,7 +16,7 @@ test('staged extension contains a standalone SDK and schema without runtime file
     assert.equal(staged.status, 0, staged.stderr);
     assert.equal(fs.lstatSync(path.join(output, 'node_modules/@vcp/sdk')).isSymbolicLink(), false);
     const manifest = JSON.parse(fs.readFileSync(path.join(output, 'package.json')));
-    assert.equal(`${manifest.publisher}.${manifest.name}`, 'iokaio.vcp-local');
+    assert.equal(`${manifest.publisher}.${manifest.name}`, 'iokaio.vcp');
     assert.equal(manifest.homepage, 'https://downloads.ioka.io');
     assert.equal(manifest.bugs.url, 'https://github.com/iokaio/vcp/issues');
     assert.equal(manifest.icon, 'media/marketplace.png');
@@ -67,7 +67,8 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     assert.equal(packaged.status, 0, packaged.stderr + packaged.stdout);
     const manifest = JSON.parse(fs.readFileSync(path.join(output, 'manifest.json')));
     const archive = path.join(output, manifest.archive.file);
-    assert.equal(manifest.extension.id, 'iokaio.vcp-local');
+    assert.equal(manifest.extension.id, 'iokaio.vcp');
+    assert.equal(manifest.archive.file, `vcp-${manifest.extension.version}.vsix`);
     assert.equal(manifest.engine.executable_sha256, sha256(engineBytes));
     assert.equal(manifest.engine.build_status, 'caller-supplied-unverified');
     assert.equal(manifest.release, undefined);

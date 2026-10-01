@@ -19,8 +19,8 @@ full release qualification and clean-host support remain incomplete.
 3. Follow the guide to select the installed engine and private data directory in
    User settings. Live provider use requires your credentials and explicit spending caps.
 
-The publisher is **Ioka** (`iokaio`); the extension ID is `iokaio.vcp-local`.
-If you installed the earlier `vcp.vcp-local` VSIX, disconnect and uninstall that
+The publisher is **Ioka** (`iokaio`); the extension ID is `iokaio.vcp`.
+If you installed the earlier `iokaio.vcp-local` or `vcp.vcp-local` VSIX, disconnect and uninstall that
 extension first, then install this one and reconnect explicitly. This is a new
 extension identity, not an automatic update. Keep your native installation,
 data directory and User settings; extension-local connection state does not migrate.

@@ -26,7 +26,7 @@ from the approved internal handoff. Compare each local SHA-256 to that record:
 ```powershell
 Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.0-beta.2-windows-x64-signed-setup.exe'
 Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.0-beta.2-windows-x64-signed.zip'
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-local-0.2.2-win32-x64.vsix'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.2-win32-x64.vsix'
 Get-AuthenticodeSignature -LiteralPath '.\vcp-0.2.0-beta.2-windows-x64-signed-setup.exe' |
   Select-Object Status, StatusMessage, SignerCertificate, TimeStamperCertificate
 ```
@@ -71,7 +71,7 @@ budget admission; installation performs no inference and acquires no model.
 ## Connect VS Code
 
 In VS Code 1.138.0, use **Extensions: Install from VSIX** and select the matching
-`vcp-local-0.2.2-win32-x64.vsix`. Open a local initialized VCP workspace. Follow the
+`vcp-0.2.2-win32-x64.vsix`. Open a local initialized VCP workspace. Follow the
 VSIX's included README for its connection and execution-profile dialogs.
 
 Set `vcp.engineExecutable` and `vcp.dataDirectory` explicitly in **User** settings.

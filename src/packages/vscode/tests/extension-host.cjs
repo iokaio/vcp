@@ -36,7 +36,7 @@ exports.run = async function run() {
   assert(inputPath);
   const bytes=fs.readFileSync(inputPath);assert(bytes.length<=16*1024);
   const input=JSON.parse(bytes.toString('utf8'));
-  const extension=vscode.extensions.getExtension('iokaio.vcp-local');assert(extension);
+  const extension=vscode.extensions.getExtension('iokaio.vcp');assert(extension);
   assert.equal(path.resolve(extension.extensionPath),path.resolve(input.extension));
   const sdkPath=fs.realpathSync(path.join(extension.extensionPath,'node_modules','@vcp','sdk','dist','index.js'));
   assert(sdkPath.startsWith(fs.realpathSync(extension.extensionPath)+path.sep),'SDK resolves inside staged package');
