@@ -103,9 +103,9 @@ async fn final_installed_candidate_observes_synthetic_history_both_stores() {
         }
         command
             .arg("-Workspace")
-            .arg(&fixture.workspace)
+            .arg(script_path::directory_argument(&fixture.workspace))
             .arg("-DataRoot")
-            .arg(&fixture.data)
+            .arg(script_path::directory_argument(&fixture.data))
             .arg("-OutputRoot")
             .arg(private.join("editor-smoke"));
         let report = editor_observation(&mut command, &private, &fixture_root, "observer").await;
@@ -171,9 +171,9 @@ async fn final_installed_candidate_editor_lifecycle_preserves_both_stores() {
             }
             command
                 .arg("-Workspace")
-                .arg(&fixture.workspace)
+                .arg(script_path::directory_argument(&fixture.workspace))
                 .arg("-DataRoot")
-                .arg(&fixture.data)
+                .arg(script_path::directory_argument(&fixture.data))
                 .arg("-Scope")
                 .arg(fixture.scope().to_string())
                 .arg("-Task")

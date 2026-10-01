@@ -152,6 +152,10 @@ owned cleanup after the initial process returns. Persistent leftovers still
 fail; the runner never deletes them, and retained-data comparisons still apply.
 The editor observer likewise uninstalls only after a successful observation;
 setup or observer failures preserve its registered installation and private evidence.
+Editor workspace and data-directory arguments also require ordinary absolute
+spelling: Inno's directory page rejects the extended prefix and VS Code treats
+it as a nonlocal URI authority. Qualifiers verify canonical equivalence when
+converting those existing directories and retain canonical fixture identities.
 
 The ignored `beta_editor_candidate` integration test seeds the existing offline
 paused-history fixture for Files and SQLite, then installs the final setup and

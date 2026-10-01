@@ -441,9 +441,9 @@ async fn final_installed_candidate_editor_refusals_preserve_both_stores() {
             }
             command
                 .arg("-Workspace")
-                .arg(&fixture.workspace)
+                .arg(script_path::directory_argument(&fixture.workspace))
                 .arg("-DataRoot")
-                .arg(&fixture.data)
+                .arg(script_path::directory_argument(&fixture.data))
                 .arg("-Scope")
                 .arg(fixture.scope().to_string())
                 .arg("-Task")

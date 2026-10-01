@@ -474,6 +474,30 @@ and test receipts are retained under `artifacts/beta-delivery/console-node-path/
 `artifacts/beta-delivery/script-path-refresh-18260191-74ff-4eba-ba27-bbae9753332c/`
 and `artifacts/beta-delivery/uninstall-observation/`.
 
+[PR #316](https://github.com/iokaio/vcp/pull/316) delivered those repairs with
+successful PR and main Delivery checks. A focused installed-editor observation
+on the unchanged pair then failed before installation: its canonical fixture
+data path reached Inno's directory page as `\\?\C:\...`, which the page rejects.
+The ordinary data path was 201 characters, below that page's length limit.
+The same namespace prefix also conflicts with the editor's local-file URI
+handling and later data-selection comparisons. The qualification boundary now
+passes ordinary, canonically equivalent workspace and data-directory arguments
+while preserving canonical fixture identities and rejecting redirected directory
+inputs before conversion. The installed helper's engine argument receives the
+same treatment after its existing path checks, preventing mismatched registration
+comparisons and namespace-prefixed Node module paths. All nine focused path
+regressions passed across the three freshly verified test targets, with natural
+empty Jobs. Independent review is clear. Receipts are retained under
+`artifacts/beta-delivery/directory-path-refresh/v2/`. The original failed
+observation pointer is preserved in
+`artifacts/beta-delivery/runner-history/editor-directory-b0071873-79c9-4f49-9917-fec9856b0b6f/`.
+The corrected arguments passed setup's input checks; a second local attempt
+then rolled back when the deeply nested diagnostic root caused an Inno notice
+file rename to exceed the Windows path limit. That failure remains recorded in
+`artifacts/beta-delivery/runner-history/editor-root-bbe26468-227d-44c7-9674-8669d4aee587/`.
+The shorter-root observer retry and installer path-limit handling are separate
+observations; no installed-editor pass is claimed by the argument repair.
+
 A separate BETA-08 evidence review found that native qualification's final
 output drain was absent from the console mirror, and private editor runner
 failures exposed only temporary paths in the retained stage log. The collector
