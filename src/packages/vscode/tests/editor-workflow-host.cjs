@@ -6,7 +6,7 @@ const {createRequire}=require('node:module');const {createHash}=require('node:cr
 const hash=text=>createHash('sha256').update(text).digest('hex');const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let phase='activate',reloading=false;
 exports.run=async()=>{
-  const input=JSON.parse(fs.readFileSync(process.env.VCP_EXTENSION_TEST_INPUT,'utf8'));const extension=vscode.extensions.getExtension('vcp.vcp-local');assert(extension);
+  const input=JSON.parse(fs.readFileSync(process.env.VCP_EXTENSION_TEST_INPUT,'utf8'));const extension=vscode.extensions.getExtension('iokaio.vcp-local');assert(extension);
   const target=createRequire(path.join(extension.extensionPath,'dist','extension.js'))('vscode');
   const restores=[];const replace=(object,key,value)=>{const old=object[key];object[key]=value;assert.equal(object[key],value);restores.push(()=>{object[key]=old;});};
   const renamed=[],deleted=[];

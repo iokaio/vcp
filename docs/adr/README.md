@@ -121,3 +121,5 @@ Return to the [documentation index](../README.md).
 [ADR-073](073-manual-testing-candidate.md) permits a focused owner manual-testing handoff before the full qualification matrix, preserving runtime safeguards and later release gates.
 
 [ADR-074](074-github-beta-downloads.md) records subsequent owner authorization for limited unsigned beta publication through GitHub Releases and a Pages download index, without closing full qualification.
+
+[ADR-075](075-marketplace-manual-upload.md) selects the `iokaio` publisher and a fresh verified pre-release pair, with the first Marketplace upload reserved for the owner.

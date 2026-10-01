@@ -75,7 +75,7 @@ async function main() {
   const schema = fs.readFileSync(path.resolve(root, '../protocol-ts/schema.json'));
   const record = {
     schema: 'vcp-vsix-package/1', archive: { file, sha256: await fileHash(path.join(output, file)) },
-    extension: { id: 'vcp.vcp-local', version: manifest.version, pre_release: strict, qualification_successor: !!options['--version'], source },
+    extension: { id: `${manifest.publisher}.${manifest.name}`, version: manifest.version, pre_release: strict, qualification_successor: !!options['--version'], source },
     ...(verified ? { release: verified.release } : {}),
     engine: { executable_sha256: engineHash, source_commit: native.manifest.source.git_commit, source_dirty: native.manifest.source.dirty, build_status: native.manifest.build.status, build_receipt_sha256: native.manifest.build.receipt_sha256 ?? null, native_archive_sha256: native.archive_sha256, native_manifest_sha256: sha256(nativeBytes) },
     compatibility: { vscode: '1.138.0', platform: 'win32-x64', status: 'qualification-required' },

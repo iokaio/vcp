@@ -16,6 +16,11 @@ test('staged extension contains a standalone SDK and schema without runtime file
     assert.equal(staged.status, 0, staged.stderr);
     assert.equal(fs.lstatSync(path.join(output, 'node_modules/@vcp/sdk')).isSymbolicLink(), false);
     const manifest = JSON.parse(fs.readFileSync(path.join(output, 'package.json')));
+    assert.equal(`${manifest.publisher}.${manifest.name}`, 'iokaio.vcp-local');
+    assert.equal(manifest.homepage, 'https://downloads.ioka.io');
+    assert.equal(manifest.bugs.url, 'https://github.com/iokaio/vcp/issues');
+    assert.equal(manifest.icon, 'media/marketplace.png');
+    assert.deepEqual(fs.readFileSync(path.join(output, manifest.icon)), fs.readFileSync(path.join(packageRoot, manifest.icon)));
     assert.equal(manifest.main, './dist/extension.js');
     assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
     const sdk = JSON.parse(fs.readFileSync(path.resolve(packageRoot, '../sdk-ts/package.json')));
@@ -62,6 +67,7 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     assert.equal(packaged.status, 0, packaged.stderr + packaged.stdout);
     const manifest = JSON.parse(fs.readFileSync(path.join(output, 'manifest.json')));
     const archive = path.join(output, manifest.archive.file);
+    assert.equal(manifest.extension.id, 'iokaio.vcp-local');
     assert.equal(manifest.engine.executable_sha256, sha256(engineBytes));
     assert.equal(manifest.engine.build_status, 'caller-supplied-unverified');
     assert.equal(manifest.release, undefined);
@@ -74,6 +80,7 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     assert.ok(names.includes('extension/node_modules/@vcp/protocol/schema.json'));
     assert.ok(names.includes('extension/COMPATIBILITY.md'));
     assert.ok(names.includes('extension/SETUP.md'));
+    assert.ok(names.includes('extension/media/marketplace.png'));
     await verifyNativeArchive(archive, manifest.files);
     await assert.rejects(verifyNativeArchive(archive, manifest.files.slice(1)), /Invalid native archive entry/);
     await assert.rejects(verifyNativeArchive(archive, [...manifest.files, { path: 'missing', bytes: 1, sha256: '0'.repeat(64) }]), /omits/);

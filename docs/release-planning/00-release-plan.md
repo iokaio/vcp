@@ -19,6 +19,13 @@ the existing verified pair without rebuilding it. This extends BETA-08/BETA-11
 only for that publication; it does not reopen the deferred qualification work or
 grant signing, Marketplace or paid-provider authority. The owner handles DNS.
 
+The owner then created Marketplace publisher `iokaio` and authorized the
+[manual-upload preparation](../adr/075-marketplace-manual-upload.md): migrate the
+extension identity, build and verify a new pair, publish its GitHub downloads and
+finish managed HTTPS. The owner retains the first Marketplace upload. The
+[upload guide](../development/marketplace-publication.md) tracks that handoff;
+full qualification and paid-provider gates remain unchanged.
+
 ## Immediate milestone and stopping rule
 
 Owning items: **BETA-08/BETA-09**, limited to preparation for owner manual testing.

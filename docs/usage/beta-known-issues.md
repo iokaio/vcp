@@ -1,14 +1,21 @@
 # Internal beta scope, known limitations and support
 
-This is an unsigned internal Windows x64 candidate under preparation. Its source
+This is an experimental Windows x64 beta with unsigned native downloads. Its source
 version is `0.2.0-beta.1`; SDK and VSIX use `0.2.1`. The release-pair record and
-scorecard identify the actual artifacts and observed environment. No public
-release, publisher authentication or completed owner acceptance is implied.
+scorecard identify the actual artifacts and observed environment. GitHub beta
+downloads are public; Marketplace publication is a separate owner action.
+Neither distribution channel establishes native code signing or completed owner acceptance.
 
 The qualification target is local NTFS workspaces and VS Code 1.138.0. ARM64/x86,
-non-Windows, remote/WSL/container workspaces, Marketplace delivery, auto-update,
+non-Windows, remote/WSL/container workspaces, native auto-update,
 arbitrary downgrades and cross-format migration are excluded. No hardware minimum,
 general Windows version range or power-loss durability guarantee is advertised.
+
+The new Marketplace package uses `iokaio.vcp-local`. Earlier manual packages use
+`vcp.vcp-local`; disconnect and uninstall the old extension before installing the
+new identity. Retain native data and User settings, then reconnect explicitly.
+Marketplace extension updates do not install or update the native engine; select
+the matching native pair and update the executable setting deliberately.
 
 Before manual testing, read every `fail` and `not run` row in the supplied scorecard.
 Clean standard-user Windows, final installed CLI/editor interaction, real distinct

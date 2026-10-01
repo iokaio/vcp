@@ -22,7 +22,7 @@ const runtime = (source, destination) => {
   }
 };
 runtime(packageRoot, output);
-for (const name of ['connection.css', 'connection.js', 'inspectors.js', 'tasks.js', 'vcp.svg']) copy(path.join(packageRoot, 'media', name), path.join(output, 'media', name));
+for (const name of ['connection.css', 'connection.js', 'inspectors.js', 'tasks.js', 'vcp.svg', 'marketplace.png']) copy(path.join(packageRoot, 'media', name), path.join(output, 'media', name));
 for (const name of ['README.md', 'COMPATIBILITY.md', 'SETUP.md']) copy(path.join(packageRoot, name), path.join(output, name));
 const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
 const sdkVersion = JSON.parse(fs.readFileSync(path.resolve(packageRoot, '../sdk-ts/package.json'), 'utf8')).version;

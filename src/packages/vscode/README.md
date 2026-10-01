@@ -1,8 +1,38 @@
 # VCP Local — workspace and task views
 
-Local Windows extension for VS Code 1.138.0. The internal beta pairs VSIX/SDK 0.2.1 with native 0.2.0-beta.1; the candidate manifest binds the exact bytes. Prior P4 acceptance does not qualify a newly built candidate.
+VCP Local connects VS Code **1.138.0** to your separately installed VCP engine on
+Windows x64. Observe local task history, review proposed edits and explicitly
+control execution from your workspace. This is an experimental pre-release;
+full release qualification and clean-host support remain incomplete.
 
-For first use, choose **VCP: Open Setup Guide** or the Workspace view's **Setup guide…** button. The [bundled walkthrough](SETUP.md) covers installation, the first native task, explicit User settings, credentials and recovery.
+## Install
+
+1. Download the matching native installer from [VCP beta downloads](https://downloads.ioka.io/).
+   The native installer is **unsigned**. PowerShell 7 and local NTFS paths are required.
+2. Install this Windows x64 pre-release extension, then run **VCP: Open Setup Guide**.
+   Installing the extension does not install or update the native engine.
+3. Follow the guide to select the installed engine and private data directory in
+   User settings. Live provider use requires your credentials and explicit spending caps.
+
+The publisher is **Ioka** (`iokaio`); the extension ID is `iokaio.vcp-local`.
+If you installed the earlier `vcp.vcp-local` VSIX, disconnect and uninstall that
+extension first, then install this one and reconnect explicitly. This is a new
+extension identity, not an automatic update. Keep your native installation,
+data directory and User settings; extension-local connection state does not migrate.
+
+VSIX/SDK 0.2.1 pairs with native 0.2.0-beta.1. Use the exact pair and hashes in
+the download record; matching version numbers alone do not identify matching builds.
+Remote/WSL/container workspaces, ARM64, other operating systems and other VS Code
+versions are not qualified. See [compatibility](https://github.com/iokaio/vcp/blob/main/src/packages/vscode/COMPATIBILITY.md)
+and [known limitations](https://github.com/iokaio/vcp/blob/main/docs/usage/beta-known-issues.md).
+
+Report reproducible problems through [GitHub issues](https://github.com/iokaio/vcp/issues),
+following the [safe reporting instructions](https://github.com/iokaio/vcp/blob/main/docs/usage/beta-known-issues.md#report-a-problem-safely).
+Do not include credentials, private histories or raw provider logs.
+
+## Use your workspace
+
+For first use, choose **VCP: Open Setup Guide** or the Workspace view's **Setup guide…** button. The [setup walkthrough](https://github.com/iokaio/vcp/blob/main/src/packages/vscode/SETUP.md) covers installation, the first native task, explicit User settings, credentials and recovery; an offline copy is bundled.
 
 Resolve the installer launcher with `vcp.exe --resolve-installation`, then set `vcp.engineExecutable` and `vcp.dataDirectory` to its reported native executable and data directory in **User settings**. Project and workspace overrides are ignored, including in trusted workspaces. The selected folder must already be initialized by VCP; the extension does not create a workspace or execute a project-defined configuration.
 
@@ -33,7 +63,7 @@ qualification passed on Files and SQLite; see [its acceptance record](https://gi
 
 `npm ci` installs the exact locked TypeScript 5.9.3, Node 24.10.1 types and VS Code 1.138.0 types. `npm test` builds the SDK/extension and runs portable bounded-connection/UI/package checks. `npm run stage` creates `artifacts/p4-vscode-extension`, including actual SDK distribution and protocol schema with no development links. No separate runtime npm dependency, provider gateway or engine binary is bundled.
 
-P4-01 actual editor-host qualification passed with the official VS Code 1.138.0 Windows ZIP, an isolated profile in genuine Restricted Mode, the staged package and native engine. It covers moved-root identity, canonical trust revocation and real reload with pending input and an external controller. The native fixture requires `VCP_TEST_CODE` and explicit `--ignored` execution. The development driver uses normal persistent storage; VS Code's extension-test mode uses memory storage. P4-02 qualification is recorded in [the task-view contract](https://github.com/iokaio/vcp/blob/main/docs/development/editor-tasks.md). P4-03 full native engine/editor qualification passed on Files and SQLite, with the staged extension loaded normally from a private extensions directory for dirty-buffer reload. See [installation and exact candidate compatibility](COMPATIBILITY.md).
+P4-01 actual editor-host qualification passed with the official VS Code 1.138.0 Windows ZIP, an isolated profile in genuine Restricted Mode, the staged package and native engine. It covers moved-root identity, canonical trust revocation and real reload with pending input and an external controller. The native fixture requires `VCP_TEST_CODE` and explicit `--ignored` execution. The development driver uses normal persistent storage; VS Code's extension-test mode uses memory storage. P4-02 qualification is recorded in [the task-view contract](https://github.com/iokaio/vcp/blob/main/docs/development/editor-tasks.md). P4-03 full native engine/editor qualification passed on Files and SQLite, with the staged extension loaded normally from a private extensions directory for dirty-buffer reload. See [installation and exact candidate compatibility](https://github.com/iokaio/vcp/blob/main/src/packages/vscode/COMPATIBILITY.md).
 
 Build the internal beta with `node scripts/package.cjs --engine <absolute-vcp.exe> --engine-manifest <absolute-native-result.json> --output <fresh-artifacts-directory> --reviewed-commit <40-hex-commit> --build-receipt <absolute-original-build-receipt.json>`. The verified production native candidate and clean extension source must share that commit and release identity. Packaging compiles the SDK/extension, verifies native archive and receipt bytes, marks the VSIX as pre-release and retains the exact release identity in its external `manifest.json`. It refuses a version override or existing output. Installed-product qualification remains separate.
 

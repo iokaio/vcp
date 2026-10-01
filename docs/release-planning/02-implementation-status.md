@@ -58,6 +58,17 @@ Pages deployment is restricted to `main`.
 No Azure resources were changed. This bounded BETA-08/BETA-11 follow-up does not
 complete full qualification, authorize paid calls or reopen the deferred patch.
 
+## Marketplace preparation
+
+The owner created publisher `iokaio` and requested the BETA-07/BETA-08/BETA-11
+follow-up under [ADR-075](../adr/075-marketplace-manual-upload.md), retaining the
+first upload as a manual action. The new package uses `iokaio.vcp-local`, with
+explicit migration from the old extension ID, Marketplace listing metadata and
+the existing pre-release/platform/provenance contracts. Fresh paired build and
+installed verification results belong in the
+[Marketplace handoff](../development/marketplace-publication.md). Preparation does
+not establish Marketplace availability or complete full qualification.
+
 | Item | Status | Implementation and evidence |
 | --- | --- | --- |
 | BETA-01 | Complete | [PR #290](https://github.com/iokaio/vcp/pull/290) merged. Channel, versions, pinned installer, unsigned disposition, support exclusions and external gates recorded. Repository/harness, skill helper and Rust delivery checks passed. No release qualification claimed. |

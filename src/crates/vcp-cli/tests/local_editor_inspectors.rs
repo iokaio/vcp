@@ -118,7 +118,7 @@ async fn installed_editor_inspectors_use_real_renderer_and_preserve_controller_b
         assert!(seeded.success());
         let extensions = profile.path().join("extensions");
         fs::create_dir(&extensions).unwrap();
-        let installed_extension = extensions.join("vcp.vcp-local-0.1.0");
+        let installed_extension = extensions.join("iokaio.vcp-local-0.1.0");
         copy_extension(
             &repo.join("artifacts/p4-vscode-extension"),
             &installed_extension,
