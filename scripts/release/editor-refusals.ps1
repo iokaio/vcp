@@ -54,7 +54,7 @@ function Verify-Payload {
     $null=Invoke-BetaProcess $node @((Join-Path $repo 'scripts/evals/production-package.cjs'),$NativeResult,(Split-Path -Parent $installed.engine)) $root
     $selection=(Invoke-BetaProcess $installed.launcher @('--resolve-installation') $root).stdout | ConvertFrom-Json
     if ($selection.schema -cne 'vcp-installed-engine/1' -or [IO.Path]::GetFullPath($selection.executable).Replace('\\?\','') -ine $installed.engine.Replace('\\?\','') -or [IO.Path]::GetFullPath($selection.data_directory).Replace('\\?\','').TrimEnd('\') -ine [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')) { throw 'Installed engine/data selection differs' }
-    $current=((Invoke-BetaProcess $node @($inventory,'verified-inventory',(Installed-Extension 'iokaio' 'vcp-local' $vsix.extension.version),$VsixManifest) $root).stdout | ConvertFrom-Json).sha256
+    $current=((Invoke-BetaProcess $node @($inventory,'verified-inventory',(Installed-Extension 'iokaio' 'vcp' $vsix.extension.version),$VsixManifest) $root).stdout | ConvertFrom-Json).sha256
     if ($progress.inventory -and $current -cne $progress.inventory) { throw 'Original installed VSIX changed' }
     $driverPath=Installed-Extension 'vcp-test' 'candidate-refusal-driver' '0.0.1'
     if ((Get-FileHash -LiteralPath (Join-Path $driverPath 'driver.cjs')).Hash.ToLowerInvariant() -cne $driverHash) { throw 'Installed driver changed' }
@@ -85,9 +85,9 @@ if ($Mode -ceq 'restricted') {
 }
 if ($Mode -ceq 'finish') {
     # The Rust owner calls finish only AFTER canonical preservation assertions.
-    $null=Invoke-BetaProcess $Code ($base+@('--uninstall-extension','iokaio.vcp-local')) $root $editorEnvironment
+    $null=Invoke-BetaProcess $Code ($base+@('--uninstall-extension','iokaio.vcp')) $root $editorEnvironment
     $listed=Invoke-BetaProcess $Code ($base+@('--list-extensions','--show-versions')) $root $editorEnvironment
-    if (@($listed.stdout -split '\r?\n' | Where-Object { $_ -match '^iokaio\.vcp-local@' }).Count) { throw 'VCP remains installed' }
+    if (@($listed.stdout -split '\r?\n' | Where-Object { $_ -match '^iokaio\.vcp@' }).Count) { throw 'VCP remains installed' }
     Uninstall-BetaCandidate $installed $root
     @{schema='vcp-editor-refusal-observation/1';status='pass';mode='finish';uninstalled=$true} | ConvertTo-Json -Compress
     exit 0

@@ -38,7 +38,7 @@ function fixture(t) {
   write('receipts/native.json', native);
   const vsix = { schema: 'vcp-vsix-package/1', release,
     archive: { file: 'editor.vsix', sha256: p.fileHash(path.join(packet, 'artifacts/editor.vsix')) },
-    extension: { version: '0.2.1', source: { git_commit: commit, dirty: false } }, sdk: { version: '0.2.1' },
+    extension: { id: 'iokaio.vcp', version: '0.2.1', source: { git_commit: commit, dirty: false } }, sdk: { version: '0.2.1' },
     engine: { native_archive_sha256: native.archive_sha256, executable_sha256: digest, build_receipt_sha256: buildHash,
       source_commit: commit, source_dirty: false, native_manifest_sha256: p.fileHash(path.join(packet, 'receipts/native.json')) } };
   const setup = { schema: 'vcp-setup-result/1', candidate_id: release.candidate_id, native_archive_sha256: native.archive_sha256,
@@ -130,6 +130,7 @@ test('publication copies only exact assets and deterministic sanitized metadata;
   assert.equal(result.qualification.pipelineStatus, 'incomplete');
   assert.deepEqual(fs.readdirSync(f.options.output).sort(), ['assets', 'notes.md']);
   assert.deepEqual(fs.readdirSync(assets).sort(), ['SHA256SUMS', 'editor.vsix', 'native.zip', 'release.json', 'setup.exe']);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(assets, 'release.json'), 'utf8')).extensionId, 'iokaio.vcp');
   for (const artifact of result.artifacts) {
     assert.deepEqual(fs.readFileSync(path.join(assets, artifact.name)), fs.readFileSync(path.join(f.packet, 'artifacts', artifact.name)));
     assert.equal(artifact.sha256, p.fileHash(path.join(assets, artifact.name)));

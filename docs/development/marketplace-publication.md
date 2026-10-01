@@ -1,5 +1,23 @@
 # First Marketplace upload
 
+## Next upload: `iokaio.vcp`
+
+The owner requested the shorter extension ID `iokaio.vcp` for the next candidate.
+Its display name remains **VCP Coding Agent** and its category is **AI**.
+After the new matching pair is built and qualified, upload its exact
+`vcp-0.2.2-win32-x64.vsix` through **New extension → Visual Studio Code** under
+[publisher iokaio](https://marketplace.visualstudio.com/manage/publishers/iokaio).
+This is a new listing, not an update to the existing `vcp-local` entry. A verified
+upload artifact and hash for this identity are not yet recorded.
+
+Disconnect and uninstall `iokaio.vcp-local` (or the earlier `vcp.vcp-local`) before
+installing `iokaio.vcp`; retain the native installation, data and User settings,
+then reconnect explicitly. Extension-local connection state does not migrate.
+The existing listing remains available; removal or deprecation has not occurred.
+The records below describe the completed first upload and retain its original IDs.
+
+## Historical first upload
+
 Status: **owner upload completed; public Marketplace listing live** on October 1,
 2026. [VCP Local](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local)
 returns HTTP 200. Post-upload Marketplace installation verification passed.

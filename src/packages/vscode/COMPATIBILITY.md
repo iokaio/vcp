@@ -6,8 +6,8 @@ not qualified. The engine is installed separately; the VSIX contains the SDK
 and protocol schema, but no engine, provider credentials or publisher keys.
 
 Install the candidate with **Extensions: Install from VSIX**, select the supplied
-`vcp-local-0.2.1-win32-x64.vsix`, and reload when requested. This is the internal beta
-pre-release channel, paired with native 0.2.0-beta.1 and SDK 0.2.1. For an isolated installation:
+`vcp-0.2.2-win32-x64.vsix`, and reload when requested. This is the internal beta
+pre-release channel, paired with native 0.2.0-beta.2 and SDK 0.2.2. For an isolated installation:
 
 ```powershell
 Code.exe --user-data-dir <private-profile> --extensions-dir <private-extensions> --install-extension <absolute-vsix-path>
@@ -29,12 +29,14 @@ Development fixtures can be `caller-supplied-unverified` or `recorded-local-buil
 they have no beta release identity. A matching version alone is not a compatibility guarantee.
 Native qualification is separate evidence for that exact candidate pair. Startup
 negotiates protocol methods and capabilities; unsupported features remain disabled.
-The native candidate is unsigned. The `iokaio.vcp-local` VSIX is prepared for
+This version requires the signed Ioka LLC native candidate; construction and
+qualification are in progress. The previously published beta.1 is unsigned.
+The `iokaio.vcp` VSIX is prepared for
 owner-controlled Marketplace pre-release publication; the release handoff records
 whether upload has occurred. Publication does not complete qualification.
 
-Earlier manual candidates used `vcp.vcp-local`. Disconnect and uninstall that
-extension before installing `iokaio.vcp-local`; the publisher change is a separate
+Earlier candidates used `iokaio.vcp-local` or `vcp.vcp-local`. Disconnect and uninstall that
+extension before installing `iokaio.vcp`; the name change creates a separate
 extension identity, not an automatic update. Keep native data and User settings,
 then reconnect explicitly. Extension-local connection state does not migrate.
 
@@ -47,7 +49,7 @@ transient previews, credentials or mutation replay. Reconcile original commands
 before issuing new ones. Do not downgrade a canonical store across unsupported
 formats; use a validated backup/restore procedure and compatible native engine.
 
-Uninstall through Extensions or `Code.exe --uninstall-extension iokaio.vcp-local`
+Uninstall through Extensions or `Code.exe --uninstall-extension iokaio.vcp`
 with the same profile arguments. Uninstalling does not delete the engine registry,
 canonical history, local vault, publisher keys or engine installation. Remove
 those only through their documented native lifecycle and your retention policy.

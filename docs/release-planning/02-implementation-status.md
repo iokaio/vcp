@@ -10,6 +10,16 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-07: the owner requested the next extension identity `iokaio.vcp`, replacing
+`iokaio.vcp-local`. The package name, archive names, installed-editor checks and
+current setup guidance now follow that identity. Historical candidate filenames,
+hashes and public listing records below retain their original identity.
+The next qualified VSIX must be uploaded as a **new extension** under publisher
+`iokaio`, not as an update to the existing `vcp-local` entry. Existing users must
+disconnect and uninstall the old extension, install the new one, and reconnect;
+retain native data and User settings. Extension-local state does not migrate.
+No new Marketplace upload or removal of the old listing is recorded here.
+
 On October 1 the owner authorized the remaining signing and qualification plan
 under [ADR-076](../adr/076-signed-beta-qualification.md), selected Qwen 3.8 with
 a new **$40 total** provider budget, and confirmed a clean Windows machine is

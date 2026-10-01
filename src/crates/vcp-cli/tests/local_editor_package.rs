@@ -154,7 +154,7 @@ async fn actual_vsix_install_update_failure_replacement_and_uninstall_preserve_s
         assert!(
             String::from_utf8_lossy(&retained.stdout)
                 .lines()
-                .any(|line| line.trim() == "iokaio.vcp-local@0.1.0"),
+                .any(|line| line.trim() == "iokaio.vcp@0.1.0"),
             "failed VSIX update must retain installed original"
         );
         run(
@@ -225,7 +225,7 @@ async fn actual_vsix_install_update_failure_replacement_and_uninstall_preserve_s
             &code,
             &user,
             &extensions,
-            &["--uninstall-extension", "iokaio.vcp-local"],
+            &["--uninstall-extension", "iokaio.vcp"],
         );
         assert!(uninstall.status.success());
         let listed = package.editor_cli(
@@ -237,7 +237,7 @@ async fn actual_vsix_install_update_failure_replacement_and_uninstall_preserve_s
         assert!(listed.status.success());
         assert!(!String::from_utf8_lossy(&listed.stdout)
             .lines()
-            .any(|line| line.starts_with("iokaio.vcp-local@")));
+            .any(|line| line.starts_with("iokaio.vcp@")));
         assert_eq!(fs::read(&independent).unwrap(), key);
         assert_eq!(
             fs::read(&sentinel).unwrap(),

@@ -36,6 +36,9 @@ function fileDetails(artifact) {
 }
 
 function renderDownloadPage(release) {
+  // Published beta.1 records predate the explicit extension identity field.
+  const extensionId = release.extensionId ?? 'iokaio.vcp-local';
+  if (!['iokaio.vcp', 'iokaio.vcp-local'].includes(extensionId)) throw new TypeError('Unsupported Marketplace extension identity');
   const signed = release.qualification?.signing === 'signed';
   const artifacts = new Map();
   for (const artifact of release.artifacts) {
@@ -129,7 +132,7 @@ function renderDownloadPage(release) {
           <article class="alternative" aria-labelledby="vsix-title">
             <h3 id="vsix-title">VS Code extension</h3>
             <p>Install the pre-release from Marketplace or use the matching VSIX below. Select your installed engine and data directory explicitly in User settings.</p>
-            <p><a href="https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local">View VCP Local on Marketplace <span aria-hidden="true">↗</span></a></p>
+            <p><a href="https://marketplace.visualstudio.com/items?itemName=${escape(extensionId)}">View VCP Coding Agent on Marketplace <span aria-hidden="true">↗</span></a></p>
             <p class="meta">VSIX ${escape(release.vsixVersion)} · ${escape(size(vsix.bytes))}</p>
             <a class="button" href="${link(vsix.href)}" download="${escape(vsix.name)}">Download VS Code extension <span aria-hidden="true">↓</span></a>
             ${fileDetails(vsix)}

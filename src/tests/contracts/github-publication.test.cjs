@@ -34,6 +34,14 @@ function fixture(t) {
   return {root,assets,release,expected};
 }
 function remoteAsset(row) {return {name:row.name,state:'uploaded',size:row.bytes,digest:`sha256:${row.sha256}`};}
+test('download page follows the recorded extension identity and preserves historical links', t => {
+  const {release} = fixture(t);
+  assert.match(renderDownloadPage(release), /itemName=iokaio\.vcp-local"/);
+  const current = renderDownloadPage({...release, extensionId: 'iokaio.vcp'});
+  assert.match(current, /itemName=iokaio\.vcp"/);
+  assert.doesNotMatch(current, /itemName=iokaio\.vcp-local/);
+  assert.throws(() => renderDownloadPage({...release, extensionId: 'unrelated.extension'}), /Unsupported Marketplace/);
+});
 function response(value,status=200) {return new Response(status===204?null:JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});}
 function github(t,f,{existing=false,draft=true,differing=false,failUpload=0,corruptReread=false}={}) {
   const calls=[],state={ref:existing,uploads:0,remote:existing?{

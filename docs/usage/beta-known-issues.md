@@ -15,8 +15,8 @@ non-Windows, remote/WSL/container workspaces, native auto-update,
 arbitrary downgrades and cross-format migration are excluded. No hardware minimum,
 general Windows version range or power-loss durability guarantee is advertised.
 
-The new Marketplace package uses `iokaio.vcp-local`. Earlier manual packages use
-`vcp.vcp-local`; disconnect and uninstall the old extension before installing the
+The next Marketplace package uses `iokaio.vcp`. Earlier packages use
+`iokaio.vcp-local` or `vcp.vcp-local`; disconnect and uninstall the old extension before installing the
 new identity. Retain native data and User settings, then reconnect explicitly.
 Marketplace extension updates do not install or update the native engine; select
 the matching native pair and update the executable setting deliberately.

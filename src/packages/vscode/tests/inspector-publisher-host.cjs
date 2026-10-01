@@ -6,7 +6,7 @@ const {createRequire}=require('node:module'),vscode=require('vscode');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 exports.run=async()=>{
  const input=JSON.parse(fs.readFileSync(process.env.VCP_EXTENSION_TEST_INPUT,'utf8'));
- const extension=vscode.extensions.getExtension('iokaio.vcp-local');assert(extension);
+ const extension=vscode.extensions.getExtension('iokaio.vcp');assert(extension);
  const target=createRequire(path.join(extension.extensionPath,'dist','extension.js'))('vscode');
  const restores=[],calls=[],errors=[];let api,renderer,phase='activate',reloading=false,pickers=0,confirmations=0;
  const replace=(object,key,value)=>{const previous=object[key];object[key]=value;restores.push(()=>{object[key]=previous;});};
