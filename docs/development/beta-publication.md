@@ -1,12 +1,26 @@
 # Publish an unsigned beta download
 
-Status: **GitHub Pages configured; release publication and site deployment
-pending**. On October 1, GitHub configuration was verified as `build_type=workflow`
-with `cname=downloads.ioka.io`; the `github-pages` environment permits deployments
-from `main` only. The owner created the CNAME and local DNS resolves
-`downloads.ioka.io` to `iokaio.github.io`. The certificate is not yet provisioned
-and HTTPS enforcement is off pending GitHub validation. Record the actual release URL, workflow
-run, Pages deployment and domain results here when observed.
+Status: **beta prerelease published and download page deployed** on October 1.
+[Publication run 36888330245](https://github.com/iokaio/vcp/actions/runs/36888330245)
+passed both release and Pages jobs after [PR #326](https://github.com/iokaio/vcp/pull/326)
+merged with all ordinary checks passing. The
+[published prerelease](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.1-1dba45922e0c)
+retains source `f81b2c5062dad1f8d13d72ffb5fb8006eeea9229` and pair
+`1dba45922e0c34a04880f2ed4c5a07a65882b809559104aee70506b88838bcc7`.
+All five public asset sizes and GitHub SHA-256 digests match preparation; the
+three binary hashes are unchanged from the manual-testing handoff. No rebuild ran.
+
+Pages uses workflow deployment with `cname=downloads.ioka.io` and an environment
+restricted to `main`. The owner's CNAME resolves at authoritative and public DNS;
+GitHub reports the domain valid and HTTPS-eligible. The page returns HTTP 200 with
+the selected pair and correct HTTPS GitHub download links. **Custom-domain TLS
+provisioning and HTTPS enforcement remain pending**; a normal HTTPS request has
+not yet passed certificate validation. GitHub release downloads already use HTTPS.
+
+Validation: 17 focused contracts, actual 88-file candidate preparation, repository
+link checks, YAML parsing, desktop/mobile layout and keyboard checks passed.
+Independent review found no blocker. Public assets contain no raw pipeline logs
+or private qualification fixtures.
 
 [ADR-074](../adr/074-github-beta-downloads.md) authorizes this limited publication.
 The [manual candidate](../release-planning/05-manual-candidate.md) identifies the
