@@ -277,7 +277,7 @@ async fn imported_tools_and_deadline_apply_to_cli_public_start_and_resume_on_bot
                     assert!(
                         value.to_string().contains("deadline")
                             || value.to_string().contains("timed out"),
-                        "{value}"
+                        "{backend:?}/{mode}/delayed: expected imported deadline refusal, got {value}"
                     );
                 } else {
                     let names: Vec<_> = value["catalog"]["tools"]

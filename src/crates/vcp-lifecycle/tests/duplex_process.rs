@@ -206,6 +206,91 @@ async fn malformed_frames_queues_stderr_and_deadlines_stop_owned_processes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn writes_after_a_recorded_deadline_keep_the_authoritative_stop_reason() {
+    let fixture = Fixture::new().await;
+    let mut bound = limits();
+    bound.process.timeout = Duration::from_millis(100);
+    let mut connection = fixture.spawn("duplex-silent", bound, None);
+    let read_error = tokio::time::timeout(Duration::from_secs(5), connection.read_line())
+        .await
+        .unwrap()
+        .unwrap_err();
+    // Wait for the actual deadline-owned process exit. A later write must not
+    // replace this recorded cause with its incidental closed-pipe error.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while connection.active_process_count().unwrap() != 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let write_error = connection.write_line(b"after deadline").await.unwrap_err();
+    let outcome = connection.wait().await.unwrap();
+    fixture.close().await;
+    assert_eq!(read_error.to_string(), "process deadline elapsed");
+    assert_eq!(
+        outcome.stop_reason.as_deref(),
+        Some("process deadline elapsed")
+    );
+    assert_eq!(write_error.to_string(), "process deadline elapsed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn backpressured_writes_preserve_the_recorded_deadline() {
+    let fixture = Fixture::new().await;
+    let mut bound = limits();
+    bound.process.timeout = Duration::from_millis(100);
+    bound.frame_bytes = 1024 * 1024;
+    bound.input_bytes = 2 * 1024 * 1024;
+    let mut connection = fixture.spawn("duplex-silent", bound, None);
+    let error = tokio::time::timeout(
+        Duration::from_secs(5),
+        connection.write_line(&vec![b'x'; 1024 * 1024]),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    let outcome = connection.wait().await.unwrap();
+    fixture.close().await;
+    assert_eq!(error.to_string(), "process deadline elapsed");
+    assert_eq!(
+        outcome.stop_reason.as_deref(),
+        Some("process deadline elapsed")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn writes_after_natural_peer_exit_keep_unclassified_io_errors() {
+    let fixture = Fixture::new().await;
+    std::fs::write(
+        fixture.directory.path().join("fixture.txt"),
+        b"answer = 42\n",
+    )
+    .unwrap();
+    let mut connection = fixture.spawn("verify", limits(), None);
+    assert_eq!(
+        connection.read_line().await.unwrap().unwrap(),
+        b"fixture assertion passed: answer = 42"
+    );
+    assert!(connection.read_line().await.unwrap().is_none());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while connection.active_process_count().unwrap() != 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let error = connection
+        .write_line(b"after natural exit")
+        .await
+        .unwrap_err();
+    connection.wait().await.unwrap();
+    fixture.close().await;
+    assert!(error.raw_os_error().is_some(), "{error}");
+    assert!(!error.to_string().contains("deadline"), "{error}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cumulative_input_and_job_descendant_limits_are_observed() {
     let fixture = Fixture::new().await;
     let mut bound = limits();
@@ -309,8 +394,18 @@ async fn pause_rejects_further_io_and_cancelled_partial_write_kills_connection()
         .wait()
         .await
         .unwrap();
-    assert!(connection.write_line(b"after pause").await.is_err());
-    assert!(connection.read_line().await.is_err());
+    assert_eq!(
+        connection
+            .write_line(b"after pause")
+            .await
+            .unwrap_err()
+            .to_string(),
+        "duplex input admission sealed"
+    );
+    assert_eq!(
+        connection.read_line().await.unwrap_err().to_string(),
+        "duplex output admission sealed"
+    );
     assert_eq!(connection.active_process_count().unwrap(), 0);
     fixture.close().await;
 
