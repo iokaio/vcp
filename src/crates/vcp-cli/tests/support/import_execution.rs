@@ -4,28 +4,56 @@ use super::*;
 use std::sync::Mutex;
 
 impl Fixture {
-    fn import_peer(&self, delayed: bool) {
+    pub(super) fn import_peer(&self, delayed: bool) {
+        // The peer protocol is the subject here, not debug hashing throughput
+        // for Node's large executable. Keep ordinary process pinning enabled.
+        let powershell = PathBuf::from(
+            std::env::var_os("VCP_TEST_PWSH").expect("explicit PowerShell 7 fixture host required"),
+        );
+        assert!(powershell.is_absolute() && powershell.is_file());
         let script = format!(
-            r#"const fs=require('node:fs'),rl=require('node:readline'),marker={};
-rl.createInterface({{input:process.stdin}}).on('line',line=>{{
- const q=JSON.parse(line);fs.appendFileSync(marker,q.method+'\n');
- if(q.id===undefined)return;
- const result=q.method==='initialize'?{{protocolVersion:'2025-11-25',capabilities:{{tools:{{}}}},serverInfo:{{name:'import-peer',version:'1'}}}}:
- {{tools:['read','write'].map(name=>({{name,inputSchema:{{type:'object',properties:{{}},additionalProperties:false}}}}))}};
- setTimeout(()=>process.stdout.write(JSON.stringify({{jsonrpc:'2.0',id:q.id,result}})+'\n'),q.method==='tools/list'?{}:0);
-}});"#,
-            serde_json::to_string(&self.data.join("mcp-observed.txt")).unwrap(),
+            r#"#requires -Version 7.0
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$marker='{}'
+while ($null -ne ($line=[Console]::ReadLine())) {{
+ $q=ConvertFrom-Json -InputObject $line -AsHashtable
+ [IO.File]::AppendAllText($marker,$q.method+"`n")
+ if (-not $q.ContainsKey('id')) {{ continue }}
+ $result=if ($q.method -ceq 'initialize') {{
+  @{{protocolVersion='2025-11-25';capabilities=@{{tools=@{{}}}};serverInfo=@{{name='import-peer';version='1'}}}}
+ }} else {{
+  @{{tools=@('read','write' | ForEach-Object {{ @{{name=$_;inputSchema=@{{type='object';properties=@{{}};additionalProperties=$false}}}} }})}}
+ }}
+ if ($q.method -ceq 'tools/list') {{ Start-Sleep -Milliseconds {} }}
+ [Console]::WriteLine((ConvertTo-Json -InputObject @{{jsonrpc='2.0';id=$q.id;result=$result}} -Depth 12 -Compress))
+}}
+"#,
+            self.data
+                .join("mcp-observed.txt")
+                .to_str()
+                .unwrap()
+                .replace('\'', "''"),
             if delayed { 3000 } else { 0 }
         );
-        fs::write(self.workspace.join("import-peer.cjs"), script).unwrap();
+        fs::write(self.workspace.join("import-peer.ps1"), script).unwrap();
+        let arguments = json!([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            "import-peer.ps1"
+        ]);
         let mut profile: Value = serde_json::from_slice(&fs::read(&self.profile).unwrap()).unwrap();
         profile["checks"] = json!([]);
-        profile["mcp"] = json!([{"name":"imported","process":{"profile":"node","arguments":["import-peer.cjs"],"directory":"","timeout_ms":10000,"output_bytes":65536,"input":null},"allowed_tools":["read","write"],"limits":{"frame_bytes":4096,"total_discovery_bytes":8192,"tools":8,"pages":2,"timeout_ms":10000,"stderr_bytes":4096}}]);
+        profile["processes"][0]["name"] = json!("mcp-peer");
+        profile["processes"][0]["executable"] = json!(powershell);
+        profile["mcp"] = json!([{"name":"imported","process":{"profile":"mcp-peer","arguments":arguments,"directory":"","timeout_ms":10000,"output_bytes":65536,"input":null},"allowed_tools":["read","write"],"limits":{"frame_bytes":4096,"total_discovery_bytes":8192,"tools":8,"pages":2,"timeout_ms":10000,"stderr_bytes":4096}}]);
         fs::write(&self.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
-        fs::write(self.data.join("import.json"), serde_json::to_vec(&json!({"mcpServers":{"imported":{"command":profile["processes"][0]["executable"],"args":["import-peer.cjs"],"cwd":self.workspace,"includeTools":["read"],"timeout":1000}}})).unwrap()).unwrap();
+        fs::write(self.data.join("import.json"), serde_json::to_vec(&json!({"mcpServers":{"imported":{"command":profile["processes"][0]["executable"],"args":arguments,"cwd":self.workspace,"includeTools":["read"],"timeout":1000}}})).unwrap()).unwrap();
     }
 
-    async fn import_restrictions(&self) {
+    pub(super) async fn import_restrictions(&self) {
         let source = self.data.join("import.json");
         let arguments = |action: &str| {
             vec![
@@ -54,10 +82,15 @@ rl.createInterface({{input:process.stdin}}).on('line',line=>{{
     }
 
     async fn import_command(&self, args: Vec<String>) -> Value {
-        let mut command = self.command(&args.iter().map(String::as_str).collect::<Vec<_>>());
-        let output = tokio::task::spawn_blocking(move || command.output().unwrap())
-            .await
-            .unwrap();
+        let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = if self.final_artifact {
+            self.final_capture(&args, false).await
+        } else {
+            let mut command = self.command(&args);
+            tokio::task::spawn_blocking(move || command.output().unwrap())
+                .await
+                .unwrap()
+        };
         assert!(
             output.status.success(),
             "{} {}",
@@ -73,7 +106,7 @@ rl.createInterface({{input:process.stdin}}).on('line',line=>{{
             .clone()
     }
 
-    async fn reselect_import(&self) {
+    pub(super) async fn reselect_import(&self) {
         let preview = self
             .import_command(
                 ["config", "import", "rollback-preview", "--revision", "1"]
@@ -93,7 +126,7 @@ rl.createInterface({{input:process.stdin}}).on('line',line=>{{
         .await;
     }
 
-    fn import_revision(&self) -> PathBuf {
+    pub(super) fn import_revision(&self) -> PathBuf {
         self.data
             .join("profile.json.vcp-imports/revision-00000000000000000001.json")
     }
@@ -105,13 +138,17 @@ fn mcp_response(index: usize, action: &str) -> String {
     [json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("import-response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})].into_iter().map(|event|format!("data: {event}\n\n")).collect()
 }
 
-fn selected_task(client: &mut wire::Client, entry: &WorkspaceEntry, root: &str) -> Value {
+pub(super) fn selected_task(
+    client: &mut wire::Client,
+    entry: &WorkspaceEntry,
+    root: &str,
+) -> Value {
     let reply = client.rpc(20, "task/read", json!({"scope":scope(entry),"task":root}));
     assert!(reply.get("error").is_none(), "{reply}");
     reply["result"]["value"].clone()
 }
 
-fn resume(client: &mut wire::Client, entry: &WorkspaceEntry) -> Value {
+pub(super) fn resume(client: &mut wire::Client, entry: &WorkspaceEntry) -> Value {
     let before = selected_task(client, entry, entry.config.root_task.as_str());
     json!({"scope":scope(entry),"task":entry.config.root_task,"mutation":{"command_id":"import-resume","expected_revision":before["revision"],"steering_revision":before["steering_revision"]}})
 }
@@ -375,7 +412,7 @@ async fn changed_base_revision_content_or_chain_refuses_start_and_resume_without
                         .unwrap();
                     assert_eq!(output.status.code(), Some(2));
                     assert!(server.received_requests().await.unwrap().is_empty());
-                    let mut restarted = wire::Client::spawn("local-bridge");
+                    let mut restarted = fixture.bridge();
                     restarted.send(json!({"schema":"vcp-local-bootstrap/1","workspace":fixture.workspace,"data":fixture.data,"role":"controller","execution":{"profile":fixture.profile,"provider_credential":SECRET,"credentials":{}}}));
                     let (status, diagnostics) = restarted.rejected().await;
                     assert!(!status.success(), "invalid import must refuse bootstrap");

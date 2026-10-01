@@ -326,3 +326,51 @@ sanitized, hash-bound evidence summary after review. This target does not claim
 first-run onboarding, clean-host acceptance, skill materialization through a
 provider, a broader skill campaign, or BETA-09 completion, and is not included
 automatically in the candidate workflow.
+
+### Installed configuration refusals
+
+The independent `local_execution_parity` qualification target also contains an
+ignored final-engine refusal test. Compile that target with `--features
+qualification --no-run`, record its executable SHA-256, then use the bounded
+[configuration runner](../../scripts/release/config-refusals.ps1):
+
+```powershell
+pwsh -NoProfile -File scripts/release/config-refusals.ps1 `
+  -NativeResult <absolute-final-native-result.json> `
+  -InstalledEngine <absolute-installed-versioned-vcp.exe> `
+  -Node <absolute-ordinary-node.exe> `
+  -QualificationExecutable <absolute-local_execution_parity-test.exe> `
+  -QualificationSha256 <recorded-test-executable-sha256> `
+  -OutputRoot <fresh-private-directory>
+```
+
+Run this only after independently verifying the full candidate packet and
+installing its matching setup. The enclosing qualification record must bind the
+setup, native ZIP and VSIX pair. This runner separately verifies the strict native
+package, registered installation, launcher selection and complete installed
+payload before and after. It records the qualification executable and source
+helpers independently from the candidate's reviewed source. The selected Node
+and the runner's actual PowerShell executable are hash-bound before and after;
+the synthetic imported MCP peer uses that explicit PowerShell host. Source
+qualification wrappers supply `VCP_TEST_NODE` and `VCP_TEST_PWSH` explicitly.
+
+For both Files and SQLite, unchanged CLI/start/resume controls must reach budget
+exhaustion with no attempt, reservation or send intent. The synthetic profile
+allows one microUSD while its minimum request quote is 100 microUSD; it supplies
+no live credential or qualification transport. Twenty-four changed-configuration
+cases cover base edits, revision reselection, revision content changes, corrupt
+history, removed revisions and first imports, through start and resume. Invalid
+persisted base/history also exercises CLI and reconnect refusals. The observed
+MCP marker must remain absent and rejected commands must not be admitted.
+
+The test runs under the existing Windows Job supervisor with a 300-second
+deadline. Pass requires exactly the selected ignored test, all expected control
+and refusal observations, natural child completion and zero remaining processes.
+Output and synthetic fixtures remain in the private directory on failure. Known
+OneDrive roots are excluded; supply other synchronization locations with
+`-SyncRoots`. Do not upload raw fixtures or logs.
+
+These observations cover stale-configuration admission on final bytes. Actual
+MCP allowlist/deadline execution still requires a separately admitted provider
+task under the shipping transport contract. The runner does not establish an OS
+network-denial policy, a clean host, editor UI parity or full BETA-09 acceptance.

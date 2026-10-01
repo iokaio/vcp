@@ -187,10 +187,49 @@ pub(crate) struct Client {
     frames: mpsc::Receiver<Result<Value, String>>,
     diagnostics: mpsc::Receiver<String>,
 }
+/// Explicit final-artifact commands inherit only Windows identity/system paths.
+/// No environment-selected executable or qualification binary fallback exists.
+pub(crate) fn selected_command(binary: &std::path::Path) -> Process {
+    use std::os::windows::process::CommandExt;
+    assert!(binary.is_absolute() && binary.is_file());
+    let mut command = Process::new(binary);
+    command.env_clear().creation_flags(0x0800_0000);
+    for name in [
+        "SystemRoot",
+        "WINDIR",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "TEMP",
+        "TMP",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "PROCESSOR_ARCHITECTURE",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    let system = PathBuf::from(std::env::var_os("SystemRoot").expect("Windows system root"));
+    command.env(
+        "PATH",
+        std::env::join_paths([system.join("System32"), system]).unwrap(),
+    );
+    command
+}
 impl Client {
     pub(crate) fn spawn(mode: &str) -> Self {
-        let mut child = Process::new(env!("CARGO_BIN_EXE_vcp"))
-            .arg(mode)
+        let mut command = Process::new(env!("CARGO_BIN_EXE_vcp"));
+        command.arg(mode);
+        Self::spawn_command(command)
+    }
+    pub(crate) fn spawn_selected(binary: &std::path::Path, mode: &str) -> Self {
+        let mut command = selected_command(binary);
+        command.arg(mode);
+        Self::spawn_command(command)
+    }
+    fn spawn_command(mut command: Process) -> Self {
+        let mut child = command
             .env_remove("OPENROUTER_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .stdin(Stdio::piped())

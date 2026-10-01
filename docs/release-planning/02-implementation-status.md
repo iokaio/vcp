@@ -17,7 +17,7 @@ historical dispositions without granting final-artifact or owner acceptance.
 | BETA-06 | Implementation delivered | [PR #295](https://github.com/iokaio/vcp/pull/295) merged with routine checks passing. Registered per-user setup, hash-bound stable launcher and installed data-root selection. Native script tests passed concurrency, abandoned-owner recovery, retained Files/SQLite format checks, WAL refusal and preservation; compiled Inno fixture passed nine lifecycle cases. Launcher integration and installation metadata tests each passed 3/3. Final shipping lifecycle, console cancellation and a distinct supported upgrade/rollback pair remain candidate gates. |
 | BETA-07 | Implementation delivered | [PR #296](https://github.com/iokaio/vcp/pull/296) merged with routine checks passing. Strict beta VSIX binds original native build evidence and freshly compiled locked SDK/editor tools; setup guidance uses explicit User settings and the resolved installed engine. SDK 35/35 and editor 163/163 passed, followed by eight focused release/package regressions, candidate-output preservation and stale SDK/extension output checks. Review fixes reject ancestor compiler fallback, redirected compiler output and missing original native evidence. Final installed candidate and clean-host rows remain not run. |
 | BETA-10 | Documentation and staging delivered | [PR #297](https://github.com/iokaio/vcp/pull/297) merged with routine checks passing. Current README, installation/onboarding, recovery, known issues and safe support instructions. Native ZIP stages four source-bound guides and identifies the entry point. Eleven inventory/provenance tests, actual Windows ZIP/document hashes, repository links and PowerShell example parsing passed. Debug assembly proves staging only; final clean-installed walkthrough remains a BETA-09 gate. |
-| BETA-08 | Workflow and evidence delivered | [PR #298](https://github.com/iokaio/vcp/pull/298) merged with routine checks passing. Exact-main dispatch gate, pinned tools, fresh production engine/setup/VSIX construction, separate native qualification target and actual installed synthetic observer smoke. Seven evidence regressions passed, the installed-editor target compiled, and a clean-fixture directory race was corrected and rechecked. Evidence validation preserves failed installation roots and refuses incomplete or changed build records. No final production run yet. |
+| BETA-08 | Workflow delivered; portable checkpoint passed | [PR #298](https://github.com/iokaio/vcp/pull/298) merged with routine checks passing. Exact-main dispatch gate, pinned tools, fresh production engine/setup/VSIX construction, separate native qualification target and actual installed synthetic observer smoke. Seven evidence regressions passed, the installed-editor target compiled, and a clean-fixture directory race was corrected and rechecked. Evidence validation preserves failed installation roots and refuses incomplete or changed build records. [PR #311](https://github.com/iokaio/vcp/pull/311) added bounded stages and separate checkpoint/full-pipeline status; the selected portable checkpoint passed all 24 groups. The later full run is recorded below; no completed artifact-pair qualification is claimed. |
 | BETA-09 | Runner prerequisites verified; final matrix not run | [PR #299](https://github.com/iokaio/vcp/pull/299) merged with routine checks passing. Strict package/installed-payload validation, distinct-version guards, final-byte 130-version startup/cancellation runner and private recovery-fixture preparation. Five package/startup/root-boundary tests passed; startup and editor targets compiled. Existing synthetic recovery generator passed both stores with independent keys, tasks/claims and retained accounting. Historical P8 private inputs and an eligible distinct prior production candidate were unavailable; their evidence is not claimed. Final candidate execution, clean host, real upgrade, independent-machine/full-volume and live/owner rows remain open. |
 | BETA-11 | Not ready | Owner acceptance and distribution authorization depend on a qualified candidate. |
 
@@ -255,7 +255,7 @@ retained as unverified evidence and cannot establish a successful build. Stage
 limits total at most 325 minutes inside the existing 360-minute job; setup and
 best-effort evidence retention consume the remainder. No Cargo concurrency,
 runner size, fresh-target rule or acceptance gate is relaxed. The full candidate
-has not been restarted while this revision is reviewed and verified.
+was held until this revision was reviewed and verified.
 
 Windows verification passed through the registered sanitized harness on Node
 24.10.0: `beta-orchestration` passed 20/20 cases in 37.8 seconds and
@@ -270,6 +270,67 @@ checks also passed. Independent review led to regressions for changed final-stag
 logs and for a successful Cargo exit followed by a failed supervisor pipe drain;
 the latter now records child and supervisor exits separately. These are synthetic
 orchestration checks, not a rerun of the production build or installed matrix.
+
+[PR #311](https://github.com/iokaio/vcp/pull/311) delivered the revision with
+required PR and exact-main checks passing. The owner then resumed the plan.
+The [portable checkpoint](https://github.com/iokaio/vcp/actions/runs/36810890848)
+on reviewed source `17e8b4493d1a35a801c83c66eb623b2861c0941c` passed all
+24 contract groups, including the three groups that had timed out in the earlier
+attempt. Independent local verification matched all 54 packet checksums, the
+exact source and the three successful selected stages. Its `selection_status`
+is `pass`; `pipeline_status` remains `incomplete`, all eight later stages and
+the manual matrix remain `not-run`. This is a successful checkpoint, not a
+qualified artifact pair. The review receipt is
+`artifacts/beta-delivery/checkpoint-36810890848-review.json`.
+
+The subsequent [full candidate](https://github.com/iokaio/vcp/actions/runs/36811810217)
+selected that same reviewed source and `installed-editor`. The owner canceled
+it during production compilation and provisioned a larger Windows runner.
+[PR #312](https://github.com/iokaio/vcp/pull/312) merged after all required checks,
+and the exact-main [Delivery run](https://github.com/iokaio/vcp/actions/runs/36818215531)
+passed. The [replacement candidate](https://github.com/iokaio/vcp/actions/runs/36818503347)
+selects `6c14e17c5690f8f474f26f537c972ba58fbb5580` and `installed-editor`.
+GitHub assigned it to `vcpwin-1000004982` in `wingroup`, with 16 Cargo jobs.
+Starting this run does not complete the production, installed-product or manual
+acceptance rows.
+
+## Final installed configuration refusal increment
+
+BETA-09 adds a separate package-bound installed-engine runner for six unchanged
+CLI/start/resume controls and 24 stale-configuration refusals across Files and
+SQLite. Controls must exhaust an intentionally unaffordable synthetic budget
+without provider attempts, reservations, settlements, effects or MCP dispatch.
+Refusals preserve canonical state and acknowledged history, allowing only
+validated controller-lease changes. Invalid base/history also exercises CLI
+and reconnect refusal. The runner validates the registered installation and
+complete payload before/after, explicit qualification/Node/PowerShell hashes,
+private unsynchronized output and natural process-tree completion. It retains
+private diagnostics on failure and does not install or uninstall the product.
+
+The source-only shared matrix passed all six controls and 24 refusals in 32
+seconds with zero loopback requests. Existing positive import parity passed all
+12 combinations in 82 seconds with unchanged assertions and deadlines. Its
+synthetic MCP peer now uses the selected PowerShell 7 host: debug hashing the
+89.9 MB Node executable three times could consume about 17 seconds and crowd
+the existing 20-second RPC watchdog. Two measured hashes took 11.28 seconds;
+source inspection identified the third. The actual replacement peer completed
+initialize/list in 384 ms, within the unchanged one-second import deadline.
+Production process pinning remains unchanged. Earlier timeout observations and
+the incomplete 300-second baseline diagnostic remain retained, not passing
+evidence. Compile and smoke receipts are under
+`artifacts/beta-delivery/import-refusals-preparation/` and
+`artifacts/beta-delivery/import-peer-smoke/`.
+The existing 24 stale-import cases also passed in 14 seconds. All three observed
+test processes finished naturally with empty owned Jobs. The consolidated
+source-only receipt is
+`artifacts/beta-delivery/import-refusals-preparation/peer-repair-validation.json`.
+
+Seven runner contract tests passed, including exact PowerShell binding and
+environment restoration. Independent review identified and closed explicit tool
+propagation in the native hooks/import wrappers. These are source and runner
+checks; the final installed 6+24 matrix remains unrun until the replacement
+candidate produces a verified passing packet. The runner does not qualify live
+provider execution, OS network denial, a clean host or full BETA-09 acceptance.
 
 ## Owner-provisioned Windows build capacity
 

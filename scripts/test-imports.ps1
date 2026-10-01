@@ -39,6 +39,7 @@ try {
     $env:RUST_MIN_STACK = '16777216'
     $env:CODEX_TEST_ENVIRONMENT = 'local'
     $env:VCP_TEST_NODE = (Get-Command node -CommandType Application).Source
+    $env:VCP_TEST_PWSH = [Environment]::ProcessPath
     $env:VCP_TEST_GIT = (Get-Command git -CommandType Application).Source
     $record.platform = [Runtime.InteropServices.RuntimeInformation]::OSDescription
     $record.rustc = & rustc '+1.98.0' --version
