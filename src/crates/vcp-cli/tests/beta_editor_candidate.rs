@@ -8,6 +8,8 @@ mod editor_supervision;
 mod hidden_process;
 #[path = "support/local_fixture.rs"]
 mod local_fixture;
+#[path = "support/script_path.rs"]
+mod script_path;
 use editor_supervision::editor_observation;
 use std::{
     fs,
@@ -86,7 +88,9 @@ async fn final_installed_candidate_observes_synthetic_history_both_stores() {
         let mut command = Command::new("pwsh");
         command
             .args(["-NoProfile", "-File"])
-            .arg(repo.join("scripts/release/editor-smoke.ps1"));
+            .arg(script_path::argument(
+                &repo.join("scripts/release/editor-smoke.ps1"),
+            ));
         for (flag, variable) in [
             ("-NativeResult", "VCP_BETA_NATIVE_RESULT"),
             ("-SetupResult", "VCP_BETA_SETUP_RESULT"),
@@ -152,7 +156,9 @@ async fn final_installed_candidate_editor_lifecycle_preserves_both_stores() {
             let mut command = Command::new("pwsh");
             command
                 .args(["-NoProfile", "-File"])
-                .arg(repo.join("scripts/release/editor-lifecycle.ps1"));
+                .arg(script_path::argument(
+                    &repo.join("scripts/release/editor-lifecycle.ps1"),
+                ));
             for (flag, variable) in [
                 ("-NativeResult", "VCP_BETA_NATIVE_RESULT"),
                 ("-SetupResult", "VCP_BETA_SETUP_RESULT"),

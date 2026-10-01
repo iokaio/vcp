@@ -140,6 +140,18 @@ provider work. The outer runner allows 1,200 seconds for the complete matrix and
 payload checks; individual readiness, event-exit and cleanup bounds are recorded
 in the result. Failed observations retain the registered installation and private
 repair evidence instead of removing them during exception handling.
+The console, editor and helper qualifiers keep canonical paths for candidate
+identity and containment, but pass interpreters equivalent ordinary absolute script paths.
+Node's CommonJS entry resolver rejects the Windows extended prefix returned by
+Rust canonicalization; PowerShell also propagates that prefix into derived Node
+script paths. Payload-verifier failures report bounded exit/tree
+details and fixed reason categories; raw private output remains local.
+After a successful uninstaller exit, smoke runners observe registration and
+program-directory removal for up to ten seconds because Inno can finish its
+owned cleanup after the initial process returns. Persistent leftovers still
+fail; the runner never deletes them, and retained-data comparisons still apply.
+The editor observer likewise uninstalls only after a successful observation;
+setup or observer failures preserve its registered installation and private evidence.
 
 The ignored `beta_editor_candidate` integration test seeds the existing offline
 paused-history fixture for Files and SQLite, then installs the final setup and

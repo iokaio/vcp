@@ -17,7 +17,7 @@ historical dispositions without granting final-artifact or owner acceptance.
 | BETA-06 | Implementation delivered | [PR #295](https://github.com/iokaio/vcp/pull/295) merged with routine checks passing. Registered per-user setup, hash-bound stable launcher and installed data-root selection. Native script tests passed concurrency, abandoned-owner recovery, retained Files/SQLite format checks, WAL refusal and preservation; compiled Inno fixture passed nine lifecycle cases. Launcher integration and installation metadata tests each passed 3/3. Final shipping lifecycle, console cancellation and a distinct supported upgrade/rollback pair remain candidate gates. |
 | BETA-07 | Implementation delivered | [PR #296](https://github.com/iokaio/vcp/pull/296) merged with routine checks passing. Strict beta VSIX binds original native build evidence and freshly compiled locked SDK/editor tools; setup guidance uses explicit User settings and the resolved installed engine. SDK 35/35 and editor 163/163 passed, followed by eight focused release/package regressions, candidate-output preservation and stale SDK/extension output checks. Review fixes reject ancestor compiler fallback, redirected compiler output and missing original native evidence. Final installed candidate and clean-host rows remain not run. |
 | BETA-10 | Documentation and staging delivered | [PR #297](https://github.com/iokaio/vcp/pull/297) merged with routine checks passing. Current README, installation/onboarding, recovery, known issues and safe support instructions. Native ZIP stages four source-bound guides and identifies the entry point. Eleven inventory/provenance tests, actual Windows ZIP/document hashes, repository links and PowerShell example parsing passed. Debug assembly proves staging only; final clean-installed walkthrough remains a BETA-09 gate. |
-| BETA-08 | Workflow delivered; portable checkpoint passed | [PR #298](https://github.com/iokaio/vcp/pull/298) merged with routine checks passing. Exact-main dispatch gate, pinned tools, fresh production engine/setup/VSIX construction, separate native qualification target and actual installed synthetic observer smoke. Seven evidence regressions passed, the installed-editor target compiled, and a clean-fixture directory race was corrected and rechecked. Evidence validation preserves failed installation roots and refuses incomplete or changed build records. [PR #311](https://github.com/iokaio/vcp/pull/311) added bounded stages and separate checkpoint/full-pipeline status; the selected portable checkpoint passed all 24 groups. The later full run is recorded below; no completed artifact-pair qualification is claimed. |
+| BETA-08 | Production pair built; installed qualification incomplete | [PR #298](https://github.com/iokaio/vcp/pull/298) merged with routine checks passing. Exact-main dispatch gate, pinned tools, fresh production engine/setup/VSIX construction, separate native qualification target and actual installed synthetic observer smoke. Seven evidence regressions passed, the installed-editor target compiled, and a clean-fixture directory race was corrected and rechecked. Evidence validation preserves failed installation roots and refuses incomplete or changed build records. [PR #311](https://github.com/iokaio/vcp/pull/311) added bounded stages and separate checkpoint/full-pipeline status; the selected portable checkpoint passed all 24 groups. The larger-runner production pair, installed-native harness failure and focused repairs are recorded below; no completed artifact-pair qualification is claimed. |
 | BETA-09 | Runner prerequisites verified; final matrix not run | [PR #299](https://github.com/iokaio/vcp/pull/299) merged with routine checks passing. Strict package/installed-payload validation, distinct-version guards, final-byte 130-version startup/cancellation runner and private recovery-fixture preparation. Five package/startup/root-boundary tests passed; startup and editor targets compiled. Existing synthetic recovery generator passed both stores with independent keys, tasks/claims and retained accounting. Historical P8 private inputs and an eligible distinct prior production candidate were unavailable; their evidence is not claimed. Final candidate execution, clean host, real upgrade, independent-machine/full-volume and live/owner rows remain open. |
 | BETA-11 | Not ready | Owner acceptance and distribution authorization depend on a qualified candidate. |
 
@@ -426,11 +426,53 @@ The replacement candidate remains a separate observation; this repair alone
 does not complete BETA-08 or BETA-09 acceptance.
 
 The replacement [candidate run 36824747405](https://github.com/iokaio/vcp/actions/runs/36824747405)
-selects reviewed source `65654704de6aacb4beb7ccf923d6b9d58a7a23ba` after its
-successful main Delivery checks. Its assigned runner is `vcpwin-1000005002` in
+used reviewed source `65654704de6aacb4beb7ccf923d6b9d58a7a23ba` after its
+successful main Delivery checks. Its assigned runner was `vcpwin-1000005002` in
 `wingroup`, with 16 Cargo workers configured for both compilation stages.
-Portable checks passed before production compilation began. No final artifact
-pair or installed-product pass is claimed by this dispatch observation.
+Production build/verification passed in 22 minutes 57 seconds, followed by native
+packaging, setup, VSIX and independent pairing. Native qualification compilation
+and boundary tests passed in 10 minutes 31 seconds. The production supervisor
+recorded explicit cleanup of its pinned owned telemetry helper, successful
+child/broker exits, an empty Job and no generic forced cleanup.
+The downloaded packet verified all 91 checksums and has no artifact-validation
+failures. Its exact pair is
+`c3022ef9924640fc949a74430555219056a0a3a3eecd2b0d09e2097c214c3a88`.
+
+Installed-native qualification failed before the console matrix: its Node
+payload verifier exited unsuccessfully, with raw stderr retained only in the
+hosted runner's private directory. Local reproduction against the unchanged downloaded payload
+found that the console test passes a Rust-canonicalized Windows extended-prefix
+script path that Node 24.10 rejects with `EISDIR`. Changing only that script
+argument to its ordinary absolute spelling passed with the same extended-prefix
+Node executable, payload path and restricted environment. Ordinary and
+extended-prefix payload-directory validation also passed. The repair changes
+only the script argument and verifies canonical equivalence; shipping engine,
+installer and VSIX bytes are unchanged. The failed pipeline and unrun installed
+editor stage remain explicit. Review and reproduction pointers are retained in
+`artifacts/beta-delivery/candidate-36824747405-review.json`.
+
+Focused local validation of that repair passed all eight actual installed
+console cases (both stores, both console signals, direct and launcher), including
+strict payload validation before and after. It exposed a second harness race:
+Inno completed its final cleanup about half a second after the uninstaller
+process returned. The smoke now observes both registration and program-root
+disappearance for at most ten seconds, retaining failure and data-preservation
+checks. A fresh actual install/configure/uninstall passed for both stores with
+the sentinel and exact preference bytes preserved. The original failed run and
+failed local wrapper receipts remain failed. Local evidence pointers are
+`artifacts/beta-delivery/candidate-36824747405-console-continuation.json` and
+`artifacts/beta-delivery/candidate-36824747405-uninstall-regression.json`.
+
+The same extended-prefix issue was reproduced in PowerShell-to-Node launches.
+Four editor/helper script arguments now use canonical-equivalent ordinary paths.
+The editor observer now also preserves its installation on failed observations,
+matching the native and editor-lifecycle runners. Three console regressions,
+six shared interpreter-path regressions and all 25
+evidence contracts passed, with targeted Rust compilation and independent
+review clear. These checks do not claim installed-editor qualification. Compile
+and test receipts are retained under `artifacts/beta-delivery/console-node-path/v2/`,
+`artifacts/beta-delivery/script-path-refresh-18260191-74ff-4eba-ba27-bbae9753332c/`
+and `artifacts/beta-delivery/uninstall-observation/`.
 
 A separate BETA-08 evidence review found that native qualification's final
 output drain was absent from the console mirror, and private editor runner
