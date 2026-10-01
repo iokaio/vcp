@@ -519,6 +519,39 @@ Focused repair evidence is retained under
 `artifacts/beta-delivery/editor-driver-fix/`; a fresh both-store observer retry
 remains separate from these regression and retirement checks.
 
+[PR #318](https://github.com/iokaio/vcp/pull/318) delivered the driver packaging
+and fixed child-environment repairs with successful PR and main Delivery checks. The
+focused observer retry then passed against the unchanged production pair for
+both Files and SQLite, including the canonical paused-history assertions and
+successful uninstall. Its pointer is
+`artifacts/beta-delivery/candidate-36824747405-editor-observer-regression.json`.
+This is a development-host diagnostic, not a passing candidate pipeline. The
+original pipeline remains failed, and its setup logs still report a post-install
+selection mismatch despite exit code zero. That installer verification boundary
+requires repair before a fresh production candidate can qualify.
+
+The remaining mismatch was reproduced with an actual hidden PowerShell child:
+its OEM decoder corrupts the launcher's UTF-8 JSON paths. Verification now scopes
+UTF-8 decoding to that invocation and restores the prior encoding, retaining
+the exact candidate, archive, engine and data-root comparisons. The installer
+also derives its application-root limit from the exact staged integration
+inventory, including temporary filenames, and refuses an over-limit root before
+ownership or activation mutations. The current maximum is 207 UTF-16 units.
+Because pinned Inno catches post-install callback exceptions, a failed
+verification now explicitly returns `1001` while preserving recovery state.
+All twelve compiled synthetic installer cases passed, including installation at
+the computed boundary, refusal one unit beyond it, post-verification failure,
+recovery and data-preserving uninstall. The supervised process tree completed
+naturally with no forced cleanup. Seven focused path/encoding regressions passed;
+the distribution group passed 83 tests with its separately provisioned editor
+archive check skipped. Repository checks and independent review also passed.
+Evidence is retained under
+`artifacts/beta-delivery/setup-boundary-40c9dee7cf7d4b64b1e313886b9ccd2f/`,
+`artifacts/beta-delivery/installer-verify-encoding/` and
+`artifacts/beta-delivery/setup-verification-distribution-check/`.
+These synthetic checks do not qualify final production artifacts. Earlier
+failed installer observations remain preserved.
+
 A separate BETA-08 evidence review found that native qualification's final
 output drain was absent from the console mirror, and private editor runner
 failures exposed only temporary paths in the retained stage log. The collector

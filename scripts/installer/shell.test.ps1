@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$CompilerRoot)
+param([Parameter(Mandatory)][string]$CompilerRoot,[switch]$CompileOnly)
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Windows installer shell test required' }
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -36,6 +36,8 @@ using System.Collections.Generic;
 using System.Web.Script.Serialization;
 class Fixture {
   static int Main(string[] args) {
+    // Match the real Rust launcher's UTF-8 JSON even in Inno's hidden console.
+    Console.OutputEncoding = new System.Text.UTF8Encoding(false);
     if(args.Length == 3 && args[0] == "--hold-lock") {
       using(var mutex = new System.Threading.Mutex(false,args[1])) {
         mutex.WaitOne(); File.WriteAllText(args[2],"locked"); System.Threading.Thread.Sleep(-1);
@@ -47,6 +49,7 @@ class Fixture {
     var app = AppDomain.CurrentDomain.BaseDirectory;
     var engine = Path.Combine(app,"engine");
     var pointer = json.Deserialize<Dictionary<string,object>>(File.ReadAllText(Path.Combine(engine,"active.json")));
+    if(File.Exists(Path.Combine((string)pointer["data_root"],"reject-fixture-verification"))) return 4;
     Console.WriteLine(json.Serialize(new { schema="vcp-installed-engine/1", executable=Path.Combine(engine,"releases",(string)pointer["release"],"vcp.exe"), data_directory=(string)pointer["data_root"] }));
     return 0;
   }
@@ -56,11 +59,28 @@ $launcher = Join-Path $temporary 'fixture-launcher.exe'
 $csc = Join-Path ([Environment]::GetFolderPath('Windows')) 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 & $csc /nologo /target:exe /platform:x64 /r:System.Web.Extensions.dll (('/out:')+$launcher) $launcherSource
 if ($LASTEXITCODE -ne 0) { throw 'Synthetic launcher fixture compiler failed' }
+$setupFiles = Join-Path $temporary 'setup-files'
+New-Item -ItemType Directory -Path (Join-Path $setupFiles 'maintenance') | Out-Null
+Copy-Item -LiteralPath $launcher -Destination (Join-Path $setupFiles 'vcp.exe')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'shell.ps1'),(Join-Path $repository 'scripts/package-install.ps1') -Destination (Join-Path $setupFiles 'maintenance')
+Copy-Item -LiteralPath (Join-Path $repository 'release/installer-notices') -Destination (Join-Path $setupFiles 'setup-notices') -Recurse
+$node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$pathLimitsJson = & $node (Join-Path $PSScriptRoot 'path-limits.cjs') $setupFiles
+if ($LASTEXITCODE -ne 0) { throw 'Synthetic setup path inventory rejected' }
+$pathLimits = $pathLimitsJson | ConvertFrom-Json -Depth 20
+# The actual successful install exercises the computed UTF-16 boundary.
+$appPrefix = Join-Path $temporary 'Program Files β '
+if ($appPrefix.Length -ge $pathLimits.max_app_root_utf16) { throw 'Fixture TEMP path leaves no room for the setup boundary' }
+$app = $appPrefix + ('x' * ($pathLimits.max_app_root_utf16 - $appPrefix.Length))
 $compileLog = Join-Path $temporary 'compile.log'
-$arguments = @('/Q',('/O'+$temporary),('/DNativeArchive='+$archive),('/DLauncher='+$launcher),'/DProductVersion=0.2.0-beta.1',('/DNativeSha256='+$archiveHash),('/DCandidateId='+$candidate),('/DShellSha256='+(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'shell.ps1')).Hash.ToLowerInvariant()),('/DEngineScriptSha256='+(Get-FileHash -LiteralPath (Join-Path $repository 'scripts/package-install.ps1')).Hash.ToLowerInvariant()),('/DNoticesSha256='+(Get-FileHash -LiteralPath (Join-Path $repository 'release/installer-notices/inventory.json')).Hash.ToLowerInvariant()),('/DVcpAppId='+$identifier),'/DProductName=VCP Installer Shell Test',(Join-Path $PSScriptRoot 'vcp.iss'))
+$arguments = @('/Q',('/O'+$temporary),('/DNativeArchive='+$archive),('/DSetupFiles='+$setupFiles),('/DMaxAppRootLength='+$pathLimits.max_app_root_utf16),'/DProductVersion=0.2.0-beta.1',('/DNativeSha256='+$archiveHash),('/DCandidateId='+$candidate),('/DShellSha256='+(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'shell.ps1')).Hash.ToLowerInvariant()),('/DEngineScriptSha256='+(Get-FileHash -LiteralPath (Join-Path $repository 'scripts/package-install.ps1')).Hash.ToLowerInvariant()),('/DNoticesSha256='+(Get-FileHash -LiteralPath (Join-Path $repository 'release/installer-notices/inventory.json')).Hash.ToLowerInvariant()),('/DVcpAppId='+$identifier),'/DProductName=VCP Installer Shell Test',(Join-Path $PSScriptRoot 'vcp.iss'))
 & (Join-Path ([IO.Path]::GetFullPath($CompilerRoot)) 'ISCC.exe') @arguments *> $compileLog
 if ($LASTEXITCODE -ne 0) { throw "Pinned shell compilation failed; $compileLog" }
 $setup = Join-Path $temporary 'vcp-0.2.0-beta.1-windows-x64-unsigned-setup.exe'
+if ($CompileOnly) {
+    [ordered]@{schema='vcp-setup-shell-compile/1';status='pass';evidence=$temporary;setup_sha256=(Get-FileHash -LiteralPath $setup).Hash.ToLowerInvariant();max_app_root_utf16=$pathLimits.max_app_root_utf16;installed=$false} | ConvertTo-Json
+    return
+}
 function Invoke-Hidden([string]$Executable,[string[]]$Arguments) {
     $process = Start-Process -FilePath $Executable -ArgumentList $Arguments -WindowStyle Hidden -PassThru -Wait
     return $process.ExitCode
@@ -68,6 +88,17 @@ function Invoke-Hidden([string]$Executable,[string[]]$Arguments) {
 function Install-Arguments([string]$Root,[string]$Data,[string]$Log) {
     return @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER',('/DIR="'+$Root+'"'),('/DATADIR="'+$Data+'"'),('/LOG="'+(Join-Path $temporary $Log)+'"'))
 }
+function Wait-Uninstalled([string]$Root) {
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    while ((Test-Path -LiteralPath $registration) -or (Test-Path -LiteralPath (Join-Path $Root 'vcp.exe')) -or (Test-Path -LiteralPath (Join-Path $Root 'engine'))) {
+        if ($deadline.Elapsed.TotalSeconds -gt 15) { throw 'Successful uninstaller did not finish removing fixture registration and integration' }
+        Start-Sleep -Milliseconds 50
+    }
+}
+$tooLong = $app + 'x'
+$failed = Invoke-Hidden $setup (Install-Arguments $tooLong $data 'too-long.log')
+if ($failed -eq 0 -or (Test-Path -LiteralPath $tooLong) -or (Test-Path -LiteralPath $registration)) { throw 'Over-limit setup mutated the app root or registered integration' }
+if (-not (Select-String -LiteralPath (Join-Path $temporary 'too-long.log') -SimpleMatch ('at most ' + $pathLimits.max_app_root_utf16 + ' characters') -Quiet)) { throw 'Over-limit refusal did not give the computed actionable limit' }
 $unowned = Join-Path $temporary 'Unowned'
 New-Item -ItemType Directory -Path $unowned | Out-Null
 [IO.File]::WriteAllText((Join-Path $unowned 'preserve.sentinel'),'unrelated application')
@@ -122,7 +153,19 @@ try {
     if ($failed -eq 0 -or -not (Test-Path -LiteralPath $registration) -or -not (Test-Path -LiteralPath (Join-Path $app 'vcp.exe')) -or -not (Test-Path -LiteralPath $uninstaller)) { throw 'Failed engine uninstall removed registered integration' }
 } finally { if(Test-Path -LiteralPath $engineFile){[IO.File]::WriteAllBytes($engineFile,$original)} }
 if ((Invoke-Hidden $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="'+(Join-Path $temporary 'uninstall.log')+'"'))) -ne 0) { throw "Fixture uninstall failed; preserve $temporary for recovery" }
+Wait-Uninstalled $app
 if (Test-Path -LiteralPath $registration) { throw 'Successful uninstall retained registration' }
 if ((Test-Path -LiteralPath (Join-Path $app 'vcp.exe')) -or (Test-Path -LiteralPath (Join-Path $app 'engine'))) { throw 'Successful uninstall retained program integration' }
 if ([IO.File]::ReadAllText((Join-Path $data 'preserve.sentinel')) -cne 'protected user data' -or [IO.File]::ReadAllText((Join-Path $unowned 'preserve.sentinel')) -cne 'unrelated application') { throw 'Protected or unrelated data changed' }
-[ordered]@{schema='vcp-setup-shell-tests/1';status='pass';evidence=$temporary;compiler='6.7.3';cases=@('unowned-root','data-overlap','registered-install','abandoned-lock-recovery','competing-setup','changed-helper-refused','changed-notice-preserved','failed-uninstall-preserves-registration','uninstall-preserves-data');limitations=@('Synthetic engine and launcher; not installed-product beta qualification.')} | ConvertTo-Json -Depth 5
+# A test-only launcher refusal occurs after engine activation and integration.
+# The real verification function must retain recovery material and return 1001.
+$failedApp = Join-Path $temporary 'Verification failure'
+$failureSentinel = Join-Path $data 'reject-fixture-verification'
+[IO.File]::WriteAllText($failureSentinel,'synthetic launcher refusal')
+$failed = Invoke-Hidden $setup (Install-Arguments $failedApp $data 'post-verification-failure.log')
+if ($failed -ne 1001 -or -not (Test-Path -LiteralPath $registration) -or -not (Test-Path -LiteralPath (Join-Path $failedApp 'engine/active.json'))) { throw 'Post-install verification failure did not return 1001 and preserve recovery state' }
+Remove-Item -LiteralPath $failureSentinel
+if ((Invoke-Hidden (Join-Path $failedApp 'unins000.exe') @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="'+(Join-Path $temporary 'post-verification-uninstall.log')+'"'))) -ne 0) { throw 'Synthetic verification-failure cleanup refused; preserve evidence' }
+Wait-Uninstalled $failedApp
+if ([IO.File]::ReadAllText((Join-Path $data 'preserve.sentinel')) -cne 'protected user data') { throw 'Verification-failure cleanup changed protected data' }
+[ordered]@{schema='vcp-setup-shell-tests/1';status='pass';evidence=$temporary;compiler='6.7.3';max_app_root_utf16=$pathLimits.max_app_root_utf16;cases=@('over-limit-no-mutation','maximum-root-install','unowned-root','data-overlap','registered-install','abandoned-lock-recovery','competing-setup','changed-helper-refused','changed-notice-preserved','failed-uninstall-preserves-registration','uninstall-preserves-data','post-verification-failure-nonzero');limitations=@('Synthetic engine and launcher; not installed-product beta qualification.')} | ConvertTo-Json -Depth 5

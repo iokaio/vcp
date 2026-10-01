@@ -91,8 +91,17 @@ if ($Action -eq 'Verify') {
     if ($pointer.schema -cne 'vcp-install-pointer/1' -or $pointer.package_sha256 -cne $ExpectedArchive -or $pointer.release -cne $ExpectedArchive -or [IO.Path]::GetFullPath($pointer.data_root).TrimEnd('\') -ine $data) { throw 'Active engine differs from selected setup candidate' }
     $manifest = Get-Content -LiteralPath (Join-Path $engine "releases\$ExpectedArchive\manifest.json") -Raw | ConvertFrom-Json
     if ($manifest.release.candidate_id -cne $CandidateId) { throw 'Installed candidate provenance differs' }
-    $selection = & (Join-Path $app 'vcp.exe') --resolve-installation
-    if ($LASTEXITCODE -ne 0) { throw 'Installed launcher failed validation' }
+    # The Rust launcher writes UTF-8 even when Inno starts PowerShell without a
+    # console. Its inherited OEM decoder would corrupt non-ASCII selected paths.
+    $previousOutputEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $selection = & (Join-Path $app 'vcp.exe') --resolve-installation
+        $launcherExit = $LASTEXITCODE
+    } finally {
+        [Console]::OutputEncoding = $previousOutputEncoding
+    }
+    if ($launcherExit -ne 0) { throw 'Installed launcher failed validation' }
     $selection = $selection | ConvertFrom-Json
     $expected = Join-Path $engine "releases\$ExpectedArchive\vcp.exe"
     if ($selection.schema -cne 'vcp-installed-engine/1' -or [IO.Path]::GetFullPath($selection.executable).Replace('\\?\','') -ine $expected -or [IO.Path]::GetFullPath($selection.data_directory).Replace('\\?\','').TrimEnd('\') -ine $data) { throw 'Launcher resolves a different engine or data root' }

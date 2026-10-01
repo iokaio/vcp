@@ -6,8 +6,14 @@
 #ifndef NativeArchive
   #error NativeArchive is required
 #endif
-#ifndef Launcher
-  #error Launcher is required
+#ifndef SetupFiles
+  #error Staged SetupFiles is required
+#endif
+#ifndef MaxAppRootLength
+  #error Computed MaxAppRootLength is required
+#endif
+#if Int(MaxAppRootLength) < 4 || Int(MaxAppRootLength) > 240
+  #error Invalid computed MaxAppRootLength
 #endif
 #ifndef ProductVersion
   #error ProductVersion is required
@@ -64,10 +70,8 @@ Name: startmenu; Description: "Create a Start menu shortcut"; Flags: unchecked
 
 [Files]
 Source: "{#NativeArchive}"; DestName: "native.zip"; Flags: dontcopy
-Source: "..\package-install.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
-Source: "shell.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
-Source: "{#Launcher}"; DestDir: "{app}"; DestName: "vcp.exe"; Flags: ignoreversion
-Source: "..\..\release\installer-notices\*"; DestDir: "{app}\setup-notices"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The builder derives the path bound from this exact staged destination tree.
+Source: "{#SetupFiles}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{userprograms}\{#ProductName}"; Filename: "{app}\vcp.exe"; WorkingDir: "{userdocs}"; Tasks: startmenu
@@ -81,6 +85,7 @@ var
   DataPage: TInputDirWizardPage;
   SetupLock: THandle;
   ChosenData: String;
+  PostInstallVerificationFailed: Boolean;
 
 function NativeCreateMutex(Attributes: LongWord; InitialOwner: Boolean; Name: String): THandle;
   external 'CreateMutexW@kernel32.dll stdcall';
@@ -163,10 +168,23 @@ begin
   DataPage.Values[0] := ExpandConstant('{param:DATADIR|{localappdata}\VCP}');
 end;
 
+function AppRootLengthError(const Root: String): String;
+begin
+  Result := '';
+  if Length(Root) > {#MaxAppRootLength} then
+    Result := 'The program directory is too long for this setup. Choose a shorter program directory (at most {#MaxAppRootLength} characters, including the drive and separators).';
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
-var Marker: String;
+var Marker, Problem: String;
 begin
   if CurPageID = wpSelectDir then begin
+    Problem := AppRootLengthError(WizardDirValue);
+    if Problem <> '' then begin
+      SuppressibleMsgBox(Problem, mbError, MB_OK, IDOK);
+      Result := False;
+      Exit;
+    end;
     Marker := AddBackslash(WizardDirValue) + '.vcp-setup-owned.ini';
     if FileExists(Marker) then
       DataPage.Values[0] := GetIniString('VCP', 'DataRoot', '', Marker);
@@ -177,7 +195,9 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Action, Arguments: String;
 begin
-  Result := '';
+  { Also applies to silent setup, before ownership markers or engine activation. }
+  Result := AppRootLengthError(ExpandConstant('{app}'));
+  if Result <> '' then Exit;
   try
     ChosenData := DataPage.Values[0];
     ExtractTemporaryFile('shell.ps1');
@@ -199,11 +219,21 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
+    { Inno handles this event's exceptions without changing its success exit.
+      Set the flag before any verification call, including one that raises. }
+    PostInstallVerificationFailed := True;
     if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'),
       '-Action Verify -AppRoot ' + Quoted(ExpandConstant('{app}')) + ' -DataRoot ' + Quoted(ChosenData) +
       ' -ExpectedArchive {#NativeSha256} -CandidateId {#CandidateId}') then
       RaiseException('The installed selection changed or failed validation. Setup cannot claim this candidate was activated. Preserve the retained engine for recovery.');
+    PostInstallVerificationFailed := False;
   end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  { Called only when Inno would otherwise return zero; keep its failure codes. }
+  if PostInstallVerificationFailed then Result := 1001 else Result := 0;
 end;
 
 procedure DeinitializeSetup;

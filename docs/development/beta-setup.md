@@ -34,6 +34,15 @@ MPL/CPL license selections and corresponding source. It records these hashes in
 the result and refuses modified notice files during lifecycle operations. The
 native ZIP's dependency inventory remains specific to the engine payload.
 
+The builder stages the exact setup-owned destination tree and records its file
+hashes and `path_limits` in the result. The pinned Inno runtime uses ordinary
+Windows paths for file staging and renames. The generated application-root limit
+reserves room for every installed file, directory and temporary staging name;
+the current inventory permits 207 UTF-16 code units, including drive and
+separators. Interactive and silent setup reject longer roots before creating
+ownership markers or activating the engine. This does not enable Windows long
+paths or relax the separate engine/data path checks.
+
 ## Ownership and lifecycle
 
 Inno owns the registered application root, launcher and maintenance scripts. The
@@ -55,8 +64,15 @@ requires recovery and clean closure by the existing engine; setup never infers
 effective compatibility from only the main-file header or edits the WAL.
 After Inno copies integration files it verifies that the selected candidate,
 archive and data directory still match the active engine and validated launcher.
+Verification explicitly decodes the launcher's JSON as UTF-8 while capturing it,
+then restores the previous encoding, so hidden setup processes preserve Unicode
+paths in the identity comparison.
 It refuses to report successful activation if a concurrent expert operation
 changed that selection.
+Post-install verification failure returns setup exit code `1001`, including
+exceptions from maintenance-script validation. The retained engine, registration
+and data remain available for diagnosis and recovery. Inno's other failure codes
+retain their existing meaning; a zero exit requires successful verification.
 
 Uninstall calls ownership checks and validated engine removal from Inno's
 `usUninstall` event. At the pinned source revision this callback propagates a
@@ -80,6 +96,9 @@ successful uninstall preserving protected and unrelated data. It also refuses
 changed maintenance scripts and preserves modified runtime notices. It leaves logs
 under the emitted evidence path. Its engine and launcher are synthetic fixtures;
 passing this regression is not BETA-08 or BETA-09 installed-product acceptance.
+It also exercises the computed application-root boundary, refusal one UTF-16
+unit beyond it, and a post-install verification failure followed by recovery.
+Use `-CompileOnly` to validate the pinned compiler inputs without installing.
 
 The exact installer source behavior used here is documented in Inno's
 [portable-mode notes](https://jrsoftware.org/ishelp/topic_technotes.htm),
