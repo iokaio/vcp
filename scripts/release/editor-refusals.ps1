@@ -69,7 +69,7 @@ if ($Mode -ceq 'restricted') {
     [IO.File]::WriteAllText((Join-Path $root 'outside/outside.txt'),"original human work`n",[Text.UTF8Encoding]::new($false))
     $null=Invoke-BetaProcess $Code ($base+@('--install-extension',$archive,'--force')) $root $editorEnvironment
     Copy-Item -LiteralPath $driverSource -Destination (Join-Path $driver 'driver.cjs')
-    @{name='candidate-refusal-driver';publisher='vcp-test';version='0.0.1';engines=@{vscode=$editor.version};activationEvents=@('*');main='./driver.cjs';extensionKind=@('workspace');capabilities=@{untrustedWorkspaces=@{supported=$true}}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $driver 'package.json') -Encoding utf8NoBOM
+    @{name='candidate-refusal-driver';publisher='vcp-test';version='0.0.1';engines=@{vscode=$editor.version};activationEvents=@('*');main='./driver.cjs';files=@('driver.cjs');extensionKind=@('workspace');capabilities=@{untrustedWorkspaces=@{supported=$true}}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $driver 'package.json') -Encoding utf8NoBOM
     $driverArchive=Join-Path $root 'driver.vsix'
     $null=Invoke-BetaProcess $node @((Join-Path $repo 'src/packages/vscode/node_modules/@vscode/vsce/vsce'),'package','--no-dependencies','--allow-missing-repository','--skip-license','--out',$driverArchive) $driver
     $null=Invoke-BetaProcess $Code ($base+@('--install-extension',$driverArchive,'--force')) $root $editorEnvironment

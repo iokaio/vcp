@@ -156,6 +156,10 @@ Editor workspace and data-directory arguments also require ordinary absolute
 spelling: Inno's directory page rejects the extended prefix and VS Code treats
 it as a nonlocal URI authority. Qualifiers verify canonical equivalence when
 converting those existing directories and retain canonical fixture identities.
+Generated editor test extensions explicitly list their runtime files so VSCE
+does not package private observations or scan capture files still held by the
+runner. Secret scanning remains enabled. Scrubbed child processes receive a
+fixed `.EXE` `PATHEXT` baseline so PowerShell can invoke pinned native tools.
 
 The ignored `beta_editor_candidate` integration test seeds the existing offline
 paused-history fixture for Files and SQLite, then installs the final setup and

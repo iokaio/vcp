@@ -33,7 +33,7 @@ try {
     $base=@($editorCli,'--user-data-dir',$user,'--extensions-dir',$extensions)
     $null=Invoke-BetaProcess $Code ($base+@('--install-extension',$archive,'--force')) $root $editorEnvironment
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'candidate-editor-driver.cjs') -Destination (Join-Path $driver 'driver.cjs')
-    @{name='candidate-observer-driver';publisher='vcp-test';version='0.0.1';engines=@{vscode='1.138.0'};activationEvents=@('*');main='./driver.cjs';extensionKind=@('workspace');capabilities=@{untrustedWorkspaces=@{supported=$true}}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $driver 'package.json') -Encoding utf8NoBOM
+    @{name='candidate-observer-driver';publisher='vcp-test';version='0.0.1';engines=@{vscode='1.138.0'};activationEvents=@('*');main='./driver.cjs';files=@('driver.cjs');extensionKind=@('workspace');capabilities=@{untrustedWorkspaces=@{supported=$true}}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $driver 'package.json') -Encoding utf8NoBOM
     $driverArchive=Join-Path $root 'driver.vsix'
     $null=Invoke-BetaProcess $node @((Join-Path $repo 'src/packages/vscode/node_modules/@vscode/vsce/vsce'),'package','--no-dependencies','--allow-missing-repository','--skip-license','--out',$driverArchive) $driver
     $null=Invoke-BetaProcess $Code ($base+@('--install-extension',$driverArchive,'--force')) $root $editorEnvironment
