@@ -156,6 +156,8 @@ Editor workspace and data-directory arguments also require ordinary absolute
 spelling: Inno's directory page rejects the extended prefix and VS Code treats
 it as a nonlocal URI authority. Qualifiers verify canonical equivalence when
 converting those existing directories and retain canonical fixture identities.
+The shared installer also returns the validated ordinary engine path, so initial
+and subsequent lifecycle phases use the same spelling when checking identity.
 Generated editor test extensions explicitly list their runtime files so VSCE
 does not package private observations or scan capture files still held by the
 runner. Secret scanning remains enabled. Scrubbed child processes receive a
