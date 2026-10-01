@@ -232,7 +232,7 @@ function Initialize-QualificationEnvironment {
     if (-not $vsRoot) { throw 'Native Visual C++ qualification tools required' }
     & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
     foreach ($relative in @('Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin','Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja')) { $env:PATH=(Join-Path $vsRoot $relative)+';'+$env:PATH }
-    $env:VCP_TEST_NODE=$node; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
+    $env:VCP_TEST_NODE=$node; $env:VCP_TEST_PWSH=$pwsh; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
 }
 Save-Run
 if (Test-Path -LiteralPath (Join-Path $repository 'artifacts/beta-gate/delivery.json')) { $run.receipts.delivery=Join-Path $repository 'artifacts/beta-gate/delivery.json' }

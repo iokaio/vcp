@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #![cfg(all(windows, feature = "qualification"))]
 //! Same synthetic coding scenario through the real CLI and authenticated API.
+#[path = "support/final_import_refusals.rs"]
+mod final_import_refusals;
 #[path = "support/import_execution.rs"]
 mod import_execution;
 #[path = "support/local_fixture.rs"]
@@ -352,7 +354,11 @@ async fn same_coding_scenario_has_cli_api_state_effect_and_accounting_parity() {
 }
 impl Fixture {
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(&self.binary);
+        let mut command = if self.final_artifact {
+            wire::selected_command(&self.binary)
+        } else {
+            Command::new(&self.binary)
+        };
         command
             .args(["--format", "jsonl", "--non-interactive", "--workspace"])
             .arg(&self.workspace)
@@ -366,6 +372,9 @@ impl Fixture {
         command
     }
     async fn seed(&self, backend: BackendKind) -> WorkspaceEntry {
+        if self.final_artifact {
+            return self.seed_final(backend).await;
+        }
         let name = match backend {
             BackendKind::Files => "files",
             BackendKind::Sqlite => "sqlite",
@@ -413,7 +422,7 @@ impl Fixture {
         entry
     }
     fn launch(&self, role: &str, root: Option<&str>) -> wire::Client {
-        let mut client = wire::Client::spawn("local-bridge");
+        let mut client = self.bridge();
         let mut bootstrap = json!({"schema":"vcp-local-bootstrap/1","workspace":self.workspace,"data":self.data,"role":role});
         if role == "controller" {
             bootstrap["execution"] =
@@ -443,12 +452,19 @@ impl Fixture {
         assert!(initialized.get("error").is_none(), "{initialized}");
         client
     }
+    fn bridge(&self) -> wire::Client {
+        if self.final_artifact {
+            wire::Client::spawn_selected(&self.binary, "local-bridge")
+        } else {
+            wire::Client::spawn("local-bridge")
+        }
+    }
 }
 fn scope(entry: &WorkspaceEntry) -> Value {
     json!({"workspace":entry.config.workspace,"session":entry.config.session})
 }
 fn start(entry: &WorkspaceEntry) -> Value {
-    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":"1000000","currency":"USD","max_requests":8,"deadline_seconds":300}})
+    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":entry.config.cap.micros.get().to_string(),"currency":"USD","max_requests":8,"deadline_seconds":300}})
 }
 fn acquire(client: &mut wire::Client, entry: &WorkspaceEntry, name: &str) {
     let lease = client.rpc(2, "controller/read", json!({"scope":scope(entry)}));
@@ -461,7 +477,10 @@ fn task(client: &mut wire::Client, entry: &WorkspaceEntry, id: u64) -> Value {
     reply["result"]["value"].clone()
 }
 async fn reopen(entry: &WorkspaceEntry) -> Store {
-    let until = Instant::now() + Duration::from_secs(15);
+    reopen_within(entry, Duration::from_secs(15)).await
+}
+async fn reopen_within(entry: &WorkspaceEntry, wait: Duration) -> Store {
+    let until = Instant::now() + wait;
     loop {
         match Store::open(&entry.config.canonical_root, entry.config.backend, &[]).await {
             Ok(store) => return store,
@@ -476,10 +495,24 @@ struct Fixture {
     data: PathBuf,
     profile: PathBuf,
     binary: PathBuf,
+    final_artifact: bool,
 }
 impl Fixture {
     fn new(endpoint: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
+        Self::at(
+            temp,
+            PathBuf::from(env!("CARGO_BIN_EXE_vcp")),
+            Some(endpoint),
+            None,
+        )
+    }
+    fn at(
+        temp: tempfile::TempDir,
+        binary: PathBuf,
+        endpoint: Option<&str>,
+        selected_node: Option<PathBuf>,
+    ) -> Self {
         let workspace = temp.path().join("workspace");
         let data = temp.path().join("data");
         fs::create_dir(&workspace).unwrap();
@@ -516,19 +549,27 @@ impl Fixture {
         let catalog = data.join("catalog.json");
         fs::write(&catalog, raw).unwrap();
         let profile = data.join("profile.json");
-        let node = temp.path().join("node.exe");
-        fs::copy(
-            std::env::var_os("VCP_TEST_NODE").expect("native Node required"),
-            &node,
-        )
-        .unwrap();
-        fs::write(&profile,serde_json::to_vec(&json!({"version":1,"workspace":workspace,"trust_workspace":true,"maximum_autonomy":"autonomous","automatic_effects":["read","write","execute","network","install","publish","opaque"],"budget_usd":"1","provider":snapshot,"catalog":catalog,"affected_paths":["value.txt"],"max_requests":8,"deadline_seconds":300,"processes":[{"name":"node","executable":node,"environment":{"SystemRoot":std::env::var("SystemRoot").unwrap()},"required_isolation":[],"reduced_isolation":true,"inputs":[]}],"checks":[{"manifest":"package.json","runner":"node","profile":"node","expected_tests":["changed_value"],"rationale":"changed source acceptance"}],"qualification_endpoint":format!("{endpoint}/v1")})).unwrap()).unwrap();
+        let node = selected_node.unwrap_or_else(|| {
+            let node = temp.path().join("node.exe");
+            fs::copy(
+                std::env::var_os("VCP_TEST_NODE").expect("native Node required"),
+                &node,
+            )
+            .unwrap();
+            node
+        });
+        let mut value = json!({"version":1,"workspace":workspace,"trust_workspace":true,"maximum_autonomy":"autonomous","automatic_effects":["read","write","execute","network","install","publish","opaque"],"budget_usd":if endpoint.is_some(){"1"}else{"0.000001"},"provider":snapshot,"catalog":catalog,"affected_paths":["value.txt"],"max_requests":8,"deadline_seconds":300,"processes":[{"name":"node","executable":node,"environment":{"SystemRoot":std::env::var("SystemRoot").unwrap()},"required_isolation":[],"reduced_isolation":true,"inputs":[]}],"checks":[{"manifest":"package.json","runner":"node","profile":"node","expected_tests":["changed_value"],"rationale":"changed source acceptance"}]});
+        if let Some(endpoint) = endpoint {
+            value["qualification_endpoint"] = json!(format!("{endpoint}/v1"));
+        }
+        fs::write(&profile, serde_json::to_vec(&value).unwrap()).unwrap();
         Self {
             _temp: temp,
             workspace,
             data,
             profile,
-            binary: PathBuf::from(env!("CARGO_BIN_EXE_vcp")),
+            binary,
+            final_artifact: endpoint.is_none(),
         }
     }
 }

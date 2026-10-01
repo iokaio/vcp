@@ -71,6 +71,7 @@ if (-not $node) { Fail 'Node is required by the native qualification fixtures.' 
 $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $git) { Fail 'Git is required by the native qualification fixtures.' 3 }
 $env:VCP_TEST_NODE = $node.Source
+$env:VCP_TEST_PWSH = [Environment]::ProcessPath
 if (-not $env:VCP_TEST_GIT) { $env:VCP_TEST_GIT = $git.Source }
 $env:VCP_TEST_CARGO = & $rustup.Source which --toolchain $RustToolchain cargo
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $env:VCP_TEST_CARGO)) { Fail 'Rust Cargo executable is unavailable.' 3 }
