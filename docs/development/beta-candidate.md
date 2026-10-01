@@ -29,6 +29,19 @@ these checkpoints do not import a previous run's build or resume a canceled job.
 The smaller selections bound the work attempted and make failures visible; they
 do not reduce compilation time.
 
+For native-source repairs, first dispatch `Delivery checks` from `main` with
+`native_boundaries_only=true` and `reviewed_commit` selecting that exact commit.
+This mode requires successful main Delivery checks and cannot be combined with
+`storage_only`. It runs the lifecycle duplex regressions, the candidate's four
+nonignored CLI qualification targets and the package-install fixture on `vcpwin`,
+using 16 Cargo jobs and serial test execution. One Cargo selection combines the
+five native targets so shared dependency features are compiled together. The
+source-only run acquires no
+editor, installer or model and performs no final-candidate installation. It
+retains source identities and bounded process logs independently of the full
+candidate. A pass establishes readiness to attempt the full build; it does not
+replace any candidate stage or final artifact-pair qualification.
+
 [Candidate tool pins](../../release/candidate-tools.json) fix Node 24.10.0,
 Rust 1.95.0 for production, Rust 1.98.0 for qualification and the official VS Code
 1.138.0 Windows x64 archive URL/checksum. The editor pin is from the recorded
