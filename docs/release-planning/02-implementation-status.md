@@ -553,7 +553,7 @@ These synthetic checks do not qualify final production artifacts. Earlier
 failed installer observations remain preserved.
 
 [PR #319](https://github.com/iokaio/vcp/pull/319) delivered the installer repair
-with successful PR Delivery checks. A focused lifecycle probe on the existing
+with successful PR and main Delivery checks. A focused lifecycle probe on the existing
 production pair then reached the installed-extension inventory check, which
 rejected VS Code's `.vsixmanifest` file as unexpected. The failure pointer is
 retained under
@@ -570,6 +570,20 @@ Four focused contracts passed, and a read-only check of all 59 files in the
 retained installed extension passed against the original VSIX receipt. Evidence
 is retained under `artifacts/beta-delivery/installed-editor-metadata/`; the fresh
 both-store lifecycle observation remains separate from these inventory checks.
+
+The next lifecycle attempt passed the installed-file inventory, then exposed a
+second harness mismatch: the shared installer returned the launcher's extended
+engine path after validating its ordinary equivalent, while the lifecycle guard
+compared it to an ordinary path. The shared return now uses the already validated
+ordinary engine path; launcher/schema/hash/data checks are unchanged. The failed
+attempt and byte-preserving retirement pointers remain under
+`artifacts/beta-delivery/runner-history/editor-engine-path-2ab0f34424db4a1ab27df45a91d6bd74/`.
+The metadata repair was delivered in
+[PR #320](https://github.com/iokaio/vcp/pull/320) with successful PR Delivery checks.
+All 27 release-evidence contracts passed for the engine-path handoff repair,
+including both path spellings, wrong engine/data selection, changed binaries and
+retained-data checks. Repository checks and independent caller/lifecycle review
+passed. Evidence is retained under `artifacts/beta-delivery/installed-engine-path/`.
 
 A separate BETA-08 evidence review found that native qualification's final
 output drain was absent from the console mirror, and private editor runner

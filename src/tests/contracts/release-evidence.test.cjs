@@ -421,6 +421,76 @@ if ($result.exit_code -ne 0 -or $result.stderr -or $null -ne $observed.credentia
   execFileSync('pwsh',['-NoProfile','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Node',process.execPath,'-Child',child,'-Root',f.root],{windowsHide:true,timeout:15000,stdio:'pipe'});
 });
 
+test('Windows candidate install returns the verified ordinary engine path and refuses changed selection or bytes',{skip:process.platform!=='win32'},t=>{
+  const f=fixture(t);
+  const script=f.file('install-selection-test.ps1',String.raw`param([string]$Helper,[string]$Root)
+$ErrorActionPreference='Stop'
+. $Helper
+function Require([bool]$Okay,[string]$Why){if(-not $Okay){throw $Why}}
+function Digest([string]$Path){(Get-FileHash -LiteralPath $Path).Hash.ToLowerInvariant()}
+$registration='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\VCP.InternalBeta.1_is1'
+# Only these exact registry observations and the child process boundary are
+# synthetic. No installer, executable, or registry mutation occurs.
+function Test-Path([string]$LiteralPath){
+    if($LiteralPath -ceq $registration){return $script:registered}
+    return Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath
+}
+function Get-ItemProperty([string]$LiteralPath){
+    Require ($LiteralPath -ceq $registration) 'Unexpected registry observation'
+    return @{InstallLocation=$script:app}
+}
+$nativeArchive=Join-Path $Root 'native.zip';$installer=Join-Path $Root 'setup.exe'
+[IO.File]::WriteAllText($nativeArchive,'synthetic native archive')
+[IO.File]::WriteAllText($installer,'synthetic setup archive, never executed')
+$engineBytes=[Text.Encoding]::UTF8.GetBytes('synthetic native engine, never executed')
+$launcherBytes=[Text.Encoding]::UTF8.GetBytes('synthetic launcher, never executed')
+$archiveHash=Digest $nativeArchive
+$engineHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($engineBytes)).ToLowerInvariant()
+$launcherHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($launcherBytes)).ToLowerInvariant()
+$nativeResult=Join-Path $Root 'native.json';$setupResult=Join-Path $Root 'setup.json'
+@{status='release-candidate';package='native.zip';archive_sha256=$archiveHash;manifest=@{release=@{candidate_id=('c'*64)};files=@(@{path='vcp.exe';sha256=$engineHash})}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $nativeResult
+@{schema='vcp-setup-result/1';candidate_id=('c'*64);native_archive_sha256=$archiveHash;launcher_sha256=$launcherHash;archive=@{file='setup.exe';sha256=(Digest $installer)}} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $setupResult
+function Invoke-BetaProcess([string]$Executable,[string[]]$Arguments,[string]$Directory){
+    if($Executable -ceq $installer){
+        Require (-not $script:registered) 'Synthetic installer invoked twice'
+        $script:app=Join-Path $Directory 'Program Files café'
+        $script:engine=Join-Path $script:app "engine/releases/$archiveHash/vcp.exe"
+        $null=New-Item -ItemType Directory -Path (Split-Path -Parent $script:engine) -Force
+        [IO.File]::WriteAllBytes($script:engine,$engineBytes)
+        [IO.File]::WriteAllBytes((Join-Path $script:app 'vcp.exe'),$launcherBytes)
+        if($script:mode -ceq 'changed-engine'){[IO.File]::WriteAllText($script:engine,'changed native bytes')}
+        if($script:mode -ceq 'changed-launcher'){[IO.File]::WriteAllText((Join-Path $script:app 'vcp.exe'),'changed launcher bytes')}
+        $script:registered=$true
+        return @{exit_code=0;stdout='';stderr=''}
+    }
+    Require ($Executable -ceq (Join-Path $script:app 'vcp.exe') -and ($Arguments -join '|') -ceq '--resolve-installation') 'Unexpected synthetic executable command'
+    $selected=$script:engine;$selectedData=$script:data
+    if($script:mode -ne 'ordinary'){$selected='\\?\'+$selected;$selectedData='\\?\'+$selectedData}
+    if($script:mode -ceq 'wrong-engine'){$selected=Join-Path $script:app 'wrong.exe'}
+    if($script:mode -ceq 'wrong-data'){$selectedData=Join-Path $script:data 'wrong'}
+    return @{exit_code=0;stderr='';stdout=(@{schema='vcp-installed-engine/1';executable=$selected;data_directory=$selectedData}|ConvertTo-Json -Compress)}
+}
+foreach($script:mode in @('ordinary','extended','wrong-engine','wrong-data','changed-engine','changed-launcher')){
+    $script:registered=$false;$script:data=Join-Path $Root ($script:mode+' protected café')
+    New-Item -ItemType Directory -Path $script:data | Out-Null
+    $sentinel=Join-Path $script:data 'preserve.txt';[IO.File]::WriteAllText($sentinel,'original private data')
+    $result=$null;$errorMessage=$null
+    try{$result=Install-BetaCandidate $nativeResult $setupResult (Join-Path $Root $script:mode) $script:data}catch{$errorMessage=$_.Exception.Message}
+    if($script:mode -in @('ordinary','extended')){
+        Require (-not $errorMessage -and $null -ne $result) ('Valid selection refused: '+$errorMessage)
+        Require ($result.engine -ceq $script:engine -and $result.engine -match '^[A-Za-z]:\\' -and $result.data -ceq $script:data) 'Returned path differs from validated ordinary selection'
+        Require ((Digest $result.engine) -ceq $engineHash) 'Returned path identifies different bytes'
+    }else{
+        $expected=if($script:mode -ceq 'changed-launcher'){'Installed launcher differs from receipt'}else{'Installed engine/data selection differs from final candidate'}
+        Require ($null -eq $result -and $errorMessage -ceq $expected) ('Changed selection was not refused: '+$errorMessage)
+    }
+    Require ($script:registered -and [IO.File]::ReadAllText($sentinel) -ceq 'original private data') 'Selection validation discarded installation or data'
+}
+`);
+  execFileSync('pwsh',['-NoProfile','-NonInteractive','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Root',f.root],
+    {windowsHide:true,timeout:15000,stdio:'pipe'});
+});
+
 test('Windows candidate uninstall waits for deferred removal and preserves real leftovers',{skip:process.platform!=='win32'},t=>{
   const f=fixture(t);
   const script=f.file('uninstall-test.ps1',String.raw`param([string]$Helper,[string]$Root)
