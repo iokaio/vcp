@@ -11,10 +11,20 @@ on:
         required: false
         default: false
         type: boolean
+      native_boundaries_only:
+        description: 'Run source native boundary checks on vcpwin before constructing a beta candidate'
+        required: false
+        default: false
+        type: boolean
+      reviewed_commit:
+        description: 'Required for native_boundaries_only: exact reviewed main commit with successful push Delivery checks'
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: delivery-${{ github.workflow }}-${{ github.ref }}
+  group: delivery-${{ github.workflow }}-${{ github.ref }}${{ inputs.native_boundaries_only && '-native-boundaries' || '' }}
   cancel-in-progress: true
 jobs:
   windows-supervision:
@@ -44,7 +54,7 @@ jobs:
         timeout-minutes: 2
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/msvc-supervision-smoke | Out-Null
-          node --test src/tests/contracts/build-progress.test.cjs src/tests/contracts/build-progress-services.test.cjs 2>&1 | Tee-Object -FilePath artifacts/msvc-supervision-smoke/contracts.log
+          node --test src/tests/contracts/build-progress.test.cjs src/tests/contracts/build-progress-services.test.cjs src/tests/contracts/ci-native-boundaries.test.cjs 2>&1 | Tee-Object -FilePath artifacts/msvc-supervision-smoke/contracts.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile and link a real MSVC supervision probe
         timeout-minutes: 2
@@ -59,6 +69,7 @@ jobs:
           retention-days: 3
   delivery:
     name: Repository and harness
+    if: github.event_name != 'workflow_dispatch' || !inputs.native_boundaries_only
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -94,6 +105,7 @@ jobs:
           retention-days: 3
   skill-helpers:
     name: Skill helpers
+    if: github.event_name != 'workflow_dispatch' || !inputs.native_boundaries_only
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -123,6 +135,7 @@ jobs:
         run: node --test src/tests/contracts/ported-skill-authoring.test.cjs src/tests/contracts/ported-webapp.test.cjs
   skill-runtime:
     name: Skill runtime (Rust)
+    if: github.event_name != 'workflow_dispatch' || !inputs.native_boundaries_only
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     defaults:
@@ -154,7 +167,7 @@ jobs:
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
-    if: github.event_name == 'workflow_dispatch' && !inputs.storage_only
+    if: github.event_name == 'workflow_dispatch' && !inputs.storage_only && !inputs.native_boundaries_only
     needs: delivery
     runs-on:
       group: wingroup
@@ -292,7 +305,7 @@ jobs:
           retention-days: 7
   storage:
     name: Native storage handoff
-    if: github.event_name == 'workflow_dispatch' && inputs.storage_only
+    if: github.event_name == 'workflow_dispatch' && inputs.storage_only && !inputs.native_boundaries_only
     needs: delivery
     runs-on:
       group: wingroup
@@ -337,3 +350,193 @@ jobs:
             artifacts/storage/**/metrics.json
           if-no-files-found: error
           retention-days: 3
+  native-boundaries:
+    name: Reviewed native source boundaries
+    if: github.event_name == 'workflow_dispatch' && inputs.native_boundaries_only
+    needs: windows-supervision
+    runs-on:
+      group: wingroup
+      labels: vcpwin
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GIT_CONFIG_COUNT: '2'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      GIT_CONFIG_KEY_1: core.autocrlf
+      GIT_CONFIG_VALUE_1: 'false'
+      CARGO_BUILD_JOBS: '16'
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: '0'
+      REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Require reviewed main selection and exclusive native scope
+        env:
+          GH_READ_TOKEN: ${{ github.token }}
+          STORAGE_ONLY: ${{ inputs.storage_only }}
+        run: |
+          if ($env:STORAGE_ONLY -ceq 'true') { throw 'storage_only and native_boundaries_only are mutually exclusive' }
+          if ($env:GITHUB_REF -cne 'refs/heads/main' -or $env:REVIEWED_COMMIT -cnotmatch '^[a-f0-9]{40}$' -or $env:REVIEWED_COMMIT -cne $env:GITHUB_SHA) { throw 'Reviewed selection must be this exact main workflow commit' }
+          $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$env:REVIEWED_COMMIT&status=success&per_page=100"
+          $runs = Invoke-RestMethod -Uri $uri -Headers @{Authorization="Bearer $env:GH_READ_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $passed = @($runs.workflow_runs | Where-Object { $_.head_sha -ceq $env:REVIEWED_COMMIT -and $_.head_branch -ceq 'main' -and $_.event -ceq 'push' -and $_.conclusion -ceq 'success' })
+          if ($passed.Count -eq 0) { throw 'No successful main push Delivery checks exist for the exact selected commit' }
+          New-Item -ItemType Directory -Path artifacts/native-boundaries -ErrorAction Stop | Out-Null
+          @{reviewed_commit=$env:REVIEWED_COMMIT;workflow='ci.yml';successful_run=$passed[0].html_url;run_id=$passed[0].id} | ConvertTo-Json | Set-Content artifacts/native-boundaries/delivery.json -Encoding utf8NoBOM
+      - name: Provision only the locked native qualification inputs
+        timeout-minutes: 10
+        run: |
+          & {
+            rustup toolchain install 1.98.0 --profile minimal
+            if ($LASTEXITCODE -ne 0) { throw 'Pinned qualification toolchain provisioning failed' }
+            Push-Location src/third_party/codex/codex-rs
+            try {
+              cargo +1.98.0 fetch --locked --target x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { throw 'Locked Windows dependency provisioning failed' }
+            } finally { Pop-Location }
+          } *>&1 | Tee-Object -FilePath artifacts/native-boundaries/provision.log
+      - name: Run exact source native boundary targets and package lifecycle fixture
+        timeout-minutes: 32
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $out=Join-Path $repo 'artifacts/native-boundaries'
+          . (Join-Path $repo 'scripts/release/candidate-state.ps1')
+          . (Join-Path $repo 'scripts/release/build-progress.ps1')
+          $record=[ordered]@{schema='vcp-native-boundary-preflight/1';status='fail';reviewed_commit=$env:REVIEWED_COMMIT;scope='source-only';stages=@();jobs=[int]$env:CARGO_BUILD_JOBS;tools=@();limitations=@('Synthetic source checks only; production identity and installed-product qualification remain unrun.')}
+          function Source([string]$Name) {
+            $value=& $node (Join-Path $repo 'scripts/release/provenance.cjs') source $repo $env:REVIEWED_COMMIT
+            if ($LASTEXITCODE -ne 0) { throw 'Reviewed source inventory failed' }
+            $value | Set-Content -LiteralPath (Join-Path $out $Name) -Encoding utf8NoBOM
+          }
+          function Observe([string]$Name,[string]$Program,[string[]]$Arguments,[string]$Directory,[int]$Seconds,[switch]$Msvc) {
+            $options=@{Executable=$Program;Arguments=$Arguments;WorkingDirectory=$Directory;LogPath=(Join-Path $out ($Name+'.log'));ProgressPath=(Join-Path $out ($Name+'-progress.json'));TimeoutSeconds=$Seconds;MirrorOutput=$true}
+            if ($Msvc) { $options.MsvcTelemetryExecutable=$msvcTelemetry }
+            $observed=Invoke-VcpBuildProcess @options
+            $observed | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $out ($Name+'-supervision.json')) -Encoding utf8NoBOM
+            $record.stages+=@{id=$Name;command=@($Program)+$Arguments;exit_code=$observed.exit_code;log_sha256=(Get-FileHash -LiteralPath $options.LogPath).Hash.ToLowerInvariant()}
+            if ($observed.exit_code -ne 0) { throw "$Name failed; inspect retained supervision and log" }
+            if ($Msvc) {
+              $summaries=@([regex]::Matches((Get-Content -LiteralPath $options.LogPath -Raw),'test result: ok\. (\d+) passed') | ForEach-Object { [int]$_.Groups[1].Value })
+              $record.stages[-1].test_summaries=$summaries
+              if ($summaries.Count -ne 5 -or @($summaries | Where-Object { $_ -lt 1 }).Count) { throw 'Expected exactly five successful nonempty native test groups' }
+            }
+          }
+          try {
+            if ($record.jobs -ne 16) { throw 'Native preflight requires explicit jobs16' }
+            $node=(Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $node=(& $node -p "require('node:fs').realpathSync.native(process.execPath)").Trim()
+            $null=Assert-CandidateStatePath $node $false
+            if ((& $node --version) -cne 'v24.10.0') { throw 'Pinned qualification Node required' }
+            $env:PATH=(Split-Path -Parent $node)+';'+$env:PATH
+            $temporary=(& $node -p "require('node:fs').realpathSync.native(require('node:os').tmpdir())").Trim()
+            $temporary=Assert-CandidateStatePath $temporary $true
+            $env:TEMP=$temporary; $env:TMP=$temporary
+            $record.temporary_directory=$temporary
+            Source 'source-before.json'
+            $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+            $vsRoot=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if (-not $vsRoot) { throw 'Native Visual C++ qualification tools required' }
+            & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
+            foreach ($relative in @('Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin','Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja')) { $env:PATH=(Join-Path $vsRoot $relative)+';'+$env:PATH }
+            $pwsh=(Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $git=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $cargo=(Get-Command cargo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $cl=(Get-Command cl -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $msvcTelemetry=Join-Path (Split-Path -Parent $cl) 'vctip.exe'
+            $rustTools=@()
+            foreach ($name in @('cargo','rustc')) {
+              $selected=& rustup which --toolchain 1.98.0 $name
+              if ($LASTEXITCODE -ne 0) { throw 'Pinned qualification compiler is unavailable' }
+              $rustTools+=$selected
+            }
+            $rustc=$rustTools[1]
+            $record.rustc=@(& $rustc --version --verbose)
+            if ($LASTEXITCODE -ne 0 -or $record.rustc[0] -cnotmatch '^rustc 1\.98\.0 ') { throw 'Pinned qualification compiler version differs' }
+            foreach ($tool in (@($node,$pwsh,$git,$cargo,$cl,$msvcTelemetry)+$rustTools)) {
+              $tool=Assert-CandidateStatePath $tool $false
+              $record.tools+=@{path=$tool;sha256=(Get-FileHash -LiteralPath $tool).Hash.ToLowerInvariant()}
+            }
+            $env:VCP_TEST_NODE=$node; $env:VCP_TEST_PWSH=$pwsh; $env:VCP_TEST_GIT=$git; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
+            $workspace=Join-Path $repo 'src/third_party/codex/codex-rs'
+            $target=Join-Path $out 'qualification-target'
+            if (Test-Path -LiteralPath $target) { throw 'Fresh native qualification target required' }
+            $common=@('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$env:CARGO_BUILD_JOBS")
+            # One Cargo selection unifies dependency features across both packages.
+            Observe 'native' $cargo ($common+@('-p','vcp-lifecycle','-p','vcp-cli','--features','qualification','--test','duplex_process','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1')) $workspace 1800 -Msvc
+            Observe 'package-install' $pwsh @('-NoProfile','-NonInteractive','-File',(Join-Path $repo 'scripts/package-install.test.ps1')) $repo 90
+            $record.status='pass'
+          } catch { $record.failure=$_.Exception.Message; throw }
+          finally {
+            try {
+              Source 'source-after.json'
+              $record.source_stable=(Get-FileHash -LiteralPath (Join-Path $out 'source-before.json')).Hash -ceq (Get-FileHash -LiteralPath (Join-Path $out 'source-after.json')).Hash
+              if (-not $record.source_stable) { throw 'Reviewed source changed during native preflight' }
+              foreach ($tool in $record.tools) {
+                $null=Assert-CandidateStatePath $tool.path $false
+                if ((Get-FileHash -LiteralPath $tool.path).Hash.ToLowerInvariant() -cne $tool.sha256) { throw 'Qualification tool changed' }
+              }
+            } catch { $record.status='fail'; $record.failure=$_.Exception.Message }
+            $record | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $out 'run.json') -Encoding utf8NoBOM
+            if ($record.status -cne 'pass') { throw 'Native preflight failed; retained evidence is source qualification only' }
+          }
+      - name: Collect only sanitized source preflight evidence
+        if: always()
+        env:
+          PREFLIGHT_JOB_STATUS: ${{ job.status }}
+        run: |
+          $collector = @'
+          const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+          const {sanitize}=require('./scripts/release/evidence.cjs');
+          const root=path.resolve('artifacts/native-boundaries'),out=path.resolve('artifacts/native-boundaries-public');
+          fs.mkdirSync(out,{recursive:false});
+          const names=['delivery.json','provision.log','source-before.json','source-after.json','run.json',...['native','package-install'].flatMap(x=>[x+'.log',x+'-progress.json',x+'-supervision.json'])];
+          const digest=bytes=>crypto.createHash('sha256').update(bytes).digest('hex'),files=[];
+          for(const name of names){const file=path.join(root,name);if(!fs.existsSync(file))continue;
+            for(let p=file;;p=path.dirname(p)){const s=fs.lstatSync(p);if(s.isSymbolicLink()||(p===file&&!s.isFile()))throw Error('Redirected or non-file preflight evidence');if(path.dirname(p)===p)break;}
+            if(fs.statSync(file).size>64*1024*1024)throw Error('Preflight evidence exceeds bound');
+            const raw=fs.readFileSync(file),bytes=Buffer.from(sanitize(raw.toString('utf8')));
+            fs.writeFileSync(path.join(out,name),bytes,{flag:'wx'});files.push({path:name,raw_sha256:digest(raw),sha256:digest(bytes),bytes:bytes.length});}
+          const read=name=>JSON.parse(fs.readFileSync(path.join(out,name),'utf8'));
+          const failures=[];let status='fail';
+          try {
+            const run=read('run.json');
+            if(process.env.PREFLIGHT_JOB_STATUS!=='success'||run.status!=='pass'||run.schema!=='vcp-native-boundary-preflight/1'||run.scope!=='source-only'||run.reviewed_commit!==process.env.REVIEWED_COMMIT||run.jobs!==16||run.source_stable!==true)throw Error('Source preflight did not complete successfully');
+            if(names.some(name=>!files.some(row=>row.path===name)))throw Error('Required preflight evidence is missing');
+            const before=read('source-before.json'),after=read('source-after.json');
+            if(before.schema!=='vcp-release-source/1'||before.commit!==run.reviewed_commit||before.dirty!==false||JSON.stringify(before)!==JSON.stringify(after))throw Error('Retained reviewed source observations differ');
+            if(read('delivery.json').reviewed_commit!==run.reviewed_commit)throw Error('Delivery gate differs from reviewed source');
+            if(JSON.stringify(run.stages.map(row=>row.id))!==JSON.stringify(['native','package-install']))throw Error('Native source stage selection differs');
+            for(const row of run.stages){const observed=read(row.id+'-supervision.json');
+              if(row.exit_code!==0||row.log_sha256!==files.find(file=>file.path===row.id+'.log').raw_sha256||observed.exit_code!==0||observed.process_exit_code!==0||observed.broker_exit_code!==0||observed.forced_cleanup!==false||observed.job_active_processes_zero!==true||!['natural','planned-service-cleanup'].includes(observed.completion))throw Error('Native stage supervision or log differs');
+              if(row.id==='native'){
+                const summaries=[...fs.readFileSync(path.join(out,'native.log'),'utf8').matchAll(/test result: ok\. (\d+) passed/g)].map(match=>Number(match[1]));
+                if(summaries.length!==5||summaries.some(count=>count<1)||JSON.stringify(row.test_summaries)!==JSON.stringify(summaries))throw Error('Native stage did not observe all five test groups');}}
+            status='pass';
+          } catch(error){failures.push(sanitize(error.message));}
+          const result={schema:'vcp-native-boundary-evidence/1',status,reviewed_commit:process.env.REVIEWED_COMMIT,scope:'source-only',validation_failures:failures,files,limitations:['No production build, registered setup, VSIX, models or providers acquired or qualified. Synthetic package lifecycle checks are supporting evidence; full candidate acceptance is still required.']};
+          const bytes=Buffer.from(JSON.stringify(result,null,2)+'\n');fs.writeFileSync(path.join(out,'evidence.json'),bytes,{flag:'wx'});
+          fs.writeFileSync(path.join(out,'SHA256SUMS'),[...files,{path:'evidence.json',sha256:digest(bytes)}].map(x=>x.sha256+'  '+x.path).join('\n')+'\n',{flag:'wx'});
+          if(status!=='pass')process.exitCode=1;
+          '@
+          node -e $collector
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain bounded preflight evidence including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-boundaries-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/native-boundaries-public/
+          if-no-files-found: error
+          retention-days: 90
