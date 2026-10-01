@@ -425,6 +425,33 @@ termination and no generic forced cleanup. Its downloaded receipt is
 The replacement candidate remains a separate observation; this repair alone
 does not complete BETA-08 or BETA-09 acceptance.
 
+The replacement [candidate run 36824747405](https://github.com/iokaio/vcp/actions/runs/36824747405)
+selects reviewed source `65654704de6aacb4beb7ccf923d6b9d58a7a23ba` after its
+successful main Delivery checks. Its assigned runner is `vcpwin-1000005002` in
+`wingroup`, with 16 Cargo workers configured for both compilation stages.
+Portable checks passed before production compilation began. No final artifact
+pair or installed-product pass is claimed by this dispatch observation.
+
+A separate BETA-08 evidence review found that native qualification's final
+output drain was absent from the console mirror, and private editor runner
+failures exposed only temporary paths in the retained stage log. The collector
+now retains the exact root-level native qualification log through its existing
+sanitizer and ordinary-path checks. Editor observations emit a bounded summary
+of supervision, output lengths/hashes, fixed markers and allowlisted result
+fields before their existing assertions. Raw private output, stores, keys and
+fixture paths remain excluded. Neither change alters installed-product
+assertions or the selected candidate's shipping source.
+Twenty-three evidence contracts passed. Both affected editor test targets
+compiled, each passed four diagnostic regressions, and the existing natural
+process-tree completion regression passed. Refusal cases cover malformed,
+oversized and redirected captures, preserved existing diagnostic destinations,
+and a real failed child whose synthetic private strings remain excluded from
+public output. Independent review is clear. Compile and regression receipts are
+retained under
+`artifacts/beta-delivery/editor-evidence-refresh-80e6787c-9055-42de-8d56-cb274cfb6671/`;
+previous test binaries remain preserved. These are harness checks, not an
+installed-product pass.
+
 ## Host and remaining external observations
 
 The development workstation is Windows `10.0.26300.0` with development tools and

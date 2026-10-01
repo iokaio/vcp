@@ -344,13 +344,17 @@ test('a partially written input diagnostic does not discard the other interrupte
 test('native qualification progress is sanitized diagnostic evidence with bounded ordinary input',t=>{
   const f=fixture(t);f.run.status='running';f.run.stages=f.run.stages.slice(0,9);f.run.stages.at(-1).status='running';
   f.file('native-qualification-progress.json',JSON.stringify({schema:'vcp-build-progress/1',phase:'cargo',status:'running',job_cpu_seconds:12,note:'Authorization: Bearer synthetic-sensitive-value'}));
-  f.file('native-qualification.log','private duplicate raw output');f.file('unrecognized-progress.json','private unrelated contents');
+  const lateLog='late cleanup diagnostic\nAuthorization: Bearer synthetic-sensitive-value\n';
+  f.file('native-qualification.log',lateLog);f.file('unrecognized-progress.json','private unrelated contents');
+  fs.mkdirSync(path.join(f.root,'private-fixture'));f.file('private-fixture/native-qualification.log','private nested output');
   const result=evidence.packet(f.write(),path.join(f.root,'packet'));
   assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
   assert.deepEqual(result.build_diagnostics,[{path:'diagnostics/native-qualification-progress.json',status:'unverified diagnostic',contributes_to_success:false}]);
   const retained=JSON.parse(fs.readFileSync(path.join(f.root,'packet/diagnostics/native-qualification-progress.json'),'utf8'));
   assert.equal(retained.job_cpu_seconds,12);assert.equal(retained.note,'Authorization: Bearer [REDACTED]');
-  assert(!result.files.some(row=>row.path.includes('native-qualification.log')||row.path.includes('unrecognized-progress')));
+  assert.equal(fs.readFileSync(path.join(f.root,'packet/logs/native-qualification.log'),'utf8'),'late cleanup diagnostic\nAuthorization: Bearer [REDACTED]\n');
+  assert(result.log_transformations.some(row=>row.path==='logs/native-qualification.log'&&row.original_sha256===p.hash(Buffer.from(lateLog))&&row.sanitized));
+  assert(!result.files.some(row=>row.path.includes('private-fixture')||row.path.includes('unrecognized-progress')));
   assert(result.matrix.every(row=>row.status==='not run'));
   for(const mode of ['malformed','oversized','redirected']){
     const invalid=selectPrefix(fixture(t),'portable-contracts');let runFile=invalid.write();
@@ -365,6 +369,18 @@ test('native qualification progress is sanitized diagnostic evidence with bounde
     assert(refused.validation_failures.some(row=>row.startsWith('native qualification diagnostics:')));
     assert.deepEqual(refused.build_diagnostics,[]);
   }
+});
+
+test('redirected native qualification log is rejected without retaining its target',t=>{
+  const f=selectPrefix(fixture(t),'portable-contracts'),runFile=f.write();
+  const outside=path.join(f.root,'outside');fs.mkdirSync(outside);
+  fs.copyFileSync(runFile,path.join(outside,'run.json'));fs.writeFileSync(path.join(outside,'native-qualification.log'),'private redirected output');
+  const alias=path.join(f.root,'alias');fs.symlinkSync(outside,alias,process.platform==='win32'?'junction':'dir');
+  t.after(()=>{if(fs.existsSync(alias))fs.unlinkSync(alias)});
+  const result=evidence.packet(path.join(alias,'run.json'),path.join(f.root,'packet'));
+  assert.equal(result.selection_status,'fail');
+  assert(result.validation_failures.some(row=>row.startsWith('native qualification log:')));
+  assert(!result.files.some(row=>row.path==='logs/native-qualification.log'));
 });
 test('Windows candidate child capture preserves outputs, excludes credentials and enforces a deadline',{skip:process.platform!=='win32'},t=>{
   const f=fixture(t);
