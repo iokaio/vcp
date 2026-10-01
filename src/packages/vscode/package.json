@@ -1,7 +1,7 @@
 {
   "name": "vcp-local",
-  "displayName": "VCP Local",
-  "description": "Local VCP workspace connection, trust and recovery.",
+  "displayName": "VCP Coding Agent",
+  "description": "Vibe Code Pro — Plan, code, and review—with you in control.",
   "publisher": "iokaio",
   "homepage": "https://downloads.ioka.io",
   "bugs": { "url": "https://github.com/iokaio/vcp/issues" },

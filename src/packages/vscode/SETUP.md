@@ -1,4 +1,4 @@
-# Set up VCP Local for the internal beta
+# Set up VCP Coding Agent for the internal beta
 
 Use the matching Windows x64 installer from [VCP beta downloads](https://downloads.ioka.io/)
 and the `iokaio.vcp-local` pre-release extension (`vcp-local-0.2.2-win32-x64.vsix`
