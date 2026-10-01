@@ -4,6 +4,8 @@ VCP is an open-source local coding agent that combines repository-aware coding, 
 
 **Status: unsigned beta downloads available for manual testing.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
 
+The next candidate, native **0.2.0-beta.2** with SDK/VSIX **0.2.2**, requires Ioka LLC code signatures through Azure Artifact Signing. Its build, installed qualification and owner acceptance are in progress under [ADR-076](docs/adr/076-signed-beta-qualification.md). The currently published beta.1 remains unsigned; new version declarations are not evidence that signed downloads are available.
+
 ## What VCP does
 
 VCP supports repository analysis, change review and implementation through one engine that owns task history, model accounting, authorization and recovery. The beta qualification matrix checks these integrated behaviors against the final installed artifacts.

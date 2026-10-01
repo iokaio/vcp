@@ -7,7 +7,8 @@ param(
     [Parameter(Mandatory)][string]$Launcher,
     [Parameter(Mandatory)][string]$CompilerInstaller,
     [Parameter(Mandatory)][string]$ReviewedCommit,
-    [string]$OutputRoot
+    [string]$OutputRoot,
+    [string]$SigningToolsManifest = $env:VCP_SIGNING_TOOLS_MANIFEST
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows setup construction required' }
@@ -49,7 +50,7 @@ $release = $releaseJson | ConvertFrom-Json
 if ($release.candidate_id -cne $native.manifest.release.candidate_id) { throw 'Native release candidate differs from build' }
 $launcherValidation = & $node -e 'const p=require(process.argv[1]);p.peArchitecture(process.argv[2]);const r=p.json(process.argv[3]);const fs=require("node:fs"),path=require("node:path");const rows=fs.readFileSync(path.join(path.dirname(process.argv[3]),"build.log"),"utf8").split(/\r?\n/).filter(x=>x.startsWith("{")).map(x=>JSON.parse(x));if(!rows.some(x=>JSON.stringify(x)===JSON.stringify(r.launcher_compiler_artifact)))throw Error("Launcher compiler artifact absent from build log");' $provenance $Launcher $BuildReceipt
 if ($LASTEXITCODE -ne 0) { throw 'Launcher architecture or compiler evidence rejected' }
-foreach ($relative in @('scripts/build-setup.ps1','scripts/installer/vcp.iss','scripts/installer/shell.ps1','scripts/installer/notices.cjs','scripts/installer/path-limits.cjs','scripts/package-install.ps1','release/internal-beta.json')) {
+foreach ($relative in @('scripts/build-setup.ps1','scripts/installer/vcp.iss','scripts/installer/sign.ps1','scripts/installer/shell.ps1','scripts/installer/notices.cjs','scripts/installer/path-limits.cjs','scripts/package-install.ps1','release/internal-beta.json')) {
     $row = @($receipt.inputs | Where-Object path -CEQ $relative)
     if ($row.Count -ne 1 -or $row[0].sha256 -cne (Hash (Join-Path $repository $relative))) { throw "Setup source differs from reviewed inputs: $relative" }
 }
@@ -75,6 +76,10 @@ try {
 [IO.Compression.ZipFile]::ExtractToDirectory($archive,$staged)
 & $node -e 'const p=require(process.argv[1]),path=require("node:path"),i=require(path.join(path.dirname(process.argv[1]),"../package-inventory.cjs"));const root=process.argv[2],n=p.json(process.argv[3]),r=p.json(process.argv[4]),m=p.json(path.join(root,"manifest.json"));if(JSON.stringify(m)!==JSON.stringify(n.manifest))throw Error("Archived manifest differs from native result");i.verifyManifest(root,m);if(p.fileHash(path.join(root,"build-receipt.json"))!==p.fileHash(process.argv[4]))throw Error("Archived build receipt differs");p.verifyPayloadSources(root,r,m.notices.inventory_sha256);' $provenance $staged $NativeResult $BuildReceipt
 if ($LASTEXITCODE -ne 0) { throw 'Native archive contents failed independent build-input validation' }
+$packagedLauncher = Ordinary-File (Join-Path $staged 'vcp-launch.exe')
+$packagedLauncherHash = Hash $packagedLauncher
+$launcherRow = @($native.manifest.files | Where-Object path -CEQ 'vcp-launch.exe')
+if ($launcherRow.Count -ne 1 -or $launcherRow[0].sha256 -cne $packagedLauncherHash) { throw 'Packaged launcher identity mismatch' }
 $compiler = Join-Path $out 'compiler'
 $compilerLog = Join-Path $out 'compiler-provision.log'
 # Portable extraction is explicit, local and pinned. No network operation or
@@ -88,7 +93,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Setup runtime notice inventory failed' }
 $notices = $noticeJson | ConvertFrom-Json -Depth 20
 $setupFiles = Join-Path $out 'setup-files'
 New-Item -ItemType Directory -Path (Join-Path $setupFiles 'maintenance') | Out-Null
-Copy-Item -LiteralPath $Launcher -Destination (Join-Path $setupFiles 'vcp.exe')
+Copy-Item -LiteralPath $packagedLauncher -Destination (Join-Path $setupFiles 'vcp.exe')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'installer/shell.ps1'),(Join-Path $PSScriptRoot 'package-install.ps1') -Destination (Join-Path $setupFiles 'maintenance')
 $stagedNotices = Join-Path $setupFiles 'setup-notices'
 Copy-Item -LiteralPath $noticesRoot -Destination $stagedNotices -Recurse
@@ -96,7 +101,7 @@ $pathLimitsJson = & $node (Join-Path $PSScriptRoot 'installer/path-limits.cjs') 
 if ($LASTEXITCODE -ne 0) { throw 'Staged setup path inventory rejected' }
 $pathLimits = $pathLimitsJson | ConvertFrom-Json -Depth 20
 $expectedSetupFiles = @(
-    @{path='vcp.exe';sha256=$receipt.launcher_sha256}
+    @{path='vcp.exe';sha256=$packagedLauncherHash}
     @{path='maintenance/shell.ps1';sha256=(Hash (Join-Path $PSScriptRoot 'installer/shell.ps1'))}
     @{path='maintenance/package-install.ps1';sha256=(Hash (Join-Path $PSScriptRoot 'package-install.ps1'))}
     @{path='setup-notices/inventory.json';sha256=$notices.inventory_sha256}
@@ -113,9 +118,29 @@ $compilerFiles = @(Get-ChildItem -LiteralPath $compiler -File -Recurse | Sort-Ob
 })
 $log = Join-Path $out 'setup-build.log'
 $arguments = @('/Q',('/O' + $out),('/DNativeArchive=' + $archive),('/DSetupFiles=' + $setupFiles),('/DMaxAppRootLength=' + $pathLimits.max_app_root_utf16),('/DProductVersion=' + $channel.native_version),('/DNativeSha256=' + $native.archive_sha256),('/DCandidateId=' + $release.candidate_id),('/DShellSha256=' + (Hash (Join-Path $PSScriptRoot 'installer/shell.ps1'))),('/DEngineScriptSha256=' + (Hash (Join-Path $PSScriptRoot 'package-install.ps1'))),('/DNoticesSha256=' + $notices.inventory_sha256),(Join-Path $PSScriptRoot 'installer/vcp.iss'))
+$setupSigning = @{status='unsigned'}
+if ($channel.signing.status -ceq 'signed') {
+    if (-not $SigningToolsManifest) { throw 'Signed setup requires pinned signing tools' }
+    $SigningToolsManifest = Ordinary-File $SigningToolsManifest
+    $uninstallerRoot = Join-Path $out 'signed-uninstallers'
+    New-Item -ItemType Directory -Path $uninstallerRoot | Out-Null
+    $contextPath = Join-Path $out 'signing-context.json'
+    @{output_root=$out;uninstaller_root=$uninstallerRoot;tools_manifest=$SigningToolsManifest} | ConvertTo-Json | Set-Content -LiteralPath $contextPath -Encoding utf8NoBOM
+    $pwsh = (Get-Process -Id $PID).Path
+    # ISCC substitutes $q/$f itself; these are literal strings, never shell code.
+    $signCommand = '$q' + $pwsh + '$q -NoProfile -NonInteractive -File $q' + (Join-Path $PSScriptRoot 'installer/sign.ps1') + '$q -Context $q' + $contextPath + '$q -File $f'
+    $arguments = @('/DVcpSigned=1',('/DSignedUninstallerRoot=' + $uninstallerRoot),('/Svcp=' + $signCommand)) + $arguments
+}
 & $iscc @arguments *> $log
 if ($LASTEXITCODE -ne 0) { throw "Setup compilation failed; retained $log" }
-$setup = Ordinary-File (Join-Path $out ('vcp-' + $channel.native_version + '-windows-x64-unsigned-setup.exe'))
+$setup = Ordinary-File (Join-Path $out ('vcp-' + $channel.native_version + '-windows-x64-' + $channel.signing.status + '-setup.exe'))
+if ($channel.signing.status -ceq 'signed') {
+    $setupSigning = & (Join-Path $PSScriptRoot 'release/record-signing.ps1') -Stage setup -BuildReceipt $BuildReceipt -Rows @((Join-Path $out 'signing/setup/row.json'),(Join-Path $out 'signing/uninstaller/row.json')) -ToolsManifest $SigningToolsManifest -OutputFile (Join-Path $out 'signing-receipt.json')
+    if ((Hash $setup) -cne @($setupSigning.transformation.files | Where-Object role -CEQ 'setup')[0].output_sha256) { throw 'Setup changed after signing' }
+    foreach ($role in @('setup','uninstaller')) {
+        if ((Hash (Join-Path $out "signing/$role/signed.exe")) -cne @($setupSigning.transformation.files | Where-Object role -CEQ $role)[0].output_sha256) { throw 'Retained signed setup component changed' }
+    }
+}
 # Revalidate after compilation; an input change invalidates the assembled bytes.
 & $node $provenance verify-build $repository $BuildReceipt (Ordinary-File $receipt.executable) $ReviewedCommit | Out-Null
 if ($LASTEXITCODE -ne 0 -or (Hash $archive) -cne $native.archive_sha256 -or (Hash $Launcher) -cne $receipt.launcher_sha256 -or (Hash $CompilerInstaller) -cne $channel.installer.sha256) { throw 'Setup inputs changed during compilation' }
@@ -126,11 +151,11 @@ $afterPaths = & $node (Join-Path $PSScriptRoot 'installer/path-limits.cjs') $set
 if ($LASTEXITCODE -ne 0 -or ($afterPaths -join "`n") -cne ($pathLimitsJson -join "`n")) { throw 'Staged setup files changed during compilation' }
 $result = [ordered]@{
     schema='vcp-setup-result/1'; status='qualification-required'; candidate_id=$release.candidate_id
-    native_archive_sha256=$native.archive_sha256; build_receipt_sha256=(Hash $BuildReceipt); launcher_sha256=$receipt.launcher_sha256
+    native_archive_sha256=$native.archive_sha256; build_receipt_sha256=(Hash $BuildReceipt); launcher_sha256=$packagedLauncherHash
     archive=@{file=[IO.Path]::GetFileName($setup);sha256=(Hash $setup)}
     compiler=@{name='Inno Setup';version=$channel.installer.version;source_commit=$channel.installer.source_commit;installer_sha256=$channel.installer.sha256;files=$compilerFiles}
     source=@{reviewed_commit=$ReviewedCommit;content_sha256=$release.source_content_sha256}
-    log_sha256=(Hash $log); signing=@{status='unsigned'}
+    log_sha256=(Hash $log); signing=$setupSigning
     notices=$notices; path_limits=$pathLimits
     limitations=@('Setup compilation is not installed-product qualification.','PowerShell 7 is an explicit prerequisite; no tools or models are downloaded.','Uninstall preserves the separately chosen data directory.','Outer setup lock covers registered integration; inner package lock covers engine lifecycle. Direct expert engine operations do not alter registered integration.')
 }

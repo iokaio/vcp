@@ -6,6 +6,13 @@ const {execFileSync}=require('node:child_process');
 const evidence=require('../../../scripts/release/evidence.cjs');
 const p=require('../../../scripts/release/provenance.cjs');
 const commit='a'.repeat(40), digest=p.hash('fixture');
+function signingBytes() {
+  const original=Buffer.alloc(512);original.writeUInt16LE(0x5a4d);original.writeUInt32LE(64,60);original.writeUInt32LE(0x4550,64);
+  original.writeUInt16LE(240,84);original.writeUInt16LE(0x20b,88);original.writeUInt32LE(16,196);
+  const signed=Buffer.concat([original,Buffer.alloc(16)]);signed.writeUInt32LE(512,232);signed.writeUInt32LE(16,236);
+  signed.writeUInt32LE(12,512);signed.writeUInt16LE(0x200,516);signed.writeUInt16LE(2,518);signed.writeUInt32LE(1234,520);
+  return {original,signed};
+}
 function fixture(t, artifacts=false) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-beta-evidence-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const file=(name,bytes)=>{const target=path.join(root,name);fs.writeFileSync(target,bytes);return target};
@@ -14,6 +21,8 @@ function fixture(t, artifacts=false) {
     stages:evidence.stages.map(id=>({id,status:'pass',command:['synthetic',id],exit_code:0,expected:'fixture only',log})),receipts:{}};
   if(artifacts){
     const selected=p.channel(path.resolve(__dirname,'../../..'));
+    const signed=selected.signing.status==='signed',bytes=signingBytes(),engine=signed?bytes.original:Buffer.from('fixture'),launcherBytes=signed?bytes.original:Buffer.from('launcher fixture');
+    const engineHash=p.hash(engine),launcherHash=p.hash(launcherBytes),finalHash=signed?p.hash(bytes.signed):engineHash;
     const files=[{path:'src/third_party/codex/codex-rs/Cargo.lock',bytes:7,sha256:digest},
       {path:'src/third_party/codex/codex-rs/.cargo/config.toml',bytes:7,sha256:digest},
       {path:'release/internal-beta.json',bytes:7,sha256:selected.config_sha256}];
@@ -21,27 +30,43 @@ function fixture(t, artifacts=false) {
     const dependencies={schema:'vcp-release-dependencies/1',status:'verified',target:'x86_64-pc-windows-msvc',components:1,workspace_lock_sha256:digest,inventory_sha256:digest};
     file('source-before.json',JSON.stringify(source));file('source-after.json',JSON.stringify(source));
     const dependencyFile=file('dependencies-before.json',JSON.stringify(dependencies));file('dependencies-after.json',JSON.stringify(dependencies));
-    const release=p.releaseIdentity(selected,source,digest);
+    const release=p.releaseIdentity(selected,source,engineHash);
     const artifact=name=>({reason:'compiler-artifact',target:{name},features:[],profile:{test:false,opt_level:'3'},package_id:'path+file:///source#vcp-cli@'+selected.native_version});
     const compiler=artifact('vcp'),launcher=artifact('vcp-launch');
     const buildLog=file('build.log',JSON.stringify(compiler)+'\n'+JSON.stringify(launcher)+'\n');
     const upstream=file('upstream-verification.log',JSON.stringify({status:'pass',component:'codex',files:1,files_sha256:digest}));
-    file('upstream-verification-after.log',fs.readFileSync(upstream));file('vcp.exe','fixture');file('vcp-launch.exe','launcher fixture');
+    file('upstream-verification-after.log',fs.readFileSync(upstream));file('vcp.exe',engine);file('vcp-launch.exe',launcherBytes);
     const build=file('build.json',JSON.stringify({schema:'vcp-local-build/1',exit_code:0,cargo_exit_code:0,source_commit:commit,source_content_sha256:source.content_sha256,inputs:files,
       source_dirty:false,source_stable:true,toolchain_stable:true,qualification_build:false,profile:'release',target:dependencies.target,
-      executable:path.join(root,'vcp.exe'),executable_sha256:digest,executable_version:selected.native_version,executable_target:selected.target,release,
-      launcher:path.join(root,'vcp-launch.exe'),launcher_sha256:p.hash('launcher fixture'),launcher_version:selected.native_version,launcher_target:selected.target,
+      executable:path.join(root,'vcp.exe'),executable_sha256:engineHash,executable_version:selected.native_version,executable_target:selected.target,release,
+      launcher:path.join(root,'vcp-launch.exe'),launcher_sha256:launcherHash,launcher_version:selected.native_version,launcher_target:selected.target,
       compiler_artifact:compiler,launcher_compiler_artifact:launcher,vcp_features:[{target:'vcp',features:[]}],
       command:['cargo','+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--bin','vcp-launch','--target',selected.target,'--target-dir','/output/cargo-target','-j','2','--message-format=json-render-diagnostics'],
       rustflags:['-C','link-arg=/STACK:8388608','-C','target-feature=+crt-static'],rustc:['release: 1.95.0'],
       native_tools:['cl','link','lib','cmake','ninja','rustc','cargo','node'].map(name=>({name,sha256:digest})),cargo_configs:[{sha256:digest}],
       log_sha256:p.fileHash(buildLog),upstream_before_sha256:p.fileHash(upstream),upstream_after_sha256:p.fileHash(upstream),
       dependency_sources_stable:true,dependency_source:dependencies,dependencies_before_sha256:p.fileHash(dependencyFile),dependencies_after_sha256:p.fileHash(dependencyFile)})),buildHash=p.fileHash(build);
-    const native={schema:'vcp-distribution-result/1',status:'release-candidate',package:'native.zip',archive_sha256:digest,manifest:{release,source:{dirty:false},build:{status:'verified-release-build',receipt_sha256:buildHash},files:[{path:'vcp.exe',sha256:digest}]}};
+    const native={schema:'vcp-distribution-result/1',status:'release-candidate',package:'native.zip',archive_sha256:digest,manifest:{release,source:{dirty:false},build:{status:'verified-release-build',receipt_sha256:buildHash},files:[{path:'vcp.exe',sha256:finalHash}]}};
     const nativeFile=file('native.json',JSON.stringify(native));
-    const vsix={schema:'vcp-vsix-package/1',release,archive:{file:'editor.vsix',sha256:digest},extension:{version:'0.2.1',source:{git_commit:commit,dirty:false}},sdk:{version:'0.2.1'},engine:{native_archive_sha256:digest,executable_sha256:digest,build_receipt_sha256:buildHash,source_commit:commit,source_dirty:false,native_manifest_sha256:p.fileHash(nativeFile)}};
+    const vsix={schema:'vcp-vsix-package/1',release,archive:{file:'editor.vsix',sha256:digest},extension:{version:selected.vsix_version,source:{git_commit:commit,dirty:false}},sdk:{version:selected.sdk_version},engine:{native_archive_sha256:digest,executable_sha256:finalHash,build_receipt_sha256:buildHash,source_commit:commit,source_dirty:false,native_manifest_sha256:p.fileHash(nativeFile)}};
     const setup={schema:'vcp-setup-result/1',candidate_id:release.candidate_id,native_archive_sha256:digest,archive:{file:'setup.exe',sha256:digest},build_receipt_sha256:buildHash};
     for(const name of ['native.zip','editor.vsix','setup.exe'])file(name,'fixture');
+    if(signed) {
+      native.manifest.files.push({path:'vcp-launch.exe',sha256:finalHash});
+      fs.mkdirSync(path.join(root,'package'));file('package/build-receipt.json',fs.readFileSync(build));
+      for(const name of ['vcp.exe','vcp-launch.exe'])file('package/'+name,bytes.signed);
+      for(const [stage,roles] of [['native',['engine','launcher']],['setup',['setup','uninstaller']]]) {
+        const receipt={schema:'vcp-authenticode-transform/1',stage,status:'verified',candidate_id:release.candidate_id,reviewed_commit:commit,build_receipt_sha256:buildHash,
+          policy:selected.signing,tools:{signtool_sha256:digest,dlib_sha256:digest},files:roles.map(role=>({role,input_sha256:engineHash,input_bytes:512,output_sha256:finalHash,output_bytes:528,content_preserved:true,
+            signature:{status:'Valid',subject:selected.signing.publisher,identity_eku:selected.signing.identity_eku,certificate_sha256:digest,timestamp_certificate_sha256:digest,timestamp_present:true},verification:{exit_code:0,log_sha256:p.hash('verification fixture')}}))};
+        const name=stage==='native'?'package/signing-receipt.json':'signing-receipt.json',receiptFile=file(name,JSON.stringify(receipt));
+        const binding={status:'signed',receipt:'signing-receipt.json',receipt_sha256:p.fileHash(receiptFile),transformation:receipt};
+        if(stage==='native')native.manifest.signing=binding;else setup.signing=binding;
+        for(const role of roles){fs.mkdirSync(path.join(root,'signing',role),{recursive:true});file(`signing/${role}/verify.log`,'verification fixture');file(`signing/${role}/unsigned.exe`,bytes.original);file(`signing/${role}/signed.exe`,bytes.signed);}
+      }
+      setup.launcher_sha256=finalHash;setup.archive.sha256=finalHash;file('setup.exe',bytes.signed);
+      file('native.json',JSON.stringify(native));vsix.engine.native_manifest_sha256=p.fileHash(nativeFile);
+    }
     run.receipts={build,native:nativeFile,vsix:file('vsix.json',JSON.stringify(vsix)),setup:file('setup.json',JSON.stringify(setup))};
   }
   return {root,run,write:()=>file('run.json',JSON.stringify(run)),file};

@@ -9,6 +9,10 @@ param(
     [ValidateSet('portable-contracts','production-build','pair','installed-editor')][string]$StopAfter = 'installed-editor'
 )
 $ErrorActionPreference = 'Stop'
+# Signing authentication happens in its separate workflow action. Candidate
+# stages may use that scoped CLI login while packaging, but no build/test child
+# receives the bearer capability to mint a fresh GitHub OIDC signing token.
+Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL,Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue
 if (-not $IsWindows) { throw 'Native Windows candidate builder required' }
 $Stage=$Stage.ToLowerInvariant(); $StopAfter=$StopAfter.ToLowerInvariant()
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))

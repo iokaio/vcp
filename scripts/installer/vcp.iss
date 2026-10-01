@@ -44,7 +44,7 @@
 AppId={#VcpAppId}
 AppName={#ProductName}
 AppVersion={#ProductVersion}
-AppPublisher=VCP
+AppPublisher=Ioka LLC
 DefaultDirName={localappdata}\Programs\VCP
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
@@ -55,14 +55,27 @@ WizardStyle=modern
 DisableProgramGroupPage=yes
 DisableDirPage=no
 UninstallDisplayIcon={app}\vcp.exe
+#ifdef VcpSigned
+UninstallDisplayName={#ProductName} {#ProductVersion}
+SignTool=vcp
+SignedUninstaller=yes
+SignedUninstallerDir={#SignedUninstallerRoot}
+SignToolRetryCount=0
+SignToolRunMinimized=yes
+#else
 UninstallDisplayName={#ProductName} {#ProductVersion} (unsigned)
+#endif
 CloseApplications=no
 RestartApplications=no
 ChangesEnvironment=no
 ArchiveExtraction=basic
 Compression=lzma2
 SolidCompression=yes
+#ifdef VcpSigned
+OutputBaseFilename=vcp-{#ProductVersion}-windows-x64-signed-setup
+#else
 OutputBaseFilename=vcp-{#ProductVersion}-windows-x64-unsigned-setup
+#endif
 SetupLogging=yes
 
 [Tasks]

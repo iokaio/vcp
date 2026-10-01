@@ -13,7 +13,7 @@ function verify(result, manifest, build, buildHash) {
   check(manifest.schema === 'vcp-distribution-manifest/1' && manifest.source?.dirty === false &&
     release?.schema === 'vcp-release-identity/1' && release.channel === 'internal-beta' &&
     /^[a-f0-9]{40}$/.test(release.reviewed_commit) && /^[a-f0-9]{64}$/.test(release.source_content_sha256) &&
-    release.signing?.status === 'unsigned' && manifest.source.git_commit === release.reviewed_commit &&
+    ['unsigned', 'signed'].includes(release.signing?.status) && manifest.source.git_commit === release.reviewed_commit &&
     manifest.build?.status === 'verified-release-build' && manifest.build.receipt === 'build-receipt.json' &&
     manifest.build.receipt_sha256 === buildHash, 'Strict production build and release identity required');
   check(manifest.notices?.schema === 'vcp-notice-bundle/1' &&
@@ -27,7 +27,11 @@ function verify(result, manifest, build, buildHash) {
   const source = { commit: release.reviewed_commit, content_sha256: p.hash(JSON.stringify(build.inputs)), files: build.inputs };
   check(source.content_sha256 === release.source_content_sha256, 'Archived source inventory digest mismatch');
   const selected = { ...release };
-  p.validateReceipt(build, selected, source, binaries[0].sha256);
+  p.validateReceipt(build, selected, source, build.executable_sha256);
+  const signing = require('../release/signing.cjs');
+  const transformation = signing.validateBinding(manifest.signing, release, buildHash, 'native',
+    { engine: build.executable_sha256, launcher: build.launcher_sha256 });
+  check(signing.payloadHashes(build, transformation).executable_sha256 === binaries[0].sha256, 'Signed engine differs from transformation');
   return { release, executable_sha256: binaries[0].sha256, build_receipt_sha256: buildHash };
 }
 function verifyDirectory(resultPath, directory) {

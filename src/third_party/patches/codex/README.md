@@ -196,6 +196,13 @@ already include these changes; normal builds never apply patches.
     libraries from 1.2.1 to 1.3.0 in the shared lockfile. External dependency
     versions, checksums and Codex implementation remain unchanged.
 
+43. `0043-beta-native-version.patch` records the original `vcp-cli` package's
+    first internal beta version, `0.2.0-beta.1`, in the shared lockfile.
+
+44. `0044-beta-signed-native-version.patch` records the signed beta successor,
+    `0.2.0-beta.2`, for the same local package. External dependencies and
+    retained upstream implementation remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

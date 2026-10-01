@@ -16,7 +16,8 @@ function fixture(t) {
   for (const name of ['artifacts', 'receipts', 'logs']) fs.mkdirSync(path.join(packet, name));
   const files = new Set();
   function write(name, value) {
-    files.add(name); fs.writeFileSync(path.join(packet, name), typeof value === 'string' ? value : JSON.stringify(value, null, 2) + '\n');
+    files.add(name); fs.mkdirSync(path.dirname(path.join(packet,name)),{recursive:true});
+    fs.writeFileSync(path.join(packet, name), typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value, null, 2) + '\n');
   }
   function sums() {
     fs.writeFileSync(path.join(packet, 'SHA256SUMS'), [...files].sort().map(name => `${p.fileHash(path.join(packet, name))}  ${name}`).join('\n') + '\n');
@@ -73,6 +74,52 @@ function fixture(t) {
 }
 function absent(f) { assert.equal(fs.existsSync(f.options.output), false, 'Refusal must precede publication output creation'); }
 function changeJson(f, name, value) { f.write(name, value); f.sums(); }
+
+function signedFixture(t) {
+  const f=fixture(t), policy={status:'signed',provider:'azure-artifact-signing',account:'ioka-llc-signing',profile:'WritingForgePro',
+    endpoint:'https://wus2.codesigning.azure.net/',publisher:'CN=Ioka LLC, O=Ioka LLC, L=Mapleton, S=Utah, C=US',
+    identity_eku:'1.3.6.1.4.1.311.97.88309284.513035131.587831003.613935669'};
+  const original=Buffer.alloc(512);original.writeUInt16LE(0x5a4d);original.writeUInt32LE(64,60);original.writeUInt32LE(0x4550,64);
+  original.writeUInt16LE(240,84);original.writeUInt16LE(0x20b,88);original.writeUInt32LE(16,196);
+  const signed=Buffer.concat([original,Buffer.alloc(16)]);signed.writeUInt32LE(512,232);signed.writeUInt32LE(16,236);
+  signed.writeUInt32LE(12,512);signed.writeUInt16LE(0x200,516);signed.writeUInt16LE(2,518);signed.writeUInt32LE(1234,520);
+  const inputHash=p.hash(original),outputHash=p.hash(signed);
+  f.build.executable_sha256=f.build.launcher_sha256=inputHash;
+  const release=p.releaseIdentity({...f.build.release,signing:policy},{commit,content_sha256:digest},inputHash);
+  f.build.release=f.native.manifest.release=f.vsix.release=release;f.setup.candidate_id=release.candidate_id;
+  f.write('receipts/build.json',f.build);const buildHash=p.fileHash(path.join(f.packet,'receipts/build.json'));
+  f.native.manifest.files[0].sha256=f.vsix.engine.executable_sha256=outputHash;f.setup.launcher_sha256=outputHash;
+  f.native.manifest.files.push({path:'vcp-launch.exe',sha256:outputHash});
+  f.write('artifacts/setup.exe',signed);f.setup.archive.sha256=outputHash;
+  for(const name of ['vcp.exe','vcp-launch.exe']) {f.write('build-output/'+name,original);f.write('signed/'+name,signed);}
+  f.evidence.log_transformations=[];
+  for(const [stage,roles] of [['native',['engine','launcher']],['setup',['setup','uninstaller']]]) {
+    const receipt={schema:'vcp-authenticode-transform/1',stage,status:'verified',candidate_id:release.candidate_id,reviewed_commit:commit,
+      build_receipt_sha256:buildHash,policy,tools:{signtool_sha256:digest,dlib_sha256:digest},files:roles.map(role=>({
+        role,input_sha256:inputHash,input_bytes:original.length,output_sha256:outputHash,output_bytes:signed.length,content_preserved:true,
+        signature:{status:'Valid',subject:policy.publisher,identity_eku:policy.identity_eku,certificate_sha256:digest,timestamp_certificate_sha256:digest,timestamp_present:true},
+        verification:{exit_code:0,log_sha256:p.hash('synthetic signature check')}
+      }))};
+    f.write(`receipts/${stage}-signing.json`,receipt);
+    const binding={status:'signed',receipt:'signing-receipt.json',receipt_sha256:p.fileHash(path.join(f.packet,`receipts/${stage}-signing.json`)),transformation:receipt};
+    if(stage==='native') f.native.manifest.signing=binding;else f.setup.signing=binding;
+    for(const role of roles) {
+      const name=`logs/${stage}-${role}-signature.log`;f.write(name,'synthetic signature check');
+      f.evidence.log_transformations.push({path:name,original_sha256:p.hash('synthetic signature check'),retained_sha256:p.hash('synthetic signature check'),sanitized:false});
+      if(stage==='setup') {f.write(`signing/${role}/unsigned.exe`,original);f.write(`signing/${role}/signed.exe`,signed);}
+    }
+  }
+  f.options.expectedPair=f.rebind().pair_id;return f;
+}
+
+test('signed publication binds native/setup transformations and rejects altered signing evidence',t=>{
+  const f=signedFixture(t), result=preparePublication(f.options);
+  assert.equal(result.qualification.signing,'signed');assert.match(fs.readFileSync(path.join(f.options.output,'notes.md'),'utf8'),/Signed Windows x64 beta/);
+  for(const mutate of [g=>g.write('signed/vcp.exe',Buffer.alloc(528)),g=>g.write('signing/uninstaller/unsigned.exe',Buffer.alloc(512)),
+    g=>g.write('receipts/native-signing.json',{}),g=>{g.evidence.log_transformations[0].original_sha256='0'.repeat(64);g.write('evidence.json',g.evidence)}]) {
+    const changed=signedFixture(t);mutate(changed);changed.sums();assert.throws(()=>preparePublication(changed.options));absent(changed);
+  }
+});
 
 test('publication copies only exact assets and deterministic sanitized metadata; CLI agrees', t => {
   const f = fixture(t), result = preparePublication(f.options), assets = path.join(f.options.output, 'assets');

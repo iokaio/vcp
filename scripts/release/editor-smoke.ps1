@@ -48,7 +48,7 @@ try {
     # before the setup uninstaller verifies exclusive engine ownership.
     Start-Sleep -Seconds 32
     $null=Invoke-BetaProcess $Code ($base+@('--uninstall-extension','iokaio.vcp-local')) $root $editorEnvironment
-    $result | Add-Member -NotePropertyMembers @{native_sha256=$native.archive_sha256;setup_sha256=$installed.setup_sha256;vsix_sha256=$vsix.archive.sha256;engine_sha256=$installed.engine_sha256;editor_version=$editorLayout.version;editor_commit=$editorLayout.commit;editor_executable_sha256=$editorLayout.code_sha256;limitations=@('Synthetic retained paused history; no first useful task or live provider call.','Hosted Windows image, not clean standard-user qualification.','No distinct-build update, rollback, reviewed edit or reload asserted.')}
+    $result | Add-Member -NotePropertyMembers @{native_sha256=$native.archive_sha256;setup_sha256=$installed.setup_sha256;vsix_sha256=$vsix.archive.sha256;engine_sha256=$installed.engine_sha256;signatures=$installed.signatures;editor_version=$editorLayout.version;editor_commit=$editorLayout.commit;editor_executable_sha256=$editorLayout.code_sha256;limitations=@('Synthetic retained paused history; no first useful task or live provider call.','Hosted Windows image, not clean standard-user qualification.','No distinct-build update, rollback, reviewed edit or reload asserted.')}
     $observationComplete=$true
 } finally {
     # Preserve the registered installation and private repair evidence whenever
