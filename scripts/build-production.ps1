@@ -8,6 +8,7 @@ if (-not $IsWindows) { throw 'Native Windows build required' }
 if ($Release -and $ReviewedCommit -notmatch '^[a-f0-9]{40}$') { throw 'Release requires -ReviewedCommit with the exact reviewed source commit' }
 if (-not $Release -and $ReviewedCommit) { throw '-ReviewedCommit requires -Release' }
 $releaseTool = Join-Path $PSScriptRoot 'release/provenance.cjs'
+. (Join-Path $PSScriptRoot 'release/build-progress.ps1')
 $nativeOverrideNames = @('CC','CXX','CL','_CL_','CFLAGS','CXXFLAGS','CPPFLAGS','LDFLAGS','AR','ARFLAGS','CMAKE_GENERATOR','CMAKE_TOOLCHAIN_FILE','CMAKE_ARGS','CARGO_MAKEFLAGS')
 $nativeOverrides = @(Get-ChildItem Env: | Where-Object {
     $_.Value -and ($_.Name -in $nativeOverrideNames -or $_.Name -match '^(CC|CXX|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|AR|ARFLAGS)_' -or $_.Name -match '^(HOST|TARGET)_(CC|CXX|CFLAGS|CXXFLAGS|AR|ARFLAGS)$')
@@ -16,6 +17,19 @@ if ($nativeOverrides.Count) { throw ('Unqualified native build overrides: ' + ($
 if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/p8-production-build' }
 $out = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ([guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $out | Out-Null
+$progressPath=Join-Path $out 'build-progress.json'
+$buildPhase='build-input-verification'
+Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status running
+Write-Information 'VCP_BUILD_PHASE phase=build-input-verification status=running' -InformationAction Continue
+trap {
+    if ($progressPath) {
+        $statistics=@{}
+        if ($buildProcess) { $statistics=@{ElapsedSeconds=$buildProcess.elapsed_seconds;OutputBytes=$buildProcess.output_bytes;IdleSeconds=$buildProcess.idle_seconds;CompilerArtifacts=$buildProcess.compiler_artifacts;JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes} }
+        Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status fail @statistics
+        Write-Information "VCP_BUILD_PHASE phase=$buildPhase status=fail" -InformationAction Continue
+    }
+    throw
+}
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $target = Join-Path $repository 'artifacts/codex-target'
 # A release starts with an empty target directory: no stale developer artifacts,
@@ -40,7 +54,7 @@ function Capture-Source([string]$Destination) {
     if ($Release) {
         & node $releaseTool source $repository $ReviewedCommit > $Destination
     } else {
-        & node -e "const m=require(process.argv[1]); console.log(JSON.stringify(m.sourceIdentity(process.argv[2],['scripts/build-production.ps1','scripts/package.ps1','scripts/package-install.ps1','scripts/package-inventory.cjs','scripts/package-models.ps1','scripts/skills','src/third_party/upstreams.toml','src/third_party/components','src/skills/builtin','LICENSE','NOTICE','THIRD_PARTY_NOTICES.md'])));" $identity $repository > $Destination
+        & node -e "const m=require(process.argv[1]); console.log(JSON.stringify(m.sourceIdentity(process.argv[2],['scripts/build-production.ps1','scripts/release/build-progress.ps1','scripts/package.ps1','scripts/package-install.ps1','scripts/package-inventory.cjs','scripts/package-models.ps1','scripts/skills','src/third_party/upstreams.toml','src/third_party/components','src/skills/builtin','LICENSE','NOTICE','THIRD_PARTY_NOTICES.md'])));" $identity $repository > $Destination
     }
     if ($LASTEXITCODE -ne 0) { throw 'Source inventory failed' }
 }
@@ -65,6 +79,8 @@ $nativeTools += @('rustc','cargo') | ForEach-Object {
 }
 $nodeTool = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $nativeTools += @{name='node';path=$nodeTool;sha256=(Get-FileHash -LiteralPath $nodeTool).Hash.ToLowerInvariant()}
+$brokerTool=Join-Path $PSHOME 'pwsh.exe'
+$nativeTools += @{name='powershell';path=$brokerTool;sha256=(Get-FileHash -LiteralPath $brokerTool).Hash.ToLowerInvariant()}
 $env:RUST_MIN_STACK = '16777216'
 # The committed target configuration selects static CRT. Do not inherit feature,
 # rustflag or release-profile overrides from a developer's environment.
@@ -85,8 +101,15 @@ if ($Release) {
 }
 $started = [DateTime]::UtcNow
 Write-Output "Production build evidence: $out"
-Push-Location $workspace
-try { & cargo @arguments *> $log; $code = $LASTEXITCODE } finally { Pop-Location }
+$cargoApplication=(Get-Command cargo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$buildPhase='cargo'
+Write-Information 'VCP_BUILD_PHASE phase=cargo status=running' -InformationAction Continue
+$buildProcess=Invoke-VcpBuildProcess -Executable $cargoApplication -Arguments $arguments -WorkingDirectory $workspace -LogPath $log -ProgressPath $progressPath
+$code=$buildProcess.exit_code
+$buildPhase='post-verification'
+$buildMetrics=@{JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes}
+Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status running -ElapsedSeconds $buildProcess.elapsed_seconds -OutputBytes $buildProcess.output_bytes -IdleSeconds $buildProcess.idle_seconds -CompilerArtifacts $buildProcess.compiler_artifacts @buildMetrics
+Write-Information 'VCP_BUILD_PHASE phase=post-verification status=running' -InformationAction Continue
 $dependenciesCode = 0
 if ($Release) { & node $noticesTool verify-source $repository > $dependenciesAfter; $dependenciesCode = $LASTEXITCODE }
 & node (Join-Path $repository 'scripts/upstream/reconstruct.cjs') verify --component codex *> (Join-Path $out 'upstream-verification-after.log')
@@ -97,6 +120,11 @@ $source = Get-Content -LiteralPath $before -Raw | ConvertFrom-Json
 $finalSource = Get-Content -LiteralPath $after -Raw | ConvertFrom-Json
 $receipt = [ordered]@{schema='vcp-local-build/1'; exit_code=$code; cargo_exit_code=$code; source_commit=$source.commit; source_dirty=$source.dirty; source_content_sha256=$source.content_sha256; source_stable=($source.content_sha256 -ceq $finalSource.content_sha256 -and $upstreamCode -eq 0); upstream_before_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification.log')).Hash.ToLowerInvariant(); upstream_after_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification-after.log')).Hash.ToLowerInvariant(); cargo_configs=$cargoConfigs; rustflags=$rustflags; command=@('cargo')+$arguments; working_directory=$workspace; rustc=(& rustc +1.95.0 --version --verbose); msvc=$env:VCToolsVersion; started_at=$started.ToString('o'); ended_at=[DateTime]::UtcNow.ToString('o'); qualification_build=$false; profile='release'; target='x86_64-pc-windows-msvc'; inputs=$source.files; log_sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant()}
 $receipt.native_tools = @($nativeTools)
+$receipt.supervision = $buildProcess
+# The independently observed Cargo exit may be null after a failed spawn or
+# interruption. Broker/pipe failures remain distinct in supervision and still
+# fail the overall receipt even when Cargo itself exited successfully.
+$receipt.cargo_exit_code = $buildProcess.process_exit_code
 if ($Release) {
     $receipt.dependency_source = Get-Content -LiteralPath $dependenciesBefore -Raw | ConvertFrom-Json
     $receipt.dependencies_before_sha256 = (Get-FileHash -LiteralPath $dependenciesBefore).Hash.ToLowerInvariant()
@@ -153,3 +181,5 @@ if ($Release) {
     if ($LASTEXITCODE -ne 0) { throw "Strict release provenance failed; retained $receiptPath" }
 }
 Write-Output $receiptPath
+Write-VcpBuildPhase -ProgressPath $progressPath -Phase post-verification -Status pass -ElapsedSeconds $buildProcess.elapsed_seconds -OutputBytes $buildProcess.output_bytes -IdleSeconds $buildProcess.idle_seconds -CompilerArtifacts $buildProcess.compiler_artifacts @buildMetrics
+Write-Information 'VCP_BUILD_PHASE phase=post-verification status=pass' -InformationAction Continue
