@@ -4,8 +4,9 @@ Status: **beta prereleases published, download page deployed and HTTPS enforced*
 The latest published pair is the [Marketplace-ready handoff](marketplace-publication.md),
 `9694d258aeb5`, built from reviewed source `99de062d32c4c0fe20ddae119408e953e8f7243b`.
 [Publication run 36900026024](https://github.com/iokaio/vcp/actions/runs/36900026024)
-published its unchanged verified bytes and updated Pages. The first Marketplace
-upload remains the owner's manual action. The initial publication below is retained
+published its unchanged verified bytes and updated Pages. The owner subsequently
+uploaded the extension; [VCP Local is live on Marketplace](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local).
+The initial publication below is retained
 as history; its release assets have not been replaced.
 
 [Publication run 36888330245](https://github.com/iokaio/vcp/actions/runs/36888330245)
@@ -36,7 +37,8 @@ or private qualification fixtures.
 [ADR-074](../adr/074-github-beta-downloads.md) authorizes this limited publication.
 The [manual candidate](../release-planning/05-manual-candidate.md) identifies the
 existing verified bytes and focused results. Full qualification, stable-release
-acceptance, signing, Marketplace upload and paid provider testing remain separate.
+acceptance, signing and paid provider testing remain separate. Subsequent
+Marketplace publication and checks are recorded in the [Marketplace handoff](marketplace-publication.md).
 
 ## Select and publish the existing pair
 

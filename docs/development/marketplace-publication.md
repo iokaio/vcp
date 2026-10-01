@@ -1,14 +1,15 @@
 # First Marketplace upload
 
-Status: **verified package ready for the owner's first manual upload** on October 1,
-2026. No Marketplace upload has been performed.
+Status: **owner upload completed; public Marketplace listing live** on October 1,
+2026. [VCP Local](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local)
+returns HTTP 200. Post-upload Marketplace installation verification passed.
 Contract: [ADR-075](../adr/075-marketplace-manual-upload.md), BETA-07/BETA-08/BETA-11.
-The owner performs the first upload manually. The older GitHub release's
+The owner performed the first upload manually. The older GitHub release's
 `vcp.vcp-local` package is not the upload candidate for publisher `iokaio`.
 
 ## Select the verified package
 
-Upload **`vcp-local-0.2.1-win32-x64.vsix`** from the
+The uploaded package is **`vcp-local-0.2.1-win32-x64.vsix`** from the
 [new release](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.1-9694d258aeb5)
 ([direct VSIX download](https://github.com/iokaio/vcp/releases/download/v0.2.0-beta.1-9694d258aeb5/vcp-local-0.2.1-win32-x64.vsix)).
 The prepared local copy is
@@ -42,8 +43,9 @@ support and incomplete qualification.
 [Publication run 36900026024](https://github.com/iokaio/vcp/actions/runs/36900026024)
 passed both release and Pages jobs. All five public asset digests match the
 prepared output. The prior `1dba45922e0c` release remains intact. The download page
-uses GitHub-managed HTTPS with HTTP-to-HTTPS enforcement; Marketplace publication
-is still pending the owner upload below.
+uses GitHub-managed HTTPS with HTTP-to-HTTPS enforcement. The owner subsequently
+completed the manual Marketplace upload; the instructions below are retained as
+the first-upload procedure.
 
 ## Verified and remaining evidence
 
@@ -62,7 +64,7 @@ pinned VS Code `1.138.0`:
 | Offline onboarding | Pass; three help commands and two missing-input cases. No live provider setup or task. |
 | Installed VSIX connection and removal | Pass on fresh Files and SQLite fixtures; observer saw retained paused history and canonical assertions passed after removal. No development extension path. |
 | Owned processes | All three smoke phases exited successfully, with no forced cleanup and zero remaining owned processes. |
-| Packaged setup guide | Present and hash-verified; guide-command invocation and visual usability were not run for this pair. |
+| Packaged setup guide | Present and hash-verified; command invocation subsequently passed in the Marketplace acquisition check below. Visual usability remains unassessed. |
 
 Private evidence is indexed by `artifacts/beta-delivery/marketplace-installed-results.json`
 (SHA-256 `514cedb2e9db978a867cd391b935e9fb86ea7c2331f50055b939ba1904bb9793`).
@@ -86,7 +88,7 @@ and installed-editor pipeline stages remain **not run**; focused local checks do
 not relabel them. Clean-host, paid/live task, reviewed-edit, distinct-build
 upgrade/rollback and full qualification remain open. Zero provider calls ran.
 
-## Owner upload
+## Owner upload (completed)
 
 1. Sign into [Manage Ioka extensions](https://marketplace.visualstudio.com/manage/publishers/iokaio)
    using the account that owns the publisher.
@@ -102,15 +104,34 @@ Manual dashboard upload does not require configuring a CLI publishing PAT.
 
 ## After upload
 
-The expected listing is
-[iokaio.vcp-local](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local);
-its availability is not established before the manual upload.
+The public listing is
+[iokaio.vcp-local](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local),
+confirmed available after the owner's upload.
 
-Install the pre-release from Marketplace in an isolated VS Code 1.138.0 profile on
-Windows x64. Verify the displayed publisher/version, setup-guide command and
-connection to the selected matching native engine. Record Marketplace results
-separately from local VSIX installed checks. Then add the live Marketplace link to
-the downloads page; do not advertise it as available while upload is pending.
+The October 1 acquisition check installed `iokaio.vcp-local@0.2.1 --pre-release`
+directly from Marketplace into a fresh VS Code 1.138.0 profile on Windows x64.
+Gallery metadata confirmed publisher, version, target and pre-release designation;
+all 60 installed payload files matched the uploaded VSIX receipt. The setup-guide
+command opened its preview tab. The extension connected and disconnected as an
+observer to the matching production engine and one synthetic Files fixture with
+retained paused history. Fixture bytes were preserved except the excluded
+`owner.lock`; temporary extension/native installations were removed. Supervision
+completed naturally, with no forced cleanup and zero remaining owned processes.
+No provider calls ran.
+
+Private evidence is indexed by `artifacts/beta-delivery/published-marketplace-index.json`
+and hashed in `artifacts/beta-delivery/published-marketplace-evidence.json`.
+The report SHA-256 is
+`cd0de968e8002a9e4010853873be05d51da5f5945c4d89eb092305872cea4ef8`.
+The initial disposable assertion failed because pinned Code records gallery
+pre-release metadata in `extensions.json`, not package `__metadata`. That attempt
+is retained; correcting the assertion and retrying passed without changing the
+published package. This check covers Files acquisition on a developer workstation,
+not SQLite acquisition, visual usability, a first useful task or full qualification.
+
+The downloads-page renderer now includes the live Marketplace listing alongside
+the matching direct VSIX download. Publishing this page reuses the existing
+candidate and release assets without rebuilding the package.
 
 For users of the earlier `vcp.vcp-local`, disconnect and uninstall the old
 extension first. Retain native data and User settings and reconnect under the new
