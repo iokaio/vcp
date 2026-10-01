@@ -127,6 +127,7 @@ function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Bo
     $log = Join-Path $out "logs/$Id.log"
     $row = @{id=$Id;status='running';command=$Command;expected=$Expected;started_at=[DateTime]::UtcNow.ToString('o');log=$log;exit_code=$null;disk_before=(Get-CandidateDiskEvidence)}
     $run.stages += $row; Save-Run
+    Write-Host ("[{0}] Candidate stage '{1}' started." -f $row.started_at,$Id)
     try {
         & $Body *> $log
         if ($Id -in @('native-boundaries','installed-editor')) {
@@ -142,7 +143,10 @@ function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Bo
         $row.status='fail'; $row.exit_code=1; $row.reason=$_.Exception.Message
         $_.Exception.Message | Add-Content -LiteralPath $log
         throw
-    } finally { $row.ended_at=[DateTime]::UtcNow.ToString('o'); $row.disk_after=Get-CandidateDiskEvidence; Save-Run }
+    } finally {
+        $row.ended_at=[DateTime]::UtcNow.ToString('o'); $row.disk_after=Get-CandidateDiskEvidence; Save-Run
+        Write-Host ("[{0}] Candidate stage '{1}' ended: {2}." -f $row.ended_at,$Id,$row.status)
+    }
 }
 function Checked([string]$File,[string[]]$Arguments) {
     @{command=@($File)+$Arguments} | ConvertTo-Json -Compress -Depth 5 | Write-Output
