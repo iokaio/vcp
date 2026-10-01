@@ -41,6 +41,33 @@ evidence: `artifacts/signing-launcher-smoke/evidence/row.json` and
 `artifacts/beta-delivery/signing-inno-result.json`. The candidate workflow must
 still prove its OIDC login and final production packaging.
 
+BETA-08's [candidate run 36923513140](https://github.com/iokaio/vcp/actions/runs/36923513140)
+failed before building or signing: a PowerShell argument-rejection subprocess
+reached its 60-second deadline without diagnostics. The unchanged-source
+[portable retry 36926183367](https://github.com/iokaio/vcp/actions/runs/36926183367)
+passed that group, then hit the distribution and orchestration groups' separate
+60-second deadlines. Its missing-Node test also failed near its 15-second child
+deadline, but the terminated reporter omitted the assertion detail. These remain
+failed observations; the exact hosted slowdown is not established. Original
+packets are retained under `artifacts/beta-delivery/signed-candidate-failure-36923513140/`
+and `artifacts/beta-delivery/portable-retry-failure-36926183367/`.
+
+The focused scheduling repair caps distribution at four test-file workers and
+keeps its 60-second envelope. Both groups use TAP to retain failure diagnostics
+without depending on an end-of-run summary. Orchestration's whole-case envelope
+is 120 seconds: ordinary local/hosted runs already took about 52 seconds and its
+supervision checks intentionally include two ten-second drain failures. Every
+inner deadline and assertion remains unchanged. A local distribution comparison
+passed in 22.1 seconds with default workers and 27.2 seconds with four; the cap
+bounds concurrent filesystem and PowerShell work, not a demonstrated speedup.
+Comparison evidence is `artifacts/beta-delivery/portable-concurrency-diagnostic-1790889783028/`.
+With the changed registry and physical Node 24.10.0, registered distribution
+checks passed (109 passed, one existing editor-input skip) in 29.0 seconds;
+orchestration passed all 22 tests in 51.5 seconds. The existing harness and
+repository validation group also passed. Their manifests are retained under
+`artifacts/beta-delivery/portable-scheduling-verification-5d82a99b/`.
+These local checks do not convert either failed hosted run into acceptance.
+
 After a verified signed pair exists, complete the full candidate pipeline and
 applicable independent installed checks, then guide the owner through the clean
 host and human observations. Keep all new provider probes and task variants
