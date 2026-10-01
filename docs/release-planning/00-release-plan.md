@@ -2,7 +2,7 @@
 
 Review date: September 30, 2026. Reviewed source: `b0d84a2df6e5fa7ed3163a3b1920fcf620623213` (`main` merge of PR #289).
 
-Status, revised October 1, 2026: **unsigned beta published for manual testing**. The [selected installer/ZIP/VSIX pair and focused installed results](05-manual-candidate.md) complete the manual-testing milestone below. The owner-authorized [GitHub prerelease and Pages deployment](../development/beta-publication.md) are delivered; custom-domain HTTPS is pending. Full qualification remains incomplete.
+Status, revised October 1, 2026: **unsigned beta published for manual testing**. The [selected installer/ZIP/VSIX pair and focused installed results](05-manual-candidate.md) complete the manual-testing milestone below. The owner-authorized [GitHub prerelease, Pages deployment and custom-domain HTTPS](../development/beta-publication.md) are delivered. Full qualification remains incomplete.
 
 This document records the original code review and implementation contract. Implementation was authorized on September 30, 2026 for an **internal beta and manual testing**. Current decisions and delivery evidence are tracked in [the implementation ledger](02-implementation-status.md) and [ADR-072](../adr/072-internal-windows-beta.md). The review findings below are historical baseline observations, not claims about later implementation. Neither the review nor the implementation request authorizes paid qualification or publication.
 

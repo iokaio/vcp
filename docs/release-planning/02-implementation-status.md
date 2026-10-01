@@ -52,7 +52,8 @@ the unchanged October 1 pair as
 [`v0.2.0-beta.1-1dba45922e0c`](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.1-1dba45922e0c)
 and deployed Pages successfully. GitHub confirms all five public asset digests.
 The owner-created CNAME resolves correctly and GitHub validates the domain;
-custom-domain certificate provisioning and HTTPS enforcement remain pending.
+custom-domain certificate provisioning and HTTPS enforcement completed on October 1.
+Normal TLS validation returned HTTPS 200 and HTTP redirected with 301 to HTTPS.
 The [publication guide](../development/beta-publication.md) records actual results.
 Pages deployment is restricted to `main`.
 No Azure resources were changed. This bounded BETA-08/BETA-11 follow-up does not
@@ -64,9 +65,14 @@ The owner created publisher `iokaio` and requested the BETA-07/BETA-08/BETA-11
 follow-up under [ADR-075](../adr/075-marketplace-manual-upload.md), retaining the
 first upload as a manual action. The new package uses `iokaio.vcp-local`, with
 explicit migration from the old extension ID, Marketplace listing metadata and
-the existing pre-release/platform/provenance contracts. Fresh paired build and
-installed verification results belong in the
-[Marketplace handoff](../development/marketplace-publication.md). Preparation does
+the existing pre-release/platform/provenance contracts. [PR #328](https://github.com/iokaio/vcp/pull/328)
+and exact-main Delivery checks passed. [Candidate 36894802050](https://github.com/iokaio/vcp/actions/runs/36894802050)
+passed through `pair`; all 88 packet checksums, native and VSIX inventories verified.
+Focused native installation, five offline onboarding cases and actual installed
+VSIX observations on fresh Files/SQLite fixtures passed with no provider calls or
+forced cleanup. The [Marketplace handoff](../development/marketplace-publication.md)
+identifies the exact upload file, hashes, private evidence and unrun qualification.
+Marketplace upload and post-upload installation remain owner-dependent; this does
 not establish Marketplace availability or complete full qualification.
 
 | Item | Status | Implementation and evidence |

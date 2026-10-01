@@ -1,10 +1,17 @@
 # Publish an unsigned beta download
 
-Status: **beta prerelease published and download page deployed** on October 1.
+Status: **beta prereleases published, download page deployed and HTTPS enforced** on October 1.
+The latest published pair is the [Marketplace-ready handoff](marketplace-publication.md),
+`9694d258aeb5`, built from reviewed source `99de062d32c4c0fe20ddae119408e953e8f7243b`.
+[Publication run 36900026024](https://github.com/iokaio/vcp/actions/runs/36900026024)
+published its unchanged verified bytes and updated Pages. The first Marketplace
+upload remains the owner's manual action. The initial publication below is retained
+as history; its release assets have not been replaced.
+
 [Publication run 36888330245](https://github.com/iokaio/vcp/actions/runs/36888330245)
 passed both release and Pages jobs after [PR #326](https://github.com/iokaio/vcp/pull/326)
 merged with all ordinary checks passing. The
-[published prerelease](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.1-1dba45922e0c)
+[initial prerelease](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.1-1dba45922e0c)
 retains source `f81b2c5062dad1f8d13d72ffb5fb8006eeea9229` and pair
 `1dba45922e0c34a04880f2ed4c5a07a65882b809559104aee70506b88838bcc7`.
 All five public asset sizes and GitHub SHA-256 digests match preparation; the
@@ -12,10 +19,14 @@ three binary hashes are unchanged from the manual-testing handoff. No rebuild ra
 
 Pages uses workflow deployment with `cname=downloads.ioka.io` and an environment
 restricted to `main`. The owner's CNAME resolves at authoritative and public DNS;
-GitHub reports the domain valid and HTTPS-eligible. The page returns HTTP 200 with
-the selected pair and correct HTTPS GitHub download links. **Custom-domain TLS
-provisioning and HTTPS enforcement remain pending**; a normal HTTPS request has
-not yet passed certificate validation. GitHub release downloads already use HTTPS.
+GitHub reports the domain valid and HTTPS-eligible. **Custom-domain TLS and HTTPS
+enforcement are complete** as of October 1 at 16:44 UTC. Re-saving the domain did
+not start issuance; removing and immediately restoring the same Pages custom
+domain restarted provisioning successfully. GitHub reports the certificate
+approved for `downloads.ioka.io`, expiring December 30, 2026. An ordinary HTTPS
+request passed certificate validation and returned 200; HTTP returned 301 to the
+HTTPS URL. No DNS or unrelated hosting resources were changed. GitHub manages
+the certificate; it does not sign the native downloads.
 
 Validation: 17 focused contracts, actual 88-file candidate preparation, repository
 link checks, YAML parsing, desktop/mobile layout and keyboard checks passed.
