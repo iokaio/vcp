@@ -102,16 +102,42 @@ function preparePublication(options) {
     recorded.pair_id === pair.pair_id && same(recorded.release, release) && same(recorded.artifacts, pair.artifacts) &&
     same(recorded.signing, pair.signing) && same(recorded.receipts, receipts), 'Recorded release pair or receipt binding mismatch');
   check(release.reviewed_commit === expectedCommit && native.manifest.source.git_commit === expectedCommit &&
-    release.channel === 'internal-beta' && release.target === 'x86_64-pc-windows-msvc' && release.signing?.status === 'unsigned' &&
+    release.channel === 'internal-beta' && release.target === 'x86_64-pc-windows-msvc' && ['unsigned', 'signed'].includes(release.signing?.status) &&
     sha(release.candidate_id) && sha(release.source_content_sha256) && sha(release.config_sha256), 'Release source/channel mismatch');
   check(same(release, releaseIdentity(release, { commit: expectedCommit, content_sha256: release.source_content_sha256 },
-    vsix.engine.executable_sha256)), 'Release candidate identity mismatch');
+    build.executable_sha256)), 'Release candidate identity mismatch');
+  const signing = require('./signing.cjs');
+  const transformation = signing.validateBinding(native.manifest.signing, release, buildInput.sha256, 'native',
+    { engine: build.executable_sha256, launcher: build.launcher_sha256 });
+  if (transformation) {
+    for (const [name, binding] of [['native', native.manifest.signing], ['setup', setup.signing]]) {
+      const retained = input(`receipts/${name}-signing.json`);
+      check(retained.sha256 === binding.receipt_sha256 && same(readJson(retained.file), binding.transformation), 'Retained signing receipt mismatch');
+      for (const row of binding.transformation.files) {
+        const nameInPacket = `logs/${name}-${row.role}-signature.log`, retainedLog = input(nameInPacket);
+        const logs = evidence.log_transformations?.filter(value => value.path === nameInPacket);
+        check(logs?.length === 1 && logs[0].original_sha256 === row.verification.log_sha256 &&
+          logs[0].retained_sha256 === retainedLog.sha256, 'Signing verification log binding mismatch');
+        if (name === 'setup') {
+          const original = input(`signing/${row.role}/unsigned.exe`), signed = input(`signing/${row.role}/signed.exe`);
+          check(original.sha256 === row.input_sha256 && signed.sha256 === row.output_sha256, 'Setup signing bytes mismatch');
+          signing.verifyPeTransformation(original.file, signed.file);
+        }
+      }
+    }
+    for (const [name, role] of [['vcp.exe', 'engine'], ['vcp-launch.exe', 'launcher']]) {
+      const original = input('build-output/' + name), signed = input('signed/' + name);
+      const row = transformation.files.find(row => row.role === role);
+      check(original.sha256 === row.input_sha256 && signed.sha256 === row.output_sha256, 'Retained signing bytes mismatch');
+      signing.verifyPeTransformation(original.file, signed.file);
+    }
+  }
   check(native.manifest.build.receipt_sha256 === buildInput.sha256 && setup.build_receipt_sha256 === buildInput.sha256 &&
     vsix.engine.native_manifest_sha256 === nativeInput.sha256 && build.schema === 'vcp-local-build/1' &&
     build.exit_code === 0 && build.cargo_exit_code === 0 && build.qualification_build === false && build.profile === 'release' &&
     build.source_dirty === false && build.source_stable === true && build.source_commit === expectedCommit &&
     build.source_content_sha256 === release.source_content_sha256 && build.target === release.target &&
-    build.executable_sha256 === vsix.engine.executable_sha256 && same(build.release, release),
+    signing.payloadHashes(build, transformation).executable_sha256 === vsix.engine.executable_sha256 && same(build.release, release),
   'Production build/receipt binding mismatch');
   check(typeof release.native_version === 'string' && /^\d+\.\d+\.\d+-beta\.\d+$/.test(release.native_version) &&
     typeof release.vsix_version === 'string' && /^\d+\.\d+\.\d+$/.test(release.vsix_version), 'Invalid beta release version');
@@ -135,11 +161,11 @@ function preparePublication(options) {
     runUrl: `${repository}/actions/runs/${runId}/attempts/${attempt}`,
     candidateAt: new Date(paired.ended_at).toISOString(), manifestHref: href('release.json'), checksumHref: href('SHA256SUMS'),
     qualification: { selectionStatus: 'pass', pipelineStatus: evidence.pipeline_status, status: 'qualification-required',
-      scope: 'limited-internal-beta', signing: 'unsigned' }, artifacts,
+      scope: 'limited-internal-beta', signing: release.signing.status }, artifacts,
   };
   const source = `${repository}/blob/${expectedCommit}`;
   const notes = `# VCP ${result.version} internal beta\n\n` +
-    `Unsigned Windows x64 beta for a limited developer-host and manual-testing handoff. Full qualification remains incomplete; this is not a clean-host support or production-readiness claim.\n\n` +
+    `${transformation ? 'Signed' : 'Unsigned'} Windows x64 beta for a limited developer-host and manual-testing handoff. Full qualification remains incomplete; this is not a clean-host support or production-readiness claim.\n\n` +
     `Candidate pair completed: ${result.candidateAt}. This is the build observation date, not the publication date.\n\n` +
     `- Source: [${expectedCommit}](${repository}/commit/${expectedCommit})\n` +
     `- Candidate run: [${runId}, attempt ${attempt}](${result.runUrl})\n` +

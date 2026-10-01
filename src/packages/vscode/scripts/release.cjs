@@ -26,14 +26,19 @@ function validateNativeIdentity(native, selected, source, engineHash, receipt) {
   check(native.schema === 'vcp-distribution-result/1' && native.status === 'release-candidate' &&
     manifest?.build?.status === 'verified-release-build' && manifest.source?.dirty === false &&
     manifest.source.git_commit === source.commit, 'Native release source differs from reviewed checkout');
-  const expected = provenance.releaseIdentity(selected, source, engineHash);
+  const expected = provenance.releaseIdentity(selected, source, receipt.executable_sha256);
   check(JSON.stringify(manifest.release) === JSON.stringify(expected), 'Native release identity mismatch');
   check(manifest.build.receipt === 'build-receipt.json' && /^[a-f0-9]{64}$/.test(manifest.build.receipt_sha256 || ''), 'Native release receipt required');
-  for (const [name, sha256] of [['vcp.exe', engineHash], ['vcp-launch.exe', receipt.launcher_sha256], ['build-receipt.json', manifest.build.receipt_sha256]]) {
+  const signing = require('../../../../scripts/release/signing.cjs');
+  const transformation = signing.validateBinding(manifest.signing, expected, manifest.build.receipt_sha256, 'native',
+    { engine: receipt.executable_sha256, launcher: receipt.launcher_sha256 });
+  const hashes = signing.payloadHashes(receipt, transformation);
+  check(hashes.executable_sha256 === engineHash, 'Signed engine identity mismatch');
+  for (const [name, sha256] of [['vcp.exe', engineHash], ['vcp-launch.exe', hashes.launcher_sha256], ['build-receipt.json', manifest.build.receipt_sha256]]) {
     const rows = manifest.files?.filter(row => row.path === name);
     check(rows?.length === 1 && rows[0].sha256 === sha256, 'Native release file mismatch: ' + name);
   }
-  provenance.validateReceipt(receipt, selected, source, engineHash);
+  provenance.validateReceipt(receipt, selected, source, receipt.executable_sha256);
   return expected;
 }
 
@@ -97,7 +102,11 @@ async function verifyNativeRelease(repo, nativeFile, engine, reviewedCommit, bui
   check(await fileHash(archive) === native.archive_sha256, 'Native archive bytes changed');
   await verifyNativeArchive(archive, [...native.manifest.files, { path: 'manifest.json', bytes: fs.statSync(manifestFile).size, sha256: provenance.fileHash(manifestFile) }]);
   // Execute only after the selected receipt and every payload/archive hash bind it.
-  const original = provenance.verifyBuild(repo, buildReceipt, engine, reviewedCommit);
+  const original = provenance.verifyBuild(repo, buildReceipt, receipt.release.signing.status === 'signed' ? path.join(path.dirname(buildReceipt), 'vcp.exe') : engine, reviewedCommit);
+  if (receipt.release.signing.status === 'signed') {
+    const signing = require('../../../../scripts/release/signing.cjs');
+    for (const name of ['vcp.exe', 'vcp-launch.exe']) signing.verifyPeTransformation(path.join(path.dirname(buildReceipt), name), path.join(packageRoot, name));
+  }
   check(JSON.stringify(original) === JSON.stringify(release) && provenance.fileHash(engine) === engineHash, 'Original build identity or engine changed during release verification');
   return { release, source, engineHash, nativeHash: provenance.fileHash(nativeFile) };
 }

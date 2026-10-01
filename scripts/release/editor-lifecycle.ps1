@@ -81,6 +81,13 @@ $registered=(Get-ItemProperty -LiteralPath $installed.registration).InstallLocat
 if ([IO.Path]::GetFullPath($registered).TrimEnd('\') -ine [IO.Path]::GetFullPath($installed.app).TrimEnd('\')) { throw 'Registered installation no longer belongs to this private lifecycle run' }
 $expected=@($native.manifest.files | Where-Object path -ceq 'vcp.exe')
 if ($expected.Count -ne 1 -or (Get-FileHash -LiteralPath $installed.launcher).Hash.ToLowerInvariant() -cne $setup.launcher_sha256 -or (Get-FileHash -LiteralPath $installed.engine).Hash.ToLowerInvariant() -cne $expected[0].sha256) { throw 'Installed native bytes differ from strict candidate' }
+$installed.signatures=@()
+if ($native.manifest.release.signing.status -ceq 'signed') {
+    $installed.signatures+=Assert-BetaSignature (Join-Path (Split-Path -Parent $SetupResult) $setup.archive.file) $native.manifest.release.signing 'setup' $setup.signing.transformation
+    $installed.signatures+=Assert-BetaSignature $installed.launcher $native.manifest.release.signing 'launcher' $native.manifest.signing.transformation
+    $installed.signatures+=Assert-BetaSignature (Join-Path $installed.app 'unins000.exe') $native.manifest.release.signing 'uninstaller' $setup.signing.transformation
+    $installed.signatures+=Assert-BetaSignature $installed.engine $native.manifest.release.signing 'engine' $native.manifest.signing.transformation
+}
 $null=Invoke-BetaProcess $node @((Join-Path $repo 'scripts/evals/production-package.cjs'),$NativeResult,(Split-Path -Parent $installed.engine)) $root
 $selection=(Invoke-BetaProcess $installed.launcher @('--resolve-installation') $root).stdout | ConvertFrom-Json
 if ($selection.schema -cne 'vcp-installed-engine/1' -or [IO.Path]::GetFullPath($selection.executable).Replace('\\?\','') -ine $installed.engine -or [IO.Path]::GetFullPath($selection.data_directory).Replace('\\?\','').TrimEnd('\') -ine [IO.Path]::GetFullPath($DataRoot).TrimEnd('\')) { throw 'Installed engine/data identity changed' }
@@ -104,7 +111,7 @@ $null=Invoke-BetaProcess $pwsh @('-NoProfile','-File',$launch,'-InputFile',$inpu
 $previous=if ($Mode -ceq 'install') { '-' } else { $lastReport }
 $report=(Invoke-BetaProcess $node @($contract,'observation',$inputFile,$resultFile,$previous) $root).stdout | ConvertFrom-Json
 if ((Extension-Inventory).sha256 -cne $progress.inventory) { throw 'Editor lifecycle changed original installed VSIX files' }
-$report | Add-Member -NotePropertyMembers @{source_commit=$native.manifest.release.reviewed_commit;source_content_sha256=$native.manifest.release.source_content_sha256;native_sha256=$native.archive_sha256;setup_sha256=$setup.archive.sha256;vsix_sha256=$vsix.archive.sha256;engine_sha256=$expected[0].sha256;native_payload_verified=$true;editor_version=$tools.editor.version;editor_commit=$editorCommit;editor_executable_sha256=(Get-FileHash -LiteralPath $Code).Hash.ToLowerInvariant();installed_inventory_sha256=$progress.inventory;malformed_update=$rejection;limitations=@('Synthetic retained paused history; no first useful task, reviewed edit, provider call or real accounting work.','Same final VSIX is truncated for rejection; no successful distinct-version upgrade or rollback.','Extension-host assertions; no human UI or clean-machine usability claim.')}
+$report | Add-Member -NotePropertyMembers @{source_commit=$native.manifest.release.reviewed_commit;source_content_sha256=$native.manifest.release.source_content_sha256;native_sha256=$native.archive_sha256;setup_sha256=$setup.archive.sha256;vsix_sha256=$vsix.archive.sha256;engine_sha256=$expected[0].sha256;signatures=$installed.signatures;native_payload_verified=$true;editor_version=$tools.editor.version;editor_commit=$editorCommit;editor_executable_sha256=(Get-FileHash -LiteralPath $Code).Hash.ToLowerInvariant();installed_inventory_sha256=$progress.inventory;malformed_update=$rejection;limitations=@('Synthetic retained paused history; no first useful task, reviewed edit, provider call or real accounting work.','Same final VSIX is truncated for rejection; no successful distinct-version upgrade or rollback.','Extension-host assertions; no human UI or clean-machine usability claim.')}
 if ($Mode -ceq 'reconnect') {
     # Normal observers release the native owner after its 30-second idle grace.
     Start-Sleep -Seconds 32

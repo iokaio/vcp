@@ -9,7 +9,7 @@ const stages = Object.freeze([
 ]);
 const stops = Object.freeze(['portable-contracts', 'production-build', 'pair', 'installed-editor']);
 const matrix = Object.freeze([
-  ['production-identity', 'Production build and identity', 'none', 'Production target/features, stable source/cache, final inventories and unsigned artifact digests.'],
+  ['production-identity', 'Production build and identity', 'none', 'Production target/features, stable source/cache, final inventories, signing disposition and final artifact digests.'],
   ['clean-installation', 'Clean installation', 'both', 'Clean standard-user supported Windows, no developer state, Unicode/custom paths, prerequisite/space failures and retry.'],
   ['first-cli-task', 'First useful CLI task', 'both', 'Supported onboarding/renewal and bounded task; missing/wrong credential/tools, stale metadata and denied effects. Live calls require separate budget admission.'],
   ['first-editor-task', 'First useful editor task', 'both', 'Actual installed VSIX and engine: observer/controller task, pause/resume/reviewed edit, restricted/uninitialized and incompatible configuration.'],
@@ -190,9 +190,40 @@ function packet(runFile, output) {
       if (receipts.native) {
         const native = json(receipts.native);
         const executables = native.manifest?.files?.filter(row => row.path === 'vcp.exe');
-        if (executables?.length !== 1 || executables[0].sha256 !== executableHash ||
+        const signing = require('./signing.cjs');
+        const transform = signing.validateBinding(native.manifest.signing, release, fileHash(receipts.build), 'native',
+          { engine: build.executable_sha256, launcher: build.launcher_sha256 });
+        if (executables?.length !== 1 || executables[0].sha256 !== signing.payloadHashes(build, transform).executable_sha256 ||
             native.manifest.build?.receipt_sha256 !== entries.find(row => row.path === 'receipts/build.json').sha256 ||
             JSON.stringify(native.manifest.release) !== JSON.stringify(release)) throw Error('Native result differs from validated production build');
+        if (transform) {
+          const packageRoot = path.join(path.dirname(receipts.native), 'package');
+          signing.verifyPayloadSigning(packageRoot, build, native.manifest.signing);
+          receipt(path.join(packageRoot, 'signing-receipt.json'), 'receipts/native-signing.json');
+          for (const row of transform.files) log(path.join(path.dirname(receipts.native), 'signing', row.role, 'verify.log'),
+            `logs/native-${row.role}-signature.log`, row.verification.log_sha256);
+          for (const name of ['vcp.exe', 'vcp-launch.exe']) {
+            const signedFile = path.join(packageRoot, name);
+            signing.verifyPeTransformation(path.join(directory, name), signedFile);
+            save('signed/' + name, ordinary(signedFile));
+          }
+          if (receipts.setup) {
+            const setup = json(receipts.setup), binding = setup.signing;
+            signing.validateBinding(binding, release, fileHash(receipts.build), 'setup');
+            const signingFile = path.join(path.dirname(receipts.setup), 'signing-receipt.json');
+            if (fileHash(signingFile) !== binding.receipt_sha256 || JSON.stringify(json(signingFile)) !== JSON.stringify(binding.transformation)) throw Error('Setup signing receipt differs');
+            receipt(signingFile, 'receipts/setup-signing.json');
+            for (const row of binding.transformation.files) {
+              const directory = path.join(path.dirname(receipts.setup), 'signing', row.role);
+              log(path.join(directory, 'verify.log'), `logs/setup-${row.role}-signature.log`, row.verification.log_sha256);
+              const original = path.join(directory, 'unsigned.exe'), signed = path.join(directory, 'signed.exe');
+              const proof = signing.verifyPeTransformation(original, signed);
+              if (proof.input_sha256 !== row.input_sha256 || proof.output_sha256 !== row.output_sha256) throw Error('Setup signing bytes differ');
+              save(`signing/${row.role}/unsigned.exe`, ordinary(original));
+              save(`signing/${row.role}/signed.exe`, ordinary(signed));
+            }
+          }
+        }
       }
       if (pair && JSON.stringify(release) !== JSON.stringify(pair.release)) throw Error('Complete artifact pair differs from validated build release');
     } catch (error) { validationFailures.push(`production build: ${sanitize(error.message)}`); }
@@ -349,7 +380,7 @@ function packet(runFile, output) {
   if (pair && !validationFailures.length && ['production-build', 'native-package', 'setup-package', 'vsix-package', 'pair'].every(id => observations.find(row => row.id === id)?.status === 'pass')) {
     rows[0].status = 'pass'; rows[0].reason = null;
     rows[0].command = observations.filter(row => ['production-build', 'native-package', 'setup-package', 'vsix-package', 'pair'].includes(row.id)).map(row => row.command);
-    rows[0].actual = 'Strict builders and independent final-byte pairing passed; unsigned candidate only.';
+    rows[0].actual = `Strict builders and independent final-byte pairing passed; ${pair.signing.status} candidate only.`;
     rows[0].evidence = ['pair.json', 'receipts/build.json', 'receipts/native.json', 'receipts/vsix.json', 'receipts/setup.json'];
   }
   const result = { schema: 'vcp-beta-evidence/1', status: 'qualification-required', reviewed_commit: run.reviewed_commit,
@@ -362,7 +393,7 @@ function packet(runFile, output) {
       'Source and synthetic fixture tests do not qualify installed-product behavior.',
       'build-output/ contains unpackaged diagnostic executables, not an installable artifact pair or completed qualification.',
       'diagnostics/ contains unverified interrupted/pre-build observations; these never replace a validated build receipt or final artifact pair.',
-      'No automatic live provider calls, model acquisition, signing, publication or owner approval.',
+      'No automatic live provider calls, model acquisition, publication or owner approval. Signing follows the reviewed channel policy.',
       'GitHub artifacts expire after 90 days; export the complete hashed packet to approved durable storage before expiry.'],
     files: entries.sort((a,b) => a.path.localeCompare(b.path)) };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx' });

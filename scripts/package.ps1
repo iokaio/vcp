@@ -9,7 +9,8 @@ param(
     [string]$BuildReceipt,
     [string]$OutputRoot,
     [switch]$Release,
-    [string]$ReviewedCommit
+    [string]$ReviewedCommit,
+    [string]$SigningToolsManifest = $env:VCP_SIGNING_TOOLS_MANIFEST
 )
 $ErrorActionPreference = 'Stop'
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -18,6 +19,7 @@ if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/p8-distri
 $node = Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1
 $releaseTool = Join-Path $PSScriptRoot 'release/provenance.cjs'
 $releaseIdentity = $null
+$signing = $null
 if ($Release) {
     if (-not $BuildReceipt -or $ReviewedCommit -notmatch '^[a-f0-9]{40}$') { throw 'Release packaging requires -BuildReceipt and the exact -ReviewedCommit' }
     if ($RuntimePath.Count -or $ModelManifest -or [IO.Path]::GetFullPath($Assets) -cne [IO.Path]::GetFullPath((Join-Path $repository 'src/skills/builtin'))) { throw 'Release packaging accepts only the reviewed builtin assets and no external runtime/model records' }
@@ -92,6 +94,14 @@ if ($BuildReceipt) {
         Copy-Item -LiteralPath $launcher -Destination (Join-Path $package 'vcp-launch.exe')
     } elseif ($Release) { throw 'Release package requires the production launcher' }
 }
+if ($Release -and $releaseIdentity.signing.status -ceq 'signed') {
+    if (-not $SigningToolsManifest) { throw 'Signed release requires pinned signing tools' }
+    foreach ($entry in @(@{name='vcp.exe';role='engine'},@{name='vcp-launch.exe';role='launcher'})) {
+        & (Join-Path $PSScriptRoot 'release/signing-file.ps1') -File (Join-Path $package $entry.name) -Role $entry.role -OutputRoot (Join-Path $out ('signing/' + $entry.role)) -ToolsManifest $SigningToolsManifest | Out-Null
+        if (-not $?) { throw 'Native signing failed' }
+    }
+    $signing = & (Join-Path $PSScriptRoot 'release/record-signing.ps1') -Stage native -BuildReceipt $BuildReceipt -Rows @((Join-Path $out 'signing/engine/row.json'),(Join-Path $out 'signing/launcher/row.json')) -ToolsManifest $SigningToolsManifest -OutputFile (Join-Path $package 'signing-receipt.json')
+}
 $metadata = [ordered]@{
     source = [ordered]@{ repository = 'vcp'; git_commit = if ($gitCommit -match '^[a-f0-9]{40}$') { $gitCommit } else { $null }; dirty = $dirty }
     target = [ordered]@{ os = 'Windows'; architecture = $env:PROCESSOR_ARCHITECTURE }
@@ -104,12 +114,13 @@ $metadata = [ordered]@{
 }
 if ($Release) {
     $metadata.release = $releaseIdentity
+    if ($signing) { $metadata.signing = $signing }
     $metadata.notices = $noticeBundle
     $metadata.target = [ordered]@{ os = 'Windows'; architecture = 'AMD64'; triple = $releaseIdentity.target }
     $metadata.compatibility.cli = 'vcp-cli/' + $releaseIdentity.native_version
     # Every copied resource must be one of the exact build inputs. This includes
     # catalog bodies/resources and installer helpers, not only the catalog hash.
-    & $node.Source -e "const p=require(process.argv[1]);p.verifyPayloadSources(process.argv[2],p.json(process.argv[3]),process.argv[4]);" $releaseTool $package $BuildReceipt $noticeBundle.inventory_sha256
+    & $node.Source -e 'const p=require(process.argv[1]),path=require("node:path"),b=p.json(process.argv[3]),f=path.join(process.argv[2],"signing-receipt.json");const s=b.release.signing.status==="signed"?{status:"signed",receipt:"signing-receipt.json",receipt_sha256:p.fileHash(f),transformation:p.json(f)}:undefined;p.verifyPayloadSources(process.argv[2],b,process.argv[4],s);' $releaseTool $package $BuildReceipt $noticeBundle.inventory_sha256
     if ($LASTEXITCODE -ne 0) { throw 'Staged release assets differ from reviewed build inputs' }
 }
 $inventoryTool = Join-Path $PSScriptRoot 'package-inventory.cjs'
@@ -120,7 +131,7 @@ try {
 } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw 'Distribution manifest validation failed' }
 $archive = Join-Path $out 'vcp-windows-unsigned.zip'
-if ($Release) { $archive = Join-Path $out ('vcp-' + $releaseIdentity.native_version + '-windows-x64-unsigned.zip') }
+if ($Release) { $archive = Join-Path $out ('vcp-' + $releaseIdentity.native_version + '-windows-x64-' + $releaseIdentity.signing.status + '.zip') }
 [IO.Compression.ZipFile]::CreateFromDirectory($package, $archive, [IO.Compression.CompressionLevel]::Optimal, $false)
 $manifest = Get-Content -LiteralPath (Join-Path $package 'manifest.json') -Raw | ConvertFrom-Json
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
@@ -138,8 +149,10 @@ $expectedEntries = @($manifest.files.path + 'manifest.json') | Sort-Object
 if ((ConvertTo-Json @($entries | Sort-Object) -Compress) -cne (ConvertTo-Json @($expectedEntries) -Compress)) { throw 'ZIP entries differ from the manifest inventory' }
 $result = [ordered]@{ schema = 'vcp-distribution-result/1'; status = 'candidate'; package = [IO.Path]::GetFileName($archive); archive_sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant(); manifest = $manifest; entries = $entries; limitations = $manifest.limitations }
 if ($Release) {
-    & $node.Source $releaseTool verify-build $repository ([IO.Path]::GetFullPath($BuildReceipt)) (Join-Path $package 'vcp.exe') $ReviewedCommit | Out-Null
+    & $node.Source $releaseTool verify-build $repository ([IO.Path]::GetFullPath($BuildReceipt)) ([IO.Path]::GetFullPath($Executable)) $ReviewedCommit | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Release source or build inputs changed during packaging' }
+    & $node.Source -e 'const p=require(process.argv[1]);p.verifyPayloadSources(process.argv[2],p.json(process.argv[3]),process.argv[4]);' $releaseTool $package $BuildReceipt $noticeBundle.inventory_sha256
+    if ($LASTEXITCODE -ne 0) { throw 'Final signed payload differs from verified release inputs' }
     $result.status = 'release-candidate'
 }
 $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $out 'result.json') -Encoding utf8

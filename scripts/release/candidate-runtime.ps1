@@ -50,6 +50,20 @@ function Invoke-BetaProcess([string]$Executable,[string[]]$Arguments,[string]$Di
         if (-not $cleanup) { throw 'Candidate process supervision incomplete; private output retained' }
     }
 }
+function Assert-BetaSignature([string]$File,$Policy,[string]$Role,$Transformation) {
+    if ($Policy.status -cne 'signed' -or $Policy.publisher -cne 'CN=Ioka LLC, O=Ioka LLC, L=Mapleton, S=Utah, C=US' -or
+        $Policy.identity_eku -cne '1.3.6.1.4.1.311.97.88309284.513035131.587831003.613935669') { throw 'Unexpected installed candidate signing policy' }
+    $rows=@($Transformation.files | Where-Object role -CEQ $Role)
+    $item=Get-Item -LiteralPath $File -Force
+    $digest=(Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($rows.Count -ne 1 -or $item.PSIsContainer -or $item.Length -ne $rows[0].output_bytes -or $digest -cne $rows[0].output_sha256) { throw "Candidate $Role differs from signed output" }
+    $signature=Get-AuthenticodeSignature -LiteralPath $File
+    if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate -or -not $signature.TimeStamperCertificate -or
+        $signature.SignerCertificate.Subject -cne $Policy.publisher) { throw "Candidate $Role lacks a valid timestamped publisher signature" }
+    $eku=@($signature.SignerCertificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | ForEach-Object { $_.EnhancedKeyUsages | ForEach-Object Value })
+    if ($Policy.identity_eku -cnotin $eku -or '1.3.6.1.5.5.7.3.3' -cnotin $eku) { throw "Candidate $Role has the wrong signing identity" }
+    return @{role=$Role;sha256=$digest;bytes=$item.Length;status='Valid';publisher=$signature.SignerCertificate.Subject;identity_eku=$Policy.identity_eku;timestamp_present=$true}
+}
 function Install-BetaCandidate([string]$NativeResult,[string]$SetupResult,[string]$Root,[string]$Data) {
     $native=Get-Content -LiteralPath $NativeResult -Raw | ConvertFrom-Json
     $setup=Get-Content -LiteralPath $SetupResult -Raw | ConvertFrom-Json
@@ -58,6 +72,14 @@ function Install-BetaCandidate([string]$NativeResult,[string]$SetupResult,[strin
     $installer=Join-Path (Split-Path -Parent $SetupResult) $setup.archive.file
     $zip=Join-Path (Split-Path -Parent $NativeResult) $native.package
     if ((Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant() -cne $setup.archive.sha256 -or (Get-FileHash -LiteralPath $zip).Hash.ToLowerInvariant() -cne $native.archive_sha256) { throw 'Candidate artifact bytes changed' }
+    $signatures=@()
+    $signed=$native.manifest.release.signing.status -ceq 'signed'
+    if ($signed) {
+        if ($setup.signing.status -cne 'signed' -or $native.manifest.signing.status -cne 'signed' -or
+            $setup.signing.transformation.candidate_id -cne $native.manifest.release.candidate_id -or
+            $native.manifest.signing.transformation.candidate_id -cne $native.manifest.release.candidate_id) { throw 'Matching signed native/setup receipts required' }
+        $signatures+=Assert-BetaSignature $installer $native.manifest.release.signing 'setup' $setup.signing.transformation
+    }
     $registration='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\VCP.InternalBeta.1_is1'
     if (Test-Path -LiteralPath $registration) { throw 'Existing registered VCP must be preserved; use a fresh test account' }
     if (Test-Path -LiteralPath $Root) { throw 'New smoke root required' }
@@ -69,13 +91,18 @@ function Install-BetaCandidate([string]$NativeResult,[string]$SetupResult,[strin
     if ([IO.Path]::GetFullPath($registered).TrimEnd('\') -ine [IO.Path]::GetFullPath($app).TrimEnd('\')) { throw 'Registered installation location differs' }
     $launcher=Join-Path $app 'vcp.exe'
     if ((Get-FileHash -LiteralPath $launcher).Hash.ToLowerInvariant() -cne $setup.launcher_sha256) { throw 'Installed launcher differs from receipt' }
+    if ($signed) {
+        $signatures+=Assert-BetaSignature $launcher $native.manifest.release.signing 'launcher' $native.manifest.signing.transformation
+        $signatures+=Assert-BetaSignature (Join-Path $app 'unins000.exe') $native.manifest.release.signing 'uninstaller' $setup.signing.transformation
+    }
     $selection=(Invoke-BetaProcess $launcher @('--resolve-installation') $Root).stdout | ConvertFrom-Json
     $expected=@($native.manifest.files | Where-Object path -ceq 'vcp.exe')
     $expectedEngine=Join-Path $app "engine/releases/$($native.archive_sha256)/vcp.exe"
     if ($selection.schema -cne 'vcp-installed-engine/1' -or $expected.Count -ne 1 -or [IO.Path]::GetFullPath($selection.executable).Replace('\\?\','') -ine $expectedEngine -or (Get-FileHash -LiteralPath $selection.executable).Hash.ToLowerInvariant() -cne $expected[0].sha256 -or [IO.Path]::GetFullPath($selection.data_directory).Replace('\\?\','').TrimEnd('\') -ine [IO.Path]::GetFullPath($Data).TrimEnd('\')) { throw 'Installed engine/data selection differs from final candidate' }
+    if ($signed) { $signatures+=Assert-BetaSignature $expectedEngine $native.manifest.release.signing 'engine' $native.manifest.signing.transformation }
     # Return the validated ordinary spelling used by the editor and resume paths,
     # rather than the Rust launcher's equivalent extended-length namespace.
-    return @{app=$app;launcher=$launcher;engine=$expectedEngine;data=$Data;registration=$registration;native_sha256=$native.archive_sha256;setup_sha256=$setup.archive.sha256;engine_sha256=$expected[0].sha256}
+    return @{app=$app;launcher=$launcher;engine=$expectedEngine;data=$Data;registration=$registration;native_sha256=$native.archive_sha256;setup_sha256=$setup.archive.sha256;engine_sha256=$expected[0].sha256;signatures=$signatures}
 }
 function Wait-BetaUninstall([hashtable]$Installed,[ValidateRange(1,10)][int]$Seconds=10) {
     # Inno may finish deleting its own files shortly after the launched process

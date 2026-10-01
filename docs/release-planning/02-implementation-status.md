@@ -8,6 +8,46 @@ below; paid execution remains a separate gate.
 The [FR/I/U acceptance map](03-acceptance-map.md) joins current changes and
 historical dispositions without granting final-artifact or owner acceptance.
 
+## Current work — signed candidate and qualification
+
+On October 1 the owner authorized the remaining signing and qualification plan
+under [ADR-076](../adr/076-signed-beta-qualification.md), selected Qwen 3.8 with
+a new **$40 total** provider budget, and confirmed a clean Windows machine is
+available for guided testing. This supersedes the earlier instruction to stop
+after the limited handoff; historical failed, deferred and unrun evidence below
+retains its original disposition.
+
+BETA-04/06/08 signing integration is **in progress** for native `0.2.0-beta.2`
+and SDK/VSIX `0.2.2`, using the existing Azure `ioka-llc-signing` account and
+`WritingForgePro` Public Trust profile. The channel requires signatures from
+Ioka LLC on the engine, launcher, installer and uninstaller, with immutable
+unsigned-build provenance and new final-byte hashes. No signed production
+candidate, new live task, clean-host pass or final owner acceptance is claimed
+by the preparation below. The public unsigned beta.1 remains
+available under its original release record.
+
+The dedicated secretless GitHub identity is configured for the main-only
+`native-signing` environment, with signing permission scoped to the existing
+certificate profile. Pinned tool acquisition and an actual Azure signing smoke
+on a disposable copy of the prior launcher passed: publisher, durable identity
+EKU, timestamp, Windows trust and preservation of the original executable image
+were verified. Original compiler bytes were unchanged. Mutating an adjacent
+signing-tool dependency was refused before signing.
+
+A pinned Inno 6.7.3 compilation fixture also passed the real setup/uninstaller
+signing callbacks, including final setup hash equality and both Windows trust
+checks. It was not installed and is not a qualified production artifact. Private
+evidence: `artifacts/signing-launcher-smoke/evidence/row.json` and
+`artifacts/beta-delivery/signing-inno-result.json`. The candidate workflow must
+still prove its OIDC login and final production packaging.
+
+After a verified signed pair exists, complete the full candidate pipeline and
+applicable independent installed checks, then guide the owner through the clean
+host and human observations. Keep all new provider probes and task variants
+within one reserved-and-reconciled $40 ledger; do not reuse old campaign grants.
+The [acceptance map](03-acceptance-map.md) remains open until actual evidence and
+owner judgments close its applicable rows.
+
 ## Current milestone — October 1 scope revision
 
 The owner approved a smaller milestone under

@@ -93,6 +93,12 @@ function validateMetadata(metadata = {}) {
       'Unsigned internal beta candidate; installed-product qualification and owner publication acceptance remain required.',
       'No cross-format migration is attempted; incompatible versions require a validated restore.'
     ];
+    if (metadata.release.signing?.status === 'signed') {
+      require('./release/signing.cjs').validateBinding(metadata.signing, metadata.release, result.build.receipt_sha256, 'native');
+      result.signing = metadata.signing;
+      result.artifact = 'signed-internal-beta-candidate';
+      result.limitations[0] = 'Signed internal beta candidate; installed-product qualification and owner publication acceptance remain required.';
+    }
   }
   return result;
 }

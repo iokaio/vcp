@@ -36,6 +36,7 @@ function fileDetails(artifact) {
 }
 
 function renderDownloadPage(release) {
+  const signed = release.qualification?.signing === 'signed';
   const artifacts = new Map();
   for (const artifact of release.artifacts) {
     if (!['setup', 'zip', 'vsix'].includes(artifact.kind) || artifacts.has(artifact.kind)) {
@@ -55,7 +56,7 @@ function renderDownloadPage(release) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Download the matching unsigned VCP beta installer, portable ZIP and VS Code extension for Windows x64.">
+  <meta name="description" content="Download the matching ${signed ? 'signed' : 'unsigned'} VCP beta installer, portable ZIP and VS Code extension for Windows x64.">
   <meta name="theme-color" content="#112e3c">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
@@ -111,7 +112,7 @@ function renderDownloadPage(release) {
         </article>
       </section>
       <aside class="notice" aria-label="Beta status">
-        <strong>Unsigned beta for manual testing.</strong> Qualification is incomplete. These downloads do not establish clean-host or upgrade support. Use a nonsensitive sample workspace and follow your organization’s policy for unsigned software.
+        <strong>${signed ? 'Signed' : 'Unsigned'} beta for manual testing.</strong> Qualification is incomplete. These downloads do not establish clean-host or upgrade support. Use a nonsensitive sample workspace${signed ? '. Windows signatures identify Ioka LLC as publisher.' : ' and follow your organization’s policy for unsigned software.'}
         <a href="${link(`${source}/docs/usage/beta-known-issues.md`)}">Read the known limitations</a>.
       </aside>
       <section class="section" aria-labelledby="alternatives-title">
@@ -149,7 +150,7 @@ function renderDownloadPage(release) {
     </div>
     <section class="records" aria-labelledby="records-title">
       <div class="wrap records-grid">
-        <div><h2 id="records-title">Verify your download</h2><p>Compare each file’s SHA-256 with the checksum record. Matching hashes identify the bytes; they do not authenticate an unsigned publisher.</p>
+        <div><h2 id="records-title">Verify your download</h2><p>Compare each file’s SHA-256 with the checksum record. ${signed ? 'Verify the installer’s Windows digital signature identifies Ioka LLC.' : 'Matching hashes identify the bytes; they do not authenticate an unsigned publisher.'}</p>
           <div class="record-links"><a href="${link(release.checksumHref)}">SHA-256 checksums</a><a href="${link(release.manifestHref)}">Release manifest</a><a href="${link(release.runUrl)}">Build record</a></div>
         </div>
         <dl class="identity"><dt>Artifact pair</dt><dd><code>${escape(release.pairId)}</code></dd><dt>Source commit</dt><dd><a href="${link(`https://github.com/iokaio/vcp/commit/${encodeURIComponent(release.commit)}`)}"><code>${escape(release.commit)}</code></a></dd></dl>

@@ -1,10 +1,14 @@
 # Internal beta scope, known limitations and support
 
-This is an experimental Windows x64 beta with unsigned native downloads. Its source
-version is `0.2.0-beta.1`; SDK and VSIX use `0.2.1`. The release-pair record and
-scorecard identify the actual artifacts and observed environment. GitHub beta
-downloads are public; Marketplace publication is a separate owner action.
-Neither distribution channel establishes native code signing or completed owner acceptance.
+This is an experimental Windows x64 beta. The next source version is
+`0.2.0-beta.2`; SDK and VSIX use `0.2.2`. Its channel requires timestamped
+Ioka LLC signatures on the native engine, launcher, setup and uninstaller.
+Signed candidate construction and qualification are in progress; the published
+native `0.2.0-beta.1` and VSIX `0.2.1` remain the earlier unsigned-native pair.
+The release-pair record and scorecard identify actual artifacts, signature checks
+and observed environment. GitHub downloads and the Marketplace listing are live;
+availability and code signing do not establish completed owner acceptance or
+SmartScreen reputation.
 
 The qualification target is local NTFS workspaces and VS Code 1.138.0. ARM64/x86,
 non-Windows, remote/WSL/container workspaces, native auto-update,

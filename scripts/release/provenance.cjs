@@ -45,7 +45,8 @@ function captureSource(root, reviewedCommit) {
 function channel(root) {
   const filename = path.join(root, 'release/internal-beta.json'), value = json(filename);
   check(value.schema === 'vcp-beta-channel/1' && value.channel === 'internal-beta' &&
-    value.target === 'x86_64-pc-windows-msvc' && value.signing?.status === 'unsigned', 'Unsupported release channel, target or signing transformation');
+    value.target === 'x86_64-pc-windows-msvc', 'Unsupported release channel or target');
+  require('./signing.cjs').policy(value.signing);
   check(/^\d+\.\d+\.\d+-beta\.\d+$/.test(value.native_version) &&
     /^\d+\.\d+\.\d+$/.test(value.sdk_version) && /^\d+\.\d+\.\d+$/.test(value.vsix_version), 'Invalid release versions');
   return { ...value, config_sha256: fileHash(filename) };
@@ -173,10 +174,13 @@ function verifyBuild(root, receiptFile, executable, reviewedCommit) {
   verifyExecutable(launcherFile, selected.native_version, 'vcp-launch');
   return release;
 }
-function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash) {
+function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash, signing) {
   const { enumerate, verifyManifest } = require('../package-inventory.cjs');
   const manifestFile = path.join(packageRoot, 'manifest.json');
   if (fs.existsSync(manifestFile)) verifyManifest(packageRoot, json(manifestFile));
+  signing ??= fs.existsSync(manifestFile) ? json(manifestFile).signing : undefined;
+  const hashes = receipt.release?.signing?.status === 'signed'
+    ? require('./signing.cjs').verifyPayloadSigning(packageRoot, receipt, signing) : receipt;
   const inputs = new Map(receipt.inputs.map(row => [row.path, row.sha256]));
   if (expectedNoticeHash) require('./notices.cjs').verifyStaged(packageRoot, expectedNoticeHash,
     inputs.get('src/third_party/codex/codex-rs/Cargo.lock'), receipt.executable_sha256);
@@ -191,8 +195,9 @@ function verifyPayloadSources(packageRoot, receipt, expectedNoticeHash) {
   ]);
   for (const row of enumerate(packageRoot)) {
     if (row.path === 'manifest.json') continue; // independently verified above
-    if (row.path === 'vcp.exe') { check(row.sha256 === receipt.executable_sha256, 'Staged executable mismatch'); continue; }
-    if (row.path === 'vcp-launch.exe') { check(row.sha256 === receipt.launcher_sha256, 'Staged launcher mismatch'); continue; }
+    if (row.path === 'vcp.exe') { check(row.sha256 === hashes.executable_sha256, 'Staged executable mismatch'); continue; }
+    if (row.path === 'vcp-launch.exe') { check(row.sha256 === hashes.launcher_sha256, 'Staged launcher mismatch'); continue; }
+    if (row.path === 'signing-receipt.json' && receipt.release?.signing?.status === 'signed') continue;
     if (row.path === 'build-receipt.json') continue;
     if (expectedNoticeHash && (row.path === 'component-inventory.json' || row.path === 'PREREQUISITES.md' || row.path.startsWith('licenses/'))) continue;
     const source = row.path.startsWith('skills/builtin/') ? 'src/' + row.path : direct.get(row.path);
@@ -220,8 +225,21 @@ function pairIdentity(native, vsix, setup) {
     setup.candidate_id === release.candidate_id && sha(setup.archive?.sha256), 'Setup/native release identity mismatch');
   const artifacts = { native_zip_sha256: native.archive_sha256, vsix_sha256: vsix.archive.sha256,
     setup_sha256: setup?.archive.sha256 ?? null };
+  const signing = require('./signing.cjs');
+  const nativeSigning = signing.validateBinding(native.manifest.signing, release, native.manifest.build.receipt_sha256, 'native');
+  let disposition = { status: 'unsigned', transformations: [] };
+  if (nativeSigning) {
+    check(setup, 'Signed pair requires signed setup and uninstaller');
+    const setupSigning = signing.validateBinding(setup.signing, release, native.manifest.build.receipt_sha256, 'setup');
+    const launchers = native.manifest.files.filter(row => row.path === 'vcp-launch.exe');
+    check(nativeSigning.files.find(row => row.role === 'engine').output_sha256 === executable[0].sha256 &&
+      launchers.length === 1 && launchers[0].sha256 === nativeSigning.files.find(row => row.role === 'launcher').output_sha256 &&
+      nativeSigning.files.find(row => row.role === 'launcher').output_sha256 === setup.launcher_sha256 &&
+      setupSigning.files.find(row => row.role === 'setup').output_sha256 === setup.archive.sha256, 'Signed pair output mismatch');
+    disposition = { status: 'signed', transformations: [native.manifest.signing, setup.signing] };
+  } else check(!setup?.signing || setup.signing.status === 'unsigned', 'Unsigned pair has signed setup');
   return { schema: 'vcp-release-pair/1', status: 'qualification-required', release, artifacts,
-    pair_id: hash(JSON.stringify([release.candidate_id, artifacts])), signing: { status: 'unsigned', transformations: [] } };
+    pair_id: hash(JSON.stringify([release.candidate_id, artifacts])), signing: disposition };
 }
 if (require.main === module) {
   try {
