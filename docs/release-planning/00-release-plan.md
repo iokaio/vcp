@@ -2,9 +2,60 @@
 
 Review date: September 30, 2026. Reviewed source: `b0d84a2df6e5fa7ed3163a3b1920fcf620623213` (`main` merge of PR #289).
 
-Status: **release preparation required**. Native candidate packaging and the VS Code extension already exist. The remaining work is to fix a cross-client configuration defect, make first-run setup usable, add a conventional Windows installation experience, enforce release provenance, and qualify the exact installer/VSIX pair on clean Windows. Existing milestone completion is not evidence that the current source is ready for public distribution.
+Status, revised October 1, 2026: **prepare one candidate for owner manual testing**. Product implementation and packaging are delivered as recorded in the implementation ledger. The immediate work is a verified installer/ZIP/VSIX pair, focused installed checks and a usable testing handoff. Full qualification and publication remain incomplete.
 
 This document records the original code review and implementation contract. Implementation was authorized on September 30, 2026 for an **internal beta and manual testing**. Current decisions and delivery evidence are tracked in [the implementation ledger](02-implementation-status.md) and [ADR-072](../adr/072-internal-windows-beta.md). The review findings below are historical baseline observations, not claims about later implementation. Neither the review nor the implementation request authorizes paid qualification or publication.
+
+On October 1 the owner approved reducing the immediate milestone after reviewing
+the disproportionate effort spent on qualification infrastructure.
+[ADR-073](../adr/073-manual-testing-candidate.md) supersedes ADR-072's requirement
+to finish the full qualification matrix before beginning owner manual testing.
+It preserves runtime safeguards, truthful evidence and the separate publication gate.
+
+## Immediate milestone and stopping rule
+
+Owning items: **BETA-08/BETA-09**, limited to preparation for owner manual testing.
+Use the [manual-testing checklist](04-manual-testing-checklist.md) for the handoff.
+
+1. Preserve the unfinished qualification patch separately. Carry forward only a
+   demonstrated product or packaging blocker needed for this milestone. Do not
+   complete generic process supervision, test-harness hardening or exhaustive
+   synthetic campaigns as prerequisites for the first manual test.
+2. Select reviewed clean `main` with successful ordinary Delivery checks. Run the
+   existing `Internal beta candidate` workflow once with `stop_after=pair` on
+   `vcpwin` in `wingroup`, using its configured 16 build jobs. Verify the retained
+   source/build identities, pair, inventories, notices and all three artifact hashes.
+3. On those exact bytes, outside the checkout in a private unsynchronized fixture,
+   check registered installation, launcher/version, supported onboarding and its
+   missing-input guidance, VSIX installation and connection, and uninstall with
+   unchanged test workspace/data. Cover both stores where these checks create
+   state. Record the actual host; developer-host evidence is sufficient for this
+   limited handoff and does not establish clean-host support.
+4. Provide the exact pair, prerequisites, short manual checklist, focused results,
+   known failures and explicit unrun rows to the owner. A useful live task and
+   editor interaction are manual observations; credentials and bounded provider
+   spend must be supplied/admitted before paid execution. Do not invent a live pass.
+
+Stop implementation when this handoff is reviewable. Record a focused failure
+before deciding whether it is a product blocker, harness defect or deferred
+qualification issue. Fix a demonstrated blocker at its boundary and rerun its
+affected check; rebuild only when candidate bytes must change. Do not begin
+another full candidate or broaden testing merely because additional checks exist.
+
+The pair checkpoint may have `selection_status=pass`,
+`pipeline_status=incomplete` and overall `status=qualification-required`, with
+the later native/installed stages `not run`.
+That is the intended outcome at this milestone, not a completed BETA-09 or BETA-11.
+Keep the existing full-qualification runner guards intact. A security, permission,
+secret-handling, accounting or data-loss defect remains a stop condition.
+
+Deferred from this handoff: clean standard-user Windows qualification, distinct
+production upgrade/rollback, exhaustive editor/refusal/history/startup campaigns,
+independent-machine recovery, physical full-volume/network-denial observations,
+minimum-hardware claims and owner quality scoring. Preserve their actual status
+in section 5 and the acceptance map; do not describe them as passed or excluded
+from eventual release acceptance. Public release, Marketplace and wider
+distribution remain separately authorized activities.
 
 ## 1. Scope and release baseline
 
@@ -130,13 +181,18 @@ The `BETA-*` IDs below are release-preparation records. They map to existing own
 | **BETA-06** | Blocker; P8-04 | BETA-03, BETA-04 | Build registered per-user setup, stable launch/data-root handling and installer operation serialization. Pass native lifecycle/path/preservation tests, including a real supported upgrade/rollback pair and interrupted/competing operations. |
 | **BETA-07** | Blocker; P4-01–05 | BETA-02, BETA-03, BETA-04, BETA-06 | Build actual beta VSIX with correct versions/channel, bundled SDK/schema, support docs and installer-compatible onboarding. Install and connect using explicit User settings; preserve trust, buffer revisions and observation-only reload. |
 | **BETA-10** | Blocker; P8-04/05/P4-05 | BETA-01, BETA-03, BETA-06, BETA-07 | Update README, packaged quickstarts, compatibility/known issues, recovery and support instructions. Stage packaged documents before candidate construction; BETA-09 tests the walkthrough and claims. External release evidence is finalized in BETA-11. |
-| **BETA-08** | Blocker; P8-01/04/P4-05 | BETA-04–07, BETA-10 | Add candidate build/qualification workflow and durable release evidence packet. Clean Windows builder produces matching installer/ZIP/VSIX and runs offline/native/editor gates. Retain exact commands, logs, hashes and failure/not-run status. Scaffolding can start earlier. |
-| **BETA-09** | Blocker; P8-01–05/P4-05 | BETA-08 | Execute section 5 on final candidate bytes and close applicable evidence gaps. Repair failures, rebuild and rerun affected cases. Complete approved live/owner evaluation only with available access and bounded budget. |
+| **BETA-08** | Manual-candidate prerequisite; P8-01/04/P4-05 | BETA-04–07, BETA-10 | Use the delivered workflow's pair checkpoint to produce one matching installer/ZIP/VSIX and durable identity/evidence packet. Later native/installed stages remain explicitly unrun at this checkpoint. Full automated pipeline qualification remains a follow-up. |
+| **BETA-09** | Focused manual handoff now; full release gate later; P8-01–05/P4-05 | BETA-08 | Execute the immediate milestone's focused installed checks and prepare owner manual testing. Keep section 5's broader matrix open for later qualification; this handoff does not complete the work item. Paid/live observations require available access and bounded authorization. |
 | **BETA-11** | Publication gate; P8-05 | BETA-09, BETA-10 | Present the exact artifact pair, scorecard, known limitations and checksums for factual owner acceptance. Obtain publication authorization, then distribute those bytes. Marketplace upload is a separate optional delivery destination. |
 
 Suggested delivery order: start BETA-01 and the independently actionable BETA-02; then do onboarding and release identity in parallel. Build installer, notices and VSIX increments on those contracts. Stage BETA-10's packaged documentation before freezing the candidate, and assemble CI/evidence collection before the final qualification run. Any later change to packaged documentation or other payload bytes requires new hashes and affected requalification. One independently reviewable PR per increment is preferable; do not wait until the final installer to fix the runtime parity defect.
 
 ## 5. Required beta qualification matrix
+
+This remains the **full release-qualification backlog**. Under ADR-073, completing
+every row is no longer a prerequisite for the immediate owner manual-testing
+handoff. Record focused evidence in the applicable rows without promoting a
+partial observation to a full row pass. BETA-11 acceptance/publication remains open.
 
 Every executed row must name the source, native/installer/VSIX digests, Windows/editor/runtime versions, store, command, expected result and actual outcome. Use `pass`, `fail`, `not run` or `excluded from declared support` explicitly. A passing unit test cannot fill an installed-product row.
 
@@ -158,7 +214,19 @@ Unauthorized effects, ignored user restrictions, silent user-edit loss, acknowle
 
 ## 6. Existing commands and release artifacts
 
-These are existing entry points, not claims that a full beta has been built. Run from the repository root unless noted. Install pinned development dependencies first; arrange the native build's locked cache and Windows build tools explicitly.
+Use the delivered workflow for the immediate milestone, after the selected main
+commit's ordinary Delivery checks pass:
+
+```powershell
+gh workflow run beta-candidate.yml --ref main `
+  -f reviewed_commit=<exact-reviewed-main-sha> -f stop_after=pair
+```
+
+Follow [candidate operations](../development/beta-candidate.md) for evidence and
+the [manual checklist](04-manual-testing-checklist.md) for the focused handoff.
+The lower-level commands below are historical/expert entry points, not evidence
+that a complete beta has been qualified. Production release assembly requires
+the strict release-mode inputs documented by the current candidate workflow.
 
 ```powershell
 # Portable contracts; these do not run a complete installed-product campaign.
@@ -179,7 +247,9 @@ node scripts/package.cjs --engine <absolute-packaged-vcp.exe> `
   --engine-manifest <absolute-native-result.json> --output <new-vsix-output>
 ```
 
-The commands above currently produce the ZIP and VSIX; **there is no conventional setup-executable build command yet**. Add that entry point under BETA-06. Add true beta-version/pre-release inputs under BETA-04/07 rather than presenting `--version`'s current qualification-successor behavior as a finished release channel.
+The delivered workflow also invokes `scripts/build-setup.ps1` and constructs the
+strict beta VSIX and pair. BETA-04/06/07 implementation is already delivered;
+do not reimplement the original review's missing setup/version features.
 
 Reuse the existing [distribution smoke](../../scripts/evals/distribution-qualification.ps1), [production upgrade runner](../../scripts/evals/production-distribution-qualification.ps1), [production recovery runner](../../scripts/evals/production-recovery-qualification.ps1), [startup runner](../../scripts/evals/production-startup-qualification.ps1) and [native editor tests](../../src/crates/vcp-cli/tests/local_editor_package.rs). Consult their actual parameters and [distribution guide](../development/p8-distribution.md); native editor tests require explicit qualification inputs and are not covered by `npm test`. Keep plaintext runtime fixtures and recovery material in private, unsynchronized directories outside the repository. Retain only sanitized release receipts in shared artifacts.
 

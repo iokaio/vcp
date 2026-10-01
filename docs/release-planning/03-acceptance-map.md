@@ -5,6 +5,10 @@ September 30, 2026. Owning item: **BETA-09**, the
 **Final-beta disposition: not run; owner acceptance not recorded.** This is an
 evidence join, not a score, approval, or completed qualification matrix.
 
+[ADR-073](../adr/073-manual-testing-candidate.md) permits the focused owner
+manual-testing handoff before this full acceptance join is complete. It does
+not change any historical or final-beta result recorded below.
+
 The [task ledger](../plan/20-traceability.md#functional-requirement-coverage)
 owns FR-01–17 and I-01–19; the
 [acceptance specification](../plan/16-test-fixtures-and-acceptance.md#acceptance-scoring-construction)
