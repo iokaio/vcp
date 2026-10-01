@@ -404,15 +404,26 @@ Job. The one-second supervised probe retained
 (SHA-256 `daa6677fe833230ea21a3084b1db34d59cef3a4288791a33da4852d607ceea58`).
 Independent review corrected an initial premature-failure race so that ordinary
 descendants retain the existing ten-second natural-drain window.
-The final registered `beta-orchestration` group passed within its unchanged
-60-second limit, including the six new service-policy cases and existing
-supervisor/state/stage contracts. Its retained manifest is
+The initial combined registered group passed all 28 cases within its unchanged
+60-second limit, but took 59 seconds locally. Its retained manifest is
 `artifacts/beta-delivery/build-supervision-validation/e8da9816-9922-43f7-9c5c-f33fed7a97e1/manifest.json`.
+The six service-policy cases now have a separate `beta-msvc-services` group;
+both groups retain their 60-second limits and remain in the fast suite. Both
+registered groups passed, retained under `artifacts/beta-delivery/build-supervision-groups/`.
 Forty-two focused provenance/evidence/state/stage checks, four PowerShell parses,
 JavaScript syntax checks, actionlint, whitespace review and repository validation
-(702 Markdown files, 3,155 relative links) also passed. Hosted verification and
-the replacement candidate are separate observations; this repair alone does not
-complete BETA-08 or BETA-09 acceptance.
+(702 Markdown files, 3,155 relative links) also passed.
+
+The new hosted check in [run 36823577754](https://github.com/iokaio/vcp/actions/runs/36823577754)
+passed all 15 supervisor/service contracts and the real compile/link using
+MSVC 14.51 on `vcpwin-1000004992` in `wingroup`. The contract process took
+52 seconds; its workflow step took 62 seconds including startup. The real probe
+recorded successful child/broker exits, an empty Job, explicit pinned telemetry
+termination and no generic forced cleanup. Its downloaded receipt is
+`artifacts/beta-delivery/windows-supervision-36823577754/e8d9136e-d2c4-4ff1-8958-fc77ea3b7eec/receipt.json`
+(SHA-256 `7b48529460e8cd6825aa89d809daa9b2c440a3797bb7a74b4b8eb4d03d3903ac`).
+The replacement candidate remains a separate observation; this repair alone
+does not complete BETA-08 or BETA-09 acceptance.
 
 ## Host and remaining external observations
 
