@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Publish beta downloads
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: 'Successful Internal beta candidate workflow run ID'
+        required: true
+        type: string
+      candidate_attempt:
+        description: 'Exact successful run attempt'
+        required: true
+        type: string
+      expected_pair_id:
+        description: 'Reviewed full SHA-256 pair ID from pair.json'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: beta-publication
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      CANDIDATE_ATTEMPT: ${{ inputs.candidate_attempt }}
+      EXPECTED_PAIR_ID: ${{ inputs.expected_pair_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Admit the exact successful main candidate
+        id: candidate
+        run: node scripts/release/github-publication.cjs select
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
+          artifact-ids: ${{ steps.candidate.outputs.artifact_id }}
+          path: artifacts/selected-candidate
+          merge-multiple: true
+      - name: Verify and stage only public download assets
+        env:
+          EXPECTED_COMMIT: ${{ steps.candidate.outputs.commit }}
+        run: >-
+          node scripts/release/prepare-publication.cjs
+          --packet artifacts/selected-candidate --output artifacts/publication
+          --run-id "$CANDIDATE_RUN_ID" --attempt "$CANDIDATE_ATTEMPT"
+          --expected-pair "$EXPECTED_PAIR_ID" --expected-commit "$EXPECTED_COMMIT"
+      - name: Publish verified prerelease and prepare its download page
+        env:
+          EXPECTED_COMMIT: ${{ steps.candidate.outputs.commit }}
+        run: node scripts/release/github-publication.cjs publish artifacts/publication
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: artifacts/publication/site
+  pages:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy the latest published beta page
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
