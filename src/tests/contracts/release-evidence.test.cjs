@@ -26,11 +26,11 @@ function fixture(t, artifacts=false) {
     const compiler=artifact('vcp'),launcher=artifact('vcp-launch');
     const buildLog=file('build.log',JSON.stringify(compiler)+'\n'+JSON.stringify(launcher)+'\n');
     const upstream=file('upstream-verification.log',JSON.stringify({status:'pass',component:'codex',files:1,files_sha256:digest}));
-    file('upstream-verification-after.log',fs.readFileSync(upstream));file('vcp.exe','fixture');file('vcp-launch.exe','fixture');
+    file('upstream-verification-after.log',fs.readFileSync(upstream));file('vcp.exe','fixture');file('vcp-launch.exe','launcher fixture');
     const build=file('build.json',JSON.stringify({schema:'vcp-local-build/1',exit_code:0,cargo_exit_code:0,source_commit:commit,source_content_sha256:source.content_sha256,inputs:files,
       source_dirty:false,source_stable:true,toolchain_stable:true,qualification_build:false,profile:'release',target:dependencies.target,
-      executable_sha256:digest,executable_version:selected.native_version,executable_target:selected.target,release,
-      launcher_sha256:digest,launcher_version:selected.native_version,launcher_target:selected.target,
+      executable:path.join(root,'vcp.exe'),executable_sha256:digest,executable_version:selected.native_version,executable_target:selected.target,release,
+      launcher:path.join(root,'vcp-launch.exe'),launcher_sha256:p.hash('launcher fixture'),launcher_version:selected.native_version,launcher_target:selected.target,
       compiler_artifact:compiler,launcher_compiler_artifact:launcher,vcp_features:[{target:'vcp',features:[]}],
       command:['cargo','+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--bin','vcp-launch','--target',selected.target,'--target-dir','/output/cargo-target','-j','2','--message-format=json-render-diagnostics'],
       rustflags:['-C','link-arg=/STACK:8388608','-C','target-feature=+crt-static'],rustc:['release: 1.95.0'],
@@ -55,6 +55,81 @@ test('pipeline success never fills installed/manual matrix or grants acceptance'
   for(const row of result.files)assert.equal(p.fileHash(path.join(f.root,'packet',row.path)),row.sha256);
   assert(fs.existsSync(path.join(f.root,'packet/SHA256SUMS')));
 });
+function failedPackaging(t) {
+  const f=fixture(t,true);
+  f.run.status='fail';f.run.receipts={build:f.run.receipts.build};
+  f.run.stages=f.run.stages.slice(0,evidence.stages.indexOf('native-package')+1);
+  Object.assign(f.run.stages.at(-1),{status:'fail',exit_code:1,reason:'Synthetic native packaging failure before result publication'});
+  return f;
+}
+test('successful build retains verified diagnostic executables when packaging produces no final receipts',t=>{
+  const f=failedPackaging(t);
+  f.file('vcp.pdb','unrequested symbols');f.file('private-profile.json','private fixture');
+  const build=JSON.parse(fs.readFileSync(f.run.receipts.build));build.symbols_sha256=p.hash('unrequested symbols');
+  fs.writeFileSync(f.run.receipts.build,JSON.stringify(build));
+  for(const name of ['cargo-target','cache']){fs.mkdirSync(path.join(f.root,name));f.file(name+'/vcp.exe','unrequested build tree');}
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.deepEqual(result.validation_failures,[]);
+  assert.equal(result.pipeline_status,'fail');assert.equal(result.pair_id,null);
+  assert(result.matrix.every(row=>row.status==='not run'));
+  assert.equal(result.publication.authorized,false);assert.equal(result.publication.owner_acceptance,'not run');
+  assert.equal(result.observations.find(row=>row.id==='production-build').status,'pass');
+  assert.equal(result.observations.find(row=>row.id==='native-package').status,'fail');
+  assert.equal(result.observations.find(row=>row.id==='setup-package').status,'not run');
+  const binaries=result.files.filter(row=>row.path.startsWith('build-output/'));
+  assert.deepEqual(binaries.map(row=>row.path).sort(),['build-output/vcp-launch.exe','build-output/vcp.exe']);
+  const receipt=JSON.parse(fs.readFileSync(path.join(f.root,'packet/receipts/build.json')));
+  const sums=fs.readFileSync(path.join(f.root,'packet/SHA256SUMS'),'utf8');
+  for(const [name,key] of [['vcp.exe','executable_sha256'],['vcp-launch.exe','launcher_sha256']]){
+    const retained=path.join(f.root,'packet/build-output',name),row=binaries.find(row=>row.path.endsWith('/'+name));
+    assert.deepEqual(fs.readFileSync(retained),fs.readFileSync(path.join(f.root,name)));
+    assert.equal(row.sha256,receipt[key]);assert.equal(p.fileHash(retained),receipt[key]);
+    assert(sums.includes(`${receipt[key]}  build-output/${name}\n`));
+  }
+  assert(!result.files.some(row=>/\.pdb$|private-profile|cargo-target|cache|^artifacts\//.test(row.path)));
+  assert(!fs.existsSync(path.join(f.root,'packet/pair.json')));
+  assert(result.limitations.some(row=>row.includes('unpackaged diagnostic executables')));
+});
+test('missing or changed original executables cannot become retained diagnostic build outputs',t=>{
+  for(const name of ['vcp.exe','vcp-launch.exe'])for(const action of ['missing','changed']){
+    const f=failedPackaging(t),file=path.join(f.root,name);
+    if(action==='missing')fs.unlinkSync(file);else fs.writeFileSync(file,'changed executable');
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.pipeline_status,'fail');assert.equal(result.pair_id,null);
+    assert(result.validation_failures.some(row=>row.includes(`Original build artifact ${action==='missing'?'unavailable':'differs'}: ${name}`)));
+    assert(!result.validation_failures.some(row=>row.includes('Received undefined')));
+    assert(!result.files.some(row=>row.path.startsWith('build-output/')));
+    assert(result.matrix.every(row=>row.status==='not run'));
+  }
+});
+test('redirected build receipt directory cannot supply hash-matching diagnostic executable copies',t=>{
+  const f=failedPackaging(t),originals=path.join(f.root,'originals'),redirected=path.join(f.root,'redirected');
+  fs.mkdirSync(originals);
+  for(const name of ['build.json','vcp.exe','vcp-launch.exe','source-before.json','source-after.json','dependencies-before.json','dependencies-after.json','build.log','upstream-verification.log','upstream-verification-after.log']){
+    fs.copyFileSync(path.join(f.root,name),path.join(originals,name));
+  }
+  fs.symlinkSync(originals,redirected,process.platform==='win32'?'junction':'dir');
+  t.after(()=>{if(fs.existsSync(redirected))fs.unlinkSync(redirected)});
+  // Receipt path fields still point at ordinary matching files. The collector
+  // must validate fixed siblings and their ancestors, not follow those fields.
+  f.run.receipts.build=path.join(redirected,'build.json');
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.pipeline_status,'fail');
+  assert(result.validation_failures.some(row=>row.includes('Redirected build output or ancestor')));
+  assert(!result.files.some(row=>row.path.startsWith('build-output/')));
+  assert(result.matrix.every(row=>row.status==='not run'));
+});
+test('a present native result must bind the independently validated build even without a final pair',t=>{
+  const f=failedPackaging(t),nativeFile=path.join(f.root,'native.json');
+  const native=JSON.parse(fs.readFileSync(nativeFile));
+  native.manifest.files[0].sha256=p.hash('different executable');fs.writeFileSync(nativeFile,JSON.stringify(native));
+  f.run.receipts.native=nativeFile;
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.pipeline_status,'fail');assert.equal(result.pair_id,null);
+  assert(result.validation_failures.some(row=>row.includes('Native result differs from validated production build')));
+  assert(!result.files.some(row=>row.path.startsWith('build-output/')));
+  assert(result.matrix.every(row=>row.status==='not run'));
+});
 test('stage success cannot replace complete production compiler and retained artifact evidence',t=>{
   const rewriteBuild=(f,mutate)=>{
     const build=JSON.parse(fs.readFileSync(f.run.receipts.build));mutate(build,f);
@@ -74,6 +149,7 @@ test('stage success cannot replace complete production compiler and retained art
     const result=evidence.packet(f.write(),path.join(f.root,'packet'));
     assert.equal(result.pipeline_status,'fail');assert.equal(result.matrix[0].status,'not run');
     assert(result.validation_failures.length>0);assert(result.files.some(row=>row.path==='receipts/build.json'));
+    assert(!result.files.some(row=>row.path.startsWith('build-output/')));
   }
 });
 test('missing setup, interrupted stages and changed final bytes fail closed while retaining evidence',t=>{

@@ -131,6 +131,8 @@ under `artifacts/beta-delivery/candidate-failure-36792491264`. Build/source logs
 and receipts were retained, but no native ZIP, setup, VSIX or artifact pair was
 produced, and the copied compiler outputs were absent from the packet. No final
 installed or acceptance row is complete from this attempt.
+[PR #309](https://github.com/iokaio/vcp/pull/309) delivered the package-ID
+correction with all required checks passing.
 
 The separate BETA-09 editor refusal runner now covers actual restricted mode,
 uninitialized/wrong-data/unselected-root failures and unsaved drafts invalidated
@@ -190,6 +192,21 @@ workflow; these changes apply to subsequent runs.
 Thirteen focused tool/evidence contracts, PowerShell parsing and independent
 review passed. No hosted timeout was induced. Step/job limits follow
 [GitHub's workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepstimeout-minutes).
+[PR #308](https://github.com/iokaio/vcp/pull/308) delivered the progress/timeout
+change; its required PR checks and subsequent main checks passed.
+
+The fourth attempt also exposed a secondary collector error: packaging had not
+produced `receipts.native`, but build validation tried to read it unconditionally.
+The collector now verifies the fixed original `vcp.exe` and `vcp-launch.exe`
+siblings independently, then checks native and pair bindings when those records
+exist. Verified byte buffers are retained under `build-output/` only after source,
+dependency, compiler and log checks pass. These are unpackaged diagnostics;
+complete pair/stage requirements still govern production-identity acceptance.
+PDBs, caches, target trees and private fixtures are excluded from this retention.
+Fourteen evidence contracts passed, including absent final receipts, changed or
+missing originals, redirected ancestors and a mismatched native receipt. Syntax,
+diff and independent review passed. This prepares future failure capture and
+does not recover the missing executables from the completed fourth run.
 
 ## Host and remaining external observations
 
