@@ -72,8 +72,10 @@ Focused native installation, five offline onboarding cases and actual installed
 VSIX observations on fresh Files/SQLite fixtures passed with no provider calls or
 forced cleanup. The [Marketplace handoff](../development/marketplace-publication.md)
 identifies the exact upload file, hashes, private evidence and unrun qualification.
-Marketplace upload and post-upload installation remain owner-dependent; this does
-not establish Marketplace availability or complete full qualification.
+The owner completed the manual upload and the
+[public Marketplace listing](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local)
+is live. Post-upload installation results are recorded in the handoff; Marketplace
+availability does not complete full qualification.
 
 | Item | Status | Implementation and evidence |
 | --- | --- | --- |

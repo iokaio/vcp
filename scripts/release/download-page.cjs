@@ -127,7 +127,8 @@ function renderDownloadPage(release) {
           </article>
           <article class="alternative" aria-labelledby="vsix-title">
             <h3 id="vsix-title">VS Code extension</h3>
-            <p>Install the VSIX in VS Code, then select your installed engine and data directory explicitly in User settings.</p>
+            <p>Install the pre-release from Marketplace or use the matching VSIX below. Select your installed engine and data directory explicitly in User settings.</p>
+            <p><a href="https://marketplace.visualstudio.com/items?itemName=iokaio.vcp-local">View VCP Local on Marketplace <span aria-hidden="true">↗</span></a></p>
             <p class="meta">VSIX ${escape(release.vsixVersion)} · ${escape(size(vsix.bytes))}</p>
             <a class="button" href="${link(vsix.href)}" download="${escape(vsix.name)}">Download VS Code extension <span aria-hidden="true">↓</span></a>
             ${fileDetails(vsix)}
