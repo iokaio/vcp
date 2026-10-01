@@ -7,6 +7,28 @@ manual-test preparation. Publication and paid execution remain separate gates.
 The [FR/I/U acceptance map](03-acceptance-map.md) joins current changes and
 historical dispositions without granting final-artifact or owner acceptance.
 
+## Current milestone — October 1 scope revision
+
+The owner approved a smaller milestone under
+[ADR-073](../adr/073-manual-testing-candidate.md): one verified artifact pair,
+focused installed checks and an owner manual-testing handoff. Full BETA-09 and
+BETA-11 remain incomplete. The [revised plan](00-release-plan.md) and
+[manual checklist](04-manual-testing-checklist.md) define the stopping rule.
+
+The unfinished 27-file qualification increment is deferred, not delivered. Its
+source is preserved in local Git stash
+`3649a6182231916c4448345b380785ba9478ca92` and a hash-verified copy under
+`artifacts/beta-delivery/deferred-qualification-96cae379c90546bea362adfa7cef221c/`.
+It includes the native peer, broader capture/readiness changes and direct editor
+qualification execution. Its local contract passes and nine-target compile do
+not erase the new process test's 7-pass/1-fail outcome; later native groups were
+not run. The stopped startup-only compile and prior failed candidates retain
+their outcomes. No product defect has been established by that new file-release
+assertion. None of this deferred patch is included in the manual-candidate branch.
+
+Next: deliver the scope documentation, select its reviewed main commit, produce
+one `pair` checkpoint, verify its artifacts and run the focused installed checks.
+
 | Item | Status | Implementation and evidence |
 | --- | --- | --- |
 | BETA-01 | Complete | [PR #290](https://github.com/iokaio/vcp/pull/290) merged. Channel, versions, pinned installer, unsigned disposition, support exclusions and external gates recorded. Repository/harness, skill helper and Rust delivery checks passed. No release qualification claimed. |

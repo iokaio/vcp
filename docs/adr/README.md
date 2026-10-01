@@ -117,3 +117,5 @@ Return to the [documentation index](../README.md).
 [ADR-071](071-on-demand-skill-references.md) adds on-demand `reference` resources read through `vcp_skill`, scopes that tool to root tasks under the read ceiling, and records how ADR-070 materialization was implemented.
 
 [ADR-072](072-internal-windows-beta.md) selects the internal Windows beta channel, versions, installer and unsigned disposition while retaining qualification and publication gates.
+
+[ADR-073](073-manual-testing-candidate.md) permits a focused owner manual-testing handoff before the full qualification matrix, preserving runtime safeguards and later release gates.

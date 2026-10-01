@@ -5,6 +5,12 @@ It constructs reviewable unsigned internal-beta artifacts and records observatio
 It does not publish a release, acquire models, configure a provider credential,
 authorize inference or grant owner acceptance.
 
+For the owner-approved [manual-testing milestone](../adr/073-manual-testing-candidate.md),
+select `stop_after=pair`, then perform the focused
+[handoff checks](../release-planning/04-manual-testing-checklist.md). Preserve
+`pipeline_status=incomplete` and the unrun stages; the existing full-qualification
+runners still require their complete prerequisites.
+
 Dispatch from `main` with `reviewed_commit` equal to the exact 40-character commit
 selected for review. The workflow requires a successful `Delivery checks` push run
 for that same `main` commit. An explicit selection is required; mutable branch
