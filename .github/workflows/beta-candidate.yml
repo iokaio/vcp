@@ -26,7 +26,9 @@ concurrency:
 jobs:
   candidate:
     if: github.ref == 'refs/heads/main'
-    runs-on: windows-2025
+    runs-on:
+      group: wingroup
+      labels: vcpwin
     timeout-minutes: 360
     defaults:
       run:
@@ -39,6 +41,8 @@ jobs:
       GIT_CONFIG_VALUE_1: 'false'
       CARGO_TERM_COLOR: never
       CARGO_INCREMENTAL: '0'
+      # Owner-provisioned Windows 2025 runner: 16 cores, 64 GB RAM, 600 GB SSD.
+      CARGO_BUILD_JOBS: '16'
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       STOP_AFTER: ${{ inputs.stop_after }}
     steps:
@@ -69,45 +73,45 @@ jobs:
       # the remaining job budget; always() evidence retention remains best effort.
       - name: Validate exact source and select physical tool paths
         timeout-minutes: 5
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage source-gate -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage source-gate -StopAfter $env:STOP_AFTER
       - name: Provision pinned compiler, editor and dependency inputs
         timeout-minutes: 15
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage provision -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage provision -StopAfter $env:STOP_AFTER
       - name: Run portable contracts and editor archive checks
         timeout-minutes: 20
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage portable-contracts -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage portable-contracts -StopAfter $env:STOP_AFTER
       - name: Build and verify production engine and launcher
         if: success() && inputs.stop_after != 'portable-contracts'
         timeout-minutes: 100
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage production-build -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage production-build -StopAfter $env:STOP_AFTER
       - name: Assemble and verify native payload and notices
         if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
         timeout-minutes: 10
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage native-package -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage native-package -StopAfter $env:STOP_AFTER
       - name: Build registered Windows setup
         if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
         timeout-minutes: 10
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage setup-package -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage setup-package -StopAfter $env:STOP_AFTER
       - name: Build and verify matching VSIX
         if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
         timeout-minutes: 10
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage vsix-package -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage vsix-package -StopAfter $env:STOP_AFTER
       - name: Verify final artifact pair and release production target space
         if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
         timeout-minutes: 5
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage pair -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage pair -StopAfter $env:STOP_AFTER
       - name: Compile and run native qualification boundaries
         if: success() && inputs.stop_after == 'installed-editor'
         timeout-minutes: 100
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage native-boundaries -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage native-boundaries -StopAfter $env:STOP_AFTER
       - name: Qualify installed native launcher and console cancellation
         if: success() && inputs.stop_after == 'installed-editor'
         timeout-minutes: 25
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage installed-native -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage installed-native -StopAfter $env:STOP_AFTER
       - name: Qualify installed editor lifecycle on both stores
         if: success() && inputs.stop_after == 'installed-editor'
         timeout-minutes: 25
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage installed-editor -StopAfter $env:STOP_AFTER
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs $env:CARGO_BUILD_JOBS -Stage installed-editor -StopAfter $env:STOP_AFTER
       - name: Collect sanitized evidence including failures and unrun cases
         if: always()
         run: |

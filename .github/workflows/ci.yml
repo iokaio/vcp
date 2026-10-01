@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       storage_only:
-        description: 'Run the bounded P0 storage handoff on standard Windows instead of full qualification'
+        description: 'Run the bounded P0 storage handoff on vcpwin instead of full qualification'
         required: false
         default: false
         type: boolean
@@ -116,12 +116,15 @@ jobs:
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
     if: github.event_name == 'workflow_dispatch' && !inputs.storage_only
     needs: delivery
-    runs-on: windows-2025
+    runs-on:
+      group: wingroup
+      labels: vcpwin
     timeout-minutes: 180
     defaults:
       run:
         shell: pwsh
     env:
+      CARGO_BUILD_JOBS: '16'
       # Process-scoped configuration also covers checkout's first Git operation.
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: core.longpaths
@@ -202,24 +205,24 @@ jobs:
           $modelRoot = Join-Path $env:RUNNER_TEMP ('vcp-minilm-' + [guid]::NewGuid().ToString())
           node scripts/upstream/model-assets.cjs acquire --root $modelRoot
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline -Jobs 2
+          ./scripts/test-embeddings.ps1 -AssetsRoot $modelRoot -Offline -Jobs $env:CARGO_BUILD_JOBS
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale -Jobs 2
+          ./scripts/test-local-memory.ps1 -AssetsRoot $modelRoot -TargetRoot artifacts/embedding-target -Scale -Jobs $env:CARGO_BUILD_JOBS
       - name: Test frozen builtin skill fixtures and the host marker contract
         working-directory: src/third_party/codex/codex-rs
         run: cargo test --locked -p vcp-lifecycle --test builtin_skill_qualification
       - name: Build committed native CLI
-        run: ./scripts/build.ps1 -Jobs 2
+        run: ./scripts/build.ps1 -Jobs $env:CARGO_BUILD_JOBS
       - name: Test native patch and policy boundaries
-        run: ./scripts/build.ps1 -Mode BoundaryTests -Jobs 2
+        run: ./scripts/build.ps1 -Mode BoundaryTests -Jobs $env:CARGO_BUILD_JOBS
       - name: Test native continuation admission and retained drain
-        run: ./scripts/build.ps1 -Mode LifecycleTests -Jobs 2
+        run: ./scripts/build.ps1 -Mode LifecycleTests -Jobs $env:CARGO_BUILD_JOBS
       - name: Qualify governed hooks and unchanged CLI behavior
-        run: ./scripts/test-hooks.ps1 -TargetRoot artifacts/codex-target -Jobs 2
+        run: ./scripts/test-hooks.ps1 -TargetRoot artifacts/codex-target -Jobs $env:CARGO_BUILD_JOBS
       - name: Qualify configuration import publication and rollback
-        run: ./scripts/test-imports.ps1 -TargetRoot artifacts/codex-target -Jobs 2
+        run: ./scripts/test-imports.ps1 -TargetRoot artifacts/codex-target -Jobs $env:CARGO_BUILD_JOBS
       - name: Test committed local-memory libraries and dependency boundary
-        run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target -Jobs 2
+        run: ./scripts/build.ps1 -Component Munarium -Mode BoundaryTests -TargetRoot artifacts/munarium-target -Jobs $env:CARGO_BUILD_JOBS
       - name: Trace native CLI against the local scripted provider
         run: node scripts/upstream/trace-cli.cjs --binary artifacts/codex-target/x86_64-pc-windows-msvc/debug/codex.exe
       - name: Retain Windows evidence, including failures
@@ -251,12 +254,15 @@ jobs:
     name: Native storage handoff
     if: github.event_name == 'workflow_dispatch' && inputs.storage_only
     needs: delivery
-    runs-on: windows-2025
+    runs-on:
+      group: wingroup
+      labels: vcpwin
     timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
     env:
+      CARGO_BUILD_JOBS: '16'
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: core.longpaths
       GIT_CONFIG_VALUE_0: 'true'
@@ -279,7 +285,7 @@ jobs:
           if ((Get-FileHash artifacts/age/age.zip).Hash.ToLowerInvariant() -ne $spec.archive_sha256) { throw 'Age archive mismatch' }
           Expand-Archive -LiteralPath artifacts/age/age.zip -DestinationPath artifacts/age/tool
       - name: Qualify native storage and restore the first Windows environment fixture
-        run: ./scripts/test-storage.ps1 -AgeBinary artifacts/age/tool/age/age.exe -HandoffFixture src/tests/fixtures/portability -Jobs 2
+        run: ./scripts/test-storage.ps1 -AgeBinary artifacts/age/tool/age/age.exe -HandoffFixture src/tests/fixtures/portability -Jobs $env:CARGO_BUILD_JOBS
       - name: Retain only reports and logs, excluding recovery material and active stores
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

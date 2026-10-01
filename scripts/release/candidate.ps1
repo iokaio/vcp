@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{40}$')][string]$ReviewedCommit,
     [Parameter(Mandatory)][string]$OutputRoot,
-    [ValidateRange(1,8)][int]$Jobs = 2,
+    [ValidateRange(1,16)][int]$Jobs = 2,
     [ValidateSet('all','source-gate','provision','portable-contracts','production-build','native-package','setup-package','vsix-package','pair','native-boundaries','installed-native','installed-editor')][string]$Stage = 'all',
     [ValidateSet('portable-contracts','production-build','pair','installed-editor')][string]$StopAfter = 'installed-editor'
 )
