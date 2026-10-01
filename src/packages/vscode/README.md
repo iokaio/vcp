@@ -1,8 +1,11 @@
-# VCP Local — workspace and task views
+# VCP Coding Agent
 
-VCP Local connects VS Code **1.138.0** to your separately installed VCP engine on
-Windows x64. Observe local task history, review proposed edits and explicitly
-control execution from your workspace. This is an experimental pre-release;
+**Vibe Code Pro — Plan, code, and review—with you in control.**
+
+Vibe Code Pro is an AI coding agent for your software projects. Plan tasks,
+review proposed edits and control execution from your workspace. This extension
+connects VS Code **1.138.0** to your separately installed VCP engine on Windows x64.
+This is an experimental pre-release;
 full release qualification and clean-host support remain incomplete.
 
 ## Install
