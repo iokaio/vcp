@@ -4,6 +4,10 @@ The limited BETA-08/BETA-09 handoff under [ADR-073](../adr/073-manual-testing-ca
 is ready for owner manual testing. Full qualification and BETA-11 acceptance remain
 open. Start with the [manual checklist](04-manual-testing-checklist.md).
 
+For the later `iokaio` publisher package, use the
+[Marketplace upload handoff](../development/marketplace-publication.md). The
+earlier pair below remains a historical manual-testing record and is not that upload.
+
 ## Obtain this exact pair
 
 Download the [candidate packet](https://github.com/iokaio/vcp/actions/runs/36868151228/artifacts/11167895010)
