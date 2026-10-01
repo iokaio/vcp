@@ -213,10 +213,25 @@ function verifyCompiledGraph(log, inventory, workspace) {
   const rows = log.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.startsWith('{')).map(line => JSON.parse(line))
     .filter(row => row.reason === 'compiler-artifact');
   if (!rows.length) throw Error('Build log has no compiler package inventory');
+  function matches(row, id) {
+    const named = row.name + '@' + row.version;
+    if (row.source?.startsWith('registry+')) return id === row.source + '#' + named;
+    if (row.source?.startsWith('git+')) {
+      const pin = /^(git\+[^#]+)#([a-f0-9]{40})$/.exec(row.source);
+      if (!pin) return false;
+      // Cargo's package ID retains the exact Git URL/query, but replaces the
+      // lock's resolved commit fragment with the package version. It omits the
+      // name only when it equals the URL's final path segment (not e.g. .git).
+      // collect() already verifies that checkout against the full locked pin.
+      if (id === pin[1] + '#' + named) return true;
+      return new URL(pin[1].slice(4)).pathname.split('/').at(-1) === row.name && id === pin[1] + '#' + row.version;
+    }
+    return row.source === 'reviewed-local-source' && workspace.packages.some(local =>
+      local.name === row.name && local.version === row.version && local.id === id);
+  }
   const selected = new Set();
   for (const artifact of rows) {
-    const candidates = inventory.components.filter(row => artifact.package_id.endsWith('#' + row.name + '@' + row.version) ||
-      workspace.packages.some(local => local.name === row.name && local.version === row.version && local.id === artifact.package_id));
+    const candidates = inventory.components.filter(row => matches(row, artifact.package_id));
     if (candidates.length !== 1) throw Error('Compiled package absent or ambiguous in production dependency graph: ' + artifact.package_id);
     selected.add(candidates[0].name + '@' + candidates[0].version);
   }
