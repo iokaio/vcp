@@ -131,6 +131,8 @@ function packet(runFile, output) {
   }
   if (receipts.build) {
     try {
+    const failuresBeforeBuild = validationFailures.length;
+    const buildOutputs = [];
     const build = receipt(receipts.build, 'receipts/build.json');
     const directory = path.dirname(receipts.build);
     // Exact public build inputs/logs only: no target tree, compiler caches or runtime fixtures.
@@ -142,12 +144,31 @@ function packet(runFile, output) {
       const repository = path.resolve(__dirname, '../..'), selected = channel(repository);
       receipt(path.join(repository, 'release/internal-beta.json'), 'receipts/release-channel.json');
       if (source.files?.find(row => row.path === 'release/internal-beta.json')?.sha256 !== selected.config_sha256) throw Error('Selected channel differs from retained build source');
-      const nativeExecutableHash = json(receipts.native).manifest.files.find(row => row.path === 'vcp.exe')?.sha256;
-      const release = validateReceipt(build, selected, source, nativeExecutableHash);
-      if (!pair || JSON.stringify(release) !== JSON.stringify(pair.release)) throw Error('Complete artifact pair differs from validated build release');
       for (const [name, expected] of [['vcp.exe', build.executable_sha256], ['vcp-launch.exe', build.launcher_sha256]]) {
-        if (fileHash(path.join(directory, name)) !== expected) throw Error(`Original build artifact differs: ${name}`);
+        const file = path.resolve(directory, name);
+        let bytes;
+        try {
+          for (let current = file;; current = path.dirname(current)) {
+            if (fs.lstatSync(current).isSymbolicLink()) throw Error('Redirected build output or ancestor');
+            if (current === path.dirname(current)) break;
+          }
+          bytes = ordinary(file);
+        } catch (error) { throw Error(`Original build artifact unavailable: ${name}: ${error.message}`); }
+        if (hash(bytes) !== expected) throw Error(`Original build artifact differs: ${name}`);
+        buildOutputs.push({ name, bytes });
       }
+      const executableHash = hash(buildOutputs[0].bytes);
+      const release = validateReceipt(build, selected, source, executableHash);
+      // Packaging may fail before a native result exists. Validate the build
+      // independently; a present native receipt must still bind its exact bytes.
+      if (receipts.native) {
+        const native = json(receipts.native);
+        const executables = native.manifest?.files?.filter(row => row.path === 'vcp.exe');
+        if (executables?.length !== 1 || executables[0].sha256 !== executableHash ||
+            native.manifest.build?.receipt_sha256 !== entries.find(row => row.path === 'receipts/build.json').sha256 ||
+            JSON.stringify(native.manifest.release) !== JSON.stringify(release)) throw Error('Native result differs from validated production build');
+      }
+      if (pair && JSON.stringify(release) !== JSON.stringify(pair.release)) throw Error('Complete artifact pair differs from validated build release');
     } catch (error) { validationFailures.push(`production build: ${sanitize(error.message)}`); }
     for (const name of ['source-before.json', 'source-after.json', 'dependencies-before.json', 'dependencies-after.json']) {
       const file = path.join(directory, name);
@@ -184,6 +205,11 @@ function packet(runFile, output) {
       if (before.status !== 'pass' || before.component !== 'codex' || !Number.isSafeInteger(before.files) || before.files < 1 ||
           !/^[a-f0-9]{64}$/.test(before.files_sha256 || '') || JSON.stringify(before) !== JSON.stringify(after)) throw Error('Retained upstream verification is not stable and successful');
     } catch (error) { validationFailures.push(`build evidence: ${sanitize(error.message)}`); }
+    if (validationFailures.length === failuresBeforeBuild) {
+      // Only verified copied executables, never PDBs, target trees or caches.
+      // Keep the same buffers that were hashed, even if their source later changes.
+      for (const { name, bytes } of buildOutputs) save(`build-output/${name}`, bytes);
+    }
     } catch (error) { validationFailures.push(`build: ${sanitize(error.message)}`); }
   }
   // Builders can fail before emitting a result. Preserve their narrowly named
@@ -267,6 +293,7 @@ function packet(runFile, output) {
     publication: { authorized: false, owner_acceptance: 'not run' },
     limitations: ['Hosted Windows build image has developer tools; it is not clean standard-user Windows qualification.',
       'Source and synthetic fixture tests do not qualify installed-product behavior.',
+      'build-output/ contains unpackaged diagnostic executables, not an installable artifact pair or completed qualification.',
       'No automatic live provider calls, model acquisition, signing, publication or owner approval.',
       'GitHub artifacts expire after 90 days; export the complete hashed packet to approved durable storage before expiry.'],
     files: entries.sort((a,b) => a.path.localeCompare(b.path)) };
