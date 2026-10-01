@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# actionlint uses this key for custom labels, including GitHub-hosted larger runners.
+self-hosted-runner:
+  labels:
+    - vcpwin

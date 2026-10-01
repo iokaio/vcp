@@ -271,6 +271,37 @@ logs and for a successful Cargo exit followed by a failed supervisor pipe drain;
 the latter now records child and supervisor exits separately. These are synthetic
 orchestration checks, not a rerun of the production build or installed matrix.
 
+## Owner-provisioned Windows build capacity
+
+The owner requested cancellation of [run 36811810217](https://github.com/iokaio/vcp/actions/runs/36811810217)
+and replacement on the newly provisioned GitHub-hosted `vcpwin` runner in
+`wingroup` (Windows Latest 2025, 16 cores, 64 GB RAM, 600 GB SSD). GitHub confirmed
+the old run as canceled; no completed artifact pair is claimed from it.
+All 60 retained packet checksums verified locally. Its last Cargo snapshot
+records 3,751 elapsed seconds, 7,246 Job CPU seconds, four logical processors
+and 9,802,227,712 bytes peak committed memory. That averages about 1.93 CPU
+cores during the observed interval; it does not establish a stall or predict
+the larger runner's completion time. The retained local review is
+`artifacts/beta-delivery/canceled-36811810217-review.json`.
+
+BETA-08 now selects that runner for the candidate, native Windows qualification
+and storage handoff workflows. Each sets `CARGO_BUILD_JOBS=16`, and every build
+wrapper receives the same explicit job count instead of the previous two-job
+limit. The candidate accepts up to 16 jobs, matching the production builder.
+Linux delivery coverage, isolated production/qualification targets, installed
+test ordering, deadlines and acceptance gates remain in force. Replacement
+qualification must select the newly reviewed main commit and pass its Delivery
+checks before dispatch. No speedup or final qualification is claimed until that
+run supplies evidence.
+
+Eighteen existing candidate/state/storage/repository contract tests passed.
+Repository validation checked 702 Markdown files and 3,154 relative links with
+zero errors. PowerShell parsing and actual parameter binding accepted 16 jobs
+and refused 17. Actionlint passed both workflows with the explicit custom
+runner label declared, and independent review found no hidden build resource
+cap or lost job-count argument. These checks validate the workflow change;
+execution on the new runner remains a separate observation.
+
 ## Host and remaining external observations
 
 The development workstation is Windows `10.0.26300.0` with development tools and
