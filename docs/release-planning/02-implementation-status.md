@@ -363,6 +363,68 @@ runner label declared, and independent review found no hidden build resource
 cap or lost job-count argument. These checks validate the workflow change;
 execution on the new runner remains a separate observation.
 
+The replacement [run 36818503347](https://github.com/iokaio/vcp/actions/runs/36818503347)
+selected reviewed source `6c14e17c5690f8f474f26f537c972ba58fbb5580` and ran on
+`vcpwin-1000004982` in `wingroup`. Portable contracts passed. Cargo completed
+the optimized engine and launcher in 19 minutes 25 seconds with exit zero;
+the production stage nevertheless failed after 20 minutes 22 seconds because
+the supervisor still observed an owned descendant ten seconds after its
+broker exited zero. Forced cleanup emptied the Job. The packet does not
+identify the remaining process, so its identity is not inferred from timing.
+The last measurement records 16 logical processors, 8,666.5 cumulative Job
+CPU seconds and 16,067,354,624 bytes peak committed memory over 1,176 elapsed
+seconds. This is about 7.37 CPU cores on average, not full 16-core utilization
+throughout compilation. Source, dependencies and toolchain remained stable.
+All 67 retained packet checksums verified locally; the review is
+`artifacts/beta-delivery/candidate-36818503347-review.json`. Packaging and
+installed qualification did not run, and no passing artifact pair exists.
+
+BETA-08's bounded local investigation reproduced the same child-zero,
+broker-zero supervision failure with a tiny `/Zi /FS` C compilation. The
+pre-cleanup snapshot identified the owned MSVC PDB server and `vctip.exe`.
+A fresh PDB endpoint plus `_MSPDBSRV_=-shutdowntime 0` made the PDB server exit
+naturally; the telemetry helper remained. These observations use local MSVC
+14.50, whereas the failed hosted build used 14.51. They establish a reproduced
+mechanism, not retrospective process identities for the hosted run. The retained
+receipt is
+`artifacts/beta-delivery/msvc-pdb-lifetime-d4bbc220-eb60-46a6-8f16-93afa64547b7/result.json`
+(SHA-256 `82098b291332791fc8f820cf51dc0a1b248d327a6359330140434cd3c5e4ad61`).
+
+The repair adds bounded pre-cleanup process and pipe diagnostics, preserves the
+original production failure reason, and explicitly manages the selected MSVC
+services. Its only planned termination is the pinned, owned telemetry service
+after successful compilation and drained output. Unknown survivors and ordinary
+forced cleanup remain failures. A short Windows compile/link and supervisor
+contract job checks this behavior on `vcpwin` before another full candidate build.
+The corrected local compile/link smoke passed with both compiler and broker
+exit zero, all four object/executable/PDB outputs present, explicit termination
+of the selected owned telemetry helper, no generic forced cleanup and an empty
+Job. The one-second supervised probe retained
+`artifacts/msvc-supervision-smoke/0a0a7fb6-b9c1-4b3c-be45-8578ccb93e3a/receipt.json`
+(SHA-256 `daa6677fe833230ea21a3084b1db34d59cef3a4288791a33da4852d607ceea58`).
+Independent review corrected an initial premature-failure race so that ordinary
+descendants retain the existing ten-second natural-drain window.
+The initial combined registered group passed all 28 cases within its unchanged
+60-second limit, but took 59 seconds locally. Its retained manifest is
+`artifacts/beta-delivery/build-supervision-validation/e8da9816-9922-43f7-9c5c-f33fed7a97e1/manifest.json`.
+The six service-policy cases now have a separate `beta-msvc-services` group;
+both groups retain their 60-second limits and remain in the fast suite. Both
+registered groups passed, retained under `artifacts/beta-delivery/build-supervision-groups/`.
+Forty-two focused provenance/evidence/state/stage checks, four PowerShell parses,
+JavaScript syntax checks, actionlint, whitespace review and repository validation
+(702 Markdown files, 3,155 relative links) also passed.
+
+The new hosted check in [run 36823577754](https://github.com/iokaio/vcp/actions/runs/36823577754)
+passed all 15 supervisor/service contracts and the real compile/link using
+MSVC 14.51 on `vcpwin-1000004992` in `wingroup`. The contract process took
+52 seconds; its workflow step took 62 seconds including startup. The real probe
+recorded successful child/broker exits, an empty Job, explicit pinned telemetry
+termination and no generic forced cleanup. Its downloaded receipt is
+`artifacts/beta-delivery/windows-supervision-36823577754/e8d9136e-d2c4-4ff1-8958-fc77ea3b7eec/receipt.json`
+(SHA-256 `7b48529460e8cd6825aa89d809daa9b2c440a3797bb7a74b4b8eb4d03d3903ac`).
+The replacement candidate remains a separate observation; this repair alone
+does not complete BETA-08 or BETA-09 acceptance.
+
 ## Host and remaining external observations
 
 The development workstation is Windows `10.0.26300.0` with development tools and

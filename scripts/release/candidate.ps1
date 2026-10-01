@@ -337,7 +337,9 @@ try {
         Push-Location $workspace
         try {
             $cargo=(Get-Command cargo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-            $observed=Invoke-VcpBuildProcess -Executable $cargo -Arguments @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') -WorkingDirectory $workspace -LogPath (Join-Path $out 'native-qualification.log') -ProgressPath (Join-Path $out 'native-qualification-progress.json') -MirrorOutput
+            $cl=(Get-Command cl -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $msvcTelemetry=Join-Path (Split-Path -Parent $cl) 'vctip.exe'
+            $observed=Invoke-VcpBuildProcess -Executable $cargo -Arguments @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') -WorkingDirectory $workspace -LogPath (Join-Path $out 'native-qualification.log') -ProgressPath (Join-Path $out 'native-qualification-progress.json') -MsvcTelemetryExecutable $msvcTelemetry -MirrorOutput
             if ($observed.exit_code -ne 0) { throw 'Native qualification build/tests failed; inspect retained stage log' }
         } finally { Pop-Location }
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/package-install.test.ps1'))

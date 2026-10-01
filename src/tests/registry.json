@@ -24,6 +24,7 @@
       "p8-qualification",
       "p8-distribution",
       "beta-orchestration",
+      "beta-msvc-services",
       "p9-protocol-generation",
       "cs-authoring"
     ],
@@ -104,6 +105,14 @@
     "beta-orchestration": {
       "task_ids": ["P8-01", "P8-04"],
       "args": ["--test", "src/tests/contracts/candidate-state.test.cjs", "src/tests/contracts/build-progress.test.cjs", "src/tests/contracts/candidate-stages.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 60000,
+      "max_output_bytes": 2097152
+    },
+    "beta-msvc-services": {
+      "task_ids": ["P8-01", "P8-04"],
+      "args": ["--test", "src/tests/contracts/build-progress-services.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,

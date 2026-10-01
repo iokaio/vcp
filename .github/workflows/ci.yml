@@ -17,6 +17,46 @@ concurrency:
   group: delivery-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  windows-supervision:
+    name: Windows compiler supervision
+    runs-on:
+      group: wingroup
+      labels: vcpwin
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Apply before checkout: the repository contains long native source paths.
+      GIT_CONFIG_COUNT: '2'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
+      GIT_CONFIG_KEY_1: core.autocrlf
+      GIT_CONFIG_VALUE_1: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.10.0'
+      - name: Check bounded process supervision contracts
+        timeout-minutes: 2
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/msvc-supervision-smoke | Out-Null
+          node --test src/tests/contracts/build-progress.test.cjs src/tests/contracts/build-progress-services.test.cjs 2>&1 | Tee-Object -FilePath artifacts/msvc-supervision-smoke/contracts.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile and link a real MSVC supervision probe
+        timeout-minutes: 2
+        run: ./scripts/release/msvc-supervision-smoke.ps1
+      - name: Retain compiler supervision evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-supervision-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/msvc-supervision-smoke/
+          if-no-files-found: error
+          retention-days: 3
   delivery:
     name: Repository and harness
     runs-on: ubuntu-24.04
