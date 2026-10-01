@@ -552,6 +552,25 @@ Evidence is retained under
 These synthetic checks do not qualify final production artifacts. Earlier
 failed installer observations remain preserved.
 
+[PR #319](https://github.com/iokaio/vcp/pull/319) delivered the installer repair
+with successful PR Delivery checks. A focused lifecycle probe on the existing
+production pair then reached the installed-extension inventory check, which
+rejected VS Code's `.vsixmanifest` file as unexpected. The failure pointer is
+retained under
+`artifacts/beta-delivery/runner-history/editor-metadata-a1bc8c77bdae4dbb8fa86d7569355221/`.
+Its native installation was retired after exact ownership, selection, payload
+and natural process-quiescence checks. The retained workspace/data fixture was
+byte-identical after uninstall; its separate retirement pointer is
+`artifacts/beta-delivery/candidate-36824747405-editor-lifecycle-retirement.json`.
+The installed extension and original failure logs remain available for diagnosis.
+The inventory checker now maps the exact `extension.vsixmanifest` archive entry
+to its installed filename and verifies its complete hash and length. It rejects
+destination collisions, missing or changed metadata and unrelated extra files.
+Four focused contracts passed, and a read-only check of all 59 files in the
+retained installed extension passed against the original VSIX receipt. Evidence
+is retained under `artifacts/beta-delivery/installed-editor-metadata/`; the fresh
+both-store lifecycle observation remains separate from these inventory checks.
+
 A separate BETA-08 evidence review found that native qualification's final
 output drain was absent from the console mirror, and private editor runner
 failures exposed only temporary paths in the retained stage log. The collector

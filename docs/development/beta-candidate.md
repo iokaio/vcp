@@ -189,6 +189,9 @@ root `package.json` installation `__metadata` object and JSON formatting are
 normalized back to the package builder's emitted format; runtime fields and
 dependency manifests remain bound. Later checks also require the original
 installed bytes, including that metadata, to remain unchanged.
+The pinned editor installs the archive's `extension.vsixmanifest` entry as
+`.vsixmanifest`; the checker binds that renamed file to its original digest and
+length, refuses destination collisions, and rejects missing or changed bytes.
 
 The existing candidate command runs both ignored tests serially. To select only
 the lifecycle test from an already compiled qualification test executable, set

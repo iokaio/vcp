@@ -27,15 +27,24 @@ function inventory(directory) {
 function verifiedInventory(directory, manifest) {
   assert.equal(manifest.schema, 'vcp-vsix-package/1', 'Final VSIX manifest required');
   assert(Array.isArray(manifest.files) && manifest.files.length > 0, 'Shipped VSIX inventory required');
-  const expected = new Map(), names = new Set();
+  const expected = new Map(), names = new Set(), installedNames = new Set();
   for (const row of manifest.files) {
     assert(typeof row.path === 'string' && !row.path.includes('\\') && !row.path.includes(':') &&
       row.path.split('/').every(part => part && part !== '.' && part !== '..'), 'Invalid shipped VSIX path');
     assert(!names.has(row.path.toLowerCase()), 'Duplicate shipped VSIX path');
     names.add(row.path.toLowerCase());
     assert(Number.isSafeInteger(row.bytes) && row.bytes >= 0 && /^[a-f0-9]{64}$/.test(row.sha256), 'Invalid shipped VSIX digest');
-    if (row.path.startsWith('extension/')) expected.set(row.path.slice('extension/'.length), row);
-    else assert(['[Content_Types].xml', 'extension.vsixmanifest'].includes(row.path), 'Unknown VSIX container entry');
+    let installed;
+    if (row.path.startsWith('extension/')) installed = row.path.slice('extension/'.length);
+    // The pinned VS Code installer retains this container entry under a new
+    // filename. Its complete bytes still belong to the final VSIX inventory.
+    else if (row.path === 'extension.vsixmanifest') installed = '.vsixmanifest';
+    else assert(row.path === '[Content_Types].xml', 'Unknown VSIX container entry');
+    if (installed) {
+      assert(!installedNames.has(installed.toLowerCase()), 'Colliding installed VSIX paths');
+      installedNames.add(installed.toLowerCase());
+      expected.set(installed, row);
+    }
   }
   assert(expected.has('package.json') && expected.has('dist/extension.js'), 'Missing shipped extension entrypoints');
   const rows = files(directory);
