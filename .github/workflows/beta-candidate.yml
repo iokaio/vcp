@@ -55,6 +55,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Build and exercise exact internal candidate
+        # Leave nominal headroom for the always() evidence steps. Earlier tool
+        # provisioning also consumes the 360-minute job budget; timeout/cancel
+        # handling and artifact retention are still best effort, not guaranteed.
+        timeout-minutes: 330
         run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2
       - name: Collect sanitized evidence including failures and unrun cases
         if: always()

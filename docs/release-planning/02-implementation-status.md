@@ -100,6 +100,12 @@ The candidate runs that pinned-archive case separately. Syntax, diff and
 independent review passed. This reproduction does not assert the exact unrecorded
 host alias. Its receipt is `artifacts/beta-delivery/candidate-temp-repro.json`.
 
+[PR #307](https://github.com/iokaio/vcp/pull/307) delivered that correction with
+all required checks passing. The next
+[candidate attempt](https://github.com/iokaio/vcp/actions/runs/36792491264)
+selected `6d78939578ae94a5a800f90087eba5d48724e737`. Starting this run does not
+establish a production build, passing pair or completed matrix row.
+
 The separate BETA-09 editor refusal runner now covers actual restricted mode,
 uninitialized/wrong-data/unselected-root failures and unsaved drafts invalidated
 by typing, undo or close/reopen. It binds the final native/setup/VSIX bytes and
@@ -142,6 +148,22 @@ passed 1/1 in 40.64 seconds on default SQLite; formatting, diff and independent
 review passed. This is a test-only correction, not evidence for both stores or
 final installed hook behavior. Logs are retained under
 `artifacts/beta-delivery/hooks-responsiveness-{current,readiness-diagnostic,isolated-fixture}.log`.
+
+## Candidate progress and timeout evidence
+
+BETA-08 follow-up exposes each static stage identifier, UTC start/end time and
+recorded result in the workflow console, outside redirected detailed logs.
+The run receipt is saved before each announcement. Commands, private paths and
+child output remain in their existing logs. The build-and-test step has a
+330-minute timeout within the 360-minute job limit, leaving nominal headroom
+for evidence collection and upload. Checkout and tool setup consume part of
+that difference; runner loss or exhausted job time can still prevent retention.
+The existing `always()` collection/upload conditions and native/test acceptance
+deadlines remain unchanged. The already-running candidate uses its original
+workflow; these changes apply to subsequent runs.
+Thirteen focused tool/evidence contracts, PowerShell parsing and independent
+review passed. No hosted timeout was induced. Step/job limits follow
+[GitHub's workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepstimeout-minutes).
 
 ## Host and remaining external observations
 
