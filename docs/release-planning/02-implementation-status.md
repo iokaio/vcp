@@ -43,15 +43,18 @@ implementation; it did not authorize publication.
 
 The owner explicitly selected GitHub Releases and Pages under
 [ADR-074](../adr/074-github-beta-downloads.md), abandoning the Azure proposal.
-Implement `publish-beta.yml` to select an existing successful candidate attempt
-and exact pair, verify and publish unchanged assets as an unsigned prerelease,
-then deploy the download index. The [publication guide](../development/beta-publication.md)
-records `downloads.ioka.io` setup and the owner's CNAME step. Release publication,
-Pages deployment and HTTPS are **pending**, not observed passes. The owner-created
-CNAME resolves `downloads.ioka.io` to `iokaio.github.io`; GitHub certificate
-validation remains pending.
-GitHub Pages is configured for workflow deployment and that custom domain, with
-the `github-pages` environment restricted to `main`.
+[PR #326](https://github.com/iokaio/vcp/pull/326) delivered `publish-beta.yml`,
+strict candidate preparation, draft/hash-verified prerelease publication and the
+Ioka-styled Pages index. Seventeen focused tests, real 88-file packet preparation,
+page layout/accessibility, repository checks and ordinary CI passed.
+[Run 36888330245](https://github.com/iokaio/vcp/actions/runs/36888330245) published
+the unchanged October 1 pair as
+[`v0.2.0-beta.1-1dba45922e0c`](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.1-1dba45922e0c)
+and deployed Pages successfully. GitHub confirms all five public asset digests.
+The owner-created CNAME resolves correctly and GitHub validates the domain;
+custom-domain certificate provisioning and HTTPS enforcement remain pending.
+The [publication guide](../development/beta-publication.md) records actual results.
+Pages deployment is restricted to `main`.
 No Azure resources were changed. This bounded BETA-08/BETA-11 follow-up does not
 complete full qualification, authorize paid calls or reopen the deferred patch.
 

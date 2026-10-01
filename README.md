@@ -2,7 +2,7 @@
 
 VCP is an open-source local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. It includes a native Windows CLI, a TypeScript SDK and a VS Code extension, licensed under Apache 2.0.
 
-**Status: internal beta preparation.** The CLI, public API, SDK, editor workflows, configuration imports and governed hooks are implemented. Current work prepares an unsigned Windows x64 installer and matching pre-release VSIX. A qualified downloadable beta is not yet declared. See the [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for completed changes, actual checks and remaining installed-product gates.
+**Status: unsigned beta downloads available for manual testing.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
 
 ## What VCP does
 
