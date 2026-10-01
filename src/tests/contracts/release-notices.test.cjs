@@ -70,12 +70,56 @@ test('MPL components retain unchanged source; simple dual grants select Apache w
   assert.throws(() => notices.selectedLicense(null), /permission/);
 });
 test('compiled inventory rejects package injection and identifies observed normal/build dependencies', () => {
-  const inv = { components: [{ name: 'tiny', version: '1.0.0' }] };
+  const inv = { components: [{ name: 'tiny', version: '1.0.0', source: 'registry+https://example.invalid' }] };
   const artifact = { reason: 'compiler-artifact', package_id: 'registry+https://example.invalid#tiny@1.0.0' };
   notices.verifyCompiledGraph(JSON.stringify(artifact), inv, { packages: [] });
   assert.equal(inv.components[0].compiler_observed, true);
   artifact.package_id = 'registry+https://example.invalid#development-fixture@1.0.0';
   assert.throws(() => notices.verifyCompiledGraph(JSON.stringify(artifact), inv, { packages: [] }), /absent/);
+  artifact.package_id = 'registry+https://other.invalid#tiny@1.0.0';
+  assert.throws(() => notices.verifyCompiledGraph(JSON.stringify(artifact), inv, { packages: [] }), /absent/);
+  artifact.package_id = 'path+file:///unreviewed#tiny@1.0.0';
+  assert.throws(() => notices.verifyCompiledGraph(JSON.stringify(artifact), inv, { packages: [] }), /absent/);
+});
+
+test('compiled Git identities accept actual Cargo version-only and named fragments without losing source or membership', () => {
+  // Rust 1.95 compiler JSON retained from candidate 36792491264. The repository
+  // basename equals tokio-tungstenite, but differs from tungstenite/nucleo.
+  const tokio = 'git+https://github.com/openai-oss-forks/tokio-tungstenite?rev=0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186';
+  const tungstenite = 'git+https://github.com/openai-oss-forks/tungstenite-rs?rev=4fffad30fe373adbdcffab9545e9e9bf4f2fc19f';
+  const nucleo = 'git+https://github.com/helix-editor/nucleo.git?rev=4253de9faabb4e5c6d81d946a5e35a90f87347ee';
+  const pin = (name, version, source) => ({ name, version, source: source + '#' + new URL(source.slice(4)).searchParams.get('rev') });
+  const inv = { components: [pin('tokio-tungstenite', '0.28.0', tokio), pin('tungstenite', '0.27.0', tungstenite),
+    pin('nucleo', '0.5.0', nucleo), pin('nucleo-matcher', '0.3.1', nucleo), pin('uncompiled-member', '0.28.0', tokio)] };
+  const ids = [tokio + '#0.28.0', tungstenite + '#tungstenite@0.27.0', nucleo + '#nucleo@0.5.0', nucleo + '#nucleo-matcher@0.3.1'];
+  const log = values => values.map(package_id => JSON.stringify({ reason: 'compiler-artifact', package_id })).join('\n');
+  notices.verifyCompiledGraph(log(ids), inv, { packages: [] });
+  assert.equal(inv.compiler_packages, 4);
+  assert.deepEqual(inv.components.map(row => row.compiler_observed), [true, true, true, true, false]);
+  for (const id of [tokio.replace('openai-oss-forks', 'foreign') + '#0.28.0', tokio.replace('0e5b2d73', '1e5b2d73') + '#0.28.0',
+    tokio + '#0.29.0', tokio + '#outside-graph@0.28.0', tungstenite + '#0.27.0', nucleo + '#0.5.0',
+    'registry+https://example.invalid#tokio-tungstenite@0.28.0']) {
+    assert.throws(() => notices.verifyCompiledGraph(log([id]), inv, { packages: [] }), /absent or ambiguous/, id);
+  }
+  const noRoot = { components: inv.components.filter(row => row.name !== 'tokio-tungstenite') };
+  assert.throws(() => notices.verifyCompiledGraph(log([tokio + '#0.28.0']), noRoot, { packages: [] }), /absent/);
+  const duplicate = { components: [...inv.components, { ...inv.components[0] }] };
+  assert.throws(() => notices.verifyCompiledGraph(log([tokio + '#0.28.0']), duplicate, { packages: [] }), /ambiguous/);
+  const unpinned = { components: [{ ...inv.components[0], source: tokio }] };
+  assert.throws(() => notices.verifyCompiledGraph(log([tokio + '#0.28.0']), unpinned, { packages: [] }), /absent/);
+});
+
+test('compiled local identities require exact workspace membership for short and named Cargo IDs', () => {
+  const inv = { components: [{ name: 'local', version: '1.0.0', source: 'reviewed-local-source' },
+    { name: 'member', version: '1.0.0', source: 'reviewed-local-source' }] };
+  const workspace = { packages: [{ name: 'local', version: '1.0.0', id: 'path+file:///reviewed/local#1.0.0' },
+    { name: 'member', version: '1.0.0', id: 'path+file:///reviewed/directory#member@1.0.0' }] };
+  const log = id => JSON.stringify({ reason: 'compiler-artifact', package_id: id });
+  notices.verifyCompiledGraph(workspace.packages.map(row => log(row.id)).join('\n'), inv, workspace);
+  assert.equal(inv.compiler_packages, 2);
+  for (const id of ['path+file:///foreign/directory#member@1.0.0', 'path+file:///reviewed/local#member@1.0.0'])
+    assert.throws(() => notices.verifyCompiledGraph(log(id), inv, workspace), /absent/);
+  assert.throws(() => notices.verifyCompiledGraph(log(workspace.packages[0].id), inv, { packages: [] }), /absent/);
 });
 test('strict release metadata requires bound notice evidence', () => {
   const metadata = { release: { schema: 'vcp-release-identity/1', reviewed_commit: 'a'.repeat(40) },

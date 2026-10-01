@@ -106,6 +106,32 @@ all required checks passing. The next
 selected `6d78939578ae94a5a800f90087eba5d48724e737`. Starting this run does not
 establish a production build, passing pair or completed matrix row.
 
+That attempt passed source/provisioning, the actual pinned editor archive,
+SDK/editor tests and the Windows fast suite. It recorded the inherited
+`C:\Users\RUNNER~1\AppData\Local\Temp` spelling and selected the ordinary
+`C:\Users\runneradmin\AppData\Local\Temp` directory. The optimized Rust 1.95
+production build passed in about 64 minutes with qualification features absent.
+Native packaging then refused the compiler-observed Git dependency
+`tokio-tungstenite`: Cargo emitted a version-only fragment (`#0.28.0`) while
+the notice matcher expected a named fragment. Cargo documents
+[both package-ID forms](https://doc.rust-lang.org/cargo/reference/pkgid-spec.html).
+The matcher now accepts the version-only form only for the exact Git URL's
+package name, retaining source/query, pinned revision, package/version and unique
+graph membership checks. Registry sources and local workspace IDs also require
+exact matches. Eight focused tests passed, along with the adjacent provenance
+and evidence contracts (25 passing tests in total). All 1,251 retained compiler-artifact
+records replayed successfully across the 997 graph packages; changed Git revision
+and duplicate membership replays refused. The replay fixture derives the graph
+from the unchanged, receipt-bound Cargo inputs and relocates local metadata to
+the recorded builder root. The packet did not retain the complete original
+inventory/metadata, so this is resolver evidence, not a reproduced production
+package. Its receipt is `artifacts/beta-delivery/notices-compiler-replay/result.json`.
+All 63 failure-packet files passed checksum verification
+under `artifacts/beta-delivery/candidate-failure-36792491264`. Build/source logs
+and receipts were retained, but no native ZIP, setup, VSIX or artifact pair was
+produced, and the copied compiler outputs were absent from the packet. No final
+installed or acceptance row is complete from this attempt.
+
 The separate BETA-09 editor refusal runner now covers actual restricted mode,
 uninitialized/wrong-data/unselected-root failures and unsaved drafts invalidated
 by typing, undo or close/reopen. It binds the final native/setup/VSIX bytes and
