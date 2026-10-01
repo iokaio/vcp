@@ -124,6 +124,17 @@ impl Duplex {
                     {
                         return Poll::Ready(Err(io::Error::other("duplex input admission sealed")));
                     }
+                    let control = match writing.control.lock() {
+                        Ok(control) => control,
+                        Err(_) => {
+                            return Poll::Ready(Err(io::Error::other("poisoned duplex limits")))
+                        }
+                    };
+                    if let Some(reason) = &control.reason {
+                        return Poll::Ready(Err(io::Error::other(reason.clone())));
+                    }
+                    // A recorded stop precedes termination of the owned pipes.
+                    // Keep that cause authoritative through this immediate poll.
                     Pin::new(&mut *input).poll_write(cx, &chunk[offset..])
                 })
                 .await?;
@@ -146,6 +157,13 @@ impl Duplex {
                 || !state.admission_current(self.thread, self.generation)
             {
                 return Poll::Ready(Err(io::Error::other("duplex input admission sealed")));
+            }
+            let control = match writing.control.lock() {
+                Ok(control) => control,
+                Err(_) => return Poll::Ready(Err(io::Error::other("poisoned duplex limits"))),
+            };
+            if let Some(reason) = &control.reason {
+                return Poll::Ready(Err(io::Error::other(reason.clone())));
             }
             Pin::new(&mut *input).poll_flush(cx)
         })

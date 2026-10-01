@@ -605,6 +605,73 @@ retained under
 previous test binaries remain preserved. These are harness checks, not an
 installed-product pass.
 
+## Native preflight before rebuilding the candidate
+
+The ordinary engine-path handoff repair was delivered in
+[PR #321](https://github.com/iokaio/vcp/pull/321); its PR and exact-main Delivery
+checks passed. A fresh development-host lifecycle run against the original
+verified pair from run `36824747405` then passed all ten observations across
+Files and SQLite, including reload, restart, unsupported protocol, truncated
+update, missing engine and reconnect behavior. Both installations were removed
+after payload, process-tree and retained-data checks passed. The private result
+is bound by `artifacts/beta-delivery/candidate-36824747405-editor-lifecycle-regression.json`.
+This closes the focused harness regression, not final candidate or clean-host
+acceptance; the original candidate pipeline remains failed.
+
+The fresh [candidate run 36839649846](https://github.com/iokaio/vcp/actions/runs/36839649846)
+selected exact source `238fbf8531ede792925603c31785efbcb997793d` after successful
+main Delivery checks. On `vcpwin`, its production build passed in 15 minutes
+48 seconds; native ZIP, setup, VSIX and pair verification also passed. Native
+qualification compiled successfully in 4 minutes 11 seconds, then failed one
+configuration-parity observation: the delayed imported MCP case returned
+`The pipe is being closed. (os error 232)` instead of its expected deadline
+reason. The other three parity tests passed; installed native/editor stages
+were not run. No timeout was increased or assertion relaxed.
+
+All 91 downloaded packet files passed independent checksum and inventory
+verification, with zero evidence-validation failures. The verification receipt
+is `artifacts/beta-delivery/candidate-36839649846-download-verification.json`.
+Artifact integrity does not change the failed pipeline status. The unchanged
+positive import test subsequently passed locally under its original limits,
+so that pass alone does not explain or close the hosted failure. Investigation
+and focused native checks precede another full production rebuild.
+
+[PR #322](https://github.com/iokaio/vcp/pull/322) delivered the explicit
+`native_boundaries_only` Delivery dispatch with all required PR checks passing.
+It requires the exact main selection and successful push checks, uses `vcpwin`
+with 16 jobs, and combines lifecycle duplex plus the four CLI targets in one
+Cargo selection before the package lifecycle fixture. Separate concurrency
+preserves ordinary Delivery runs. Five workflow contracts passed, including
+actual selection refusals and incomplete/changed evidence rejection; an isolated
+two-package Cargo fixture verified the combined selection. The source-only
+preflight does not build production artifacts or replace candidate acceptance.
+
+A deterministic native transport regression reproduced the same Windows error
+232 on the unchanged runtime after its supervisor had recorded `process deadline
+elapsed` and the owned Job had emptied. The natural peer-exit control retained
+its ordinary OS error and passed. Duplex reads already consulted the recorded
+stop reason; writes and flushes omitted that check. The repair gives admitted
+writes the same authoritative stop-reason check while retaining raw IO errors
+when no reason is recorded. It preserves lifecycle admission priority, write
+cancellation cleanup and all existing limits. All nine corrected duplex tests
+passed, including deadline closure, a backpressured write, natural peer exit,
+sealed admission and partial-write cancellation. Independent review found no
+blockers. The rebuilt CLI parity target also passed all four nonignored tests:
+the twelve allowlist/deadline cases, stale-configuration refusals, the six
+source controls and twenty-four source refusals, and coding parity. Scoped
+Rust formatting and repository checks passed. Baseline and corrected evidence is retained under
+`artifacts/beta-delivery/import-pipe-investigation/`.
+
+The exact production setup from failed run `36839649846` separately passed a
+31-second development-host diagnostic: Unicode app/data paths, registered
+launcher/engine selection, real Files and SQLite preferences, successful
+uninstall and unchanged retained data. Setup reported successful installation;
+the test left no registration. All 109 bound artifact/tool/harness inputs were
+unchanged. The pointer is
+`artifacts/beta-delivery/candidate-36839649846-installer-regression.json`.
+This verifies the repaired installer on these bytes; it does not change the
+pipeline failure or claim console/editor, clean-host or final qualification.
+
 ## Host and remaining external observations
 
 The development workstation is Windows `10.0.26300.0` with development tools and
