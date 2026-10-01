@@ -22,13 +22,17 @@ $buildPhase='build-input-verification'
 Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status running
 Write-Information 'VCP_BUILD_PHASE phase=build-input-verification status=running' -InformationAction Continue
 trap {
+    $originalError = $_
     if ($progressPath) {
         $statistics=@{}
-        if ($buildProcess) { $statistics=@{ElapsedSeconds=$buildProcess.elapsed_seconds;OutputBytes=$buildProcess.output_bytes;IdleSeconds=$buildProcess.idle_seconds;CompilerArtifacts=$buildProcess.compiler_artifacts;JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes} }
+        if ($buildProcess) {
+            $statistics=@{ElapsedSeconds=$buildProcess.elapsed_seconds;OutputBytes=$buildProcess.output_bytes;IdleSeconds=$buildProcess.idle_seconds;CompilerArtifacts=$buildProcess.compiler_artifacts;JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes;BeforeCleanup=$buildProcess.before_cleanup;
+                MsvcServices=@{policy=$buildProcess.msvc_service_policy;planned_cleanup=$buildProcess.planned_service_cleanup;completion=$buildProcess.completion}}
+        }
         Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status fail @statistics
         Write-Information "VCP_BUILD_PHASE phase=$buildPhase status=fail" -InformationAction Continue
     }
-    throw
+    throw $originalError
 }
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $target = Join-Path $repository 'artifacts/codex-target'
@@ -72,6 +76,8 @@ $nativeTools = @('cl','link','lib','cmake','ninja') | ForEach-Object {
     $tool = (Get-Command $_ -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     @{name=$_;path=$tool;sha256=(Get-FileHash -LiteralPath $tool).Hash.ToLowerInvariant()}
 }
+$msvcTelemetry = Join-Path (Split-Path -Parent ($nativeTools | Where-Object name -eq 'cl').path) 'vctip.exe'
+$nativeTools += @{name='vctip';path=$msvcTelemetry;sha256=(Get-FileHash -LiteralPath $msvcTelemetry).Hash.ToLowerInvariant()}
 $nativeTools += @('rustc','cargo') | ForEach-Object {
     $tool = [string](& rustup which --toolchain 1.95.0 $_)
     if ($LASTEXITCODE -ne 0 -or -not $tool) { throw "Cannot locate pinned toolchain: $_" }
@@ -104,10 +110,11 @@ Write-Output "Production build evidence: $out"
 $cargoApplication=(Get-Command cargo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $buildPhase='cargo'
 Write-Information 'VCP_BUILD_PHASE phase=cargo status=running' -InformationAction Continue
-$buildProcess=Invoke-VcpBuildProcess -Executable $cargoApplication -Arguments $arguments -WorkingDirectory $workspace -LogPath $log -ProgressPath $progressPath
+$buildProcess=Invoke-VcpBuildProcess -Executable $cargoApplication -Arguments $arguments -WorkingDirectory $workspace -LogPath $log -ProgressPath $progressPath -MsvcTelemetryExecutable $msvcTelemetry
 $code=$buildProcess.exit_code
 $buildPhase='post-verification'
-$buildMetrics=@{JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes}
+$buildMetrics=@{JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes;BeforeCleanup=$buildProcess.before_cleanup;
+    MsvcServices=@{policy=$buildProcess.msvc_service_policy;planned_cleanup=$buildProcess.planned_service_cleanup;completion=$buildProcess.completion}}
 Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status running -ElapsedSeconds $buildProcess.elapsed_seconds -OutputBytes $buildProcess.output_bytes -IdleSeconds $buildProcess.idle_seconds -CompilerArtifacts $buildProcess.compiler_artifacts @buildMetrics
 Write-Information 'VCP_BUILD_PHASE phase=post-verification status=running' -InformationAction Continue
 $dependenciesCode = 0
@@ -121,6 +128,7 @@ $finalSource = Get-Content -LiteralPath $after -Raw | ConvertFrom-Json
 $receipt = [ordered]@{schema='vcp-local-build/1'; exit_code=$code; cargo_exit_code=$code; source_commit=$source.commit; source_dirty=$source.dirty; source_content_sha256=$source.content_sha256; source_stable=($source.content_sha256 -ceq $finalSource.content_sha256 -and $upstreamCode -eq 0); upstream_before_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification.log')).Hash.ToLowerInvariant(); upstream_after_sha256=(Get-FileHash -LiteralPath (Join-Path $out 'upstream-verification-after.log')).Hash.ToLowerInvariant(); cargo_configs=$cargoConfigs; rustflags=$rustflags; command=@('cargo')+$arguments; working_directory=$workspace; rustc=(& rustc +1.95.0 --version --verbose); msvc=$env:VCToolsVersion; started_at=$started.ToString('o'); ended_at=[DateTime]::UtcNow.ToString('o'); qualification_build=$false; profile='release'; target='x86_64-pc-windows-msvc'; inputs=$source.files; log_sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant()}
 $receipt.native_tools = @($nativeTools)
 $receipt.supervision = $buildProcess
+if ($buildProcess.failure) { $receipt.failure = $buildProcess.failure }
 # The independently observed Cargo exit may be null after a failed spawn or
 # interruption. Broker/pipe failures remain distinct in supervision and still
 # fail the overall receipt even when Cargo itself exited successfully.
@@ -175,7 +183,10 @@ if ($receipt.exit_code -eq 0) {
 }
 $receiptPath = Join-Path $out 'build-receipt.json'
 $receipt | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $receiptPath -Encoding utf8NoBOM
-if ($receipt.exit_code -ne 0) { throw "Production build failed or inputs changed; retained $receiptPath" }
+if ($receipt.exit_code -ne 0) {
+    $detail = if ($receipt.failure) { $receipt.failure } else { "Cargo exited $($receipt.cargo_exit_code)" }
+    throw "Production build failed: $detail; retained $receiptPath"
+}
 if ($Release) {
     & node $releaseTool verify-build $repository $receiptPath $receipt.executable $ReviewedCommit | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Strict release provenance failed; retained $receiptPath" }

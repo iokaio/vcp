@@ -103,7 +103,7 @@
     },
     "beta-orchestration": {
       "task_ids": ["P8-01", "P8-04"],
-      "args": ["--test", "src/tests/contracts/candidate-state.test.cjs", "src/tests/contracts/build-progress.test.cjs", "src/tests/contracts/candidate-stages.test.cjs"],
+      "args": ["--test", "src/tests/contracts/candidate-state.test.cjs", "src/tests/contracts/build-progress.test.cjs", "src/tests/contracts/build-progress-services.test.cjs", "src/tests/contracts/candidate-stages.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 60000,

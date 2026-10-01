@@ -93,6 +93,23 @@ log, with stdout/stderr lines kept intact. The owned Windows Job prevents child
 breakaway and terminates descendants when its owner exits; forced cleanup or an
 unclosed process/output stream fails supervision. Hard termination can leave
 the last progress snapshot marked `running`; it is never evidence of success.
+Before cleanup, the supervisor records the owned process count, bounded process
+identities and stdout/stderr completion states. Image queries recheck Job
+membership through the opened process handle; diagnostics do not collect command
+lines or environment variables. Query failures remain explicit and never change
+the supervision result. The final Cargo progress snapshot and production receipt
+retain these observations, and production errors preserve the original reason.
+
+Production and native qualification explicitly select the telemetry executable
+beside their selected MSVC compiler. These builds use a fresh PDB server endpoint
+and `_MSPDBSRV_=-shutdowntime 0` in the child environment. After successful child
+and broker exits and fully drained output, the supervisor may stop the one
+remaining telemetry service only when its pinned executable and owned process
+identity match. This is recorded as planned service cleanup, not natural exit.
+Any unknown survivor, identity mismatch or failed cleanup still fails the build;
+the owned Job must be empty before success. Parent environment and other builds'
+processes are unaffected. A short Windows Delivery check exercises these rules
+and a real synthetic MSVC compile/link on `vcpwin` before candidate dispatch.
 
 `build-progress.json` and `native-qualification-progress.json` also record
 cumulative Job user/kernel CPU seconds, peak

@@ -22,15 +22,15 @@ else if(mode==='noise'){
  }
  process.stderr.write('final partial diagnostic');
 }
-else if(mode==='descendants'||mode==='retained-pipe'){
+else if(mode==='descendants'||mode==='retained-pipe'||mode==='retained-no-pipe'){
  // Detachment avoids Node's own parent-exit cleanup for this one fixture;
  // Windows still inherits the supervisor Job, which disallows breakaway.
- const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit',windowsHide:true,detached:mode==='retained-pipe'});
+ const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:mode==='retained-no-pipe'?'ignore':'inherit',windowsHide:true,detached:mode!=='descendants'});
  fs.writeFileSync(process.argv[3],JSON.stringify({parent:process.pid,child:child.pid}));
- if(mode==='retained-pipe')setTimeout(()=>process.exit(0),50);else setInterval(()=>{},1000);
+ if(mode!=='descendants')setTimeout(()=>process.exit(0),50);else setInterval(()=>{},1000);
 }
 `);
-  const args = ['descendants','retained-pipe'].includes(mode) ? [path.join(root, 'pids.json')] : ['space café', 'embedded"quote', 'trailing\\'];
+  const args = ['descendants','retained-pipe','retained-no-pipe'].includes(mode) ? [path.join(root, 'pids.json')] : ['space café', 'embedded"quote', 'trailing\\'];
   const executable = mode === 'missing' ? path.join(root, 'missing-program.exe') : fs.realpathSync.native(process.execPath);
   fs.writeFileSync(input, JSON.stringify({node: executable, args: [child, mode, ...args], root, seconds, mirror}));
   fs.writeFileSync(runner, `param([string]$Helper,[string]$InputFile)
@@ -39,7 +39,7 @@ $ErrorActionPreference='Stop'
 . $Helper
 $settings=Get-Content -LiteralPath $InputFile -Raw | ConvertFrom-Json
 $result=Invoke-VcpBuildProcess -Executable $settings.node -Arguments $settings.args -WorkingDirectory $settings.root -LogPath (Join-Path $settings.root 'build.log') -ProgressSeconds 1 -TimeoutSeconds $settings.seconds -MirrorOutput:$settings.mirror
-Write-Output ('VCP_TEST_RESULT '+($result | ConvertTo-Json -Compress))
+Write-Output ('VCP_TEST_RESULT '+($result | ConvertTo-Json -Depth 10 -Compress))
 `);
   return {root, args, command: ['-NoProfile', '-NonInteractive', '-File', runner, '-Helper', helper, '-InputFile', input]};
 }
@@ -53,6 +53,7 @@ function run(f) {
   assert.deepEqual(fs.readdirSync(f.root).filter(name=>name.startsWith('.vcp-child-exit-')),[]);
   assert.equal(snapshot.schema, 'vcp-build-progress/1'); assert.equal(snapshot.phase, 'cargo');
   assert.equal(snapshot.output_bytes, report.output_bytes); assert.equal(snapshot.compiler_artifacts, report.compiler_artifacts);
+  assert.deepEqual(snapshot.before_cleanup,report.before_cleanup,'Final progress must retain complete pre-cleanup diagnostics even when callers discard the returned report');
   assert.equal(typeof snapshot.job_cpu_seconds,'number'); assert(snapshot.job_cpu_seconds>0);
   assert.equal(typeof snapshot.job_peak_committed_memory_bytes,'number'); assert(snapshot.job_peak_committed_memory_bytes>0);
   assert.equal(snapshot.job_cpu_seconds,report.job_cpu_seconds); assert.equal(snapshot.job_peak_committed_memory_bytes,report.job_peak_committed_memory_bytes);
@@ -81,6 +82,9 @@ test('quiet active builds emit truthful zero-output heartbeats', {skip:process.p
   const {report,snapshot,lines,log}=run(fixture(t,'quiet'));
   assert.equal(report.exit_code,0); assert.equal(report.output_bytes,0); assert.equal(report.compiler_artifacts,0);
   assert.equal(report.process_exit_code,0); assert.equal(report.broker_exit_code,0);
+  assert.equal(report.before_cleanup.active_processes,0); assert.deepEqual(report.before_cleanup.job.processes,[]);
+  assert.equal(report.before_cleanup.job.truncated,false);
+  assert(report.before_cleanup.pipes.every(pipe=>pipe.done&&pipe.read_completed&&!pipe.read_faulted));
   assert.equal(log,''); assert.equal(snapshot.status,'pass');
   assert(lines.some(line=>/^VCP_BUILD_PROGRESS elapsed_seconds=[2-9]\d* output_bytes=0 idle_seconds=[2-9]\d* compiler_artifacts=0$/.test(line)));
 });
@@ -114,6 +118,29 @@ test('a successful child exit stays distinct from a broker pipe-drain failure', 
   assert.equal(running(pids.parent),false); assert.equal(running(pids.child),false);
 });
 
+test('a detached descendant with redirected stdio fails even when child and broker both succeeded, retaining owned identity before cleanup', {skip:process.platform!=='win32'}, t => {
+  const f=fixture(t,'retained-no-pipe',20), {report,snapshot}=run(f);
+  assert.equal(report.process_exit_code,0);assert.equal(report.broker_exit_code,0);
+  assert.equal(report.exit_code,1);assert.equal(report.forced_cleanup,true);assert.equal(report.timed_out,false);
+  assert.equal(report.job_active_processes_zero,true);assert.equal(snapshot.status,'fail');
+  assert.match(report.failure,/descendants or output pipes did not complete within 10 seconds/);
+  const pids=JSON.parse(fs.readFileSync(path.join(f.root,'pids.json'),'utf8'));
+  const before=report.before_cleanup;
+  assert.equal(before.active_processes,1);assert.equal(before.broker_exited,true);assert.equal(before.broker_exit_observed,0);
+  assert.deepEqual(before.pipes.map(pipe=>pipe.name),['stdout','stderr']);
+  // NUL standard streams do not prove that no other inherited broker pipe
+  // handle survives. Retain the measured state rather than inventing EOF.
+  assert(before.pipes.every(pipe=>typeof pipe.done==='boolean'&&typeof pipe.read_completed==='boolean'&&!pipe.read_faulted));
+  assert(before.pipes.filter(pipe=>pipe.done).every(pipe=>pipe.read_completed));
+  assert.equal(before.job.truncated,false);assert.equal(before.job.assigned,1);assert.equal(before.job.listed,1);
+  assert.equal(before.job.processes.length,1);
+  const owned=before.job.processes[0];assert.equal(owned.process_id,pids.child);assert.equal(owned.status,'observed');
+  assert.equal(owned.name.toLowerCase(),'node.exe');assert.equal(path.resolve(owned.image).toLowerCase(),fs.realpathSync.native(process.execPath).toLowerCase());
+  assert(Number.isFinite(Date.parse(owned.started_at)));assert.equal(owned.query_error,null);
+  assert.equal(Object.hasOwn(owned,'command_line'),false);assert.equal(Object.hasOwn(owned,'environment'),false);
+  assert.equal(running(pids.parent),false);assert.equal(running(pids.child),false);
+});
+
 test('a failed spawn records an unknown child exit and the observed broker failure', {skip:process.platform!=='win32'}, t => {
   const {report,snapshot,log}=run(fixture(t,'missing'));
   assert.equal(report.process_exit_code,null); assert.notEqual(report.broker_exit_code,0); assert.notEqual(report.broker_exit_code,null);
@@ -135,4 +162,26 @@ test('abrupt owner interruption closes its Job and removes only owned fake desce
   await waitUntil(()=>!fs.readdirSync(f.root).some(name=>name.startsWith('.vcp-child-exit-')));
   const snapshot=JSON.parse(fs.readFileSync(path.join(f.root,'build-progress.json'),'utf8'));
   assert.equal(snapshot.status,'running','Abrupt interruption must not invent successful completion');
+});
+
+test('production wrapper trap preserves the original failure through progress reporting', {skip:process.platform!=='win32'}, t => {
+  const f=fixture(t,'quiet'), runner=path.join(f.root,'trap.ps1');
+  fs.writeFileSync(runner, `param([string]$Source)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Production wrapper parse failed'}
+$traps=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.TrapStatementAst]},$true))
+if($traps.Count -ne 1){throw 'One actual production trap required'}
+$progressPath='owned-fixture-progress';$buildPhase='cargo';$buildProcess=$null
+function Write-VcpBuildPhase { $null=@(1 | ForEach-Object { $_ }); }
+$failure=$null
+try { & ([scriptblock]::Create($traps[0].Extent.Text+"\nthrow 'original-supervisor-sentinel'")) }
+catch { $failure=$_.Exception.Message }
+if($failure -cne 'original-supervisor-sentinel'){throw ('Original exception replaced: '+$failure)}
+Write-Output 'trap preserved original sentinel'
+`);
+  const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-File',runner,'-Source',path.resolve(__dirname,'../../../scripts/build-production.ps1')],
+    {encoding:'utf8',windowsHide:true,timeout:10000});
+  assert.ifError(result.error);assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/trap preserved original sentinel/);
 });
