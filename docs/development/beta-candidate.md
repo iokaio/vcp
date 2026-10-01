@@ -194,6 +194,11 @@ breakaway, cap its output at 4 MiB and its runtime at 600 seconds, and allow
 45 seconds for the native owner's normal 30-second idle shutdown. A passing
 observation requires zero remaining descendants without forced cleanup; a
 failure retains the private supervision report and installation for repair.
+Each observation also emits a bounded diagnostic summary into the captured
+stage log. It records process completion, output lengths and hashes, fixed
+failure categories and allowlisted observation fields. Raw private output,
+fixture paths, task contents and keys are excluded; an unknown failure remains
+unknown rather than being inferred from missing output.
 
 The separate `beta_editor_refusals` qualification target can observe additional
 refusals against the same final native/setup/VSIX bytes, without rebuilding or
@@ -232,6 +237,8 @@ keys, fixture configuration and raw private editor logs. Known environment secre
 values and common credential forms are redacted from retained logs; receipts
 containing an active environment credential are rejected. A receipt records both
 original and retained log hashes when sanitization changes bytes.
+The exact root-level `native-qualification.log` is retained through the same
+sanitizer, including final output drained after the console mirror stops.
 
 `evidence.json` always uses `qualification-required`. Its `selection_status`
 reports whether the exact selected prefix and required receipts passed. An early

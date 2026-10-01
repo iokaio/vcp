@@ -285,6 +285,13 @@ function packet(runFile, output) {
     try { diagnostic(qualificationProgress, 'diagnostics/native-qualification-progress.json'); }
     catch (error) { validationFailures.push(`native qualification diagnostics: ${sanitize(error.message)}`); }
   }
+  const qualificationLog = path.join(path.dirname(path.resolve(runFile)), 'native-qualification.log');
+  if (fs.existsSync(qualificationLog)) {
+    // The supervisor's final drain can contain lines absent from the stage
+    // mirror. This exact public log is independent of private test fixtures.
+    try { log(builderPlain(qualificationLog), 'logs/native-qualification.log'); }
+    catch (error) { validationFailures.push(`native qualification log: ${sanitize(error.message)}`); }
+  }
   for (const name of ['sdk-ts-install.log', 'sdk-ts-compile.log', 'vscode-install.log', 'vscode-compile.log']) {
     const file = path.join(path.dirname(path.resolve(runFile)), 'vsix', name);
     if (fs.existsSync(file)) log(file, `logs/vsix-${name}`);
