@@ -11,6 +11,24 @@ for that same `main` commit. An explicit selection is required; mutable branch
 ancestry does not establish review. The workflow's read token is scoped to the
 check lookup and is not passed to builders or installed processes.
 
+Select `stop_after` explicitly when advancing beyond the default preflight:
+
+| Selection | Last work performed | Qualification status |
+| --- | --- | --- |
+| `portable-contracts` (default) | Source/tool checks, pinned provisioning and portable contracts. | Incomplete; no production build. |
+| `production-build` | Fresh optimized engine/launcher build and strict receipt verification. | Incomplete; no packaged pair. |
+| `pair` | Native ZIP, registered setup, VSIX and independent exact pair validation. | Incomplete; installed tests remain unrun. |
+| `installed-editor` | All eleven stages, including separate native qualification and installed native/editor observations. | Automated pipeline complete only if every stage passes; manual acceptance still required. |
+
+Each stage is a named workflow step with its own deadline. Production and native
+qualification compilation each allow 100 minutes; all selected stage limits sum
+to at most 325 minutes within the 360-minute job. Setup consumes part of the
+remaining time. Failure/cancellation collection is best effort and cannot survive
+runner loss or an exhausted job budget. A new dispatch always starts fresh;
+these checkpoints do not import a previous run's build or resume a canceled job.
+The smaller selections bound the work attempted and make failures visible; they
+do not reduce compilation time.
+
 [Candidate tool pins](../../release/candidate-tools.json) fix Node 24.10.0,
 Rust 1.95.0 for production, Rust 1.98.0 for qualification and the official VS Code
 1.138.0 Windows x64 archive URL/checksum. The editor pin is from the recorded
@@ -39,7 +57,7 @@ three npm development lockfiles have been installed:
 ```powershell
 pwsh -NoProfile -File scripts/release/candidate.ps1 `
   -ReviewedCommit <reviewed-40-character-main-commit> `
-  -OutputRoot artifacts/beta-candidate -Jobs 2
+  -OutputRoot artifacts/beta-candidate -Jobs 2 -StopAfter portable-contracts
 node scripts/release/evidence.cjs artifacts/beta-candidate/run.json artifacts/beta-evidence
 ```
 
@@ -48,6 +66,36 @@ the successful GitHub Delivery-run check belongs to the workflow. Do not use an
 account with an existing registered VCP installation: smoke runners refuse to
 replace that registration. The private fixture directories must remain outside
 repositories and synchronized folders.
+
+`-Stage all` is the local default and runs through the selected `-StopAfter`.
+The local `-StopAfter` default remains `installed-editor`; specify a shorter
+selection as above for preflight. The workflow invokes each `-Stage` separately
+in the same job and output directory. Each continuation requires the exact
+successful prefix, unchanged source, roots, selected scope, prior log/receipt
+hashes and, after pairing, the same verified pair. It restores and verifies the
+recorded physical tools, temporary directory and editor identity; qualification
+stages initialize their own compiler environment. It refuses concurrent owners,
+replayed stages, skipped prerequisites and failed/interrupted predecessors.
+Atomic `run.json` replacement preserves the preceding checkpoint if a write is
+interrupted. This is sequential execution within one run, not cross-run resume.
+
+During Cargo execution, a supervised child tree emits numeric progress every
+30 seconds: elapsed seconds, bytes read, seconds since new output and completed
+compiler artifacts. Separate markers identify input verification, Cargo and
+post-build verification. The complete compiler output remains in the retained
+log, with stdout/stderr lines kept intact. The owned Windows Job prevents child
+breakaway and terminates descendants when its owner exits; forced cleanup or an
+unclosed process/output stream fails supervision. Hard termination can leave
+the last progress snapshot marked `running`; it is never evidence of success.
+
+`build-progress.json` and `native-qualification-progress.json` also record
+cumulative Job user/kernel CPU seconds, peak
+committed memory and logical processor count. Measurements include the broker,
+Cargo and its descendants; unavailable values are null. Compare CPU growth over
+elapsed time and memory demand before choosing a different runner. Artifact
+counts and quiet periods are observations, not percentages, proof of a stall or
+predictions of time remaining. No runner size, Cargo job count or cache policy
+changes automatically.
 
 The sequence builds the production engine/launcher, native payload, registered
 setup and actual beta VSIX. VSIX construction receives the original
@@ -162,7 +210,11 @@ values and common credential forms are redacted from retained logs; receipts
 containing an active environment credential are rejected. A receipt records both
 original and retained log hashes when sanitization changes bytes.
 
-`evidence.json` always uses `qualification-required`. Its `pipeline_status` is
+`evidence.json` always uses `qualification-required`. Its `selection_status`
+reports whether the exact selected prefix and required receipts passed. An early
+checkpoint can succeed while `pipeline_status` remains `incomplete`; only all
+eleven successful stages and the verified pair can pass the full pipeline. The
+collector exits successfully for a valid successful selection. Its `pipeline_status` is
 separate from the eleven-area acceptance matrix in the release plan. Only the
 production-identity row can be filled automatically by the exact artifact build;
 the other areas remain `not run`, even when related synthetic/source tests pass.
@@ -171,6 +223,12 @@ fail evidence validation while keeping readable failure logs. Nothing assigns
 `excluded from declared support` automatically; exclusions need the documented
 support decision. Unauthorized effects or preservation failures remain stop
 conditions.
+
+An interrupted production build can retain sanitized `source-before.json`,
+`dependencies-before.json` and `build-progress.json` from its exact build
+directory before a final build receipt exists. These diagnostics are explicitly
+excluded from success evidence. Malformed diagnostic files are recorded as
+validation failures while valid neighboring diagnostics remain available.
 
 The workflow retains the complete hashed packet for 90 days, including failure
 runs. Export those exact bytes to approved durable storage before expiry and

@@ -207,6 +207,69 @@ Fourteen evidence contracts passed, including absent final receipts, changed or
 missing originals, redirected ancestors and a mismatched native receipt. Syntax,
 diff and independent review passed. This prepares future failure capture and
 does not recover the missing executables from the completed fourth run.
+[PR #310](https://github.com/iokaio/vcp/pull/310) delivered this diagnostic
+retention change; its required PR checks and exact-main checks passed.
+
+## Canceled fifth candidate and smaller checkpoints
+
+[Candidate run 36800517348](https://github.com/iokaio/vcp/actions/runs/36800517348)
+selected reviewed source `629f2a9cdb14b3d0a6d8200e260e432e17a2221d`.
+Its first attempt stopped in portable contracts: `p6-live-runner` and
+`p6-bootstrap-profiles` exhausted their existing 30-second limits with no output,
+and `p7-delegation` exhausted its 60-second limit after partial output. There was
+no reported product assertion failure. The exact focused cases subsequently
+passed locally under the original sanitized harness and unchanged limits:
+11/11 live-runner cases, 4/4 bootstrap cases, and 25 delegation cases with four
+existing conditional skips. This supports one unchanged retry, not a claim that
+the runner image caused the timeouts. The local review is
+`artifacts/beta-delivery/candidate5-timeout-review.json`.
+
+Attempt two passed source selection, provisioning and portable contracts. The
+owner canceled it during production compilation after 64 minutes 28 seconds in
+that stage. The earlier completed production build took 64 minutes 22 seconds.
+The canceled log contains 1,250 compiler artifacts across 997 package IDs,
+including `vcp-launch.exe`, but no completed `vcp.exe`, build-finished event or
+build receipt. The endpoint disk observation still had about 149 GB free on D:
+and 31 GB on C:. All 55 retained checksums verified. Logs establish substantial
+work, but lack per-output timestamps and CPU/memory observations: they cannot
+establish a stall, remaining link time or a need for a larger runner. The packet
+is retained locally at
+`artifacts/beta-delivery/candidate-cancelled-36800517348-2`.
+
+The BETA-08 revision replaces the single long workflow step with eleven named,
+individually bounded steps. Dispatch defaults to `portable-contracts`; explicit
+`production-build`, `pair` and `installed-editor` selections advance through
+successively larger prefixes. A successful prefix is recorded separately from
+full-pipeline completion and final manual acceptance. Each continuation checks
+the preceding ordered successful stages, reviewed source, roots, scope and
+log/receipt hashes; compiler/editor environment selection is restored in each
+new process. A per-output lock refuses concurrent stage owners and atomic saves
+preserve the preceding ledger on interrupted writes. Canceled/failed stages
+cannot be resumed or reused through this interface.
+
+Cargo progress now records phase, elapsed/quiet seconds, output bytes and
+completed artifact count, while preserving complete compiler lines. Owned
+Windows Job accounting supplies CPU seconds and peak committed memory for a
+later capacity decision. Pre-receipt source/dependency/progress diagnostics are
+retained as unverified evidence and cannot establish a successful build. Stage
+limits total at most 325 minutes inside the existing 360-minute job; setup and
+best-effort evidence retention consume the remainder. No Cargo concurrency,
+runner size, fresh-target rule or acceptance gate is relaxed. The full candidate
+has not been restarted while this revision is reviewed and verified.
+
+Windows verification passed through the registered sanitized harness on Node
+24.10.0: `beta-orchestration` passed 20/20 cases in 37.8 seconds and
+`p8-distribution` passed 65 cases in 11.7 seconds, with its existing explicit
+prepared-editor-archive case skipped because that input was not supplied to the
+harness. The candidate still invokes that archive check separately with pinned
+inputs. Manifests are under `artifacts/beta-delivery/staged-candidate-checks/`,
+runs `e85d80f5-e8c6-49bf-adb2-35bc629cb5d5` and
+`07c94c24-e2aa-42e2-9758-633f2469e802`, respectively. Sixteen repository/harness
+unit tests, repository links/inventories, four PowerShell parses and whitespace
+checks also passed. Independent review led to regressions for changed final-stage
+logs and for a successful Cargo exit followed by a failed supervisor pipe drain;
+the latter now records child and supervisor exits separately. These are synthetic
+orchestration checks, not a rerun of the production build or installed matrix.
 
 ## Host and remaining external observations
 

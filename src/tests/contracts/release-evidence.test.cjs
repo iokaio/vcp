@@ -49,11 +49,87 @@ function fixture(t, artifacts=false) {
 test('pipeline success never fills installed/manual matrix or grants acceptance',t=>{
   const f=fixture(t,true),result=evidence.packet(f.write(),path.join(f.root,'packet'));
   assert.equal(result.pipeline_status,'pass');assert.equal(result.status,'qualification-required');
+  assert.equal(result.selection_status,'pass');assert.equal(result.stop_after,'installed-editor');
   assert.equal(result.matrix.find(row=>row.id==='production-identity').status,'pass');
   assert(result.matrix.filter(row=>row.id!=='production-identity').every(row=>row.status==='not run'));
   assert.equal(result.publication.authorized,false);assert.equal(result.publication.owner_acceptance,'not run');
   for(const row of result.files)assert.equal(p.fileHash(path.join(f.root,'packet',row.path)),row.sha256);
   assert(fs.existsSync(path.join(f.root,'packet/SHA256SUMS')));
+});
+function selectPrefix(f,stop){
+  f.run.stop_after=stop;f.run.stages=f.run.stages.slice(0,evidence.stages.indexOf(stop)+1);
+  if(stop==='portable-contracts')f.run.receipts={};
+  else if(stop==='production-build')f.run.receipts={build:f.run.receipts.build};
+  return f;
+}
+test('explicit successful prefixes pass their selection without claiming an unfinished pipeline or manual qualification',t=>{
+  for(const stop of ['portable-contracts','production-build','pair','installed-editor']){
+    const f=selectPrefix(fixture(t,stop!=='portable-contracts'),stop);
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.stop_after,stop);assert.equal(result.selection_status,'pass');
+    assert.equal(result.pipeline_status,stop==='installed-editor'?'pass':'incomplete');
+    assert.deepEqual(result.validation_failures,[]);
+    assert.equal(result.matrix[0].status,['pair','installed-editor'].includes(stop)?'pass':'not run');
+    assert(result.matrix.slice(1).every(row=>row.status==='not run'));
+    assert.equal(result.publication.authorized,false);assert.equal(result.publication.owner_acceptance,'not run');
+    assert(result.observations.slice(f.run.stages.length).every(row=>row.status==='not run'&&row.reason.includes('selected stage prefix')));
+    const summary=JSON.parse(execFileSync(process.execPath,[path.resolve(__dirname,'../../../scripts/release/evidence.cjs'),f.write(),path.join(f.root,'cli-packet')],{stdio:'pipe',encoding:'utf8'}));
+    assert.equal(summary.status,'pass');assert.equal(summary.selection_status,'pass');assert.equal(summary.pipeline_status,result.pipeline_status);
+  }
+});
+test('selected prefixes refuse missing receipts or stage logs, wrong order, extra stages and interruptions',t=>{
+  for(const [stop,change] of [
+    ['production-build',f=>{delete f.run.receipts.build}],
+    ...['native','vsix','setup'].map(name=>['pair',f=>{delete f.run.receipts[name]}]),
+    ['portable-contracts',f=>{f.run.stages[1].log=path.join(f.root,'absent.log')}],
+    ['portable-contracts',f=>{[f.run.stages[0],f.run.stages[1]]=[f.run.stages[1],f.run.stages[0]]}],
+    ['portable-contracts',f=>{f.run.stages.push({...f.run.stages[0],id:'production-build'})}],
+    ['portable-contracts',f=>{f.run.stages.pop()}],
+    ['production-build',f=>{f.run.stages.at(-1).status='running'}],
+    ['portable-contracts',f=>{f.run.status='running'}],
+    ['portable-contracts',f=>{f.run.status='fail'}],
+  ]){
+    const f=selectPrefix(fixture(t,true),stop);change(f);
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+    assert.equal(result.publication.authorized,false);
+  }
+  const invalid=fixture(t);invalid.run.stop_after='native-package';assert.throws(()=>evidence.validateRun(invalid.run),/Invalid candidate run/);
+});
+test('selection success requires validated build evidence and cannot hide validation failures',t=>{
+  for(const stop of ['production-build','pair','installed-editor']){
+    const f=selectPrefix(fixture(t,true),stop);fs.writeFileSync(path.join(f.root,'vcp-launch.exe'),'changed binary');
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+    assert(result.validation_failures.length>0);assert.equal(result.matrix[0].status,'not run');
+    assert.throws(()=>execFileSync(process.execPath,[path.resolve(__dirname,'../../../scripts/release/evidence.cjs'),f.write(),path.join(f.root,'cli-packet')],{stdio:'pipe'}),error=>error.status===1);
+  }
+  const legacy=fixture(t,true);legacy.run.stages.reverse();
+  const result=evidence.packet(legacy.write(),path.join(legacy.root,'packet'));
+  assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+});
+test('completed stage log digests bind final-stage bytes while legacy logs remain readable',t=>{
+  for(const change of [
+    row=>fs.appendFileSync(row.log,'changed after completion\n'),
+    row=>{row.log_sha256=row.log_sha256.toUpperCase()},
+    row=>{row.log_sha256=null},
+  ]){
+    const f=selectPrefix(fixture(t),'portable-contracts'),last=f.run.stages.at(-1);
+    last.log=f.file('final-stage.log','completed final stage\n');last.log_sha256=p.fileHash(last.log);
+    change(last);
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+    assert.equal(result.observations.find(row=>row.id===last.id).status,'fail');
+    assert(result.validation_failures.includes('Changed or invalid stage log digest: portable-contracts'));
+    assert.equal(fs.readFileSync(path.join(f.root,'packet/logs/portable-contracts.log'),'utf8'),fs.readFileSync(last.log,'utf8'));
+    assert.throws(()=>execFileSync(process.execPath,[path.resolve(__dirname,'../../../scripts/release/evidence.cjs'),f.write(),path.join(f.root,'cli-packet')],{stdio:'pipe'}),error=>error.status===1);
+  }
+  for(const bound of [false,true]){
+    const f=selectPrefix(fixture(t),'portable-contracts');
+    if(bound)for(const row of f.run.stages)row.log_sha256=p.fileHash(row.log);
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.selection_status,'pass');assert.deepEqual(result.validation_failures,[]);
+  }
 });
 function failedPackaging(t) {
   const f=fixture(t,true);
@@ -209,6 +285,86 @@ test('failed builders retain exact public log names from their actual GUID direc
   const result=evidence.packet(f.write(),path.join(f.root,'packet'));
   assert.equal(result.pipeline_status,'fail');assert(result.matrix.every(row=>row.status==='not run'));
   assert.deepEqual(result.files.map(row=>row.path).sort(),expected.sort());
+});
+test('interrupted builds retain only whitelisted structured pre-build diagnostics without granting success',t=>{
+  const f=selectPrefix(fixture(t),'production-build');f.run.status='running';f.run.receipts={};
+  f.run.stages.at(-1).status='running';delete f.run.stages.at(-1).exit_code;
+  const id='01234567-89ab-cdef-0123-456789abcdef',directory=path.join(f.root,'build',id);
+  fs.mkdirSync(directory,{recursive:true});
+  const value='Authorization: Bearer synthetic-sensitive-value';
+  const names=['source-before.json','dependencies-before.json','build-progress.json'];
+  for(const name of names)fs.writeFileSync(path.join(directory,name),JSON.stringify({schema:'diagnostic-fixture',nested:{text:value},quoted:'a "quoted" string',status:'pass'}));
+  for(const name of ['source-after.json','dependencies-after.json','private-profile.json'])fs.writeFileSync(path.join(directory,name),'private fixture');
+  fs.mkdirSync(path.join(directory,'private-state'));fs.writeFileSync(path.join(directory,'private-state','build-progress.json'),'private nested contents');
+  const wrong=path.join(f.root,'build','unrecognized');fs.mkdirSync(wrong);fs.writeFileSync(path.join(wrong,'build-progress.json'),'private wrong directory');
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+  assert.deepEqual(result.validation_failures,[]);assert(result.matrix.every(row=>row.status==='not run'));
+  assert.equal(result.build_diagnostics.length,3);
+  for(const name of names){
+    const relative=`diagnostics/build-${id}-${name}`,diagnostic=result.build_diagnostics.find(row=>row.path===relative);
+    assert.equal(diagnostic.status,'unverified diagnostic');assert.equal(diagnostic.contributes_to_success,false);
+    const bytes=fs.readFileSync(path.join(f.root,'packet',relative),'utf8'),retained=JSON.parse(bytes);
+    assert.equal(retained.nested.text,'Authorization: Bearer [REDACTED]');assert.equal(retained.quoted,'a "quoted" string');
+    assert(!bytes.includes('synthetic-sensitive-value'));
+    assert(result.log_transformations.some(row=>row.path===relative&&row.sanitized));
+  }
+  assert(!result.files.some(row=>/private|unrecognized|source-after|dependencies-after/.test(row.path)));
+  assert(!result.files.some(row=>row.path.startsWith('build-output/')||row.path==='receipts/build.json'));
+});
+test('malformed or redirected build diagnostics cannot make a selected prefix green',t=>{
+  for(const redirected of [false,true]){
+    const f=selectPrefix(fixture(t),'portable-contracts'),id='01234567-89ab-cdef-0123-456789abcdef';
+    const root=path.join(f.root,redirected?'outside':'build'),directory=path.join(root,id);fs.mkdirSync(directory,{recursive:true});
+    fs.writeFileSync(path.join(directory,'build-progress.json'),redirected?'{}':'malformed JSON');
+    if(redirected){
+      const link=path.join(f.root,'build');fs.symlinkSync(root,link,process.platform==='win32'?'junction':'dir');
+      t.after(()=>{if(fs.existsSync(link))fs.unlinkSync(link)});
+    }
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+    assert(result.validation_failures.some(row=>row.startsWith('build diagnostics:')));
+    assert.equal(result.build_diagnostics.length,0);
+    assert(!result.files.some(row=>row.path.startsWith('diagnostics/')));
+  }
+});
+test('a partially written input diagnostic does not discard the other interrupted build observations',t=>{
+  const f=selectPrefix(fixture(t),'production-build');f.run.status='running';f.run.receipts={};f.run.stages.at(-1).status='running';
+  const id='01234567-89ab-cdef-0123-456789abcdef',directory=path.join(f.root,'build',id);fs.mkdirSync(directory,{recursive:true});
+  fs.writeFileSync(path.join(directory,'source-before.json'),'{"incomplete":');
+  fs.writeFileSync(path.join(directory,'dependencies-before.json'),JSON.stringify({status:'verified',schema:'diagnostic-only'}));
+  fs.writeFileSync(path.join(directory,'build-progress.json'),JSON.stringify({status:'running',phase:'cargo',elapsed_seconds:30}));
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+  assert(result.validation_failures.some(row=>row.includes('source-before.json')));
+  assert.equal(result.build_diagnostics.length,2);
+  assert(result.build_diagnostics.some(row=>row.path.endsWith('build-progress.json')));
+  assert(result.matrix.every(row=>row.status==='not run'));
+});
+test('native qualification progress is sanitized diagnostic evidence with bounded ordinary input',t=>{
+  const f=fixture(t);f.run.status='running';f.run.stages=f.run.stages.slice(0,9);f.run.stages.at(-1).status='running';
+  f.file('native-qualification-progress.json',JSON.stringify({schema:'vcp-build-progress/1',phase:'cargo',status:'running',job_cpu_seconds:12,note:'Authorization: Bearer synthetic-sensitive-value'}));
+  f.file('native-qualification.log','private duplicate raw output');f.file('unrecognized-progress.json','private unrelated contents');
+  const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.selection_status,'fail');assert.equal(result.pipeline_status,'fail');
+  assert.deepEqual(result.build_diagnostics,[{path:'diagnostics/native-qualification-progress.json',status:'unverified diagnostic',contributes_to_success:false}]);
+  const retained=JSON.parse(fs.readFileSync(path.join(f.root,'packet/diagnostics/native-qualification-progress.json'),'utf8'));
+  assert.equal(retained.job_cpu_seconds,12);assert.equal(retained.note,'Authorization: Bearer [REDACTED]');
+  assert(!result.files.some(row=>row.path.includes('native-qualification.log')||row.path.includes('unrecognized-progress')));
+  assert(result.matrix.every(row=>row.status==='not run'));
+  for(const mode of ['malformed','oversized','redirected']){
+    const invalid=selectPrefix(fixture(t),'portable-contracts');let runFile=invalid.write();
+    if(mode==='redirected'){
+      const outside=path.join(invalid.root,'outside');fs.mkdirSync(outside);
+      fs.copyFileSync(runFile,path.join(outside,'run.json'));fs.writeFileSync(path.join(outside,'native-qualification-progress.json'),'{}');
+      const alias=path.join(invalid.root,'alias');fs.symlinkSync(outside,alias,process.platform==='win32'?'junction':'dir');
+      t.after(()=>{if(fs.existsSync(alias))fs.unlinkSync(alias)});runFile=path.join(alias,'run.json');
+    }else invalid.file('native-qualification-progress.json',mode==='malformed'?'incomplete':Buffer.alloc(32*1024*1024+1,32));
+    const refused=evidence.packet(runFile,path.join(invalid.root,'packet'));
+    assert.equal(refused.selection_status,'fail');assert.equal(refused.pipeline_status,'fail');
+    assert(refused.validation_failures.some(row=>row.startsWith('native qualification diagnostics:')));
+    assert.deepEqual(refused.build_diagnostics,[]);
+  }
 });
 test('Windows candidate child capture preserves outputs, excludes credentials and enforces a deadline',{skip:process.platform!=='win32'},t=>{
   const f=fixture(t);

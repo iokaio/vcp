@@ -7,6 +7,7 @@ const stages = Object.freeze([
   'source-gate', 'provision', 'portable-contracts', 'production-build', 'native-package',
   'setup-package', 'vsix-package', 'pair', 'native-boundaries', 'installed-native', 'installed-editor',
 ]);
+const stops = Object.freeze(['portable-contracts', 'production-build', 'pair', 'installed-editor']);
 const matrix = Object.freeze([
   ['production-identity', 'Production build and identity', 'none', 'Production target/features, stable source/cache, final inventories and unsigned artifact digests.'],
   ['clean-installation', 'Clean installation', 'both', 'Clean standard-user supported Windows, no developer state, Unicode/custom paths, prerequisite/space failures and retry.'],
@@ -35,7 +36,8 @@ function sanitize(text, values = secrets()) {
 }
 function validateRun(run) {
   if (run.schema !== 'vcp-candidate-run/1' || !/^[a-f0-9]{40}$/.test(run.reviewed_commit || '') ||
-      !['pass', 'fail', 'running'].includes(run.status) || !Array.isArray(run.stages) || !run.environment?.os || !run.environment?.node) throw Error('Invalid candidate run');
+      !['pass', 'fail', 'running'].includes(run.status) || !Array.isArray(run.stages) || !run.environment?.os || !run.environment?.node ||
+      (run.stop_after !== undefined && !stops.includes(run.stop_after))) throw Error('Invalid candidate run');
   const seen = new Set();
   for (const row of run.stages) {
     if (!stages.includes(row.id) || seen.has(row.id) || !['pass', 'fail', 'not run', 'running'].includes(row.status) ||
@@ -48,10 +50,14 @@ function validateRun(run) {
 }
 function packet(runFile, output) {
   const run = validateRun(json(runFile));
+  const stopAfter = run.stop_after ?? 'installed-editor';
+  const selectedStages = stages.slice(0, stages.indexOf(stopAfter) + 1);
   if (fs.existsSync(output)) throw Error('Evidence packet requires a new directory');
   fs.mkdirSync(output, { recursive: true });
   const entries = [];
   const logTransformations = [];
+  const buildDiagnostics = [];
+  const validationFailures = [];
   const retainedLogs = new Set();
   function save(relative, bytes) {
     const target = path.join(output, relative);
@@ -79,24 +85,44 @@ function packet(runFile, output) {
   }
   const observations = stages.map(id => {
     const row = run.stages.find(value => value.id === id);
-    if (!row) return { id, status: 'not run', reason: 'No execution receipt; prerequisite failed or run interrupted.' };
+    if (!row) return { id, status: 'not run', reason: !selectedStages.includes(id)
+      ? 'Outside the explicitly selected stage prefix.' : 'No execution receipt; prerequisite failed or run interrupted.' };
     const result = { ...row, command: row.command.map(value => sanitize(value)) };
     if (result.reason) result.reason = sanitize(result.reason);
     if (row.log && fs.existsSync(row.log)) {
       const bytes = ordinary(row.log);
       result.original_log_sha256 = hash(bytes);
+      if (row.log_sha256 !== undefined && (typeof row.log_sha256 !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(row.log_sha256) || row.log_sha256 !== result.original_log_sha256)) {
+        result.status = 'fail'; result.reason = 'Stage log differs from its recorded completion digest';
+        validationFailures.push(`Changed or invalid stage log digest: ${id}`);
+      }
       result.log = `logs/${id}.log`;
       const sanitized = sanitize(bytes.toString('utf8'));
       save(result.log, sanitized); result.log_sha256 = hash(sanitized);
       result.log_sanitized = sanitized !== bytes.toString('utf8');
-    } else if (row.status === 'pass') throw Error('Passing stage lacks actual retained log');
-    else delete result.log;
+    } else {
+      delete result.log;
+      if (row.status === 'pass') {
+        result.status = 'fail'; result.reason = 'Passing stage lacks actual retained log';
+        validationFailures.push(`Missing passing stage log: ${id}`);
+      }
+    }
     if (result.status === 'running') { result.status = 'fail'; result.reason = 'Interrupted stage has no completion receipt.'; }
     return result;
   });
   let pair = null;
-  const validationFailures = [];
+  let buildValidated = false;
+  const orderedPrefix = run.stages.every((row, index) => row.id === selectedStages[index]);
+  if (!orderedPrefix) validationFailures.push('Stages do not follow the selected ordered prefix');
+  if (run.status === 'pass' && run.stages.length !== selectedStages.length) validationFailures.push('Selected stage prefix is incomplete');
   const receipts = run.receipts || {};
+  const requiresBuild = selectedStages.includes('production-build');
+  const requiresPair = selectedStages.includes('pair');
+  if (run.status === 'pass') {
+    for (const name of [...(requiresBuild ? ['build'] : []), ...(requiresPair ? ['native', 'vsix', 'setup'] : [])])
+      if (!receipts[name]) validationFailures.push(`Selected stage prefix requires ${name} receipt`);
+  }
   if (receipts.delivery) receipt(receipts.delivery, 'receipts/delivery-check.json');
   if (receipts.native && receipts.vsix && receipts.setup) {
     try {
@@ -209,26 +235,55 @@ function packet(runFile, output) {
       // Only verified copied executables, never PDBs, target trees or caches.
       // Keep the same buffers that were hashed, even if their source later changes.
       for (const { name, bytes } of buildOutputs) save(`build-output/${name}`, bytes);
+      buildValidated = true;
     }
     } catch (error) { validationFailures.push(`build: ${sanitize(error.message)}`); }
   }
   // Builders can fail before emitting a result. Preserve their narrowly named
   // public logs without traversing caches, staging trees or private fixtures.
+  const builderPlain = file => {
+    for (let current = path.resolve(file);; current = path.dirname(current)) {
+      if (fs.lstatSync(current).isSymbolicLink()) throw Error('Redirected builder diagnostic');
+      if (current === path.dirname(current)) break;
+    }
+    return file;
+  };
+  function diagnostic(file, relative) {
+    builderPlain(file);
+    if (fs.statSync(file).size > 32 * 1024 * 1024) throw Error('Build diagnostic exceeds size limit');
+    log(file, relative, undefined, true);
+    buildDiagnostics.push({ path: relative, status: 'unverified diagnostic', contributes_to_success: false });
+  }
   for (const [stage, names] of [
     ['build', ['build.log', 'upstream-verification.log', 'upstream-verification-after.log']],
     ['setup', ['setup-build.log', 'compiler-provision.log']],
   ]) {
     const root = path.join(path.dirname(path.resolve(runFile)), stage);
     if (!fs.existsSync(root)) continue;
+    try {
+    builderPlain(root);
     // build-production uses Guid.ToString(); build-setup uses ToString('N').
     const directoryName = stage === 'setup' ? /^[a-f0-9]{32}$/ : /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
     for (const child of fs.readdirSync(root, { withFileTypes: true })) {
       if (!child.isDirectory() || !directoryName.test(child.name)) continue;
       for (const name of names) {
         const file = path.join(root, child.name, name);
-        if (fs.existsSync(file)) log(file, `logs/${stage}-${child.name}-${name}`);
+        if (fs.existsSync(file)) log(builderPlain(file), `logs/${stage}-${child.name}-${name}`);
+      }
+      if (stage === 'build') for (const name of ['source-before.json', 'dependencies-before.json', 'build-progress.json']) {
+        const file = path.join(root, child.name, name);
+        if (!fs.existsSync(file)) continue;
+        try {
+          diagnostic(file, `diagnostics/build-${child.name}-${name}`);
+        } catch (error) { validationFailures.push(`build diagnostics: ${name}: ${sanitize(error.message)}`); }
       }
     }
+    } catch (error) { validationFailures.push(`${stage} diagnostics: ${sanitize(error.message)}`); }
+  }
+  const qualificationProgress = path.join(path.dirname(path.resolve(runFile)), 'native-qualification-progress.json');
+  if (fs.existsSync(qualificationProgress)) {
+    try { diagnostic(qualificationProgress, 'diagnostics/native-qualification-progress.json'); }
+    catch (error) { validationFailures.push(`native qualification diagnostics: ${sanitize(error.message)}`); }
   }
   for (const name of ['sdk-ts-install.log', 'sdk-ts-compile.log', 'vscode-install.log', 'vscode-compile.log']) {
     const file = path.join(path.dirname(path.resolve(runFile)), 'vsix', name);
@@ -278,6 +333,9 @@ function packet(runFile, output) {
     } catch (error) { validationFailures.push(`contract evidence: ${sanitize(error.message)}`); }
   }
   const allPass = stages.every(id => observations.find(row => row.id === id)?.status === 'pass');
+  const selectionPass = run.status === 'pass' && orderedPrefix && run.stages.length === selectedStages.length &&
+    selectedStages.every(id => observations.find(row => row.id === id)?.status === 'pass') &&
+    (!requiresBuild || buildValidated) && (!requiresPair || pair) && !validationFailures.length;
   const rows = matrix.map(([id, area, store, expected]) => ({ id, area, store, expected,
     status: 'not run', reason: 'Requires final-artifact qualification; pipeline or source-contract success alone does not satisfy this area.',
     source_commit: run.reviewed_commit, artifacts: pair?.artifacts || null, environment: run.environment, command: null, actual: null }));
@@ -288,12 +346,15 @@ function packet(runFile, output) {
     rows[0].evidence = ['pair.json', 'receipts/build.json', 'receipts/native.json', 'receipts/vsix.json', 'receipts/setup.json'];
   }
   const result = { schema: 'vcp-beta-evidence/1', status: 'qualification-required', reviewed_commit: run.reviewed_commit,
-    pipeline_status: run.status === 'pass' && allPass && pair && !validationFailures.length ? 'pass' : 'fail', validation_failures: validationFailures,
+    stop_after: stopAfter, selection_status: selectionPass ? 'pass' : 'fail',
+    pipeline_status: selectionPass ? (allPass && pair ? 'pass' : 'incomplete') : 'fail', validation_failures: validationFailures,
     pair_id: pair?.pair_id || null, environment: run.environment, observations, matrix: rows, log_transformations: logTransformations,
+    build_diagnostics: buildDiagnostics,
     publication: { authorized: false, owner_acceptance: 'not run' },
     limitations: ['Hosted Windows build image has developer tools; it is not clean standard-user Windows qualification.',
       'Source and synthetic fixture tests do not qualify installed-product behavior.',
       'build-output/ contains unpackaged diagnostic executables, not an installable artifact pair or completed qualification.',
+      'diagnostics/ contains unverified interrupted/pre-build observations; these never replace a validated build receipt or final artifact pair.',
       'No automatic live provider calls, model acquisition, signing, publication or owner approval.',
       'GitHub artifacts expire after 90 days; export the complete hashed packet to approved durable storage before expiry.'],
     files: entries.sort((a,b) => a.path.localeCompare(b.path)) };
@@ -302,7 +363,7 @@ function packet(runFile, output) {
   return result;
 }
 if (require.main === module) {
-  try { const [run, output, ...extra] = process.argv.slice(2); if (!run || !output || extra.length) throw Error('Use evidence.cjs <run.json> <new-packet-directory>'); const status = packet(run, output).pipeline_status; console.log(JSON.stringify({ status, output })); if (status !== 'pass') process.exitCode = 1; }
+  try { const [run, output, ...extra] = process.argv.slice(2); if (!run || !output || extra.length) throw Error('Use evidence.cjs <run.json> <new-packet-directory>'); const result = packet(run, output); console.log(JSON.stringify({ status: result.selection_status, selection_status: result.selection_status, pipeline_status: result.pipeline_status, stop_after: result.stop_after, output })); if (result.selection_status !== 'pass') process.exitCode = 1; }
   catch (error) { console.error('Evidence collection failed: ' + error.message); process.exitCode = 1; }
 }
 module.exports = { stages, matrix, sanitize, validateRun, packet };

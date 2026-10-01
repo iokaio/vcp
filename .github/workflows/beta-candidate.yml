@@ -7,6 +7,16 @@ on:
         description: 'Exact reviewed main commit (40 lowercase hex), with successful Delivery checks'
         required: true
         type: string
+      stop_after:
+        description: 'Bounded checkpoint; later work remains explicitly unrun'
+        required: true
+        default: portable-contracts
+        type: choice
+        options:
+          - portable-contracts
+          - production-build
+          - pair
+          - installed-editor
 permissions:
   contents: read
   actions: read
@@ -30,6 +40,7 @@ jobs:
       CARGO_TERM_COLOR: never
       CARGO_INCREMENTAL: '0'
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
+      STOP_AFTER: ${{ inputs.stop_after }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,12 +65,49 @@ jobs:
             npm.cmd ci --prefix $package --ignore-scripts --no-audit --no-fund
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: Build and exercise exact internal candidate
-        # Leave nominal headroom for the always() evidence steps. Earlier tool
-        # provisioning also consumes the 360-minute job budget; timeout/cancel
-        # handling and artifact retention are still best effort, not guaranteed.
-        timeout-minutes: 330
-        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2
+      # Selected stage limits total at most 325 minutes. Setup consumes part of
+      # the remaining job budget; always() evidence retention remains best effort.
+      - name: Validate exact source and select physical tool paths
+        timeout-minutes: 5
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage source-gate -StopAfter $env:STOP_AFTER
+      - name: Provision pinned compiler, editor and dependency inputs
+        timeout-minutes: 15
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage provision -StopAfter $env:STOP_AFTER
+      - name: Run portable contracts and editor archive checks
+        timeout-minutes: 20
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage portable-contracts -StopAfter $env:STOP_AFTER
+      - name: Build and verify production engine and launcher
+        if: success() && inputs.stop_after != 'portable-contracts'
+        timeout-minutes: 100
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage production-build -StopAfter $env:STOP_AFTER
+      - name: Assemble and verify native payload and notices
+        if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
+        timeout-minutes: 10
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage native-package -StopAfter $env:STOP_AFTER
+      - name: Build registered Windows setup
+        if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
+        timeout-minutes: 10
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage setup-package -StopAfter $env:STOP_AFTER
+      - name: Build and verify matching VSIX
+        if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
+        timeout-minutes: 10
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage vsix-package -StopAfter $env:STOP_AFTER
+      - name: Verify final artifact pair and release production target space
+        if: success() && contains(fromJSON('["pair","installed-editor"]'), inputs.stop_after)
+        timeout-minutes: 5
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage pair -StopAfter $env:STOP_AFTER
+      - name: Compile and run native qualification boundaries
+        if: success() && inputs.stop_after == 'installed-editor'
+        timeout-minutes: 100
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage native-boundaries -StopAfter $env:STOP_AFTER
+      - name: Qualify installed native launcher and console cancellation
+        if: success() && inputs.stop_after == 'installed-editor'
+        timeout-minutes: 25
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage installed-native -StopAfter $env:STOP_AFTER
+      - name: Qualify installed editor lifecycle on both stores
+        if: success() && inputs.stop_after == 'installed-editor'
+        timeout-minutes: 25
+        run: ./scripts/release/candidate.ps1 -ReviewedCommit $env:REVIEWED_COMMIT -OutputRoot artifacts/beta-candidate -Jobs 2 -Stage installed-editor -StopAfter $env:STOP_AFTER
       - name: Collect sanitized evidence including failures and unrun cases
         if: always()
         run: |

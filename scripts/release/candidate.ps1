@@ -4,25 +4,52 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{40}$')][string]$ReviewedCommit,
     [Parameter(Mandatory)][string]$OutputRoot,
-    [ValidateRange(1,8)][int]$Jobs = 2
+    [ValidateRange(1,8)][int]$Jobs = 2,
+    [ValidateSet('all','source-gate','provision','portable-contracts','production-build','native-package','setup-package','vsix-package','pair','native-boundaries','installed-native','installed-editor')][string]$Stage = 'all',
+    [ValidateSet('portable-contracts','production-build','pair','installed-editor')][string]$StopAfter = 'installed-editor'
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows candidate builder required' }
+$Stage=$Stage.ToLowerInvariant(); $StopAfter=$StopAfter.ToLowerInvariant()
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $PSScriptRoot 'editor-layout.ps1')
+. (Join-Path $PSScriptRoot 'candidate-state.ps1')
+. (Join-Path $PSScriptRoot 'build-progress.ps1')
 $tools=Get-Content -LiteralPath (Join-Path $repository 'release/candidate-tools.json') -Raw | ConvertFrom-Json
 $EditorArchiveSha256=$tools.editor.sha256
 if ($tools.schema -cne 'vcp-candidate-tools/1' -or $EditorArchiveSha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'Pinned candidate tools required' }
 $out = [IO.Path]::GetFullPath($OutputRoot)
-if (Test-Path -LiteralPath $out) { throw 'New candidate output directory required' }
-New-Item -ItemType Directory -Path (Join-Path $out 'logs') -Force | Out-Null
 $runPath = Join-Path $out 'run.json'
-$run = [ordered]@{
+$stageIds = @(Get-CandidateStageIds)
+if ($Stage -ne 'all' -and [array]::IndexOf($stageIds,$Stage) -gt [array]::IndexOf($stageIds,$StopAfter)) { throw 'Stage is beyond the selected stopping point' }
+$lockIdentity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value+'|'+$out.ToUpperInvariant()
+$lockDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($lockIdentity)))
+$runMutex=[Threading.Mutex]::new($false,('Local\VcpCandidate-'+$lockDigest))
+$ownsRun=$false
+try {
+try { $ownsRun=$runMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsRun=$true }
+if (-not $ownsRun) { throw 'Another candidate stage owns this output directory' }
+if ($Stage -in @('all','source-gate')) {
+    if (Test-Path -LiteralPath $out) { throw 'New candidate output directory required' }
+    $ancestor=Split-Path -Parent $out
+    while (-not (Test-Path -LiteralPath $ancestor)) { $ancestor=Split-Path -Parent $ancestor }
+    $null=Assert-CandidateStatePath $ancestor $true
+    New-Item -ItemType Directory -Path (Join-Path $out 'logs') -Force | Out-Null
+    $run = [ordered]@{
     schema='vcp-candidate-run/1'; status='running'; reviewed_commit=$ReviewedCommit
-    started_at=[DateTime]::UtcNow.ToString('o'); stages=@(); receipts=@{}
+    repository_root=$repository; output_root=$out; stop_after=$StopAfter
+    started_at=[DateTime]::UtcNow.ToString('o'); stages=@(); receipts=@{}; receipt_sha256=@{}
     environment=@{os=[Runtime.InteropServices.RuntimeInformation]::OSDescription; architecture=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); node='not observed'; powershell=$PSVersionTable.PSVersion.ToString(); runner_image=$env:ImageOS; runner_image_version=$env:ImageVersion; editor_archive_sha256=$EditorArchiveSha256; editor_version='1.138.0'; host='Windows build image with development tools; not clean standard-user qualification'}
+    }
+} else {
+    $null=Assert-CandidateStatePath $runPath $false
+    $run = Get-Content -LiteralPath $runPath -Raw | ConvertFrom-Json -AsHashtable
+    Assert-CandidateContinuation $run $out $repository $ReviewedCommit $Stage $StopAfter
 }
-function Save-Run { $run | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $runPath -Encoding utf8NoBOM }
+function Save-Run { Save-CandidateRun $run $runPath }
+function Selected-Stage([string]$Id) {
+    return [array]::IndexOf($stageIds,$Id) -le [array]::IndexOf($stageIds,$StopAfter) -and ($Stage -eq 'all' -or $Stage -ceq $Id)
+}
 function Get-CandidateDiskEvidence {
     $volumes=@(); $errors=@()
     foreach ($drive in [IO.DriveInfo]::GetDrives()) {
@@ -129,7 +156,19 @@ function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Bo
     $run.stages += $row; Save-Run
     Write-Host ("[{0}] Candidate stage '{1}' started." -f $row.started_at,$Id)
     try {
-        & $Body *> $log
+        if ($Id -cne 'source-gate') {
+            & $node (Join-Path $PSScriptRoot 'provenance.cjs') source $repository $ReviewedCommit | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Reviewed source changed between candidate stages' }
+        }
+        & $Body *>&1 | Tee-Object -FilePath $log | ForEach-Object {
+            $line=[string]$_
+            # Only controlled progress records reach the workflow console.
+            # Detailed command output remains in the retained stage log.
+            if ($line -cmatch '^VCP_BUILD_PROGRESS elapsed_seconds=[0-9]+ output_bytes=[0-9]+ idle_seconds=[0-9]+ compiler_artifacts=[0-9]+$' -or
+                $line -cmatch '^VCP_BUILD_PHASE phase=(build-input-verification|cargo|post-verification) status=(running|pass|fail)$') {
+                $Host.UI.WriteLine($line)
+            }
+        }
         if ($Id -in @('native-boundaries','installed-editor')) {
             $text=Get-Content -LiteralPath $log -Raw
             $passed=0
@@ -144,7 +183,11 @@ function Stage([string]$Id,[string[]]$Command,[string]$Expected,[scriptblock]$Bo
         $_.Exception.Message | Add-Content -LiteralPath $log
         throw
     } finally {
-        $row.ended_at=[DateTime]::UtcNow.ToString('o'); $row.disk_after=Get-CandidateDiskEvidence; Save-Run
+        if ($row.status -ceq 'running') { $row.status='fail'; $row.exit_code=1; $row.reason='Stage interrupted before completion'; $run.status='fail'; $run.failure=$row.reason }
+        $row.ended_at=[DateTime]::UtcNow.ToString('o'); $row.disk_after=Get-CandidateDiskEvidence
+        if (Test-Path -LiteralPath $log -PathType Leaf) { $row.log_sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant() }
+        foreach ($name in @($run.receipts.Keys)) { $run.receipt_sha256[$name]=(Get-FileHash -LiteralPath $run.receipts[$name]).Hash.ToLowerInvariant() }
+        Save-Run
         Write-Host ("[{0}] Candidate stage '{1}' ended: {2}." -f $row.ended_at,$Id,$row.status)
     }
 }
@@ -162,11 +205,44 @@ function Download([string]$Uri,[string]$File,[string]$Digest) {
     Invoke-WebRequest -Uri $Uri -OutFile $File
     if ((Get-FileHash -LiteralPath $File).Hash.ToLowerInvariant() -cne $Digest) { throw 'Pinned download hash mismatch' }
 }
+function Restore-CandidateEnvironment {
+    foreach ($name in @('node','pwsh')) {
+        $record=$run.environment.tools[$name]
+        $file=Assert-CandidateOrdinaryPath $record.path $false
+        if ((Get-FileHash -LiteralPath $file).Hash.ToLowerInvariant() -cne $record.sha256) { throw 'Selected candidate tool changed between stages' }
+        Set-Variable -Name $name -Scope Script -Value $file
+    }
+    $env:PATH=(Split-Path -Parent $node)+';'+$env:PATH
+    $temporary=Assert-CandidateOrdinaryPath $run.environment.temporary_directory.selected $true
+    $env:TEMP=$temporary; $env:TMP=$temporary
+    $script:private=$run.environment.qualification_root
+    if ((Split-Path -Parent $private) -ine $temporary -or (Split-Path -Leaf $private) -cnotmatch '^vcp-beta-private-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$') { throw 'Private qualification selection changed' }
+    if ($run.environment.node -cne ('v'+$tools.node)) { throw 'Recorded Node differs from candidate tools pin' }
+    $script:editor=Join-Path $out 'editor'
+    if ($Stage -ne 'provision') {
+        $layout=Resolve-BetaEditor -Code (Join-Path $editor 'Code.exe')
+        if ($layout.code_sha256 -cne $run.environment.editor_executable_sha256 -or $layout.version -cne $tools.editor.version -or $layout.commit -cne $tools.editor.commit) { throw 'Prepared editor changed between stages' }
+        $env:VCP_TEST_BETA_EDITOR_ARCHIVE=Join-Path $out 'vscode.zip'
+        $env:VCP_TEST_BETA_EDITOR_CODE=$layout.code
+    }
+}
+function Initialize-QualificationEnvironment {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+    $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not $vsRoot) { throw 'Native Visual C++ qualification tools required' }
+    & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
+    foreach ($relative in @('Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin','Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja')) { $env:PATH=(Join-Path $vsRoot $relative)+';'+$env:PATH }
+    $env:VCP_TEST_NODE=$node; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
+}
 Save-Run
 if (Test-Path -LiteralPath (Join-Path $repository 'artifacts/beta-gate/delivery.json')) { $run.receipts.delivery=Join-Path $repository 'artifacts/beta-gate/delivery.json' }
 $workspace = Join-Path $repository 'src/third_party/codex/codex-rs'
 $channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json
 try {
+    if ($Stage -notin @('all','source-gate')) { Restore-CandidateEnvironment }
+    if ($run.receipts.build) { $script:build=Get-Content -LiteralPath $run.receipts.build -Raw | ConvertFrom-Json }
+    $script:compilerInstaller=Join-Path $out ('innosetup-' + $channel.installer.version + '.exe')
+    if (Selected-Stage 'source-gate') {
     Stage 'source-gate' @('node','scripts/release/provenance.cjs','source',$repository,$ReviewedCommit) 'Clean exact reviewed source and channel versions.' {
         $script:pwsh = (Get-Command pwsh -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
         $script:node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -183,8 +259,14 @@ try {
         $temporary=Set-CandidateTemporaryDirectory $node $run.environment.temporary_directory
         $script:private=Join-Path $temporary ('vcp-beta-private-' + [guid]::NewGuid())
         $run.environment.qualification_root=$private
+        $run.environment.tools=@{
+            node=@{path=$node;sha256=(Get-FileHash -LiteralPath $node).Hash.ToLowerInvariant()}
+            pwsh=@{path=$pwsh;sha256=(Get-FileHash -LiteralPath $pwsh).Hash.ToLowerInvariant()}
+        }
         Checked $node @((Join-Path $PSScriptRoot 'provenance.cjs'),'source',$repository,$ReviewedCommit)
     }
+    }
+    if (Selected-Stage 'provision') {
     Stage 'provision' @('rustup','toolchain','install','1.95.0','1.98.0','--profile','minimal',';','cargo','+1.95.0','fetch','--locked','--target','x86_64-pc-windows-msvc') 'Explicit locked cache and pinned compiler/editor inputs; no provider or model acquisition.' {
         foreach ($version in @('1.95.0','1.98.0')) { Checked 'rustup' @('toolchain','install',$version,'--profile','minimal') }
         Push-Location $workspace
@@ -203,6 +285,8 @@ try {
         $env:VCP_TEST_BETA_EDITOR_ARCHIVE=$editorZip
         $env:VCP_TEST_BETA_EDITOR_CODE=$editorLayout.code
     }
+    }
+    if (Selected-Stage 'portable-contracts') {
     Stage 'portable-contracts' @('node','--test','--test-name-pattern','^prepared official archive resolves actual versioned layout','src/tests/contracts/editor-layout.test.cjs',';','npm.cmd','test','--prefix','src/packages/sdk-ts',';','npm.cmd','test','--prefix','src/packages/vscode',';','pwsh','-File','scripts/test.ps1','-Suite','fast') 'Pinned editor bytes, SDK/editor and fast contracts pass on the current Windows source.' {
         # The general harness deliberately strips qualification input variables.
         # Execute this pinned-byte case directly while its explicit inputs exist.
@@ -211,24 +295,34 @@ try {
         Checked 'npm.cmd' @('test','--prefix',(Join-Path $repository 'src/packages/vscode'))
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/test.ps1'),'-Suite','fast','-OutputRoot',(Join-Path $out 'contracts'))
     }
+    }
+    if (Selected-Stage 'production-build') {
     Stage 'production-build' @('pwsh','-File','scripts/build-production.ps1','-Release','-ReviewedCommit',$ReviewedCommit,'-Jobs',"$Jobs",'-OutputRoot',(Join-Path $out 'build')) 'Fresh offline Rust1.95 release build, no qualification features; source/cache/tool receipts stable.' {
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/build-production.ps1'),'-Release','-ReviewedCommit',$ReviewedCommit,'-Jobs',"$Jobs",'-OutputRoot',(Join-Path $out 'build'))
         $run.receipts.build=One-Result (Join-Path $out 'build') 'build-receipt.json'
         $script:build = Get-Content -LiteralPath $run.receipts.build -Raw | ConvertFrom-Json
     }
+    }
+    if (Selected-Stage 'native-package') {
     Stage 'native-package' @('pwsh','-File','scripts/package.ps1','-Release','-ReviewedCommit',$ReviewedCommit,'-BuildReceipt',$run.receipts.build,'-Executable',$build.executable,'-OutputRoot',(Join-Path $out 'native')) 'Strict native ZIP with bound notices, assets and compatibility.' {
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/package.ps1'),'-Release','-ReviewedCommit',$ReviewedCommit,'-BuildReceipt',$run.receipts.build,'-Executable',$build.executable,'-OutputRoot',(Join-Path $out 'native'))
         $run.receipts.native=One-Result (Join-Path $out 'native') 'result.json'
     }
+    }
+    if (Selected-Stage 'setup-package') {
     Stage 'setup-package' @('pwsh','-File','scripts/build-setup.ps1','-ReviewedCommit',$ReviewedCommit,'-NativeResult',$run.receipts.native,'-BuildReceipt',$run.receipts.build,'-Launcher',$build.launcher,'-CompilerInstaller',$compilerInstaller,'-OutputRoot',(Join-Path $out 'setup')) 'Pinned compiler builds the setup bound to this native ZIP and launcher.' {
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/build-setup.ps1'),'-ReviewedCommit',$ReviewedCommit,'-NativeResult',$run.receipts.native,'-BuildReceipt',$run.receipts.build,'-Launcher',$build.launcher,'-CompilerInstaller',$compilerInstaller,'-OutputRoot',(Join-Path $out 'setup'))
         $run.receipts.setup=One-Result (Join-Path $out 'setup') 'setup-result.json'
     }
+    }
+    if (Selected-Stage 'vsix-package') {
     $stagedEngine=Join-Path (Split-Path -Parent $run.receipts.native) 'package/vcp.exe'
     Stage 'vsix-package' @('node','src/packages/vscode/scripts/package.cjs','--reviewed-commit',$ReviewedCommit,'--build-receipt',$run.receipts.build,'--engine',$stagedEngine,'--engine-manifest',$run.receipts.native,'--output',(Join-Path $out 'vsix')) 'Actual strict beta VSIX with same source/native build and complete original build evidence.' {
         Checked $node @((Join-Path $repository 'src/packages/vscode/scripts/package.cjs'),'--reviewed-commit',$ReviewedCommit,'--build-receipt',$run.receipts.build,'--engine',$stagedEngine,'--engine-manifest',$run.receipts.native,'--output',(Join-Path $out 'vsix'))
         $run.receipts.vsix=Join-Path $out 'vsix/manifest.json'
     }
+    }
+    if (Selected-Stage 'pair') {
     Stage 'pair' @('node','scripts/release/pair.cjs',$run.receipts.native,$run.receipts.vsix,(Join-Path $out 'pair.json'),$run.receipts.setup) 'Independently hash all three final artifacts and require exact candidate identity.' {
         Checked $node @((Join-Path $PSScriptRoot 'pair.cjs'),$run.receipts.native,$run.receipts.vsix,(Join-Path $out 'pair.json'),$run.receipts.setup)
         $pairRow=@($run.stages | Where-Object id -CEQ 'pair')[0]
@@ -236,26 +330,34 @@ try {
         $run.production_target_cleanup=Remove-CandidateProductionTarget $out $run
         $run.production_target_cleanup | ConvertTo-Json -Depth 5
     }
+    }
+    if (Selected-Stage 'native-boundaries') {
     Stage 'native-boundaries' @('cargo','+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') 'Separate qualification target: real CLI/client import parity and native launcher contract regressions.' {
-        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-        $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-        & (Join-Path $vsRoot 'Common7/Tools/Launch-VsDevShell.ps1') -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
-        foreach ($relative in @('Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin','Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja')) { $env:PATH=(Join-Path $vsRoot $relative)+';'+$env:PATH }
-        $env:VCP_TEST_NODE=$node; $env:VCP_TEST_GIT=(Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source; $env:CODEX_TEST_ENVIRONMENT='local'; $env:RUST_MIN_STACK='16777216'
+        Initialize-QualificationEnvironment
         Push-Location $workspace
-        try { Checked 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') } finally { Pop-Location }
+        try {
+            $cargo=(Get-Command cargo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            $observed=Invoke-VcpBuildProcess -Executable $cargo -Arguments @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1') -WorkingDirectory $workspace -LogPath (Join-Path $out 'native-qualification.log') -ProgressPath (Join-Path $out 'native-qualification-progress.json') -MirrorOutput
+            if ($observed.exit_code -ne 0) { throw 'Native qualification build/tests failed; inspect retained stage log' }
+        } finally { Pop-Location }
         Checked $pwsh @('-NoProfile','-File',(Join-Path $repository 'scripts/package-install.test.ps1'))
     }
+    }
+    if (Selected-Stage 'installed-native') {
     $consoleTest=One-Result (Join-Path $out 'qualification-target') 'beta_launcher_console-*.exe'
     Stage 'installed-native' @('pwsh','-File','scripts/release/candidate-smoke.ps1','-NativeResult',$run.receipts.native,'-SetupResult',$run.receipts.setup,'-OutputRoot',(Join-Path $private 'native'),'-ConsoleTestExecutable',$consoleTest) 'Install exact setup outside checkout, launch exact engine, verify both-store console cancellation, preserve data and uninstall; hosted-image observation only.' {
         Checked $pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'candidate-smoke.ps1'),'-NativeResult',$run.receipts.native,'-SetupResult',$run.receipts.setup,'-OutputRoot',(Join-Path $private 'native'),'-ConsoleTestExecutable',$consoleTest)
     }
+    }
+    if (Selected-Stage 'installed-editor') {
     Stage 'installed-editor' @('cargo','+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','beta_editor_candidate','--','--ignored','--nocapture','--test-threads=1') 'Synthetic both-store history, reload/restart, incompatible or missing engine and rejected update through actual installed VSIX and production engine; no live calls.' {
+        Initialize-QualificationEnvironment
         $env:VCP_BETA_NATIVE_RESULT=$run.receipts.native; $env:VCP_BETA_SETUP_RESULT=$run.receipts.setup; $env:VCP_BETA_VSIX_MANIFEST=$run.receipts.vsix; $env:VCP_TEST_CODE=Join-Path $editor 'Code.exe'
         Push-Location $workspace
         try { Checked 'cargo' @('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',(Join-Path $out 'qualification-target'),'-j',"$Jobs",'-p','vcp-cli','--features','qualification','--test','beta_editor_candidate','--','--ignored','--nocapture','--test-threads=1') } finally { Pop-Location }
     }
-    $run.status='pass'
+    }
+    if ($run.stages.Count -eq ([array]::IndexOf($stageIds,$StopAfter)+1) -and @($run.stages | Where-Object status -CNE 'pass').Count -eq 0) { $run.status='pass' }
 } catch { $run.status='fail'; $run.failure=$_.Exception.Message }
 finally {
     # A failed production build can still emit a reviewable receipt.
@@ -263,7 +365,12 @@ finally {
         $failed = @(Get-ChildItem -LiteralPath (Join-Path $out 'build') -Filter build-receipt.json -Recurse -File)
         if ($failed.Count -eq 1) { $run.receipts.build=$failed[0].FullName }
     }
-    $run.ended_at=[DateTime]::UtcNow.ToString('o'); Save-Run
+    if ($run.status -ne 'running') { $run.ended_at=[DateTime]::UtcNow.ToString('o') }
+    Save-Run
 }
 Write-Output $runPath
-if ($run.status -ne 'pass') { Write-Error $run.failure; exit 1 }
+if ($run.status -eq 'fail') { Write-Error $run.failure; exit 1 }
+} finally {
+    if ($ownsRun) { $runMutex.ReleaseMutex() }
+    $runMutex.Dispose()
+}
