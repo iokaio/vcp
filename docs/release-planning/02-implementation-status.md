@@ -10,6 +10,19 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-07/08/11 update: the renamed signed candidate and limited publication are
+complete. [Candidate 36938973679/1](https://github.com/iokaio/vcp/actions/runs/36938973679/attempts/1)
+passed through `pair` on source `a4a5b93b0077eb8f6a63f005379c09ce0ff4773e`.
+Pair `e9e8ba52684a67b726787911082ec683ed8fba33c507e2c496bf9765ff626984`
+is [public](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.2-e9e8ba52684a)
+and selected by [downloads.ioka.io](https://downloads.ioka.io/) after the owner's
+explicit publication instruction. All five downloaded assets matched their
+prepared hashes; page HTML, latest metadata and HTTPS verified. See the
+[publication record](../development/beta-publication.md). Native signatures passed
+for all four signed roles; installed and clean-host qualification for this exact
+pair remains pending. The following preparation notes retain their historical
+status and do not supersede this update.
+
 BETA-07: the owner requested the next extension identity `iokaio.vcp`, replacing
 `iokaio.vcp-local`. The package name, archive names, installed-editor checks and
 current setup guidance now follow that identity. Historical candidate filenames,

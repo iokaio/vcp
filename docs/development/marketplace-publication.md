@@ -4,11 +4,17 @@
 
 The owner requested the shorter extension ID `iokaio.vcp` for the next candidate.
 Its display name remains **VCP Coding Agent** and its category is **AI**.
-After the new matching pair is built and qualified, upload its exact
+The matching signed pair is [published on GitHub](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.2-e9e8ba52684a)
+and [the downloads page](https://downloads.ioka.io/); its `pair` checkpoint passed,
+with later qualification still pending. The owner is manually uploading its exact
 `vcp-0.2.2-win32-x64.vsix` through **New extension → Visual Studio Code** under
 [publisher iokaio](https://marketplace.visualstudio.com/manage/publishers/iokaio).
-This is a new listing, not an update to the existing `vcp-local` entry. A verified
-upload artifact and hash for this identity are not yet recorded.
+This is a new listing, not an update to the existing `vcp-local` entry.
+Verified local file: `artifacts/marketplace-upload/iokaio-vcp-0.2.2/assets/vcp-0.2.2-win32-x64.vsix`.
+SHA-256: `9d8f43f896aa2b3ebedd8e3dd9795cf2ab4331dd889d2a49ffd82ef7b6ab8098`.
+The public GitHub VSIX has the same hash. Marketplace upload completion has not
+yet been independently confirmed. The owner reports no end-user installations
+of `iokaio.vcp-local`; no end-user migration campaign is needed.
 
 Disconnect and uninstall `iokaio.vcp-local` (or the earlier `vcp.vcp-local`) before
 installing `iokaio.vcp`; retain the native installation, data and User settings,
