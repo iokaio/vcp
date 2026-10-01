@@ -247,6 +247,11 @@ async fn final_installed_helpers_preserve_payload_and_drain_process_tree() {
     ] {
         let path = input(name);
         plain(&path);
+        let path = if flag == "-InstalledEngine" {
+            script_path::argument(&path)
+        } else {
+            path
+        };
         command.arg(flag).arg(path);
     }
     command
