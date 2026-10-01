@@ -26,8 +26,17 @@ not run. The stopped startup-only compile and prior failed candidates retain
 their outcomes. No product defect has been established by that new file-release
 assertion. None of this deferred patch is included in the manual-candidate branch.
 
-Next: deliver the scope documentation, select its reviewed main commit, produce
-one `pair` checkpoint, verify its artifacts and run the focused installed checks.
+The limited milestone is complete: [PR #324](https://github.com/iokaio/vcp/pull/324)
+delivered the scope revision; its reviewed main commit `f81b2c50` passed ordinary
+Delivery checks and [candidate attempt 2](https://github.com/iokaio/vcp/actions/runs/36868151228/attempts/2)
+passed through `pair` on `vcpwin` with 16 build jobs. All 88 retained checksum
+entries and the independent pair/payload checks passed. Focused developer-host
+installation, offline onboarding, installed observer/setup-guide checks on both
+stores, uninstall and retained-file checks passed with no model calls or forced
+process cleanup. The [handoff record](05-manual-candidate.md) identifies exact
+artifacts, local evidence, corrected invocation/provisioning failures and unrun
+rows. Full BETA-09/BETA-11 remain open. Stop implementation here; the next action
+is the owner manual walkthrough, not another qualification infrastructure increment.
 
 | Item | Status | Implementation and evidence |
 | --- | --- | --- |

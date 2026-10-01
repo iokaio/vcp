@@ -1,5 +1,7 @@
 # Internal beta manual-testing checklist
 
+Current handoff: [October 1 candidate, artifacts and observed results](05-manual-candidate.md).
+
 This milestone supplies one exact unsigned Windows installer/ZIP/VSIX pair for
 owner-led testing. It does not close the [release qualification matrix](00-release-plan.md#5-required-beta-qualification-matrix),
 establish clean-host qualification, or authorize public publication. Record each
