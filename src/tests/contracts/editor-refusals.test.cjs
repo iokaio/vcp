@@ -3,6 +3,41 @@
 const test = require('node:test'), assert = require('node:assert/strict'), crypto = require('node:crypto');
 const {observation} = require('../../../scripts/release/editor-refusals.cjs');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
+const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
+const {execFileSync} = require('node:child_process');
+
+test('actual refusal payload selector resolves the current publisher alongside an earlier installation', {skip: process.platform !== 'win32'}, t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-refusal-publisher-'));
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const manifest = require('../../packages/vscode/package.json');
+  const extensions = path.join(root, 'extensions');
+  for (const publisher of [manifest.publisher, 'vcp']) {
+    const directory = path.join(extensions, publisher);
+    fs.mkdirSync(directory, {recursive: true});
+    fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({publisher, name: manifest.name, version: manifest.version}));
+  }
+  const runner = path.join(root, 'selector.ps1');
+  fs.writeFileSync(runner, String.raw`param([string]$Source,[string]$Extensions,[string]$Version,[string]$Expected)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Refusal runner parse failed'}
+$selector=@($ast.FindAll({param($item) $item -is [Management.Automation.Language.FunctionDefinitionAst] -and $item.Name -ceq 'Installed-Extension'},$true))
+$payload=@($ast.FindAll({param($item) $item -is [Management.Automation.Language.FunctionDefinitionAst] -and $item.Name -ceq 'Verify-Payload'},$true))
+if($selector.Count -ne 1 -or $payload.Count -ne 1){throw 'Expected exact runner functions'}
+$calls=@($payload[0].FindAll({param($item) $item -is [Management.Automation.Language.CommandAst] -and $item.GetCommandName() -ceq 'Installed-Extension' -and $item.Extent.Text.Contains('vcp-local')},$true))
+if($calls.Count -ne 1){throw 'Expected exact payload selector call'}
+. ([scriptblock]::Create($selector[0].Extent.Text))
+$vsix=@{extension=@{version=$Version}}
+$actual=& ([scriptblock]::Create($calls[0].Extent.Text))
+if($actual -cne $Expected){throw 'Payload selector chose the wrong publisher'}
+`);
+  execFileSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', runner,
+    '-Source', path.resolve(__dirname, '../../../scripts/release/editor-refusals.ps1'),
+    '-Extensions', extensions, '-Version', manifest.version, '-Expected', path.join(extensions, manifest.publisher)],
+  {windowsHide: true, timeout: 15000, stdio: 'pipe'});
+});
+
 const input = mode => ({mode, version: '0.2.1', scope: {workspace: 'w', session: 's'}, task: 'paused', sourceText: 'original human work\n', driverSha256: 'a'.repeat(64)});
 function result(mode) {
   const selected = input(mode), source = selected.sourceText;

@@ -12,7 +12,7 @@ exports.activate=()=>setImmediate(async()=>{
     assert.equal(typeof input.editorRuntime,'string');
     const allowed=new Set([input.editorRuntime,process.env.SystemRoot,path.join(process.env.SystemRoot,'System32')].map(normalize));
     assert(process.env.PATH.split(path.delimiter).every(entry=>entry && allowed.has(normalize(entry))));
-    const extension=vscode.extensions.getExtension('vcp.vcp-local');assert(extension);
+    const extension=vscode.extensions.getExtension('iokaio.vcp-local');assert(extension);
     assert.equal(extension.packageJSON.version,input.version);
     assert(!normalize(extension.extensionPath).startsWith(normalize(input.checkout)+path.sep));
     api=await extension.activate();

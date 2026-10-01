@@ -43,7 +43,7 @@ $base=@($editorCli,'--user-data-dir',$user,'--extensions-dir',$extensions)
 function Installed-Extension {
     $installedCandidates=@(Get-ChildItem -LiteralPath $extensions -Directory | Where-Object {
         $manifest=Join-Path $_.FullName 'package.json'
-        if (Test-Path -LiteralPath $manifest) { $package=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json; $package.publisher -ceq 'vcp' -and $package.name -ceq 'vcp-local' -and $package.version -ceq $vsix.extension.version }
+        if (Test-Path -LiteralPath $manifest) { $package=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json; $package.publisher -ceq 'iokaio' -and $package.name -ceq 'vcp-local' -and $package.version -ceq $vsix.extension.version }
     })
     if ($installedCandidates.Count -ne 1) { throw 'Exactly one original candidate extension must remain installed' }
     return $installedCandidates[0].FullName
@@ -92,7 +92,7 @@ if ($Mode -ceq 'failed-update') {
     try { $prefix=[byte[]]::new(16); if ($source.Read($prefix,0,$prefix.Length) -ne $prefix.Length) { throw 'Final VSIX is unexpectedly short' }; [IO.File]::WriteAllBytes($corrupt,$prefix) } finally { $source.Dispose() }
     $rejected=Invoke-BetaProcess $Code ($base+@('--install-extension',$corrupt,'--force')) $root $editorEnvironment 90 1
     $listed=Invoke-BetaProcess $Code ($base+@('--list-extensions','--show-versions')) $root $editorEnvironment
-    if (@($listed.stdout -split '\r?\n' | Where-Object { $_.Trim() -ceq ('vcp.vcp-local@'+$vsix.extension.version) }).Count -ne 1 -or (Extension-Inventory).sha256 -cne $progress.inventory -or (Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -cne $vsix.archive.sha256) { throw 'Rejected update changed the original installed or archived VSIX' }
+    if (@($listed.stdout -split '\r?\n' | Where-Object { $_.Trim() -ceq ('iokaio.vcp-local@'+$vsix.extension.version) }).Count -ne 1 -or (Extension-Inventory).sha256 -cne $progress.inventory -or (Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -cne $vsix.archive.sha256) { throw 'Rejected update changed the original installed or archived VSIX' }
     $rejection=@{exit_code=$rejected.exit_code;retained_version=$vsix.extension.version;installed_inventory_sha256=$progress.inventory;truncated_sha256=(Get-FileHash -LiteralPath $corrupt).Hash.ToLowerInvariant();original_archive_preserved=$true}
 }
 $engine=if ($Mode -ceq 'missing') { Join-Path $root 'missing-engine.exe' } else { $installed.engine }
@@ -108,9 +108,9 @@ $report | Add-Member -NotePropertyMembers @{source_commit=$native.manifest.relea
 if ($Mode -ceq 'reconnect') {
     # Normal observers release the native owner after its 30-second idle grace.
     Start-Sleep -Seconds 32
-    $null=Invoke-BetaProcess $Code ($base+@('--uninstall-extension','vcp.vcp-local')) $root $editorEnvironment
+    $null=Invoke-BetaProcess $Code ($base+@('--uninstall-extension','iokaio.vcp-local')) $root $editorEnvironment
     $listed=Invoke-BetaProcess $Code ($base+@('--list-extensions','--show-versions')) $root $editorEnvironment
-    if (@($listed.stdout -split '\r?\n' | Where-Object { $_ -match '^vcp\.vcp-local@' }).Count) { throw 'VCP extension remains installed after removal' }
+    if (@($listed.stdout -split '\r?\n' | Where-Object { $_ -match '^iokaio\.vcp-local@' }).Count) { throw 'VCP extension remains installed after removal' }
     Uninstall-BetaCandidate $installed $root
     $report | Add-Member -NotePropertyName uninstalled -NotePropertyValue $true
 }

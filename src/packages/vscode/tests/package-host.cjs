@@ -12,7 +12,7 @@ exports.run=async()=>{
   const runtime=[input.editorRoot,...fs.readdirSync(input.editorRoot,{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>path.join(input.editorRoot,entry.name))].filter(root=>{try{return JSON.parse(fs.readFileSync(path.join(root,'resources/app/package.json'),'utf8')).version==='1.138.0'}catch{return false}});
   assert.equal(runtime.length,1);const allowedPath=new Set([process.env.SystemRoot,path.join(process.env.SystemRoot,'System32'),runtime[0]].map(normalize));
   unexpectedPath=process.env.PATH.split(path.delimiter).filter(entry=>!entry||!allowedPath.has(normalize(entry)));const developmentPathAbsent=unexpectedPath.length===0;assert(developmentPathAbsent);
-  const extension=vscode.extensions.getExtension('vcp.vcp-local');assert(extension);assert.equal(extension.packageJSON.version,input.version);
+  const extension=vscode.extensions.getExtension('iokaio.vcp-local');assert(extension);assert.equal(extension.packageJSON.version,input.version);
   assert(!extension.extensionPath.toLowerCase().startsWith(input.checkout.toLowerCase()));
   api=await extension.activate();
   const restoring=input.mode==='install'&&fs.existsSync(input.reloadMarker);

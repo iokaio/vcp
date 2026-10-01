@@ -264,7 +264,7 @@ impl Package {
                         .file_name()
                         .unwrap()
                         .to_string_lossy()
-                        .starts_with("vcp.vcp-local-")
+                        .starts_with("iokaio.vcp-local-")
             })
             .expect("installed extension directory")
     }
