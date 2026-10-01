@@ -39,9 +39,15 @@ ordinary runtime directory with the pinned version and full commit, and selects
 its CLI script and DLL search path. Portable contracts compare the extracted
 executable, metadata and CLI against the exact downloaded archive without
 launching Code or installing an extension.
-`windows-2025` is a standard hosted image label, not an immutable Windows image;
-the packet records the actual image and OS version and native compiler hashes.
-It does not expand the supported Windows envelope.
+The workflow selects the owner-provisioned GitHub-hosted runner `vcpwin` in
+`wingroup`: Windows Latest (2025), 16 cores, 64 GB RAM and 600 GB SSD. Production
+and qualification compilation use 16 Cargo jobs. The native Windows qualification
+and storage handoff jobs in [Delivery checks](../../.github/workflows/ci.yml)
+use the same runner and compilation limit; Linux checks retain their platform
+coverage. Stateful installed tests keep their existing serial execution. The
+image selection is mutable; the packet records the actual image and OS version,
+native compiler hashes and measured build resources. This changes build capacity,
+not the supported Windows envelope or the clean-host qualification requirement.
 
 The build provisions npm locks without install scripts and explicitly runs
 `cargo +1.95.0 fetch --locked --target x86_64-pc-windows-msvc` before the offline
