@@ -2,7 +2,7 @@
 
 Review date: September 30, 2026. Reviewed source: `b0d84a2df6e5fa7ed3163a3b1920fcf620623213` (`main` merge of PR #289).
 
-Status, revised October 1, 2026: **prepare one candidate for owner manual testing**. Product implementation and packaging are delivered as recorded in the implementation ledger. The immediate work is a verified installer/ZIP/VSIX pair, focused installed checks and a usable testing handoff. Full qualification and publication remain incomplete.
+Status, revised October 1, 2026: **candidate handed off for owner manual testing**. The [selected installer/ZIP/VSIX pair and focused installed results](05-manual-candidate.md) complete the limited milestone below. Implementation stops at this handoff; the next action is the owner walkthrough. Full qualification and publication remain incomplete.
 
 This document records the original code review and implementation contract. Implementation was authorized on September 30, 2026 for an **internal beta and manual testing**. Current decisions and delivery evidence are tracked in [the implementation ledger](02-implementation-status.md) and [ADR-072](../adr/072-internal-windows-beta.md). The review findings below are historical baseline observations, not claims about later implementation. Neither the review nor the implementation request authorizes paid qualification or publication.
 
