@@ -72,8 +72,22 @@ function Install-BetaCandidate([string]$NativeResult,[string]$SetupResult,[strin
     if ($selection.schema -cne 'vcp-installed-engine/1' -or $expected.Count -ne 1 -or [IO.Path]::GetFullPath($selection.executable).Replace('\\?\','') -ine $expectedEngine -or (Get-FileHash -LiteralPath $selection.executable).Hash.ToLowerInvariant() -cne $expected[0].sha256 -or [IO.Path]::GetFullPath($selection.data_directory).Replace('\\?\','').TrimEnd('\') -ine [IO.Path]::GetFullPath($Data).TrimEnd('\')) { throw 'Installed engine/data selection differs from final candidate' }
     return @{app=$app;launcher=$launcher;engine=$selection.executable;data=$Data;registration=$registration;native_sha256=$native.archive_sha256;setup_sha256=$setup.archive.sha256;engine_sha256=$expected[0].sha256}
 }
+function Wait-BetaUninstall([hashtable]$Installed,[ValidateRange(1,10)][int]$Seconds=10) {
+    # Inno may finish deleting its own files shortly after the launched process
+    # returns. Observe completion; never remove leftovers or retained data here.
+    $watch=[Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $registration=Test-Path -LiteralPath $Installed.registration -ErrorAction Stop
+        $app=Test-Path -LiteralPath $Installed.app -ErrorAction Stop
+        if (-not $registration -and -not $app) { return }
+        if ($watch.Elapsed.TotalSeconds -ge $Seconds) {
+            if ($registration) { throw 'Uninstall registration remains' }
+            throw 'Owned installed program files remain after uninstall'
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
 function Uninstall-BetaCandidate([hashtable]$Installed,[string]$Root) {
     $null=Invoke-BetaProcess (Join-Path $Installed.app 'unins000.exe') @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG='+(Join-Path $Root 'uninstall.log'))) $Root
-    if (Test-Path -LiteralPath $Installed.registration) { throw 'Uninstall registration remains' }
-    if (Test-Path -LiteralPath $Installed.app) { throw 'Owned installed program files remain after uninstall' }
+    Wait-BetaUninstall $Installed
 }

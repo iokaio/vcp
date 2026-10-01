@@ -398,6 +398,131 @@ if (-not $refused) { throw 'Timeout accepted' }
   execFileSync('pwsh',['-NoProfile','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Node',process.execPath,'-Root',f.root],{windowsHide:true,timeout:20000,stdio:'pipe'});
 });
 
+test('Windows candidate uninstall waits for deferred removal and preserves real leftovers',{skip:process.platform!=='win32'},t=>{
+  const f=fixture(t);
+  const script=f.file('uninstall-test.ps1',String.raw`param([string]$Helper,[string]$Root)
+$ErrorActionPreference='Stop'
+. $Helper
+function Require([bool]$Okay,[string]$Why){if(-not $Okay){throw $Why}}
+# Synthetic paths stand in for the two observed providers. No real install,
+# registry key, executable or user data is created or removed by this contract.
+$app=Join-Path $Root 'Program Files café'
+$registration=Join-Path $Root 'registration'
+$sentinel=Join-Path $Root 'retained-data.txt'
+[IO.File]::WriteAllText($sentinel,'preserved user data')
+$installed=@{app=$app;registration=$registration}
+$script:cleanup=$null;$script:pending=$null;$script:processReturned=$false
+function Invoke-BetaProcess([string]$Executable,[string[]]$Arguments,[string]$Directory){
+    Require ($Executable -ceq (Join-Path $app 'unins000.exe')) 'Wrong uninstaller selected'
+    Require ($Directory -ceq $Root -and ($Arguments -join '|') -ceq ('/VERYSILENT|/SUPPRESSMSGBOXES|/NORESTART|/LOG='+(Join-Path $Root 'uninstall.log'))) 'Uninstall command changed'
+    # Simulate Inno's owned final cleanup after a successful process return.
+    # Each path is an empty, explicitly created fixture directory.
+    $gone=if($script:deferred -ceq 'app'){$registration}else{$app}
+    $pendingPath=if($script:deferred -ceq 'app'){$app}else{$registration}
+    [IO.Directory]::Delete($gone)
+    $script:cleanup=[powershell]::Create()
+    $null=$script:cleanup.AddScript({param($App)
+        Start-Sleep -Milliseconds 500
+        [IO.Directory]::Delete($App)
+    }).AddArgument($pendingPath)
+    $script:pending=$script:cleanup.BeginInvoke()
+    Require ((Test-Path -LiteralPath $pendingPath) -and -not (Test-Path -LiteralPath $gone)) 'One cleanup observation must still be pending at process exit'
+    $script:processReturned=$true
+    return @{exit_code=0;stdout='';stderr=''}
+}
+foreach($script:deferred in @('app','registration')){
+    New-Item -ItemType Directory -Path $app,$registration | Out-Null
+    try {
+        Uninstall-BetaCandidate $installed $Root
+        Require $script:processReturned 'Actual uninstall wrapper did not execute'
+        Require (-not (Test-Path -LiteralPath $app) -and -not (Test-Path -LiteralPath $registration)) 'Wait returned before both cleanup observations'
+    } finally {
+        if($script:cleanup){$null=$script:cleanup.EndInvoke($script:pending);$script:cleanup.Dispose();$script:cleanup=$null}
+    }
+}
+# An already complete uninstall returns immediately. Permanent registration
+# and program leftovers each fail their bounded wait without deleting either.
+Wait-BetaUninstall $installed -Seconds 1
+New-Item -ItemType Directory -Path $app,$registration | Out-Null
+$leftover=Join-Path $app 'preserve-leftover.txt'
+[IO.File]::WriteAllText($leftover,'preserved program evidence')
+foreach($mode in @('registration','program')){
+    $message=$null
+    try{Wait-BetaUninstall $installed -Seconds 1}catch{$message=$_.Exception.Message}
+    $expected=if($mode -ceq 'registration'){'Uninstall registration remains'}else{'Owned installed program files remain after uninstall'}
+    Require ($message -ceq $expected) ('Wrong persistent-leftover result: '+$message)
+    Require ((Test-Path -LiteralPath $app) -and [IO.File]::ReadAllText($leftover) -ceq 'preserved program evidence') 'Wait removed program evidence'
+    if($mode -ceq 'registration'){
+        Require (Test-Path -LiteralPath $registration) 'Wait removed registration evidence'
+        [IO.Directory]::Delete($registration)
+    }
+}
+# A failed uninstaller never reaches the post-success cleanup observation.
+$script:waitCalled=$false
+function Wait-BetaUninstall {$script:waitCalled=$true;throw 'Unexpected wait'}
+function Invoke-BetaProcess {throw 'Expected synthetic uninstaller failure'}
+$message=$null
+try{Uninstall-BetaCandidate $installed $Root}catch{$message=$_.Exception.Message}
+Require ($message -ceq 'Expected synthetic uninstaller failure' -and -not $script:waitCalled) 'Failed uninstaller was accepted or waited'
+Require ([IO.File]::ReadAllText($sentinel) -ceq 'preserved user data' -and [IO.File]::ReadAllText($leftover) -ceq 'preserved program evidence') 'Uninstall observation changed retained data'
+`);
+  execFileSync('pwsh',['-NoProfile','-NonInteractive','-File',script,'-Helper',path.resolve(__dirname,'../../../scripts/release/candidate-runtime.ps1'),'-Root',f.root],
+    {windowsHide:true,timeout:15000,stdio:'pipe'});
+});
+
+test('Windows editor smoke preserves failed setup and observer installations and uninstalls only success',{skip:process.platform!=='win32'},t=>{
+  const f=fixture(t);
+  const script=f.file('editor-preservation-test.ps1',String.raw`param([string]$Smoke,[string]$Repo,[string]$Root)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($Smoke,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Editor smoke parse failed'}
+$transactions=@($ast.EndBlock.Statements | Where-Object {$_ -is [Management.Automation.Language.TryStatementAst]})
+if($transactions.Count -ne 1){throw 'Expected one actual editor installation transaction'}
+# A reconstructed scriptblock has no automatic source directory. Substitute
+# only that location variable; execute the actual transaction and finally.
+$body=[scriptblock]::Create($transactions[0].Extent.Text.Replace('$PSScriptRoot','$releaseScripts'))
+function Install-BetaCandidate {
+    # This marker represents an already registered setup even when the setup
+    # helper throws before returning its selected installation to the caller.
+    [IO.File]::WriteAllText((Join-Path $root 'installed-marker'),'preserve installation')
+    if($script:mode -ceq 'setup-failure'){throw 'Injected setup failure'}
+    return @{engine=(Join-Path $root 'engine.exe');setup_sha256='setup';engine_sha256='engine'}
+}
+function Invoke-BetaProcess([string]$Executable){
+    if($Executable -ceq $pwsh){
+        if($script:mode -ceq 'observer-failure'){throw 'Injected observer failure'}
+        @{status='pass';observer=$true} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'result.json') -Encoding utf8NoBOM
+    }
+    return @{exit_code=0;stdout='';stderr=''}
+}
+function Uninstall-BetaCandidate {
+    $script:uninstalls++
+    [IO.File]::Delete((Join-Path $root 'installed-marker'))
+}
+function Start-Sleep {} # No real editor/native owner is launched by the mocks.
+$repo=$Repo;$releaseScripts=Join-Path $Repo 'scripts/release';$fixtureRoot=$Root
+$Code='synthetic-code';$node='synthetic-node';$pwsh='synthetic-pwsh';$archive='synthetic.vsix'
+$editorLayout=@{cli='synthetic-cli';runtime='synthetic-runtime';version='1.138.0';commit='commit';code_sha256='code'}
+$editorRoot='synthetic-editor';$native=@{archive_sha256='native'};$vsix=@{archive=@{sha256='vsix'};extension=@{version='0.2.1'}}
+foreach($script:mode in @('setup-failure','observer-failure','success')){
+    $root=Join-Path $fixtureRoot $script:mode
+    New-Item -ItemType Directory -Path $root | Out-Null
+    $Workspace=Join-Path $root 'workspace';$DataRoot=Join-Path $root 'data'
+    $NativeResult='synthetic-native';$SetupResult='synthetic-setup'
+    $installed=$null;$observationComplete=$false;$script:uninstalls=0;$failure=$null
+    try {. $body}catch{$failure=$_.Exception.Message}
+    if($script:mode -ceq 'success'){
+        if($failure -or $script:uninstalls -ne 1 -or (Test-Path -LiteralPath (Join-Path $root 'installed-marker'))){throw ('Successful smoke cleanup differs: '+$failure)}
+    }else{
+        if($failure -cnotmatch '^Injected (setup|observer) failure$' -or $script:uninstalls -ne 0 -or [IO.File]::ReadAllText((Join-Path $root 'installed-marker')) -cne 'preserve installation'){throw ('Failed smoke did not preserve installation: '+$failure)}
+    }
+}
+`);
+  execFileSync('pwsh',['-NoProfile','-NonInteractive','-File',script,'-Smoke',path.resolve(__dirname,'../../../scripts/release/editor-smoke.ps1'),'-Repo',path.resolve(__dirname,'../../..'),'-Root',f.root],
+    {windowsHide:true,timeout:15000,stdio:'pipe'});
+});
+
 test('failed real harness retains sanitized child diagnostics without copying private fixtures',async t=>{
   const f=fixture(t);f.run.status='fail';f.run.stages=[];
   const {runSuite}=require('../support/harness.cjs');

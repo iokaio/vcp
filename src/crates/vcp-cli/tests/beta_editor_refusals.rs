@@ -8,6 +8,8 @@ mod editor_supervision;
 mod hidden_process;
 #[path = "support/local_fixture.rs"]
 mod local_fixture;
+#[path = "support/script_path.rs"]
+mod script_path;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -79,7 +81,9 @@ fn runner(repo: &Path) -> Command {
     );
     command
         .args(["-NoProfile", "-File"])
-        .arg(repo.join("scripts/release/editor-refusals.ps1"));
+        .arg(script_path::argument(
+            &repo.join("scripts/release/editor-refusals.ps1"),
+        ));
     command
 }
 fn preserved(
@@ -381,6 +385,7 @@ async fn final_installed_candidate_editor_refusals_preserve_both_stores() {
         "src/crates/vcp-cli/tests/beta_editor_refusals.rs",
         "src/crates/vcp-cli/tests/support/editor_supervision.rs",
         "src/crates/vcp-cli/tests/support/hidden_process.rs",
+        "src/crates/vcp-cli/tests/support/script_path.rs",
         "src/crates/vcp-cli/tests/support/local_fixture.rs",
         "scripts/release/editor-refusals.ps1",
         "scripts/release/editor-refusals.cjs",

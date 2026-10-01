@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     fs,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, Instant},
@@ -40,6 +41,113 @@ fn archive(result: &Path, name: &Value) -> PathBuf {
     let name = name.as_str().unwrap();
     assert!(!name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':']));
     result.parent().unwrap().join(name)
+}
+
+fn node_script_argument(script: &Path) -> PathBuf {
+    let canonical = fs::canonicalize(script).unwrap();
+    let text = canonical.to_str().expect("Node script path must be UTF-8");
+    // Node's CommonJS entry resolver does not accept Rust's Windows extended
+    // prefix. Keep canonical identities elsewhere; change this argument only.
+    let ordinary = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text));
+    assert!(ordinary.is_absolute(), "Node script must be drive-local");
+    assert_eq!(fs::canonicalize(&ordinary).unwrap(), canonical);
+    ordinary
+}
+
+fn verifier_reason(stderr: &[u8]) -> &'static str {
+    let text = String::from_utf8_lossy(stderr);
+    // Only fixed categories enter public test logs. Raw stderr may contain
+    // private paths and remains in the private evidence directory.
+    if text.contains("EISDIR") && text.contains("node:internal/modules/") {
+        "node-entry-resolution"
+    } else if text
+        .contains("Production artifact rejected: Distribution payload differs from manifest")
+    {
+        "distribution-payload-mismatch"
+    } else if text.contains("Production artifact rejected:") {
+        "production-artifact-rejected"
+    } else if text.contains("node:internal/") {
+        "node-runtime-error"
+    } else {
+        "unclassified-verifier-output"
+    }
+}
+
+async fn observe_verifier(
+    node: &Path,
+    script: &Path,
+    arguments: &[&Path],
+    output: &Path,
+    suffix: &str,
+) -> Value {
+    let stdout = output.join(format!("payload-{suffix}.stdout"));
+    let stderr = output.join(format!("payload-{suffix}.stderr"));
+    let stdout_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stdout)
+        .unwrap();
+    let mut stderr_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&stderr)
+        .unwrap();
+    let mut command = tokio::process::Command::new(node);
+    command
+        .arg(node_script_argument(script))
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(stdout_file.try_clone().unwrap())
+        .stderr(stderr_file.try_clone().unwrap());
+    launcher_console::clean_environment(&mut command);
+    let job = JobObject::create_without_breakaway().unwrap();
+    let mut child = hidden_process::spawn(&job, &mut command).await.unwrap();
+    let began = Instant::now();
+    let mut limit = None;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if began.elapsed() >= Duration::from_secs(90) {
+            limit = Some("deadline");
+            break None;
+        }
+        if stdout_file.metadata().unwrap().len() + stderr_file.metadata().unwrap().len()
+            > 1024 * 1024
+        {
+            limit = Some("output-limit");
+            break None;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let clean = launcher_console::drain(&job, Duration::from_secs(2))
+        .await
+        .unwrap();
+    if !clean {
+        job.terminate().unwrap();
+    }
+    let stopped = launcher_console::drain(&job, Duration::from_secs(10))
+        .await
+        .unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+    let stdout_bytes = stdout_file.metadata().unwrap().len();
+    let stderr_bytes = stderr_file.metadata().unwrap().len();
+    let success = status.is_some_and(|value| value.success())
+        && clean
+        && stopped
+        && stdout_bytes + stderr_bytes <= 1024 * 1024;
+    let mut diagnostic = Vec::new();
+    stderr_file.seek(SeekFrom::Start(0)).unwrap();
+    stderr_file
+        .take(16 * 1024)
+        .read_to_end(&mut diagnostic)
+        .unwrap();
+    json!({"status":if success { "pass" } else { "fail" },
+        "exit_code":status.and_then(|value| value.code()),"limit":limit,
+        "natural_tree_exit":clean,"tree_stopped":stopped,"forced_cleanup":!clean,
+        "stdout_bytes":stdout_bytes,"stderr_bytes":stderr_bytes,
+        "reason":if success { "verified" } else { verifier_reason(&diagnostic) }})
 }
 
 struct Candidate {
@@ -135,53 +243,82 @@ impl Candidate {
         }
     }
     async fn verify_payload(&self, repo: &Path, output: &Path, suffix: &str) {
-        let stdout = output.join(format!("payload-{suffix}.stdout"));
-        let stderr = output.join(format!("payload-{suffix}.stderr"));
-        let mut command = tokio::process::Command::new(&self.node);
-        command
-            .arg(repo.join("scripts/evals/production-package.cjs"))
-            .arg(&self.native_result)
-            .arg(self.engine.parent().unwrap())
-            .stdin(Stdio::null())
-            .stdout(fs::File::create(&stdout).unwrap())
-            .stderr(fs::File::create(&stderr).unwrap())
-            .creation_flags(0x0800_0000);
-        launcher_console::clean_environment(&mut command);
-        let job = JobObject::create_without_breakaway().unwrap();
-        let mut child = hidden_process::spawn(&job, &mut command).await.unwrap();
-        let began = Instant::now();
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break Some(status);
-            }
-            if began.elapsed() >= Duration::from_secs(90)
-                || fs::metadata(&stdout).unwrap().len() + fs::metadata(&stderr).unwrap().len()
-                    > 1024 * 1024
-            {
-                break None;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        };
-        let clean = launcher_console::drain(&job, Duration::from_secs(2))
-            .await
-            .unwrap();
-        if !clean {
-            job.terminate().unwrap();
-        }
-        let stopped = launcher_console::drain(&job, Duration::from_secs(10))
-            .await
-            .unwrap();
-        let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+        let script = fs::canonicalize(repo.join("scripts/evals/production-package.cjs")).unwrap();
         assert!(
-            status.is_some_and(|value| value.success()) && clean && stopped,
-            "final native payload verification failed; private logs at {}",
-            output.display()
+            script.starts_with(repo),
+            "verifier must remain inside checkout"
         );
-        assert!(
-            fs::metadata(&stdout).unwrap().len() + fs::metadata(&stderr).unwrap().len()
-                <= 1024 * 1024
+        let summary = observe_verifier(
+            &self.node,
+            &script,
+            &[&self.native_result, self.engine.parent().unwrap()],
+            output,
+            suffix,
+        )
+        .await;
+        assert_eq!(
+            summary["status"], "pass",
+            "final native payload verification failed: {summary}"
         );
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn payload_verifier_node_entry_handles_canonical_spaces_and_unicode() {
+    let temporary = tempfile::Builder::new()
+        .prefix("vcp verifier café 日本語 ")
+        .tempdir()
+        .unwrap()
+        .keep();
+    let root = fs::canonicalize(&temporary).unwrap();
+    let node = fs::canonicalize(required("VCP_TEST_NODE")).unwrap();
+    let script = root.join("entry verifier.cjs");
+    fs::write(root.join("sibling.cjs"), "module.exports = 'loaded';").unwrap();
+    fs::write(
+        &script,
+        r#"const assert = require('node:assert/strict');
+assert.equal(require('./sibling.cjs'), 'loaded');
+assert.ok(process.argv[2].startsWith('\\\\?\\'));
+assert.ok(!process.argv[1].startsWith('\\\\?\\'));
+process.stdout.write('entry-loaded');"#,
+    )
+    .unwrap();
+    let ordinary = node_script_argument(&script);
+    assert!(!ordinary.to_str().unwrap().starts_with(r"\\?\"));
+    assert_eq!(fs::canonicalize(&ordinary).unwrap(), script);
+    let observed = observe_verifier(&node, &script, &[&root], &temporary, "entry").await;
+    assert_eq!(observed["status"], "pass", "{observed}");
+    assert_eq!(observed["exit_code"], 0);
+    assert_eq!(observed["forced_cleanup"], false);
+    assert_eq!(
+        fs::read(temporary.join("payload-entry.stdout")).unwrap(),
+        b"entry-loaded"
+    );
+
+    fs::write(&script, "console.error('Production artifact rejected: Distribution payload differs from manifest: private sentinel'); process.exitCode = 7;").unwrap();
+    let rejected = observe_verifier(&node, &script, &[&root], &temporary, "rejected").await;
+    assert_eq!(rejected["status"], "fail");
+    assert_eq!(rejected["exit_code"], 7);
+    assert_eq!(rejected["reason"], "distribution-payload-mismatch");
+    assert_eq!(rejected["natural_tree_exit"], true);
+    assert_eq!(rejected["tree_stopped"], true);
+    assert!(!rejected.to_string().contains("private sentinel"));
+}
+
+#[test]
+fn payload_verifier_diagnostics_never_echo_untrusted_stderr() {
+    assert_eq!(
+        verifier_reason(b"EISDIR private-path node:internal/modules/cjs/loader"),
+        "node-entry-resolution"
+    );
+    assert_eq!(
+        verifier_reason(b"Production artifact rejected: private-path"),
+        "production-artifact-rejected"
+    );
+    assert_eq!(
+        verifier_reason(b"private contents"),
+        "unclassified-verifier-output"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

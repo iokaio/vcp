@@ -20,6 +20,7 @@ if ((Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant() -cne $vsix.arch
 $editorLayout=Resolve-BetaEditor -Code $Code
 $Code=$editorLayout.code; $editorRoot=$editorLayout.root
 $installed=$null
+$observationComplete=$false
 try {
     $installed=Install-BetaCandidate $NativeResult $SetupResult $root $DataRoot
     $user=Join-Path $root 'user'; $extensions=Join-Path $root 'extensions'; $driver=Join-Path $root 'driver'
@@ -48,5 +49,10 @@ try {
     Start-Sleep -Seconds 32
     $null=Invoke-BetaProcess $Code ($base+@('--uninstall-extension','vcp.vcp-local')) $root $editorEnvironment
     $result | Add-Member -NotePropertyMembers @{native_sha256=$native.archive_sha256;setup_sha256=$installed.setup_sha256;vsix_sha256=$vsix.archive.sha256;engine_sha256=$installed.engine_sha256;editor_version=$editorLayout.version;editor_commit=$editorLayout.commit;editor_executable_sha256=$editorLayout.code_sha256;limitations=@('Synthetic retained paused history; no first useful task or live provider call.','Hosted Windows image, not clean standard-user qualification.','No distinct-build update, rollback, reviewed edit or reload asserted.')}
-} finally { if ($installed) { Uninstall-BetaCandidate $installed $root } }
+    $observationComplete=$true
+} finally {
+    # Preserve the registered installation and private repair evidence whenever
+    # setup or any editor observation fails. Uninstall only a completed smoke.
+    if ($installed -and $observationComplete) { Uninstall-BetaCandidate $installed $root }
+}
 $result | ConvertTo-Json -Depth 8

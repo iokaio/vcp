@@ -4,6 +4,8 @@
 //! provider/model calls, or canonical-store fixtures are created by this target.
 #[path = "support/hidden_process.rs"]
 mod hidden_process;
+#[path = "support/script_path.rs"]
+mod script_path;
 use codex_utils_pty::JobObject;
 use serde_json::{json, Value};
 use std::{
@@ -189,6 +191,13 @@ async fn final_installed_helpers_preserve_payload_and_drain_process_tree() {
     fresh_private(&private, &repo);
     // Retain private files and the independently owned installation on failure.
     let mut report = json!({"schema":"vcp-installed-helper-qualification/1","status":"fail"});
+    let script_path_source = repo.join("src/crates/vcp-cli/tests/support/script_path.rs");
+    let script_path_hash = || {
+        vcp_protocol::digest_reader(fs::File::open(&script_path_source).unwrap())
+            .unwrap()
+            .0
+    };
+    report["script_path_source_sha256"] = json!(script_path_hash());
     save(&private.join("result.json"), &report);
     let engine = input("VCP_BETA_INSTALLED_EXECUTABLE");
     let engine_root = engine.parent().unwrap().parent().unwrap().parent().unwrap();
@@ -226,7 +235,9 @@ async fn final_installed_helpers_preserve_payload_and_drain_process_tree() {
         .env("TEMP", &private)
         .env("TMP", &private)
         .args(["-NoProfile", "-File"])
-        .arg(repo.join("scripts/release/helper-qualification.ps1"));
+        .arg(script_path::argument(
+            &repo.join("scripts/release/helper-qualification.ps1"),
+        ));
     for (flag, name) in [
         ("-NativeResult", "VCP_BETA_NATIVE_RESULT"),
         ("-InstalledEngine", "VCP_BETA_INSTALLED_EXECUTABLE"),
@@ -279,6 +290,7 @@ async fn final_installed_helpers_preserve_payload_and_drain_process_tree() {
     let after = vcp_cli::installation::select(engine_root).unwrap();
     assert_eq!(held.executable, after.executable);
     assert_eq!(held.data, after.data);
+    assert_eq!(report["script_path_source_sha256"], script_path_hash());
     report["status"] = json!("pass");
     save(&private.join("result.json"), &report);
     eprintln!(
