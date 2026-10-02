@@ -149,7 +149,7 @@ async function publish(directory) {
   fs.copyFileSync(path.join(directory, 'assets/release.json'), path.join(site, 'latest.json'));
   fs.writeFileSync(path.join(site, '.nojekyll'), '');
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-    `Published [${release.tag}](${remote.html_url}) from \`${release.commit}\`.\n\nPair: \`${release.pairId}\`.\n\nUnsigned beta; full qualification remains incomplete.\n`);
+    `Published [${release.tag}](${remote.html_url}) from \`${release.commit}\`.\n\nPair: \`${release.pairId}\`.\n\n${release.qualification?.signing === 'signed' ? 'Signed' : 'Unsigned'} beta; full qualification remains incomplete.\n`);
   console.log(`Published verified prerelease ${release.tag}; Pages content prepared.`);
 }
 if (require.main === module) (async () => {

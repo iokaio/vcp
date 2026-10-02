@@ -1,7 +1,37 @@
-# Publish an unsigned beta download
+# Publish beta downloads
+
+## Current signed beta publication
+
+On October 1, 2026 the owner authorized publishing the matching signed artifacts
+while manually uploading the renamed Marketplace VSIX. BETA-11's limited-beta
+publication completed in [run 36943259079](https://github.com/iokaio/vcp/actions/runs/36943259079),
+with both Release and Pages jobs passing.
+
+- [Published prerelease](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.2-e9e8ba52684a):
+  native `0.2.0-beta.2`, SDK/VSIX `0.2.2`, extension ID `iokaio.vcp`.
+- Source: `a4a5b93b0077eb8f6a63f005379c09ce0ff4773e`.
+- Pair: `e9e8ba52684a67b726787911082ec683ed8fba33c507e2c496bf9765ff626984`.
+- Candidate: [36938973679, attempt 1](https://github.com/iokaio/vcp/actions/runs/36938973679/attempts/1),
+  successful `pair` checkpoint; later installed/native and clean-host qualification
+  remain unrun for this exact pair. Publication does not complete those gates.
+- The engine, launcher, setup and uninstaller passed Windows signature validation
+  for Ioka LLC, including the pinned identity EKU and timestamps.
+
+[downloads.ioka.io](https://downloads.ioka.io/) now serves this release. All five
+public assets were downloaded and matched the prepared SHA-256 hashes and sizes.
+The public HTML exactly matched the release renderer; `latest.json` matched the
+published manifest. HTTPS returned 200 with normal certificate validation and
+HTTP returned 301 to HTTPS. The page links to `iokaio.vcp`; Marketplace upload is
+the owner's separate action. Existing beta.1 release assets were retained.
+
+Local evidence: `artifacts/beta-delivery/public-verification-36943259079/`.
+The verified manual upload remains
+`artifacts/marketplace-upload/iokaio-vcp-0.2.2/assets/vcp-0.2.2-win32-x64.vsix`.
+
+## Historical unsigned beta publications
 
 Status: **beta prereleases published, download page deployed and HTTPS enforced** on October 1.
-The latest published pair is the [Marketplace-ready handoff](marketplace-publication.md),
+The then-latest published pair was the [Marketplace-ready handoff](marketplace-publication.md),
 `9694d258aeb5`, built from reviewed source `99de062d32c4c0fe20ddae119408e953e8f7243b`.
 [Publication run 36900026024](https://github.com/iokaio/vcp/actions/runs/36900026024)
 published its unchanged verified bytes and updated Pages. The owner subsequently
