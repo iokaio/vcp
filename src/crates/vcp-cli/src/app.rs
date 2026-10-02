@@ -261,7 +261,7 @@ fn setup_guidance(format: Format, workspace: &Path, data_dir: Option<&Path>) -> 
             .ok()?;
         settings::local_path(&data, canonical)
             .err()
-            .map(|error| data_placement_guidance(error, &data, canonical))
+            .map(|error| crate::render::data_placement(error, &data, canonical))
     });
     let mut text = String::new();
     if let Some(problem) = &placement {
@@ -282,37 +282,18 @@ fn setup_guidance(format: Format, workspace: &Path, data_dir: Option<&Path>) -> 
     )
 }
 
-/// Name the actual placement conflict for the private data folder and the
-/// next step; the home folder is the common accidental workspace.
-fn data_placement_guidance(error: String, data: &Path, workspace: &Path) -> String {
-    let Ok(Some(conflict)) = settings::local_path_conflict(data, workspace) else {
-        return error;
-    };
-    let data = settings::display_path(&std::path::absolute(data).unwrap_or(data.to_path_buf()));
-    let elsewhere = "To keep VCP data elsewhere, pass --data-dir <folder outside projects, Git repositories and OneDrive>.";
-    match conflict {
-        settings::PlacementConflict::Workspace(root) => {
-            let home = std::env::var_os("USERPROFILE")
-                .and_then(|home| std::path::PathBuf::from(home).canonicalize().ok())
-                .is_some_and(|home| {
-                    settings::within(&home, &root) && settings::within(&root, &home)
-                });
-            let reason = if home {
-                format!(
-                    "this is your home folder ({}), which cannot be a VCP workspace because VCP's private data folder {data} is inside it",
-                    settings::display_path(&root)
-                )
-            } else {
-                format!(
-                    "VCP's private data folder {data} is inside the selected workspace {}",
-                    settings::display_path(&root)
-                )
-            };
-            format!("{reason}.\n  Next: cd into a project folder and run `vcp setup`, or pass --workspace <project folder>.\n  {elsewhere}")
-        }
-        conflict => {
-            format!("VCP's private data folder {data} is inside {conflict}.\n  {elsewhere}")
-        }
+/// Readable text for a person at a text terminal, otherwise the result record.
+fn command_view(format: Format, view: crate::render::View, data: Value) -> Result<u8, String> {
+    let text = crate::render::human(view, &data, settings::now());
+    command_guidance(format, data, &text, 0)
+}
+
+fn setup_view(command: &crate::onboarding::Command) -> crate::render::View {
+    use crate::{onboarding::Command, render::View};
+    match command {
+        Command::Provider(_) | Command::ProviderComplete { .. } => View::SetupProvider,
+        Command::Profile(_) => View::SetupProfile,
+        Command::Check => View::SetupCheck,
     }
 }
 
@@ -333,7 +314,12 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
     }
     for (index, row) in rows.iter().enumerate() {
         // Escape all stored text, including objective and filenames.
-        writeln!(std::io::stderr(), "{}: {}", index + 1, row).map_err(|e| e.to_string())?;
+        writeln!(
+            std::io::stderr(),
+            "{}",
+            crate::render::candidate(index + 1, row)
+        )
+        .map_err(|e| e.to_string())?;
     }
     if value["truncated"] == true {
         eprintln!("More tasks exist; use an explicit task ID to resume an unlisted task.");
@@ -387,8 +373,9 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         let Some(command) = command else {
             return setup_guidance(cli.format, &cli.workspace, cli.data_dir.as_deref());
         };
-        return command_result(
+        return command_view(
             cli.format,
+            setup_view(command),
             crate::onboarding::execute(command, &cli.workspace, cli.config.as_deref()).await?,
         );
     }
@@ -411,9 +398,10 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             .clone()
             .map(Ok)
             .unwrap_or_else(settings::default_data)?;
-        return command_result(
+        return command_view(
             cli.format,
-            crate::doctor::execute(request, &data, &cli.workspace)?,
+            crate::render::View::Doctor,
+            crate::doctor::execute(request, &data, &cli.workspace, cli.config.as_deref())?,
         );
     }
     if let Some(crate::args::Command::Restore(request)) = &cli.command {
@@ -437,7 +425,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .map(Ok)
         .unwrap_or_else(settings::default_data)?;
     let data = settings::local_path(&data_root, &workspace)
-        .map_err(|error| data_placement_guidance(error, &data_root, &workspace))?;
+        .map_err(|error| crate::render::data_placement(error, &data_root, &workspace))?;
     let path_key = digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes());
     let existing_directory = if matches!(
         cli.command,
