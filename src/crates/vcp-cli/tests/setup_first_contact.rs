@@ -232,3 +232,48 @@ fn setup_check_without_a_selection_points_to_setup() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("--config"));
     assert!(!data.exists());
 }
+
+#[test]
+fn credential_storage_needs_a_console_and_status_never_shows_values() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().to_str().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_vcp"))
+        .args(["--workspace", workspace, "setup", "credential", "store"])
+        .env("OPENROUTER_API_KEY", "synthetic-never-printed")
+        .stdin(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("needs an interactive console"), "{stderr}");
+    let output = Command::new(env!("CARGO_BIN_EXE_vcp"))
+        .args(["--workspace", workspace, "setup", "credential", "status"])
+        .env("OPENROUTER_API_KEY", "synthetic-never-printed")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let record = single_record(&output.stdout);
+    assert_eq!(record["data"]["environment"], true);
+    assert_eq!(record["data"]["active"], "environment");
+    for stream in [&output.stdout, &output.stderr] {
+        assert!(!String::from_utf8_lossy(stream).contains("synthetic-never-printed"));
+    }
+    // Redirected runs never consult the stored key: without the variable,
+    // provider setup refuses before any network request or file.
+    let data = temp.path().join("data");
+    let output = vcp(&[
+        "--workspace",
+        workspace,
+        "--data-dir",
+        data.to_str().unwrap(),
+        "setup",
+        "provider",
+        "--set",
+        "quick",
+        "--budget-usd",
+        "7",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("OPENROUTER_API_KEY is required"));
+    assert!(!data.exists());
+}

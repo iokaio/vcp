@@ -129,3 +129,5 @@ Return to the [documentation index](../README.md).
 [ADR-077](077-guided-cli-setup.md) adds guided CLI setup: terminal-only readable output, per-workspace profile selection without granted authority, and model sets as suggestions with typed spending confirmation.
 
 [ADR-078](078-installer-path-scope.md) adds current-user and all-users Windows installer PATH modes while keeping each user's data private.
+
+[ADR-079](079-stored-provider-credential.md) adds an opt-in Windows Credential Manager OpenRouter key, used only in interactive terminal sessions, with the environment variable taking precedence.

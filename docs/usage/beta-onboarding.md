@@ -48,6 +48,20 @@ the key in command arguments, profile JSON, workspace settings, package content,
 or diagnostic output. Remove it after the final task using the cleanup command
 at the end of this walkthrough.
 
+To avoid re-entering the key in every new terminal, you may instead store it
+once in Windows Credential Manager for your Windows user, from a hidden prompt:
+
+```powershell
+& $vcp setup credential store    # hidden prompt; Ctrl+C cancels
+& $vcp setup credential status   # reports sources, never the value
+& $vcp setup credential remove   # deletes the stored key
+```
+
+The stored key is used only in interactive terminal sessions (text output to a
+console, without `--non-interactive` or `--control-stdin`). JSONL, redirected
+and automated runs still need `OPENROUTER_API_KEY`, which always takes
+precedence when set. See [ADR-079](../adr/079-stored-provider-credential.md).
+
 ## Choose a model set and qualify its model
 
 VCP ships model **sets** that name exact models and endpoint tags. `quick` is a

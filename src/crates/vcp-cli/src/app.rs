@@ -299,6 +299,7 @@ fn setup_view(command: &crate::onboarding::Command) -> crate::render::View {
         Command::Provider(_) | Command::ProviderComplete { .. } => View::SetupProvider,
         Command::Profile(_) => View::SetupProfile,
         Command::Select => View::SetupSelect,
+        Command::Credential { .. } => View::SetupCredential,
         Command::Check => View::SetupCheck,
     }
 }
@@ -387,6 +388,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
                 &cli.workspace,
                 cli.config.as_deref(),
                 cli.data_dir.as_deref(),
+                cli.attended(),
             )
             .await?,
         );

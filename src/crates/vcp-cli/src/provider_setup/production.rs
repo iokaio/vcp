@@ -214,6 +214,7 @@ pub async fn run(
     request: &Provider,
     workspace: &Path,
     data: impl FnOnce() -> std::result::Result<PathBuf, String>,
+    interactive: bool,
 ) -> std::result::Result<serde_json::Value, String> {
     let target = request.target()?;
     valid_selection(
@@ -222,7 +223,7 @@ pub async fn run(
         &target.request_price_limit,
         &request.budget_usd,
     )?;
-    let key = credential()?;
+    let key = credential(interactive)?;
     let output = match &request.output {
         Some(output) => output.clone(),
         None => {
@@ -237,16 +238,13 @@ pub async fn run(
         budget_usd: request.budget_usd.clone(),
         output,
     };
-    let result = run_with(&request, workspace, &key, OPENROUTER_API).await;
+    let result = run_with(&request, workspace, key.expose(), OPENROUTER_API).await;
     // Do not pass arbitrary transport or provider error text to terminal logs.
-    result.map_err(|error| error.to_string().replace(&key, "[redacted]"))
+    result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
 }
 
-fn credential() -> std::result::Result<String, String> {
-    std::env::var("OPENROUTER_API_KEY")
-        .ok()
-        .filter(|key| !key.is_empty() && key.len() <= 16384 && !key.chars().any(char::is_control))
-        .ok_or_else(|| "supply OPENROUTER_API_KEY through a masked prompt or credential manager in this process; never use command arguments".into())
+fn credential(interactive: bool) -> std::result::Result<crate::credential::Secret, String> {
+    crate::credential::require(interactive)
 }
 
 /// Resume receipt retrieval after delayed metadata, without repeating a model
@@ -254,10 +252,11 @@ fn credential() -> std::result::Result<String, String> {
 pub async fn complete(
     directory: &Path,
     workspace: &Path,
+    interactive: bool,
 ) -> std::result::Result<serde_json::Value, String> {
-    let key = credential()?;
-    let result = complete_with(directory, workspace, &key, OPENROUTER_API).await;
-    result.map_err(|error| error.to_string().replace(&key, "[redacted]"))
+    let key = credential(interactive)?;
+    let result = complete_with(directory, workspace, key.expose(), OPENROUTER_API).await;
+    result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
 }
 
 async fn complete_with(

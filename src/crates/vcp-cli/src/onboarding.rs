@@ -30,6 +30,21 @@ pub enum Command {
     Select,
     /// Validate the selected profile, tools, budgets and expiry without inference.
     Check,
+    /// Report, store or remove the OpenRouter key kept in Windows Credential Manager.
+    Credential {
+        #[command(subcommand)]
+        command: CredentialCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CredentialCommand {
+    /// Report which source supplies the OpenRouter key; never its value.
+    Status,
+    /// Store the key for interactive terminal sessions from a hidden prompt.
+    Store,
+    /// Remove the stored key from Windows Credential Manager.
+    Remove,
 }
 
 #[derive(Debug, Args)]
@@ -71,6 +86,7 @@ pub async fn execute(
     workspace: &Path,
     config: Option<&Path>,
     data_dir: Option<&Path>,
+    interactive: bool,
 ) -> Result<Value, String> {
     let workspace = workspace
         .canonicalize()
@@ -87,11 +103,12 @@ pub async fn execute(
     match command {
         Command::Estimate(request) => crate::provider_setup::estimate::run(request).await,
         Command::Provider(request) => {
-            crate::provider_setup::production::run(request, &workspace, data).await
+            crate::provider_setup::production::run(request, &workspace, data, interactive).await
         }
         Command::ProviderComplete { directory } => {
-            crate::provider_setup::production::complete(directory, &workspace).await
+            crate::provider_setup::production::complete(directory, &workspace, interactive).await
         }
+        Command::Credential { command } => credential(command),
         Command::Profile(request) => {
             let data = data()?;
             let output = create(request, &workspace, &data)?;
@@ -123,16 +140,55 @@ pub async fn execute(
         }
         Command::Check => {
             let resolved = profile_selection::resolve(&data()?, &workspace, config)?;
-            let mut value = check(&resolved.path, &workspace, credential_present())?;
+            let source = crate::credential::source(interactive);
+            let mut value = check(&resolved.path, &workspace, source.is_some())?;
             value["profile_source"] = json!(resolved.source);
+            value["credential_source"] = json!(source);
             Ok(value)
         }
     }
 }
 
-/// Whether the provider key is present; its value is never read here.
-pub fn credential_present() -> bool {
-    std::env::var_os("OPENROUTER_API_KEY").is_some_and(|key| !key.is_empty())
+/// Report or change the stored key. Status never returns the value.
+fn credential(command: &CredentialCommand) -> Result<Value, String> {
+    use crate::credential::{Source, ENVIRONMENT, TARGET};
+    let environment = std::env::var_os(ENVIRONMENT).is_some_and(|key| !key.is_empty());
+    match command {
+        CredentialCommand::Status => {
+            #[cfg(windows)]
+            let stored = crate::credential::read(TARGET)?.is_some();
+            #[cfg(not(windows))]
+            let stored = false;
+            let active = if environment {
+                Some(Source::Environment)
+            } else if stored {
+                Some(Source::CredentialManager)
+            } else {
+                None
+            };
+            Ok(
+                json!({"status":"reported","environment":environment,"credential_manager":stored,
+                "active":active,"target":TARGET,"stored_key_scope":"interactive terminal sessions only"}),
+            )
+        }
+        #[cfg(windows)]
+        CredentialCommand::Store => {
+            let secret = crate::console_secret::read("OpenRouter API key (input hidden): ")?
+                .ok_or("cancelled; nothing was stored")?;
+            crate::credential::store(TARGET, &secret)?;
+            Ok(
+                json!({"status":"stored","target":TARGET,"persistence":"this Windows user on this machine",
+                "stored_key_scope":"interactive terminal sessions only","environment_overrides":environment}),
+            )
+        }
+        #[cfg(windows)]
+        CredentialCommand::Remove => {
+            let removed = crate::credential::remove(TARGET)?;
+            Ok(json!({"status":if removed {"removed"} else {"absent"},"target":TARGET}))
+        }
+        #[cfg(not(windows))]
+        _ => Err("Windows Credential Manager storage requires Windows".into()),
+    }
 }
 
 /// Offline profile validation shared by `setup check` and `doctor`.
