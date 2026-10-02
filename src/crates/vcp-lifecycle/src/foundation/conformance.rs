@@ -12,6 +12,22 @@ use vcp_models::{
     stream::{Call, ResultBody, Stream},
 };
 
+/// The exact amount admission reserves for one request with these bounds,
+/// using the worker's own bounds and quote arithmetic. Setup estimates use it
+/// to show minimum caps before any provider call.
+pub fn request_reservation(
+    price: &vcp_domain::accounting::PriceSnapshot,
+    reservation_input: Units,
+    output: Units,
+    now: vcp_domain::Timestamp,
+) -> Result<vcp_domain::Micros, String> {
+    let bounds = vcp_models::catalog::admission_usage(reservation_input, output)
+        .ok_or("reservation bounds overflow")?;
+    vcp_budget::arithmetic::quote(price.clone(), bounds, now)
+        .map(|quote| quote.amount.micros)
+        .map_err(|error| error.to_string())
+}
+
 pub const MARKER: &str = "VCP_CONFORMANCE_\u{2603}";
 pub const FINAL: &str = "VCP_CONFORMANCE_OK";
 pub fn tools() -> serde_json::Value {
@@ -149,5 +165,57 @@ impl CanonicalHost {
             )),
             finished: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    use super::*;
+    use vcp_domain::{Micros, Timestamp, Units};
+
+    /// Figures recorded for qwen/qwen3.8-max-0902 at alibaba: the setup probe
+    /// pair failed under a $0.50 cap, and a 16,384-token task request reserved
+    /// $6.492808 (src/evals/release/p8-owner-v3/hidden/provider-budget-analysis.json).
+    #[test]
+    fn reservations_match_recorded_qwen_admissions() {
+        let raw = serde_json::to_vec(&serde_json::json!({"data":{"id":"qwen/qwen3.8-max-0902","endpoints":[{
+            "tag":"alibaba","status":0,"context_length":1000000,"max_prompt_tokens":983616,
+            "max_completion_tokens":65536,"supported_parameters":["tools","tool_choice","max_tokens"],
+            "pricing":{"prompt":"0.000002","completion":"0.000006","input_cache_write":"0.0000025"}}]}}))
+        .unwrap();
+        let now = Timestamp::new(1_759_400_000_000);
+        let candidate = CandidateMetadata::from_endpoints(
+            &raw,
+            now,
+            Timestamp::new(now.get() + 3_600_000),
+            "qwen/qwen3.8-max-0902".into(),
+            "alibaba".into(),
+            "0.001".into(),
+            std::collections::BTreeSet::new(),
+        )
+        .unwrap();
+        assert_eq!(candidate.max_input, Units::new(983_616));
+        let reserve = |output| {
+            request_reservation(
+                &candidate.price,
+                candidate.max_input,
+                Units::new(output),
+                now,
+            )
+        };
+        assert_eq!(reserve(512), Ok(Micros::new(6_397_576)));
+        assert_eq!(reserve(16_384), Ok(Micros::new(6_492_808)));
+        assert!(
+            request_reservation(&candidate.price, Units::new(u64::MAX), Units::new(1), now)
+                .is_err()
+        );
+        let expired = Timestamp::new(now.get() + 3_600_000);
+        assert!(request_reservation(
+            &candidate.price,
+            candidate.max_input,
+            Units::new(512),
+            expired
+        )
+        .is_err());
     }
 }
