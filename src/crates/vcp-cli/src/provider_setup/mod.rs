@@ -27,7 +27,6 @@ use vcp_models::{
 use vcp_protocol::{canonical_bytes, command::Command, digest_bytes};
 use vcp_store::{contract::Collection, BackendKind};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-pub mod estimate;
 #[cfg(feature = "qualification")]
 #[path = "../bin/conformance/native.rs"]
 mod native_probe;

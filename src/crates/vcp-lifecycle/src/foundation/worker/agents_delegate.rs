@@ -163,16 +163,7 @@ impl CanonicalHost {
                     .provider
                     .as_ref()
                     .ok_or("delegation requires the qualified owner model")?;
-                // A nested child keeps its parent's assigned model; a root
-                // delegates to the configured child model, else its own.
-                let ceiling = context.child_assignment(&checked.scope.task)?;
-                let selected = match &ceiling {
-                    Some((_, ceiling)) => provider
-                        .for_model(&ceiling.model_policy)
-                        .ok_or("delegation exceeds the current parent assignment")?,
-                    None => provider.delegated(),
-                };
-                if selected.valid_until <= worker::now() {
+                if provider.snapshot.valid_until <= worker::now() {
                     return Err("owner model qualification expired".into());
                 }
                 let source_root = RootId::parse(context.config.workspace.as_str())?;
@@ -190,13 +181,13 @@ impl CanonicalHost {
                     path: path.clone(),
                     write: true,
                 }));
-                if let Some((_, ceiling)) = &ceiling {
+                if let Some((_, ceiling)) = context.child_assignment(&checked.scope.task)? {
                     if paths
                         .iter()
                         .any(|path| !ceiling.paths.iter().any(|allowed| allowed.covers(path)))
                         || requested.deadline > ceiling.deadline
                         || requested.allocation > ceiling.allocation
-                        || ceiling.model_policy != selected.compatibility.model
+                        || ceiling.model_policy != provider.snapshot.compatibility.model
                         || (requested.mode == ChildMode::IsolatedWrite
                             && ceiling.mode == ChildMode::ReadOnly)
                     {
@@ -206,7 +197,7 @@ impl CanonicalHost {
                 Ok((
                     task.revision,
                     task.steering,
-                    selected.compatibility.model.clone(),
+                    provider.snapshot.compatibility.model.clone(),
                     paths,
                 ))
             })?;
@@ -244,9 +235,8 @@ impl CanonicalHost {
                 .provider
                 .as_ref()
                 .ok_or("owner model configuration missing")?;
-            if provider
-                .for_model(&model_policy)
-                .is_none_or(|selected| selected.valid_until <= worker::now())
+            if provider.snapshot.valid_until <= worker::now()
+                || provider.snapshot.compatibility.model != model_policy
             {
                 return Err("owner model changed during delegation capture".into());
             }

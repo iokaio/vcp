@@ -6,28 +6,11 @@ use vcp_repository::Root;
 
 pub(super) struct Provider {
     pub(super) snapshot: Snapshot,
-    /// Explicitly assigned model for delegated children (ADR-080). Absent
-    /// means children use the main model.
-    pub(super) child: Option<Snapshot>,
     prepared: HashMap<TaskId, Ready>,
     pub streams: HashMap<AttemptId, stream::Stream>,
     pub timeout: Duration,
     active: HashMap<TaskId, Ready>,
     pub(super) retries: HashMap<TaskId, PendingRetry>,
-}
-impl Provider {
-    /// The configured snapshot for an assigned model: the child model first,
-    /// then the main model.
-    pub(super) fn for_model(&self, model: &str) -> Option<&Snapshot> {
-        self.child
-            .as_ref()
-            .filter(|child| child.compatibility.model == model)
-            .or_else(|| (self.snapshot.compatibility.model == model).then_some(&self.snapshot))
-    }
-    /// The snapshot a newly delegated child is assigned.
-    pub(super) fn delegated(&self) -> &Snapshot {
-        self.child.as_ref().unwrap_or(&self.snapshot)
-    }
 }
 pub(super) struct PendingRetry {
     pub predecessor: AttemptId,
@@ -135,7 +118,6 @@ impl Context {
         self.config.price = snapshot.price.clone();
         self.provider = Some(Provider {
             snapshot,
-            child: None,
             prepared: HashMap::new(),
             streams: HashMap::new(),
             timeout,
@@ -144,85 +126,6 @@ impl Context {
         });
         self.provider_required = true;
         Ok(())
-    }
-    /// Assign a separately qualified model to delegated children. Fixed
-    /// selection only: it is rejected with automatic routing, and
-    /// `configure_provider` clears it, so it is configured after the main model.
-    pub fn configure_child_provider(&mut self, snapshot: Snapshot, raw: Vec<u8>) -> Result<()> {
-        if !self.owner_alive || self.authority_pending {
-            return Err("provider configuration waits for current authority owner".into());
-        }
-        #[cfg(windows)]
-        if !self.coding.is_empty() {
-            return Err("provider refresh requires fresh coding owner setup".into());
-        }
-        self.require_configured_routing()?;
-        if self.routing.is_some() {
-            return Err(
-                "a child model assignment cannot be combined with automatic routing".into(),
-            );
-        }
-        let main = &self
-            .provider
-            .as_ref()
-            .ok_or("child model assignment requires the configured main provider")?
-            .snapshot;
-        if snapshot.compatibility.model == main.compatibility.model {
-            return Err("child model assignment must differ from the main model".into());
-        }
-        snapshot.current(now())?;
-        if snapshot
-            != Snapshot::from_endpoints(
-                &raw,
-                snapshot.observed_at,
-                snapshot.valid_until,
-                snapshot.compatibility.clone(),
-            )?
-        {
-            return Err("provider snapshot differs from captured endpoint catalog".into());
-        }
-        if !self.streams.is_empty()
-            || self
-                .provider
-                .as_ref()
-                .is_some_and(|p| !p.retries.is_empty())
-        {
-            return Err("provider refresh waits for active attempts".into());
-        }
-        if snapshot.price.currency != self.config.cap.currency
-            || self.config.output_ceiling > snapshot.max_output
-        {
-            return Err("provider currency/output differs from host ceiling".into());
-        }
-        let scope = Scope {
-            workspace: self.config.workspace.clone(),
-            session: self.config.session.clone(),
-            task: self.config.root_task.clone(),
-        };
-        let catalog = self.capture(&scope, Channel::Evidence, &raw, "openrouter-endpoints/1")?;
-        self.capture(
-            &scope,
-            Channel::Evidence,
-            &canonical_bytes(&serde_json::json!({"role":"child","snapshot":snapshot,"catalog_artifact":catalog.spec.id}))?,
-            "openrouter-role-provider-configuration/1",
-        )?;
-        self.provider
-            .as_mut()
-            .ok_or("child model assignment requires the configured main provider")?
-            .child = Some(snapshot);
-        Ok(())
-    }
-    /// Fixed selection without automatic routing: a delegated child uses the
-    /// configured snapshot for its recorded model assignment, everything else
-    /// the main model. An assignment with no configured snapshot keeps the main
-    /// snapshot here and is rejected by the child's model scope before send.
-    pub(super) fn fixed_snapshot(&self, binding: &ThreadBinding) -> Result<Snapshot> {
-        let provider = self.provider.as_ref().ok_or("provider missing")?;
-        let assigned = match self.child_assignment_record(&binding.scope.task) {
-            Ok(Some((_, spec))) => provider.for_model(&spec.model_policy),
-            _ => None,
-        };
-        Ok(assigned.unwrap_or(&provider.snapshot).clone())
     }
     pub fn context_revisions(&self, binding: &ThreadBinding) -> Result<Revisions> {
         self.can_start(binding)?;
@@ -527,12 +430,13 @@ impl Context {
                 .routing
                 .as_mut()
                 .and_then(|runtime| runtime.pending.remove(&binding.scope.task)),
-            snapshot: match snapshot {
-                Some(snapshot) => snapshot,
-                None => self
-                    .fixed_snapshot(binding)
-                    .map_err(|_| "OpenRouter configuration required")?,
-            },
+            snapshot: snapshot.unwrap_or(
+                self.provider
+                    .as_ref()
+                    .ok_or("OpenRouter configuration required")?
+                    .snapshot
+                    .clone(),
+            ),
             routing: self
                 .routing
                 .as_mut()

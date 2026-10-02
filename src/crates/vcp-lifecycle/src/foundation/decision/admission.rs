@@ -2,7 +2,7 @@
 //! Finite operation qualification. No transport or grants.
 use serde::{Deserialize, Serialize};
 use vcp_domain::{
-    accounting::{ChargeCategory, CostQuote, PriceSnapshot},
+    accounting::{ChargeCategory, CostQuote, PriceSnapshot, Usage},
     ArtifactId, OwnerEpoch, Revision, Timestamp, Units, WorkspaceId,
 };
 use vcp_models::decision::{self, Mode, Operation, Prepared, QualifiedEvaluator, Request};
@@ -236,8 +236,15 @@ impl Capability {
                 return Err(Rejection::Quote);
             }
         }
-        let bounds = vcp_models::catalog::admission_usage(r.input_ceiling, r.output_ceiling)
-            .ok_or(Rejection::Bounds)?;
+        let i = r.input_ceiling.get();
+        let bounds = Usage {
+            input: Units::new(i.checked_mul(3).ok_or(Rejection::Bounds)?),
+            cache_read: Units::new(i),
+            cache_write: Units::new(i),
+            output: r.output_ceiling,
+            requests: Units::new(1),
+            ..Usage::default()
+        };
         vcp_budget::arithmetic::quote(r.price.clone(), bounds, now).map_err(|_| Rejection::Quote)
     }
     /// The worker supplies Request from its actual routing/escalation seed, never

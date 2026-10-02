@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::{ffi::OsString, fs::File, io::Read, path::PathBuf};
+use std::{fs::File, io::Read, path::PathBuf};
 use vcp_domain::{ids::*, revision::Micros};
 
 pub const MAX_TASK_BYTES: usize = 65_536;
@@ -19,12 +19,7 @@ pub enum Autonomy {
     Autonomous,
 }
 #[derive(Debug, Parser)]
-#[command(
-    name = "vcp",
-    version,
-    about = "VCP local task control and inspection",
-    after_help = "Getting started: run `vcp setup` in your project folder."
-)]
+#[command(name = "vcp", version, about = "VCP local task control and inspection")]
 pub struct Cli {
     #[arg(long, global = true, default_value = "text", value_enum)]
     pub format: Format,
@@ -44,11 +39,10 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// First-run setup steps, profile creation and accounted provider metadata renewal.
+    /// Explicit first-run profile creation and accounted provider metadata renewal.
     Setup {
-        /// Without a step, shows the setup steps for the selected workspace.
         #[command(subcommand)]
-        command: Option<crate::onboarding::Command>,
+        command: crate::onboarding::Command,
     },
     /// Preview and apply explicit foreign configuration subsets without inference.
     #[cfg(windows)]
@@ -290,81 +284,21 @@ pub struct ValidatedCli {
     pub command: ValidatedCommand,
 }
 
-/// A redirected stream or automation input keeps the finite CLI protocol.
-/// The terminal renderer writes stderr, so it must also be a console.
-fn interactive(
-    format: Format,
-    non_interactive: bool,
-    control_stdin: bool,
-    stdin: bool,
-    stdout: bool,
-    stderr: bool,
-) -> bool {
-    format == Format::Text && !non_interactive && !control_stdin && stdin && stdout && stderr
-}
-
 impl ValidatedCli {
+    /// A redirected stream or automation input keeps the finite CLI protocol.
+    /// The terminal renderer writes stderr, so it must also be a console.
     pub fn interactive_terminal(&self, stdin: bool, stdout: bool, stderr: bool) -> bool {
-        interactive(
-            self.format,
-            self.non_interactive,
-            self.control_stdin,
-            stdin,
-            stdout,
-            stderr,
-        )
+        self.format == Format::Text
+            && !self.non_interactive
+            && !self.control_stdin
+            && stdin
+            && stdout
+            && stderr
     }
-}
-
-impl Cli {
-    /// The same rule before validation, for commands dispatched early.
-    pub fn interactive_terminal(&self, stdin: bool, stdout: bool, stderr: bool) -> bool {
-        interactive(
-            self.format,
-            self.non_interactive,
-            self.control_stdin,
-            stdin,
-            stdout,
-            stderr,
-        )
-    }
-
-    /// Whether this process is an interactive terminal session now.
-    pub fn attended(&self) -> bool {
-        use std::io::IsTerminal;
-        self.interactive_terminal(
-            std::io::stdin().is_terminal(),
-            std::io::stdout().is_terminal(),
-            std::io::stderr().is_terminal(),
-        )
-    }
-}
-
-/// Whether the command line selects the JSONL protocol. This runs when clap
-/// parsing or later validation failed, so it scans options up to `--` only.
-pub fn wants_jsonl(args: impl IntoIterator<Item = OsString>) -> bool {
-    let mut args = args.into_iter().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--" {
-            break;
-        }
-        if arg == "--format=jsonl"
-            || (arg == "--format" && args.next().is_some_and(|v| v == "jsonl"))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-/// JSONL and redirected text output keep the final result record for scripts.
-/// A person at a text terminal already has the diagnostic on stderr.
-pub fn emit_result_record(jsonl: bool, stdout_terminal: bool) -> bool {
-    jsonl || !stdout_terminal
 }
 
 pub enum ValidatedCommand {
-    Setup(Option<crate::onboarding::Command>),
+    Setup(crate::onboarding::Command),
     #[cfg(windows)]
     ConfigImport(crate::config_import::Command),
     WorkspaceTrust {

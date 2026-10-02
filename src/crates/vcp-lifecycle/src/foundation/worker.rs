@@ -1083,8 +1083,19 @@ impl Context {
                         .snapshot
                         .reservation_input(Units::new(bytes.len() as u64))
                 });
-        let bounds = vcp_models::catalog::admission_usage(reservation_input, output_ceiling)
-            .ok_or("input ceiling overflow")?;
+        let bounds = Usage {
+            input: Units::new(
+                reservation_input
+                    .get()
+                    .checked_mul(3)
+                    .ok_or("input ceiling overflow")?,
+            ),
+            cache_read: reservation_input,
+            cache_write: reservation_input,
+            output: output_ceiling,
+            requests: Units::new(1),
+            ..Default::default()
+        };
         let quote = vcp_budget::arithmetic::quote(price, bounds, actor.now)?;
         let input = vcp_budget::Admission {
             transaction: TransactionId::new(),

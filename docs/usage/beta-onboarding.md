@@ -13,31 +13,11 @@ one fixed probe pair, at most two requests with no inference retries, capped at
 budget. Each later task has a separate task cap. Neither cap is a daily or
 account-wide spending limit. Offline profile creation and checking spend nothing.
 
-## Quick start: guided setup
-
-In a PowerShell window, change into your project folder and run `vcp setup`.
-In an interactive terminal it walks through seven steps:
-
-1. Check the installation and data folder.
-2. Confirm and trust the workspace. The home folder and folders containing the data folder are refused, with a prompt for a project folder.
-3. Find or enter the OpenRouter key. It is entered hidden and can optionally be saved to Windows Credential Manager.
-4. Choose a model set (default: Quick test, Qwen 3.8 Max) and see its live reservations.
-5. Verify the model. You type the cap and `yes`; at most two paid requests, never retried, and delayed receipts are retrieved for free.
-6. Type a task budget and create and select the profile.
-7. Check offline, and optionally run a short read-only test task.
-
-The wizard never fills in an amount or substitutes a model; an empty answer
-stops it. Each step is the same as the explicit commands below, which remain
-the way to script setup. Redirected or `--non-interactive` runs of `vcp setup`
-print those commands instead of prompting.
-
 ## Select local roots and enter the credential
 
-Setup adds the program directory to PATH: the user PATH for a current-user
-installation, the machine PATH for an all-users installation. Open a new
-terminal after installing so `vcp` resolves by name. The commands below use
-`$vcp`, the stable launcher found on PATH. For portable use, set `$vcp` to the
-`vcp.exe` in the extracted payload instead.
+Setup does not add VCP to PATH. Select the stable launcher below; for a custom
+program directory, replace `$vcp` with its absolute path. For portable use, select
+the `vcp.exe` in the extracted payload instead.
 
 Create or select a workspace containing the files you want VCP to inspect.
 Use a separate private, nonsynchronized directory for metadata and profiles.
@@ -48,7 +28,7 @@ drives, and redirected setup paths. Declare additional sync roots in your truste
 profile before task execution.
 
 ```powershell
-$vcp = (Get-Command vcp -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$vcp = Join-Path $env:LOCALAPPDATA 'Programs\VCP\vcp.exe'
 & $vcp --version
 if ($LASTEXITCODE -ne 0) { throw 'Select the installed VCP executable before continuing.' }
 $workspace = 'C:\work\beta-sample'
@@ -68,65 +48,31 @@ the key in command arguments, profile JSON, workspace settings, package content,
 or diagnostic output. Remove it after the final task using the cleanup command
 at the end of this walkthrough.
 
-To avoid re-entering the key in every new terminal, you may instead store it
-once in Windows Credential Manager for your Windows user, from a hidden prompt:
+## Qualify the exact endpoint
+
+Choose an exact model ID and endpoint **tag**, not its display name. Inspect the
+current model endpoint catalog in the provider UI or its
+[documented endpoint API](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model).
+The selected endpoint must support tools, tool choice and output limits, have
+usable context/output limits and explicit pricing. Setup rejects ambiguous
+provider pools. The fixed request denies provider data collection, disables
+fallbacks and sets explicit price ceilings. It does not request ZDR; use this
+beta only where that policy is acceptable. Setup contains no custom endpoint,
+proxy, or qualification bypass setting.
+
+Fill these variables with the approved exact selection and caps. No credential
+belongs in them. `Read-Host` here is for nonsecret choices only:
 
 ```powershell
-& $vcp setup credential store    # hidden prompt; Ctrl+C cancels
-& $vcp setup credential status   # reports sources, never the value
-& $vcp setup credential remove   # deletes the stored key
-```
-
-The stored key is used only in interactive terminal sessions (text output to a
-console, without `--non-interactive` or `--control-stdin`). JSONL, redirected
-and automated runs still need `OPENROUTER_API_KEY`, which always takes
-precedence when set. See [ADR-079](../adr/079-stored-provider-credential.md).
-
-## Choose a model set and qualify its model
-
-VCP ships model **sets** that name exact models and endpoint tags. `quick` is a
-single Qwen 3.8 Max model and the cheapest setup. Vendor sets (`qwen`, `openai`,
-`anthropic`, `glm`) and capability-level sets (`frontier`, `high`, `medium`)
-assign a main model plus cheaper child and compaction models. A set only
-suggests models; every model is still qualified below, and nothing is
-substituted when one is unavailable. Levels come from the research table in
-`docs/architecture/model-groups.md` and are not VCP quality evidence. Until
-per-role assignment ships, profiles can be created only from single-model sets
-such as `quick`.
-
-See a set's live prices and what setup and tasks reserve. This makes no model
-call, needs no key and writes nothing:
-
-```powershell
-& $vcp --workspace $workspace setup estimate --set quick
-```
-
-Admission reserves each endpoint's full input capacity, so the reserved amount
-is far higher than what a short prompt costs; only actual usage is charged.
-For `quick`, each setup probe reserves about $6.40 and each task request about
-$6.49. Your probe cap must be at least the reported verify amount, and the task
-budget at least the per-request amount.
-
-The fixed request denies provider data collection, disables fallbacks and sets
-explicit price ceilings. It does not request ZDR; use this beta only where that
-policy is acceptable. Setup contains no custom endpoint, proxy, or
-qualification bypass setting. Choose the cap yourself; no amount is filled in:
-
-```powershell
-$probeBudget = Read-Host 'Authorized total probe budget in USD (at least the verify amount)'
-& $vcp --workspace $workspace setup provider --set quick --budget-usd $probeBudget
+$model = Read-Host 'Exact model ID (organization/model)'
+$endpoint = Read-Host 'Exact endpoint tag'
+$requestPrice = Read-Host 'Maximum USD per request fee (for example 0.001)'
+$probeBudget = Read-Host 'Authorized total probe budget in USD'
+$generation = Join-Path $private ('provider-' + [guid]::NewGuid().ToString('N'))
+& $vcp --workspace $workspace setup provider --model $model --endpoint $endpoint `
+  --request-price-limit $requestPrice --budget-usd $probeBudget --output $generation
 if ($LASTEXITCODE -ne 0) { throw 'Provider setup did not qualify; inspect the recovery table below.' }
 ```
-
-Without `--output`, the generation folder is created under the data folder's
-`providers` directory, and the result names it. To qualify a model outside the
-sets, pass an exact model ID and endpoint **tag** (not its display name) from
-the [documented endpoint API](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model)
-with `--model`, `--endpoint` and `--request-price-limit` instead of `--set`.
-`setup estimate --model <id> --endpoint <tag>` prices it first. The endpoint
-must support tools, tool choice and output limits, with explicit pricing.
-Setup rejects ambiguous provider pools, including a bare provider tag that also
-lists variants such as `openai/flex`.
 
 Success reports `status: qualified`, the catalog and snapshot paths, actual
 settled cost, and expiry. Setup captures the catalog, uses the canonical budget
@@ -144,21 +90,18 @@ budget; setup never retries with a larger cap or cheaper provider automatically.
 ## Create a profile and run a read task
 
 ```powershell
-$generation = Read-Host 'Generation folder reported by setup provider'
-$taskBudget = Read-Host 'Authorized per-task budget in USD (at least the per-request amount)'
-& $vcp --workspace $workspace setup profile --provider $generation --set quick `
+$profile = Join-Path $private ('beta-sample-' + [guid]::NewGuid().ToString('N') + '.json')
+$taskBudget = Read-Host 'Authorized per-task budget in USD'
+& $vcp --workspace $workspace setup profile `
+  --snapshot (Join-Path $generation 'qualified\snapshot.json') `
+  --catalog (Join-Path $generation 'endpoints.json') --output $profile `
   --trust-workspace --budget-usd $taskBudget --autonomy ask --affected-path README.md
 if ($LASTEXITCODE -ne 0) { throw 'Profile creation failed.' }
-& $vcp --workspace $workspace setup check
+& $vcp --workspace $workspace --config $profile setup check
 if ($LASTEXITCODE -ne 0) { throw 'Profile preflight failed.' }
-& $vcp --workspace $workspace run `
+& $vcp --workspace $workspace --config $profile run `
   'Read README.md and summarize its purpose with citations. Do not change files.' --autonomy ask
 ```
-
-`--set quick` applies the limits measured for Qwen 3.8 Max: 16 requests,
-16,384 output tokens per request, a 180-second provider timeout and a
-15-minute task deadline. Without `--set`, the profile keeps the conservative
-eight requests, 2,048 output tokens and five-minute deadline described below.
 
 `--trust-workspace` is required and binds this profile to that exact workspace.
 Only reads are automatic in the generated policy; the default tool ceiling
@@ -173,13 +116,9 @@ The first accepted task registers the workspace and durable history. Starting
 Reopening does not resume a task. Use the displayed task ID and revision for an
 explicit resume; the original task's budget and spent amount remain in force.
 
-Each workspace gets its own profile filename. `setup profile` also selects the
-new profile for that workspace, so later `setup check`, `run`, `resume` and
-`doctor` commands in the same workspace may omit `--config`. Omitting `--output`
-creates the profile under the data folder's `profiles` directory. Select a
-different existing profile with `& $vcp --workspace $workspace --config $other
-setup select`. An explicit `--config` always takes precedence; the legacy global
-`profile.json` is used only when nothing is selected. For VS Code, select the installed CLI and
+Each workspace gets its own profile filename. Always pass its matching
+`--workspace` and `--config`; the legacy global `profile.json` default cannot
+represent several workspace bindings. For VS Code, select the installed CLI and
 data directory in **User** settings, select this execution profile through
 **VCP: Start Execution-backed Task**, use its credential input, and review
 workspace trust there. Never copy the key to settings. See the packaged VSIX
@@ -207,16 +146,9 @@ preferences you still want. Keep the prior profile and receipts for inspection.
 
 Repeat `setup provider` into a **new** directory when metadata expires, then
 create a **new** profile filename and reapply reviewed process/check settings and
-imports. `setup profile` selects the new profile for the CLI; select it
-explicitly in VS Code. Never edit
+imports. Select the new profile explicitly in the CLI and VS Code. Never edit
 timestamps, prices, compatibility flags or hashes to extend old evidence.
 Workspace history stays in its existing data root.
-
-To see what is missing for a workspace, run `& $vcp --workspace $workspace doctor`
-(add `--config $profile` once you have one). It checks the installation,
-workspace, data folder, whether `OPENROUTER_API_KEY` is set (never its value),
-the profile and its metadata expiry offline, and names the next step for each
-failed item. It makes no model calls.
 
 | Observed condition | Required next step |
 | --- | --- |
