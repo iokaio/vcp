@@ -900,11 +900,21 @@ mod registry_tests {
     }
 }
 
+/// Registry key for a canonical workspace path.
+pub fn workspace_path_key(workspace: &Path) -> String {
+    vcp_protocol::digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes())
+}
+
 pub fn save(path: &Path, entry: &WorkspaceEntry) -> Result<(), String> {
     // The caller holds the canonical store owner lock; never replace another
     // process's active entry. Write and sync before publishing the new hint.
-    let temporary = path.with_extension("new");
     let bytes = serde_json::to_vec(entry).map_err(|e| e.to_string())?;
+    replace_file(path, &bytes)
+}
+
+/// Write and sync a uniquely named sibling, then atomically replace `path`.
+pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let temporary = path.with_extension("new");
     use std::io::Write;
     // A stale temporary is never truncated: it may be a redirected path.
     let temporary = temporary.with_extension(vcp_domain::ids::CommandId::new().as_str());
@@ -913,7 +923,7 @@ pub fn save(path: &Path, entry: &WorkspaceEntry) -> Result<(), String> {
         .write(true)
         .open(&temporary)
         .map_err(|e| e.to_string())?;
-    file.write_all(&bytes)
+    file.write_all(bytes)
         .and_then(|()| file.sync_all())
         .map_err(|e| e.to_string())?;
     drop(file);
@@ -934,7 +944,7 @@ pub fn save(path: &Path, entry: &WorkspaceEntry) -> Result<(), String> {
             )
         } == 0
         {
-            return Err("workspace descriptor publication failed".into());
+            return Err(format!("{} publication failed", path.display()));
         }
         Ok(())
     }

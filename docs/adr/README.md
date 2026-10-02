@@ -123,3 +123,7 @@ Return to the [documentation index](../README.md).
 [ADR-074](074-github-beta-downloads.md) records subsequent owner authorization for limited unsigned beta publication through GitHub Releases and a Pages download index, without closing full qualification.
 
 [ADR-075](075-marketplace-manual-upload.md) selects the `iokaio` publisher and a fresh verified pre-release pair, with the first Marketplace upload reserved for the owner.
+
+[ADR-076](076-signed-beta-qualification.md) selects the signed beta artifact contract, Qwen 3.8 Max at `alibaba` and the $40 provider ceiling for final qualification.
+
+[ADR-077](077-guided-cli-setup.md) adds guided CLI setup: terminal-only readable output, per-workspace profile selection without granted authority, and model sets as suggestions with typed spending confirmation.

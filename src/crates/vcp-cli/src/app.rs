@@ -235,15 +235,15 @@ const SETUP_STEPS: [(&str, &str); 4] = [
     ),
     (
         "vcp setup profile --help",
-        "Create this workspace's profile from the verified metadata, offline.",
+        "Create and select this workspace's profile from the verified metadata, offline.",
     ),
     (
-        "vcp --config <profile> setup check",
-        "Validate the profile, tools, budget and metadata expiry, offline.",
+        "vcp setup check",
+        "Validate the selected profile, tools, budget and metadata expiry, offline.",
     ),
     (
-        "vcp --config <profile> run \"<task>\" --autonomy ask",
-        "Start a first task.",
+        "vcp run \"<task>\" --autonomy ask",
+        "Start a first task with the selected profile.",
     ),
 ];
 
@@ -293,6 +293,7 @@ fn setup_view(command: &crate::onboarding::Command) -> crate::render::View {
     match command {
         Command::Provider(_) | Command::ProviderComplete { .. } => View::SetupProvider,
         Command::Profile(_) => View::SetupProfile,
+        Command::Select => View::SetupSelect,
         Command::Check => View::SetupCheck,
     }
 }
@@ -376,7 +377,13 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         return command_view(
             cli.format,
             setup_view(command),
-            crate::onboarding::execute(command, &cli.workspace, cli.config.as_deref()).await?,
+            crate::onboarding::execute(
+                command,
+                &cli.workspace,
+                cli.config.as_deref(),
+                cli.data_dir.as_deref(),
+            )
+            .await?,
         );
     }
     if let Some(crate::args::Command::Config {
@@ -426,7 +433,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .unwrap_or_else(settings::default_data)?;
     let data = settings::local_path(&data_root, &workspace)
         .map_err(|error| crate::render::data_placement(error, &data_root, &workspace))?;
-    let path_key = digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes());
+    let path_key = settings::workspace_path_key(&workspace);
     let existing_directory = if matches!(
         cli.command,
         Some(
@@ -466,12 +473,10 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         )
     );
     let profile = if needs_profile {
-        Some(settings::load(
-            &cli.config
-                .clone()
-                .unwrap_or_else(|| data.join("profile.json")),
-            &workspace,
-        ).map_err(|error| format!("{error}; choose the matching --config for this workspace, or run vcp setup profile --help for first-run setup"))?)
+        let resolved = crate::profile_selection::resolve(&data, &workspace, cli.config.as_deref())?;
+        Some(settings::load(&resolved.path, &workspace).map_err(|error| {
+            format!("{error}; choose the matching --config for this workspace, or run `vcp setup`")
+        })?)
     } else {
         None
     };
@@ -713,12 +718,8 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     }
     if let ValidatedCommand::Skills(crate::skills::OfflineCommand::List { offset }) = &cli.command {
         let entry = entry.as_ref().ok_or("Skill inspection requires a registered workspace; open or restore its durable session first.")?;
-        let profile = settings::load(
-            &cli.config
-                .clone()
-                .unwrap_or_else(|| data.join("profile.json")),
-            &workspace,
-        )?;
+        let resolved = crate::profile_selection::resolve(&data, &workspace, cli.config.as_deref())?;
+        let profile = settings::load(&resolved.path, &workspace)?;
         return command_result(
             cli.format,
             crate::skills::offline::execute(&profile, entry, &workspace, &pipe, *offset).await?,
@@ -821,7 +822,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     if let Some(query_request) = read {
         let Some(entry) = entry.as_ref() else {
             if matches!(query_request, Query::Continuation) {
-                const MESSAGE: &str = "No unfinished tasks in this workspace. New to VCP? Run `vcp setup` for the first-run steps. With a profile, start a task with `vcp --config <profile> run \"<task>\"`.";
+                const MESSAGE: &str = "No unfinished tasks in this workspace. New to VCP? Run `vcp setup` for the first-run steps. Once a profile is selected, start a task with `vcp run \"<task>\"`.";
                 return command_guidance(
                     cli.format,
                     json!({"candidates":[],"truncated":false,"message":MESSAGE}),

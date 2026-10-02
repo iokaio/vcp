@@ -38,8 +38,12 @@ roots. Existing junctions are resolved before admission. Add other synchronized
 directories to `sync_roots` in the profile. These are local plaintext records.
 The CLI does not import project configuration as execution authority.
 
-The default profile is `<data-dir>/profile.json`; `--config` selects another
-explicit user-owned file. Version 1 uses JSON and rejects unknown fields.
+Profiles resolve in this order: an explicit `--config`; the profile selected for
+the canonical workspace in `<data-dir>/profiles/selected/<workspace key>.json`
+(written by `setup profile` and `setup select`; see ADR-077); then the legacy
+`<data-dir>/profile.json`. The selection only names a file; loading still
+enforces the profile's workspace binding, trust and expiry. Version 1 profiles
+use JSON and reject unknown fields.
 Its fields are:
 
 | Field | Meaning |

@@ -149,19 +149,23 @@ pub fn readiness(
             Some("set it with a masked prompt before `vcp setup provider` or `vcp run`; see docs/usage/beta-onboarding.md"),
         )
     });
-    let legacy = data.join("profile.json");
-    let Some(path) = config
-        .map(Path::to_path_buf)
-        .or_else(|| legacy.is_file().then_some(legacy))
-    else {
-        items.push(item(
-            "profile",
-            "Profile",
-            "fail",
-            "no profile selected for this workspace".into(),
-            Some("run `vcp setup`, or pass --config <profile>"),
-        ));
-        return items;
+    let (path, source) = match crate::profile_selection::resolve(data, &workspace, config) {
+        Ok(resolved) => (resolved.path, resolved.source),
+        Err(error) => {
+            let detail = if error == crate::profile_selection::NO_PROFILE {
+                "no profile selected for this workspace".into()
+            } else {
+                error
+            };
+            items.push(item(
+                "profile",
+                "Profile",
+                "fail",
+                detail,
+                Some("run `vcp setup`, or pass --config <profile>"),
+            ));
+            return items;
+        }
     };
     let shown = crate::settings::display_path(&path);
     let profile = match crate::settings::load(&path, &workspace) {
@@ -177,7 +181,18 @@ pub fn readiness(
             return items;
         }
     };
-    items.push(item("profile", "Profile", "ok", shown, None));
+    let source = match source {
+        crate::profile_selection::Source::Explicit => "from --config",
+        crate::profile_selection::Source::Selected => "selected for this workspace",
+        crate::profile_selection::Source::Legacy => "legacy default in the data folder",
+    };
+    items.push(item(
+        "profile",
+        "Profile",
+        "ok",
+        format!("{shown} ({source})"),
+        None,
+    ));
     let provider = &profile.provider.compatibility;
     let model = format!("{} @ {}", provider.model, provider.endpoint);
     let current = profile.provider.current(environment.now).is_ok();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit first-run setup. No fixture credentials, implicit trust or defaults
 //! that authorize a model call. Profile publication is create-only and offline.
-use crate::settings;
+use crate::{profile_selection, settings};
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 use std::{
@@ -20,8 +20,10 @@ pub enum Command {
         #[arg(long)]
         directory: PathBuf,
     },
-    /// Create an offline workspace profile from current qualified metadata.
+    /// Create and select an offline workspace profile from current qualified metadata.
     Profile(Profile),
+    /// Select the --config profile for this workspace, offline.
+    Select,
     /// Validate the selected profile, tools, budgets and expiry without inference.
     Check,
 }
@@ -34,9 +36,10 @@ pub struct Profile {
     /// Exact captured endpoint catalog matching the snapshot.
     #[arg(long)]
     pub catalog: PathBuf,
-    /// New profile path outside workspaces, repositories and known sync roots.
+    /// New profile path outside workspaces, repositories and known sync roots;
+    /// defaults to a new file under the private data folder's `profiles`.
     #[arg(long)]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
     /// Explicitly grant trust to the selected --workspace root.
     #[arg(long, required = true)]
     pub trust_workspace: bool,
@@ -55,6 +58,7 @@ pub async fn execute(
     command: &Command,
     workspace: &Path,
     config: Option<&Path>,
+    data_dir: Option<&Path>,
 ) -> Result<Value, String> {
     let workspace = workspace
         .canonicalize()
@@ -62,6 +66,12 @@ pub async fn execute(
     if !workspace.is_dir() {
         return Err("setup workspace must be a directory".into());
     }
+    let data = || {
+        data_dir
+            .map(Path::to_path_buf)
+            .map(Ok)
+            .unwrap_or_else(settings::default_data)
+    };
     match command {
         Command::Provider(request) => {
             crate::provider_setup::production::run(request, &workspace).await
@@ -69,10 +79,35 @@ pub async fn execute(
         Command::ProviderComplete { directory } => {
             crate::provider_setup::production::complete(directory, &workspace).await
         }
-        Command::Profile(request) => create(request, &workspace),
+        Command::Profile(request) => {
+            let data = data()?;
+            let output = create(request, &workspace, &data)?;
+            let selection =
+                profile_selection::select(&data, &workspace, &output, None, settings::now());
+            let next = match &selection {
+                Ok(_) => "vcp --workspace <workspace> setup check".to_owned(),
+                Err(_) => "vcp --workspace <workspace> --config <profile> setup select".to_owned(),
+            };
+            Ok(
+                json!({"status":"created","profile":output,"workspace":workspace,"model_calls":0,
+                "selected":selection.is_ok(),"previous":selection.as_ref().ok().cloned().flatten(),
+                "selection_error":selection.err(),"next":next,
+                "checks":"source integrity only; register explicit process profiles and checks for executable verification"}),
+            )
+        }
+        Command::Select => {
+            let path = config.ok_or("setup select requires --config <profile>")?;
+            let previous =
+                profile_selection::select(&data()?, &workspace, path, None, settings::now())?;
+            Ok(json!({"status":"selected","workspace":workspace,
+                "profile":std::path::absolute(path).map_err(|_| "absolute profile path required")?,
+                "previous":previous,"model_calls":0,"next":"vcp --workspace <workspace> setup check"}))
+        }
         Command::Check => {
-            let path = config.ok_or("setup check requires an explicit --config profile path; use setup profile for first-run creation")?;
-            check(path, &workspace, credential_present())
+            let resolved = profile_selection::resolve(&data()?, &workspace, config)?;
+            let mut value = check(&resolved.path, &workspace, credential_present())?;
+            value["profile_source"] = json!(resolved.source);
+            Ok(value)
         }
     }
 }
@@ -106,7 +141,37 @@ pub fn check(path: &Path, workspace: &Path, credential_present: bool) -> Result<
     )
 }
 
-fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
+/// A new profile filename under `<data>\profiles`, named after the workspace.
+fn default_output(data: &Path, workspace: &Path) -> Result<PathBuf, String> {
+    let leaf: String = workspace
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .take(40)
+        .collect();
+    let leaf = if leaf.trim_matches('-').is_empty() {
+        "workspace".into()
+    } else {
+        leaf
+    };
+    let directory = settings::local_path(data, workspace)?.join("profiles");
+    std::fs::create_dir_all(&directory)
+        .map_err(|_| "profiles folder cannot be created in the private data folder")?;
+    Ok(directory.join(format!(
+        "{leaf}-{}.json",
+        vcp_domain::ids::CommandId::new().as_str()
+    )))
+}
+
+fn create(request: &Profile, workspace: &Path, data: &Path) -> Result<PathBuf, String> {
     if !request.trust_workspace {
         return Err("explicit --trust-workspace is required".into());
     }
@@ -118,7 +183,11 @@ fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
     let snapshot: Snapshot =
         serde_json::from_slice(&settings::read_bounded(&snapshot_path, 256 * 1024)?)
             .map_err(|_| "invalid qualified snapshot; run vcp setup provider --help")?;
-    let output = settings::local_path(&request.output, workspace)?;
+    let explicit = request
+        .output
+        .as_ref()
+        .map(|output| settings::local_path(output, workspace))
+        .transpose()?;
     let value = json!({"version":1,"workspace":workspace,"trust_workspace":true,
         "maximum_autonomy":settings::autonomy(request.autonomy),"automatic_effects":["read"],
         "budget_usd":request.budget_usd,"provider":snapshot,"catalog":catalog,
@@ -133,6 +202,10 @@ fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
         .map_err(|e| {
             format!("{e}; require a fresh matching catalog/snapshot from vcp setup provider")
         })?;
+    let output = match explicit {
+        Some(output) => output,
+        None => default_output(data, workspace)?,
+    };
     let parent = output.parent().ok_or("profile output parent required")?;
     let root = settings::registry_root(parent)?;
     let _pin = root
@@ -144,11 +217,7 @@ fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
     file.write_all(&bytes)
         .and_then(|()| file.sync_all())
         .map_err(|_| "profile publication failed")?;
-    Ok(
-        json!({"status":"created","profile":output,"workspace":workspace,"model_calls":0,
-        "next":"vcp --workspace <workspace> --config <profile> setup check",
-        "checks":"source integrity only; register explicit process profiles and checks for executable verification"}),
-    )
+    Ok(output)
 }
 
 #[cfg(all(test, windows))]
@@ -232,32 +301,143 @@ mod tests {
         .unwrap();
         std::fs::write(&catalog, &raw).unwrap();
         std::fs::write(&snapshot_path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        let data = temp.path().join("data");
+        let output = temp.path().join("profile.json");
         let mut request = Profile {
             snapshot: snapshot_path.clone(),
             catalog: catalog.clone(),
-            output: temp.path().join("profile.json"),
+            output: Some(output.clone()),
             trust_workspace: true,
             budget_usd: "1".into(),
             autonomy: crate::args::Autonomy::Ask,
             affected_path: vec![PathBuf::from("README.md")],
         };
-        create(&request, &workspace).unwrap();
-        let before = std::fs::read(&request.output).unwrap();
-        assert!(create(&request, &workspace).is_err());
-        assert_eq!(before, std::fs::read(&request.output).unwrap());
-        let loaded = settings::load(&request.output, &workspace).unwrap();
+        create(&request, &workspace, &data).unwrap();
+        let before = std::fs::read(&output).unwrap();
+        assert!(create(&request, &workspace, &data).is_err());
+        assert_eq!(before, std::fs::read(&output).unwrap());
+        let loaded = settings::load(&output, &workspace).unwrap();
         assert!(loaded.prepare(vcp_domain::policy::Autonomy::Ask).is_ok());
-        request.output = temp.path().join("next.json");
+        assert!(
+            !data.exists(),
+            "an explicit output never touches the data folder"
+        );
+
+        // Without --output the profile is a new file under <data>\profiles,
+        // and selecting it lets later commands omit --config.
+        request.output = None;
+        let first = create(&request, &workspace, &data).unwrap();
+        let second = create(&request, &workspace, &data).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            first.parent(),
+            Some(data.join("profiles").canonicalize().unwrap().as_path())
+        );
+        assert!(first
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("workspace-"));
+        assert_eq!(
+            profile_selection::resolve(&data, &workspace, None),
+            Err(profile_selection::NO_PROFILE.to_owned())
+        );
+        let now = settings::now();
+        assert_eq!(
+            profile_selection::select(&data, &workspace, &first, None, now),
+            Ok(None)
+        );
+        let resolved = profile_selection::resolve(&data, &workspace, None).unwrap();
+        assert_eq!(
+            (resolved.path, resolved.source),
+            (first.clone(), profile_selection::Source::Selected)
+        );
+        assert!(check(&first, &workspace, false).is_ok());
+        assert_eq!(
+            profile_selection::select(&data, &workspace, &second, Some("quick"), now),
+            Ok(Some(first.clone()))
+        );
+        let selection = profile_selection::read(&data, &workspace).unwrap().unwrap();
+        assert_eq!(selection.active_set.as_deref(), Some("quick"));
+        assert_eq!(selection.sets.get("quick"), Some(&second));
+        assert_eq!(selection.previous, Some(first.clone()));
+        assert_eq!(
+            profile_selection::resolve(&data, &workspace, Some(&output))
+                .unwrap()
+                .source,
+            profile_selection::Source::Explicit
+        );
+        // A profile bound to another workspace cannot be selected here.
+        let other = temp.path().join("other");
+        std::fs::create_dir(&other).unwrap();
+        let other = other.canonicalize().unwrap();
+        assert!(profile_selection::select(&data, &other, &first, None, now).is_err());
+        assert!(profile_selection::read(&data, &other).unwrap().is_none());
+
+        request.output = Some(temp.path().join("next.json"));
         request.trust_workspace = false;
-        assert!(create(&request, &workspace).is_err());
+        assert!(create(&request, &workspace, &data).is_err());
         request.trust_workspace = true;
         std::fs::write(&catalog, b"{}").unwrap();
-        assert!(create(&request, &workspace).is_err());
+        assert!(create(&request, &workspace, &data).is_err());
         std::fs::write(&catalog, raw).unwrap();
         let mut expired = snapshot;
         expired.valid_until = Timestamp::new(observed.get() - 1);
         std::fs::write(snapshot_path, serde_json::to_vec(&expired).unwrap()).unwrap();
-        assert!(create(&request, &workspace).is_err());
-        assert!(!request.output.exists());
+        assert!(create(&request, &workspace, &data).is_err());
+        assert!(!temp.path().join("next.json").exists());
+    }
+
+    #[test]
+    fn selection_pointer_rejects_tampering_and_redirection() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp.path().canonicalize().unwrap();
+        let workspace = base.join("workspace");
+        let data = base.join("data");
+        let outside = base.join("outside");
+        for path in [&workspace, &data, &outside] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let key = settings::workspace_path_key(&workspace);
+        let selected = data.join("profiles").join("selected");
+        std::fs::create_dir_all(&selected).unwrap();
+        let pointer = selected.join(format!("{key}.json"));
+        let other_workspace = json!({"schema":profile_selection::SCHEMA,"workspace":outside,
+            "profile":base.join("p.json"),"active_set":null,"sets":{},"previous":null,"selected_at":"1"});
+        std::fs::write(&pointer, other_workspace.to_string()).unwrap();
+        assert!(profile_selection::read(&data, &workspace).is_err());
+        let mut unknown = other_workspace.clone();
+        unknown["workspace"] = json!(workspace);
+        unknown["grants"] = json!(["write"]);
+        std::fs::write(&pointer, unknown.to_string()).unwrap();
+        assert!(profile_selection::read(&data, &workspace).is_err());
+        let mut mismatched_set = other_workspace;
+        mismatched_set["workspace"] = json!(workspace);
+        mismatched_set["active_set"] = json!("quick");
+        std::fs::write(&pointer, mismatched_set.to_string()).unwrap();
+        assert!(profile_selection::read(&data, &workspace).is_err());
+        std::fs::remove_file(&pointer).unwrap();
+        assert_eq!(profile_selection::read(&data, &workspace), Ok(None));
+
+        std::fs::remove_dir(&selected).unwrap();
+        std::fs::write(outside.join(format!("{key}.json")), b"outside marker").unwrap();
+        let junction = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&selected)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(
+            junction.status.success(),
+            "junction fixture prerequisite failed"
+        );
+        assert!(profile_selection::read(&data, &workspace).is_err());
+        assert!(profile_selection::resolve(&data, &workspace, None).is_err());
+        assert_eq!(
+            std::fs::read(outside.join(format!("{key}.json"))).unwrap(),
+            b"outside marker"
+        );
+        std::fs::remove_dir(&selected).unwrap();
     }
 }

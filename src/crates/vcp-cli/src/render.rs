@@ -14,6 +14,7 @@ pub enum View {
     SetupCheck,
     SetupProfile,
     SetupProvider,
+    SetupSelect,
 }
 
 pub fn human(view: View, value: &Value, now: Timestamp) -> String {
@@ -22,6 +23,7 @@ pub fn human(view: View, value: &Value, now: Timestamp) -> String {
         View::SetupCheck => setup_check(value, now),
         View::SetupProfile => setup_profile(value),
         View::SetupProvider => setup_provider(value, now),
+        View::SetupSelect => setup_select(value),
     }
 }
 
@@ -134,9 +136,14 @@ fn setup_check(value: &Value, now: Timestamp) -> String {
     } else {
         "OPENROUTER_API_KEY is not set in this terminal; set it before `vcp run`"
     };
+    let source = match value["profile_source"].as_str() {
+        Some("selected") => " (selected for this workspace)",
+        Some("legacy") => " (legacy default in the data folder)",
+        _ => "",
+    };
     [
         format!(
-            "Ready: profile {} for workspace {}.",
+            "Ready: profile {}{source} for workspace {}.",
             path(&value["profile"]),
             path(&value["workspace"])
         ),
@@ -161,9 +168,30 @@ fn setup_check(value: &Value, now: Timestamp) -> String {
 fn setup_profile(value: &Value) -> String {
     let profile = path(&value["profile"]);
     let workspace = path(&value["workspace"]);
+    let next = if value["selected"] == true {
+        format!("selected for this workspace.\n  Next: vcp --workspace \"{workspace}\" setup check")
+    } else {
+        format!(
+            "not selected: {}.\n  Next: vcp --workspace \"{workspace}\" --config \"{profile}\" setup select",
+            text(&value["selection_error"])
+        )
+    };
     format!(
-        "Created profile {profile} for workspace {workspace} (offline; no model calls).\n  Next: vcp --workspace \"{workspace}\" --config \"{profile}\" setup check\n  Note: {}",
+        "Created profile {profile} for workspace {workspace} (offline; no model calls), {next}\n  Note: {}",
         text(&value["checks"])
+    )
+}
+
+fn setup_select(value: &Value) -> String {
+    let workspace = path(&value["workspace"]);
+    let previous = if value["previous"].is_null() {
+        String::new()
+    } else {
+        format!(" (previously {})", path(&value["previous"]))
+    };
+    format!(
+        "Selected profile {} for workspace {workspace}{previous}.\n  Next: vcp --workspace \"{workspace}\" setup check",
+        path(&value["profile"])
     )
 }
 
@@ -330,11 +358,24 @@ mod tests {
             shown.contains(r#"--snapshot "C:\data\gen\qualified\snapshot.json""#),
             "{shown}"
         );
-        let profile = json!({"status":"created","profile":r"C:\data\p.json","workspace":r"\\?\D:\w","checks":"source integrity only"});
+        let mut profile = json!({"status":"created","profile":r"C:\data\p.json","workspace":r"\\?\D:\w",
+            "checks":"source integrity only","selected":true});
         let shown = human(View::SetupProfile, &profile, Timestamp::new(NOW));
         assert!(
-            shown.contains(r#"Next: vcp --workspace "D:\w" --config "C:\data\p.json" setup check"#),
+            shown.contains(r#"Next: vcp --workspace "D:\w" setup check"#),
             "{shown}"
         );
+        profile["selected"] = json!(false);
+        profile["selection_error"] = json!("selection directory is unavailable or redirected");
+        let shown = human(View::SetupProfile, &profile, Timestamp::new(NOW));
+        assert!(
+            shown
+                .contains(r#"Next: vcp --workspace "D:\w" --config "C:\data\p.json" setup select"#),
+            "{shown}"
+        );
+        let selected = json!({"status":"selected","profile":r"C:\data\q.json","workspace":r"D:\w",
+            "previous":r"C:\data\p.json"});
+        let shown = human(View::SetupSelect, &selected, Timestamp::new(NOW));
+        assert!(shown.contains(r"(previously C:\data\p.json)"), "{shown}");
     }
 }

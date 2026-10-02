@@ -196,3 +196,38 @@ fn doctor_reports_readiness_without_a_profile_or_key() {
     assert_eq!(status("profile").as_deref(), Some("fail"));
     assert_eq!(status("provider_metadata"), None);
 }
+
+#[test]
+fn setup_check_without_a_selection_points_to_setup() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("project");
+    let data = temp.path().join("data");
+    fs::create_dir(&workspace).unwrap();
+    let output = vcp(&[
+        "--workspace",
+        workspace.to_str().unwrap(),
+        "--data-dir",
+        data.to_str().unwrap(),
+        "setup",
+        "check",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no profile is selected for this workspace; run `vcp setup`"),
+        "{stderr}"
+    );
+    single_record(&output.stdout);
+    // A selection needs --config naming an existing profile.
+    let output = vcp(&[
+        "--workspace",
+        workspace.to_str().unwrap(),
+        "--data-dir",
+        data.to_str().unwrap(),
+        "setup",
+        "select",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--config"));
+    assert!(!data.exists());
+}
