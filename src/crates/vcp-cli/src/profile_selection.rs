@@ -55,7 +55,7 @@ fn same(left: &Path, right: &Path) -> bool {
     settings::within(left, right) && settings::within(right, left)
 }
 
-fn valid_set(id: &str) -> bool {
+pub(crate) fn valid_set(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
         && id

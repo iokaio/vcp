@@ -48,31 +48,51 @@ the key in command arguments, profile JSON, workspace settings, package content,
 or diagnostic output. Remove it after the final task using the cleanup command
 at the end of this walkthrough.
 
-## Qualify the exact endpoint
+## Choose a model set and qualify its model
 
-Choose an exact model ID and endpoint **tag**, not its display name. Inspect the
-current model endpoint catalog in the provider UI or its
-[documented endpoint API](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model).
-The selected endpoint must support tools, tool choice and output limits, have
-usable context/output limits and explicit pricing. Setup rejects ambiguous
-provider pools. The fixed request denies provider data collection, disables
-fallbacks and sets explicit price ceilings. It does not request ZDR; use this
-beta only where that policy is acceptable. Setup contains no custom endpoint,
-proxy, or qualification bypass setting.
+VCP ships model **sets** that name exact models and endpoint tags. `quick` is a
+single Qwen 3.8 Max model and the cheapest setup. Vendor sets (`qwen`, `openai`,
+`anthropic`, `glm`) and capability-level sets (`frontier`, `high`, `medium`)
+assign a main model plus cheaper child and compaction models. A set only
+suggests models; every model is still qualified below, and nothing is
+substituted when one is unavailable. Levels come from the research table in
+`docs/architecture/model-groups.md` and are not VCP quality evidence. Until
+per-role assignment ships, profiles can be created only from single-model sets
+such as `quick`.
 
-Fill these variables with the approved exact selection and caps. No credential
-belongs in them. `Read-Host` here is for nonsecret choices only:
+See a set's live prices and what setup and tasks reserve. This makes no model
+call, needs no key and writes nothing:
 
 ```powershell
-$model = Read-Host 'Exact model ID (organization/model)'
-$endpoint = Read-Host 'Exact endpoint tag'
-$requestPrice = Read-Host 'Maximum USD per request fee (for example 0.001)'
-$probeBudget = Read-Host 'Authorized total probe budget in USD'
-$generation = Join-Path $private ('provider-' + [guid]::NewGuid().ToString('N'))
-& $vcp --workspace $workspace setup provider --model $model --endpoint $endpoint `
-  --request-price-limit $requestPrice --budget-usd $probeBudget --output $generation
+& $vcp --workspace $workspace setup estimate --set quick
+```
+
+Admission reserves each endpoint's full input capacity, so the reserved amount
+is far higher than what a short prompt costs; only actual usage is charged.
+For `quick`, each setup probe reserves about $6.40 and each task request about
+$6.49. Your probe cap must be at least the reported verify amount, and the task
+budget at least the per-request amount.
+
+The fixed request denies provider data collection, disables fallbacks and sets
+explicit price ceilings. It does not request ZDR; use this beta only where that
+policy is acceptable. Setup contains no custom endpoint, proxy, or
+qualification bypass setting. Choose the cap yourself; no amount is filled in:
+
+```powershell
+$probeBudget = Read-Host 'Authorized total probe budget in USD (at least the verify amount)'
+& $vcp --workspace $workspace setup provider --set quick --budget-usd $probeBudget
 if ($LASTEXITCODE -ne 0) { throw 'Provider setup did not qualify; inspect the recovery table below.' }
 ```
+
+Without `--output`, the generation folder is created under the data folder's
+`providers` directory, and the result names it. To qualify a model outside the
+sets, pass an exact model ID and endpoint **tag** (not its display name) from
+the [documented endpoint API](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model)
+with `--model`, `--endpoint` and `--request-price-limit` instead of `--set`.
+`setup estimate --model <id> --endpoint <tag>` prices it first. The endpoint
+must support tools, tool choice and output limits, with explicit pricing.
+Setup rejects ambiguous provider pools, including a bare provider tag that also
+lists variants such as `openai/flex`.
 
 Success reports `status: qualified`, the catalog and snapshot paths, actual
 settled cost, and expiry. Setup captures the catalog, uses the canonical budget
@@ -90,18 +110,21 @@ budget; setup never retries with a larger cap or cheaper provider automatically.
 ## Create a profile and run a read task
 
 ```powershell
-$profile = Join-Path $private ('beta-sample-' + [guid]::NewGuid().ToString('N') + '.json')
-$taskBudget = Read-Host 'Authorized per-task budget in USD'
-& $vcp --workspace $workspace setup profile `
-  --snapshot (Join-Path $generation 'qualified\snapshot.json') `
-  --catalog (Join-Path $generation 'endpoints.json') --output $profile `
+$generation = Read-Host 'Generation folder reported by setup provider'
+$taskBudget = Read-Host 'Authorized per-task budget in USD (at least the per-request amount)'
+& $vcp --workspace $workspace setup profile --provider $generation --set quick `
   --trust-workspace --budget-usd $taskBudget --autonomy ask --affected-path README.md
 if ($LASTEXITCODE -ne 0) { throw 'Profile creation failed.' }
-& $vcp --workspace $workspace --config $profile setup check
+& $vcp --workspace $workspace setup check
 if ($LASTEXITCODE -ne 0) { throw 'Profile preflight failed.' }
-& $vcp --workspace $workspace --config $profile run `
+& $vcp --workspace $workspace run `
   'Read README.md and summarize its purpose with citations. Do not change files.' --autonomy ask
 ```
+
+`--set quick` applies the limits measured for Qwen 3.8 Max: 16 requests,
+16,384 output tokens per request, a 180-second provider timeout and a
+15-minute task deadline. Without `--set`, the profile keeps the conservative
+eight requests, 2,048 output tokens and five-minute deadline described below.
 
 `--trust-workspace` is required and binds this profile to that exact workspace.
 Only reads are automatic in the generated policy; the default tool ceiling
