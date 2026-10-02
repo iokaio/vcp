@@ -11,7 +11,8 @@ type Result<T> = std::result::Result<T, String>;
 struct Owner {
     schema: String,
     install_root: PathBuf,
-    data_root: PathBuf,
+    data_root: Option<PathBuf>,
+    data_scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -19,7 +20,8 @@ struct Pointer {
     schema: String,
     release: String,
     package_sha256: String,
-    data_root: PathBuf,
+    data_root: Option<PathBuf>,
+    data_scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -55,10 +57,7 @@ fn owner(root: &vcp_repository::Root) -> Result<Owner> {
         .hold(Some(Path::new(".vcp-install-owned.json")), false)
         .map_err(|_| "installation ownership is unavailable or redirected")?;
     let owner: Owner = read(root, Path::new(".vcp-install-owned.json"))?;
-    if owner.schema != "vcp-install-owned/1"
-        || !owner.install_root.is_absolute()
-        || !owner.data_root.is_absolute()
-    {
+    if !owner.install_root.is_absolute() {
         return Err("unsupported installation ownership or data directory".into());
     }
     let selected = crate::settings::registry_root(&owner.install_root)?;
@@ -73,30 +72,117 @@ fn owner(root: &vcp_repository::Root) -> Result<Owner> {
     {
         return Err("installation ownership names a different root".into());
     }
+    match owner.schema.as_str() {
+        "vcp-install-owned/1" if owner.data_scope.is_none() => {
+            validate_data(
+                root,
+                owner
+                    .data_root
+                    .as_deref()
+                    .ok_or("installed data directory is unavailable")?,
+            )?;
+        }
+        "vcp-install-owned/2"
+            if owner.data_root.is_none() && owner.data_scope.as_deref() == Some("user") => {}
+        _ => return Err("unsupported installation ownership or data directory".into()),
+    }
+    Ok(owner)
+}
+
+fn validate_data(root: &vcp_repository::Root, data_root: &Path) -> Result<()> {
+    if !data_root.is_absolute() {
+        return Err("unsupported installation ownership or data directory".into());
+    }
     // Reuse native no-follow validation for every existing data-path ancestor.
-    let ancestor = owner
-        .data_root
+    let ancestor = data_root
         .ancestors()
         .find(|path| path.exists())
         .ok_or("installed data directory has no accessible ancestor")?;
     let data_ancestor = crate::settings::registry_root(ancestor)?;
     let data = data_ancestor.path().join(
-        owner
-            .data_root
+        data_root
             .strip_prefix(ancestor)
             .map_err(|_| "invalid installed data directory")?,
     );
     let install = root.path();
     if data.starts_with(install)
         || install.starts_with(&data)
-        || owner
-            .data_root
+        || data_root
             .components()
             .any(|part| matches!(part, std::path::Component::ParentDir))
     {
         return Err("installed data and program directories must be disjoint".into());
     }
-    Ok(owner)
+    Ok(())
+}
+
+fn selected_data(root: &vcp_repository::Root, owner: &Owner) -> Result<PathBuf> {
+    let data = if owner.schema == "vcp-install-owned/2" {
+        user_local_app_data()?.join("VCP")
+    } else {
+        owner
+            .data_root
+            .clone()
+            .ok_or("installed data directory is unavailable")?
+    };
+    validate_data(root, &data)?;
+    Ok(data)
+}
+
+#[cfg(windows)]
+fn user_local_app_data() -> Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::core::GUID;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHGetKnownFolderPath(
+            folder_id: *const GUID,
+            flags: u32,
+            token: *mut std::ffi::c_void,
+            path: *mut *mut u16,
+        ) -> i32;
+    }
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoTaskMemFree(path: *mut std::ffi::c_void);
+    }
+    const LOCAL_APP_DATA: GUID = GUID {
+        data1: 0xf1b32785,
+        data2: 0x6fba,
+        data3: 0x4fcf,
+        data4: [0x9d, 0x55, 0x7b, 0x8e, 0x7f, 0x15, 0x70, 0x91],
+    };
+    let mut raw = std::ptr::null_mut();
+    // SAFETY: the known folder ID and out pointer are valid. The returned
+    // buffer is owned by this process and released through CoTaskMemFree.
+    let result =
+        unsafe { SHGetKnownFolderPath(&LOCAL_APP_DATA, 0, std::ptr::null_mut(), &mut raw) };
+    if result < 0 || raw.is_null() {
+        return Err("current user's local application data folder is unavailable".into());
+    }
+    let mut length = 0;
+    // SAFETY: SHGetKnownFolderPath returns a NUL-terminated UTF-16 buffer.
+    while length < 32767 && unsafe { *raw.add(length) } != 0 {
+        length += 1;
+    }
+    let path = if length == 32767 {
+        Err("current user's local application data path is too long".into())
+    } else {
+        // SAFETY: the buffer contains at least `length` UTF-16 code units.
+        Ok(PathBuf::from(OsString::from_wide(unsafe {
+            std::slice::from_raw_parts(raw, length)
+        })))
+    };
+    // SAFETY: `raw` is the allocation returned by SHGetKnownFolderPath.
+    unsafe { CoTaskMemFree(raw.cast()) };
+    path
+}
+
+#[cfg(not(windows))]
+fn user_local_app_data() -> Result<PathBuf> {
+    Err("shared installation requires Windows".into())
 }
 
 /// Read the chosen data root for an engine running inside a retained release.
@@ -129,7 +215,8 @@ pub fn installed_data(executable: &Path) -> Result<Option<PathBuf>> {
     let _release = root
         .hold(Some(&Path::new("releases").join(id)), true)
         .map_err(|_| "installed release is unavailable or redirected")?;
-    Ok(Some(owner(&root)?.data_root))
+    let owner = owner(&root)?;
+    Ok(Some(selected_data(&root, &owner)?))
 }
 
 /// Pins the selected executable against writes and replacement until launch.
@@ -150,10 +237,16 @@ pub fn select(install: &Path) -> Result<Selection> {
         .map_err(|_| "no active installed release; finish or repair the installation")?;
     let owner = owner(&root)?;
     let pointer: Pointer = read(&root, Path::new("active.json"))?;
-    if pointer.schema != "vcp-install-pointer/1"
+    let expected_schema = if owner.schema == "vcp-install-owned/2" {
+        "vcp-install-pointer/2"
+    } else {
+        "vcp-install-pointer/1"
+    };
+    if pointer.schema != expected_schema
         || !hash(&pointer.release)
         || pointer.package_sha256 != pointer.release
         || pointer.data_root != owner.data_root
+        || pointer.data_scope != owner.data_scope
     {
         return Err(
             "active release identity or data directory does not match installation ownership"
@@ -199,7 +292,7 @@ pub fn select(install: &Path) -> Result<Selection> {
     }
     Ok(Selection {
         executable: root.path().join(relative),
-        data: owner.data_root,
+        data: selected_data(&root, &owner)?,
         _executable: pin,
         _owner: owner_pin,
     })
@@ -296,6 +389,69 @@ mod tests {
         fs::remove_file(install.join(".vcp-install-owned.json")).unwrap();
         assert!(select(&install).is_err());
         assert!(installed_data(&engine).is_err());
+    }
+
+    #[test]
+    fn shared_installation_resolves_each_callers_private_data_root() {
+        let (_temporary, install, _) = fixture();
+        let expected = user_local_app_data().unwrap().join("VCP");
+        let owner_path = install.join(".vcp-install-owned.json");
+        let pointer_path = install.join("active.json");
+        let mut owner: serde_json::Value =
+            serde_json::from_slice(&fs::read(&owner_path).unwrap()).unwrap();
+        owner["schema"] = "vcp-install-owned/2".into();
+        owner["data_scope"] = "user".into();
+        owner.as_object_mut().unwrap().remove("data_root");
+        fs::write(&owner_path, serde_json::to_vec(&owner).unwrap()).unwrap();
+        let mut pointer: serde_json::Value =
+            serde_json::from_slice(&fs::read(&pointer_path).unwrap()).unwrap();
+        pointer["schema"] = "vcp-install-pointer/2".into();
+        pointer["data_scope"] = "user".into();
+        pointer.as_object_mut().unwrap().remove("data_root");
+        fs::write(&pointer_path, serde_json::to_vec(&pointer).unwrap()).unwrap();
+        let selected = select(&install).unwrap();
+        assert_eq!(selected.data, expected);
+        assert_eq!(
+            installed_data(&selected.executable).unwrap(),
+            Some(expected)
+        );
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "installation::tests::shared_installation_child_fixture",
+                "--ignored",
+            ])
+            .env("VCP_SHARED_TEST_INSTALL", &install)
+            .env("LOCALAPPDATA", install.join("spoofed user data"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        pointer["data_scope"] = "machine".into();
+        fs::write(&pointer_path, serde_json::to_vec(&pointer).unwrap()).unwrap();
+        assert!(select(&install).is_err());
+        pointer["data_scope"] = "user".into();
+        pointer["data_root"] = "C:/shared-data".into();
+        fs::write(&pointer_path, serde_json::to_vec(&pointer).unwrap()).unwrap();
+        assert!(select(&install).is_err());
+    }
+
+    #[test]
+    #[ignore = "invoked only by shared installation test"]
+    fn shared_installation_child_fixture() {
+        let Some(install) = std::env::var_os("VCP_SHARED_TEST_INSTALL") else {
+            return;
+        };
+        let selected = select(Path::new(&install)).unwrap();
+        assert_eq!(selected.data, user_local_app_data().unwrap().join("VCP"));
+        assert_ne!(
+            selected.data,
+            PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap()).join("VCP")
+        );
     }
 
     #[test]

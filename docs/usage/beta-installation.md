@@ -40,12 +40,16 @@ execution policy and stop if signature or checksum validation fails.
 
 ## Install and select roots
 
-Run the setup EXE as your ordinary user. Choose a program directory (default
-`%LOCALAPPDATA%\Programs\VCP`) and a separate private data directory (default
-`%LOCALAPPDATA%\VCP`). Neither root belongs in a repository or synchronized folder.
-The data directory must be outside the entire program tree, and vice versa.
-Setup refuses an existing program directory it does not own. A Start menu shortcut
-is optional; setup does not edit PATH.
+Run the setup EXE and choose **Current user** or **All users**. Current user
+installs by default to `%LOCALAPPDATA%\Programs\VCP`, asks for a separate private
+data directory (default `%LOCALAPPDATA%\VCP`), and adds the program directory to
+that user's PATH. All users requires administrator approval, installs under
+`%ProgramFiles%\VCP`, and adds the program directory to the machine PATH. Each
+Windows account uses its own local `%LOCALAPPDATA%\VCP` data directory in this
+mode; setup does not create or share a common data directory. The shared program
+directory must stay under Program Files. Setup refuses an existing program
+directory it does not own. A Start menu shortcut is optional. Open a new terminal
+after installation to use `vcp` by name.
 
 Use the stable `vcp.exe` in the selected program directory:
 
@@ -57,8 +61,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Installation identity could not be resolved.' 
 $installation
 ```
 
-For a custom program directory, set `$vcp` to its absolute path. The resolver
-reports the selected versioned engine and protected data directory. Use the stable
+For an all-users installation, set `$vcp = Join-Path $env:ProgramFiles 'VCP\vcp.exe'`;
+for a custom program directory, use its absolute path. The
+resolver reports the selected versioned engine and the calling account's private
+data directory. Use the stable
 launcher for ordinary CLI commands. It selects the active verified payload and
 inherits console input/output. An explicit CLI `--data-dir` selects a different
 data root, so only use it intentionally. Never edit `active.json`, ownership

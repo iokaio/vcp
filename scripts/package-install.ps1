@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][ValidateSet('Install','Upgrade','Rollback','Uninstall')][string]$Action,
     [string]$PackageZip,
     [Parameter(Mandatory)][string]$InstallRoot,
-    [Parameter(Mandatory)][string]$DataRoot,
+    [string]$DataRoot,
+    [ValidateSet('Private','User')][string]$DataScope = 'Private',
     [string]$StateManifest
 )
 $ErrorActionPreference = 'Stop'
@@ -76,6 +77,12 @@ function Assert-Compatible($Candidate, $State) {
     }
 }
 function Hold-StateFormats($Candidate) {
+    if ($DataScope -eq 'User') {
+        # Shared program files cannot read other users' private stores. Manifest
+        # compatibility is checked against the prior release below; each user's
+        # engine checks its own state when that account next opens it.
+        return
+    }
     # Read the actual retained format markers. A caller-supplied compatibility
     # declaration supplements these checks; it cannot replace them.
     $workspaceRoot = Join-Path $data 'workspaces'
@@ -150,18 +157,24 @@ function Hold-StateFormats($Candidate) {
     }
 }
 $install = [IO.Path]::GetFullPath($InstallRoot)
-$data = [IO.Path]::GetFullPath($DataRoot)
-if ($install.TrimEnd('\') -ieq $data.TrimEnd('\') -or $data.StartsWith($install.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $install.StartsWith($data.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+$data = if ($DataScope -eq 'Private') {
+    if (-not $DataRoot) { throw 'Private installation requires -DataRoot' }
+    [IO.Path]::GetFullPath($DataRoot)
+} else {
+    if ($DataRoot) { throw 'Shared installation must not bind a user data root' }
+    $null
+}
+if ($data -and ($install.TrimEnd('\') -ieq $data.TrimEnd('\') -or $data.StartsWith($install.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $install.StartsWith($data.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase))) {
     throw 'Install root and protected data root must be disjoint'
 }
-Assert-NoReparseAncestors $install; Assert-NoReparseAncestors $data
+Assert-NoReparseAncestors $install; if ($data) { Assert-NoReparseAncestors $data }
 # Serialize the entire lifecycle, including first install and recovery, without
 # putting a removable lock file inside the installation being uninstalled.
 # The Global namespace covers two logon sessions for the same user. Serialize
 # all of that user's installations so path aliases and shared data roots cannot
 # bypass the operation lock.
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-$operationLock = [Threading.Mutex]::new($false, "Global\VCP.Install.$identity")
+$operationLock = [Threading.Mutex]::new($false, $(if ($DataScope -eq 'User') { 'Global\VCP.Install.Shared' } else { "Global\VCP.Install.$identity" }))
 $operationOwned = $false
 $stateHandles = [Collections.Generic.List[IO.FileStream]]::new()
 try {
@@ -170,13 +183,21 @@ try {
     if (-not $operationOwned) { throw 'Another VCP installation operation is in progress for this user; wait for it to finish and retry' }
     # Repeat path validation under the lock; an abandoned owner is never evidence
     # of a completed operation. The ordinary recovery checks below still apply.
-    Assert-NoReparseAncestors $install; Assert-NoReparseAncestors $data
+    Assert-NoReparseAncestors $install; if ($data) { Assert-NoReparseAncestors $data }
 $releases = Join-Path $install 'releases'; $pointer = Join-Path $install 'active.json'; $marker = Join-Path $install '.vcp-install-owned.json'
 function Assert-OwnedInstallation {
     Assert-OrdinaryTree $install
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { throw 'Installation ownership marker is missing' }
     $owned = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
-    if ($owned.schema -ne 'vcp-install-owned/1' -or [IO.Path]::GetFullPath($owned.install_root) -ine $install -or [IO.Path]::GetFullPath($owned.data_root) -ine $data) { throw 'Installation ownership or protected data root does not match' }
+    if ([IO.Path]::GetFullPath($owned.install_root) -ine $install -or
+        ($DataScope -eq 'Private' -and ($owned.schema -cne 'vcp-install-owned/1' -or [IO.Path]::GetFullPath($owned.data_root) -ine $data)) -or
+        ($DataScope -eq 'User' -and ($owned.schema -cne 'vcp-install-owned/2' -or $owned.data_scope -cne 'user' -or $owned.PSObject.Properties.Name -contains 'data_root'))) { throw 'Installation ownership or protected data scope does not match' }
+    if (Test-Path -LiteralPath $pointer -PathType Leaf) {
+        $active = Get-Content -LiteralPath $pointer -Raw | ConvertFrom-Json
+        if ($active.release -cnotmatch '^[a-f0-9]{64}$' -or $active.package_sha256 -cne $active.release -or
+            ($DataScope -eq 'Private' -and ($active.schema -cne 'vcp-install-pointer/1' -or [IO.Path]::GetFullPath($active.data_root) -ine $data)) -or
+            ($DataScope -eq 'User' -and ($active.schema -cne 'vcp-install-pointer/2' -or $active.data_scope -cne 'user' -or $active.PSObject.Properties.Name -contains 'data_root'))) { throw 'Active installation scope or release identity does not match ownership' }
+    }
 }
 function Get-ValidatedRelease([string]$Id) {
     if ($Id -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid installed release identity' }
@@ -232,7 +253,7 @@ if ($Action -eq 'Uninstall') {
         if ($remaining.Count) { throw 'Install root contains locked or unexpected files; refusing incomplete uninstall' }
         Remove-Item -LiteralPath $install -Force
     }
-    if (Test-Path -LiteralPath $data) { Write-Output 'data-root-preserved' }
+    if ($data -and (Test-Path -LiteralPath $data)) { Write-Output 'data-root-preserved' }
     exit 0
 }
 if ($Action -eq 'Rollback') {
@@ -246,7 +267,9 @@ if ($Action -eq 'Rollback') {
     Hold-StateFormats $targetManifest
     $target = Join-Path $releases $current.previous_release
     if ($StateManifest) { Assert-Compatible $targetManifest (Get-Content -LiteralPath ([IO.Path]::GetFullPath($StateManifest)) -Raw | ConvertFrom-Json) }
-    Write-AtomicJson $pointer ([ordered]@{ schema='vcp-install-pointer/1'; release=$current.previous_release; package_sha256=$current.previous_package_sha256; activated_utc=[DateTime]::UtcNow.ToString('o'); data_root=$data; rollback_from=$current.release })
+    $rollback = [ordered]@{ schema=$(if($data){'vcp-install-pointer/1'}else{'vcp-install-pointer/2'}); release=$current.previous_release; package_sha256=$current.previous_package_sha256; activated_utc=[DateTime]::UtcNow.ToString('o'); rollback_from=$current.release }
+    if ($data) { $rollback.data_root = $data } else { $rollback.data_scope = 'user' }
+    Write-AtomicJson $pointer $rollback
     Write-Output (Join-Path $target 'manifest.json'); exit 0
 }
 if (-not $PackageZip) { throw "$Action requires -PackageZip" }
@@ -286,13 +309,18 @@ try {
     if ($StateManifest) { Assert-Compatible $manifest (Get-Content -LiteralPath ([IO.Path]::GetFullPath($StateManifest)) -Raw | ConvertFrom-Json) }
     $release = Join-Path $releases $archiveHash
     if (Test-Path -LiteralPath $release) { $null = Get-ValidatedRelease $archiveHash; Remove-Item -LiteralPath $stage -Recurse -Force }
-    if ($Action -eq 'Install') { Write-AtomicJson $marker ([ordered]@{ schema='vcp-install-owned/1'; install_root=$install; data_root=$data; created_utc=[DateTime]::UtcNow.ToString('o') }) }
+    if ($Action -eq 'Install') {
+        $ownership = [ordered]@{ schema=$(if($data){'vcp-install-owned/1'}else{'vcp-install-owned/2'}); install_root=$install; created_utc=[DateTime]::UtcNow.ToString('o') }
+        if ($data) { $ownership.data_root = $data } else { $ownership.data_scope = 'user' }
+        Write-AtomicJson $marker $ownership
+    }
     if ($Action -eq 'Upgrade' -and -not (Test-Path -LiteralPath $pointer)) { throw 'Upgrade requires an active installation' }
     if (-not (Test-Path -LiteralPath $release)) { Move-Item -LiteralPath $stage -Destination $release }
     if ($env:VCP_PACKAGE_INSTALL_FAULT -eq 'before-activation') { throw 'Deterministic fault before active pointer replacement' }
     $previous = if (Test-Path -LiteralPath $pointer) { Get-Content -LiteralPath $pointer -Raw | ConvertFrom-Json } else { $null }
     if ($previous) { Assert-Compatible $manifest (Get-ValidatedRelease $previous.release) }
-    $pointerValue = [ordered]@{ schema = 'vcp-install-pointer/1'; release = [IO.Path]::GetFileName($release); package_sha256 = $archiveHash; activated_utc = [DateTime]::UtcNow.ToString('o'); data_root = $data; previous_release = if($previous){$previous.release}else{$null}; previous_package_sha256 = if($previous){$previous.package_sha256}else{$null} }
+    $pointerValue = [ordered]@{ schema = $(if($data){'vcp-install-pointer/1'}else{'vcp-install-pointer/2'}); release = [IO.Path]::GetFileName($release); package_sha256 = $archiveHash; activated_utc = [DateTime]::UtcNow.ToString('o'); previous_release = if($previous){$previous.release}else{$null}; previous_package_sha256 = if($previous){$previous.package_sha256}else{$null} }
+    if ($data) { $pointerValue.data_root = $data } else { $pointerValue.data_scope = 'user' }
     Write-AtomicJson $pointer $pointerValue
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
     Write-Output (Join-Path $release 'manifest.json')

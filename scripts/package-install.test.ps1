@@ -185,6 +185,27 @@ $mutex.Dispose()
     Remove-Item -LiteralPath $linked -Force
     & pwsh -NoProfile -File (Join-Path $repository 'scripts/package-install.ps1') -Action Uninstall -InstallRoot $install -DataRoot $data
     foreach ($name in @('workspace.sentinel','history.sentinel','key.sentinel','vault.sentinel')) { if (-not (Test-Path -LiteralPath (Join-Path $data $name))) { throw "Uninstall removed protected data: $name" } }
+    $shared = Join-Path $temporary 'Shared Program Files'
+    $otherUserData = Join-Path $temporary 'Other User Data'
+    New-Item -ItemType Directory -Path $otherUserData | Out-Null
+    [IO.File]::WriteAllText((Join-Path $otherUserData 'preserve.sentinel'), 'separate user data')
+    & pwsh -NoProfile -File (Join-Path $repository 'scripts/package-install.ps1') -Action Install -PackageZip $zip -InstallRoot $shared -DataScope User
+    if ($LASTEXITCODE -ne 0) { throw 'Shared payload install failed' }
+    $sharedOwner = Get-Content -LiteralPath (Join-Path $shared '.vcp-install-owned.json') -Raw | ConvertFrom-Json
+    $sharedPointer = Get-Content -LiteralPath (Join-Path $shared 'active.json') -Raw | ConvertFrom-Json
+    if ($sharedOwner.schema -cne 'vcp-install-owned/2' -or $sharedPointer.schema -cne 'vcp-install-pointer/2' -or
+        $sharedOwner.data_scope -cne 'user' -or $sharedPointer.data_scope -cne 'user' -or
+        $sharedOwner.PSObject.Properties.Name -contains 'data_root' -or $sharedPointer.PSObject.Properties.Name -contains 'data_root') { throw 'Shared install bound a user data root' }
+    & pwsh -NoProfile -File (Join-Path $repository 'scripts/package-install.ps1') -Action Upgrade -PackageZip $zip2 -InstallRoot $shared -DataRoot $data
+    if ($LASTEXITCODE -eq 0 -or
+        (Get-Content -LiteralPath (Join-Path $shared 'active.json') -Raw | ConvertFrom-Json).release -cne $sharedPointer.release) { throw 'Private scope accepted a shared installation' }
+    & pwsh -NoProfile -File (Join-Path $repository 'scripts/package-install.ps1') -Action Upgrade -PackageZip $zip2 -InstallRoot $shared -DataScope User
+    if ($LASTEXITCODE -ne 0) { throw 'Compatible shared payload upgrade failed' }
+    & pwsh -NoProfile -File (Join-Path $repository 'scripts/package-install.ps1') -Action Rollback -InstallRoot $shared -DataScope User
+    if ($LASTEXITCODE -ne 0) { throw 'Compatible shared payload rollback failed' }
+    & pwsh -NoProfile -File (Join-Path $repository 'scripts/package-install.ps1') -Action Uninstall -InstallRoot $shared -DataScope User
+    if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $shared) -or
+        [IO.File]::ReadAllText((Join-Path $otherUserData 'preserve.sentinel')) -cne 'separate user data') { throw 'Shared uninstall changed another user data root' }
     Write-Output 'package install integration passed'
 } finally {
     Remove-Item Env:VCP_PACKAGE_INSTALL_FAULT -ErrorAction SilentlyContinue

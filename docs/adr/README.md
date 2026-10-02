@@ -123,3 +123,7 @@ Return to the [documentation index](../README.md).
 [ADR-074](074-github-beta-downloads.md) records subsequent owner authorization for limited unsigned beta publication through GitHub Releases and a Pages download index, without closing full qualification.
 
 [ADR-075](075-marketplace-manual-upload.md) selects the `iokaio` publisher and a fresh verified pre-release pair, with the first Marketplace upload reserved for the owner.
+
+[ADR-076](076-signed-beta-qualification.md) records the signed beta qualification decision.
+
+[ADR-077](077-installer-path-scope.md) adds current-user and all-users Windows installer PATH modes while keeping each user's data private.

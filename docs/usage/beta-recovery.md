@@ -13,13 +13,16 @@ CLI and disconnect editor clients before changing the installation. Reopening a
 workspace observes retained tasks; it does not resume them. Keep independent
 recovery material in its existing private location.
 
-Run the newer approved setup at the same program root. Setup preserves the owned
-data root and retains the previous engine release. Concurrent setup, uninstall or
+Run the newer approved setup at the same program root and install scope. Setup
+preserves private data and retains the previous engine release. Concurrent setup, uninstall or
 engine lifecycle operations are refused while their respective operation lock is
 held. Unsupported retained format markers, active store owners and redirected
 paths refuse activation. Resolve the reported problem before retrying.
 For a retained SQLite WAL, recover and close the workspace with its existing
 engine first. Setup does not checkpoint or delete the WAL.
+For an all-users installation, setup cannot inspect other accounts' private
+stores. Each account's engine checks its own state when reopened; keep the prior
+release available for a compatible rollback.
 
 For a recorded compatible previous release, use the packaged engine maintenance
 script. Substitute the actual roots; the engine root is inside the program root:
@@ -33,6 +36,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Rollback failed; preserve the installation and
 & (Join-Path $program 'vcp.exe') --version
 & (Join-Path $program 'vcp.exe') --resolve-installation
 ```
+
+For an all-users installation, run the rollback command from an elevated
+PowerShell with `$program = Join-Path $env:ProgramFiles 'VCP'` and replace
+`-DataRoot $data` with `-DataScope User`. Each account's data stays in its own
+LocalAppData directory.
 
 Install the matching older VSIX only if that exact downgrade is approved by the
 scorecard. Refresh explicit User engine/data settings and reconnect as an observer.
@@ -51,8 +59,8 @@ refuse while preserving its registration for a later repair attempt.
 
 ## Uninstall
 
-Use Windows **Installed apps → VCP Internal Beta → Uninstall** as the installing
-user. Close engine processes first. Removal preserves the selected data directory,
+Use Windows **Installed apps → VCP Internal Beta → Uninstall** with the same
+install scope and required privileges. Close engine processes first. Removal preserves each user's data directory,
 workspaces, separately provisioned models/profiles, encryption keys and synchronized
 vault. It removes owned program files, registration and selected shortcuts. If it
 reports unexpected or locked files, resolve them and retry; do not recursively
