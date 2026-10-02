@@ -47,12 +47,6 @@ impl Context {
         // not prevent an opaque process from writing an absolute parent path.
         Err("isolated child processes require qualified WorkspaceFilesystem enforcement".into())
     }
-    /// The model a delegated child was assigned, for starting its retained thread.
-    pub fn child_model_policy(&self, task: &TaskId) -> Result<Option<String>> {
-        Ok(self
-            .child_assignment_record(task)?
-            .map(|(_, spec)| spec.model_policy))
-    }
     pub(super) fn child_assignment_record(
         &self,
         task: &TaskId,

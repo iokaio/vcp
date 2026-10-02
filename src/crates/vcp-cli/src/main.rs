@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use clap::Parser;
 use vcp_cli::{
-    args::{emit_result_record, wants_jsonl, Cli},
+    args::Cli,
     exit_status::Conditions,
     jsonl::{Jsonl, Payload},
 };
@@ -54,7 +54,20 @@ async fn run() -> std::process::ExitCode {
             if help {
                 return std::process::ExitCode::SUCCESS;
             }
-            return invalid_configuration();
+            let conditions = Conditions {
+                invalid_configuration: true,
+                ..Default::default()
+            };
+            let _ = Jsonl::new(std::io::stdout()).emit(
+                &CommandId::new(),
+                None,
+                Payload::Result {
+                    conditions: &conditions,
+                    exit_code: 2,
+                    receipt: None,
+                },
+            );
+            return 2.into();
         }
     };
     #[cfg(windows)]
@@ -78,28 +91,18 @@ fn configuration_failure(error: &str) -> std::process::ExitCode {
     if vcp_cli::local::requested() {
         return 2.into();
     }
-    invalid_configuration()
-}
-
-fn invalid_configuration() -> std::process::ExitCode {
-    use std::io::IsTerminal;
-    if emit_result_record(
-        wants_jsonl(std::env::args_os()),
-        std::io::stdout().is_terminal(),
-    ) {
-        let conditions = Conditions {
-            invalid_configuration: true,
-            ..Default::default()
-        };
-        let _ = Jsonl::new(std::io::stdout()).emit(
-            &CommandId::new(),
-            None,
-            Payload::Result {
-                conditions: &conditions,
-                exit_code: 2,
-                receipt: None,
-            },
-        );
-    }
+    let conditions = Conditions {
+        invalid_configuration: true,
+        ..Default::default()
+    };
+    let _ = Jsonl::new(std::io::stdout()).emit(
+        &CommandId::new(),
+        None,
+        Payload::Result {
+            conditions: &conditions,
+            exit_code: 2,
+            receipt: None,
+        },
+    );
     2.into()
 }

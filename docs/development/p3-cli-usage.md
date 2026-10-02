@@ -38,12 +38,8 @@ roots. Existing junctions are resolved before admission. Add other synchronized
 directories to `sync_roots` in the profile. These are local plaintext records.
 The CLI does not import project configuration as execution authority.
 
-Profiles resolve in this order: an explicit `--config`; the profile selected for
-the canonical workspace in `<data-dir>/profiles/selected/<workspace key>.json`
-(written by `setup profile` and `setup select`; see ADR-077); then the legacy
-`<data-dir>/profile.json`. The selection only names a file; loading still
-enforces the profile's workspace binding, trust and expiry. Version 1 profiles
-use JSON and reject unknown fields.
+The default profile is `<data-dir>/profile.json`; `--config` selects another
+explicit user-owned file. Version 1 uses JSON and rejects unknown fields.
 Its fields are:
 
 | Field | Meaning |
@@ -65,27 +61,11 @@ Its fields are:
 
 The provider snapshot must still be current and match the captured catalog.
 `vcp setup provider` obtains fresh metadata through explicitly budgeted fixed
-conformance probes and generation-receipt attribution. `--set <id>` (with an
-optional `--role main|child|compaction`) takes the exact model and endpoint from
-the built-in model sets in `src/crates/vcp-cli/src/model_sets.json`;
-`--model/--endpoint/--request-price-limit` select one explicitly. Without
-`--output`, the generation folder is created under `<data-dir>/providers`.
-`vcp setup estimate --set <id>` (or `--model/--endpoint`) reads only the public
-endpoint catalog, without a credential, and reports per-member rates, the
-amount admission reserves per setup probe and per task request, and the setup
-and task-budget minimums. It writes nothing and makes no model call.
-`vcp setup profile --provider <folder>` reads that folder's snapshot and
-catalog. `--set <id>` checks that the snapshot verifies the set's main model,
-applies the set's limits, and records the set in the workspace selection. Sets
-that assign different child or compaction models are refused until per-role
-assignment exists. Ordinary execution
+conformance probes and generation-receipt attribution. Ordinary execution
 consumes that qualified metadata without inventing pricing or compatibility.
-Provider credentials come from `OPENROUTER_API_KEY`, or, for interactive
-terminal sessions only, from the Windows Credential Manager entry written by
-`vcp setup credential store` (ADR-079). The variable takes precedence. Keys
-are passed to transport and are not stored in the workspace descriptor,
-profile, data folder or JSONL stream. Do not put credential values in
-arguments or profiles.
+Provider credentials come only from
+`OPENROUTER_API_KEY`, are passed to transport, and are not stored in the workspace
+descriptor or JSONL stream. Do not put credential values in arguments or profiles.
 
 A process entry has `name`, absolute `executable`, explicit `environment` map,
 `required_isolation` array, `reduced_isolation` boolean, and `inputs` array.
@@ -110,17 +90,8 @@ vcp --workspace <directory> tasks cancel <task-id>
 vcp --workspace <directory> inspect <id> --view verification
 ```
 
-All commands accept `--format jsonl`. In JSONL mode, and whenever stdout is
-redirected, a failed or guidance-only command still ends with exactly one result
-record. In text mode with stdout on a terminal, the diagnostic on stderr (or the
-printed guidance) replaces that record; the exit code is unchanged. In an
-interactive terminal (text format, no `--non-interactive` or `--control-stdin`,
-all three streams on a console), a bare `vcp setup` runs the guided wizard
-(`src/crates/vcp-cli/src/setup_wizard`). Its prompts go to stderr, it exits 0
-when a profile is ready and 2 when stopped, and it uses the same functions as
-the explicit setup commands. Otherwise `vcp setup` lists the explicit steps and
-exits 2 with `input_required`.
-Task files are bounded UTF-8 input, never shell scripts. `--non-interactive` returns required input without inventing an
+All commands accept `--format jsonl`. Task files are bounded UTF-8 input, never
+shell scripts. `--non-interactive` returns required input without inventing an
 answer; structured mode also does not prompt. Resume retains the canonical cap
 and revalidates the current environment. A fork requires a completed canonical
 turn and a persisted cap for its independent root. It quotes bounded history

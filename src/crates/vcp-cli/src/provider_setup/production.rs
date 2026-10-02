@@ -4,143 +4,43 @@ use super::*;
 
 #[derive(Debug, clap::Args)]
 pub struct Provider {
-    /// Built-in model set supplying the model and endpoint; see `vcp setup estimate`.
-    #[arg(long, conflicts_with_all = ["model", "endpoint"])]
-    pub set: Option<String>,
-    /// Role within --set whose model is verified; defaults to main.
-    #[arg(long, value_enum, requires = "set")]
-    pub role: Option<crate::model_sets::Role>,
     /// Exact OpenRouter model ID, for example organization/model.
-    #[arg(long, required_unless_present = "set", requires = "endpoint")]
-    pub model: Option<String>,
+    #[arg(long)]
+    pub model: String,
     /// Exact endpoint tag in the complete model endpoint catalog.
-    #[arg(long, required_unless_present = "set", requires = "model")]
-    pub endpoint: Option<String>,
-    /// Maximum USD per provider request, including absent catalog request
-    /// pricing; with --set it defaults to 0.001.
-    #[arg(long, required_unless_present = "set")]
-    pub request_price_limit: Option<String>,
+    #[arg(long)]
+    pub endpoint: String,
+    /// Maximum USD per provider request, including absent catalog request pricing.
+    #[arg(long)]
+    pub request_price_limit: String,
     /// Authorize at most two fixed conformance requests within this total USD cap.
     #[arg(long)]
     pub budget_usd: String,
-    /// New private directory outside workspaces and sync roots; never
-    /// overwritten. Defaults to a new folder under the data folder's `providers`.
+    /// New private directory outside workspaces and sync roots; never overwritten.
     #[arg(long)]
-    pub output: Option<PathBuf>,
-}
-
-/// The exact model, endpoint and request ceiling a provider command verifies.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Target {
-    pub model: String,
-    pub endpoint: String,
-    pub request_price_limit: String,
-}
-
-impl Provider {
-    pub fn target(&self) -> std::result::Result<Target, String> {
-        // clap skips `requires` when a conflicting argument is present.
-        if self.set.is_none() && self.role.is_some() {
-            return Err("--role applies only with --set".into());
-        }
-        if let Some(id) = &self.set {
-            let set = crate::model_sets::find(id)?;
-            let member = set
-                .member(self.role.unwrap_or(crate::model_sets::Role::Main))
-                .ok_or("model set has no main member")?;
-            return Ok(Target {
-                model: member.model.clone(),
-                endpoint: member.endpoint.clone(),
-                request_price_limit: self
-                    .request_price_limit
-                    .clone()
-                    .unwrap_or_else(|| crate::model_sets::REQUEST_PRICE_LIMIT.into()),
-            });
-        }
-        match (&self.model, &self.endpoint, &self.request_price_limit) {
-            (Some(model), Some(endpoint), Some(limit)) => Ok(Target {
-                model: model.clone(),
-                endpoint: endpoint.clone(),
-                request_price_limit: limit.clone(),
-            }),
-            _ => Err("pass --set, or --model, --endpoint and --request-price-limit".into()),
-        }
-    }
-}
-
-pub(crate) struct Request {
-    pub target: Target,
-    pub budget_usd: String,
     pub output: PathBuf,
 }
 
-/// Marks the delayed-receipt failure, which free completion can finish.
-pub(crate) const RECEIPTS_PENDING: &str = "generation receipt unavailable";
-
-fn identifier(part: &str) -> bool {
-    !part.is_empty()
-        && part.len() <= 256
-        && part
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"-._/".contains(&c))
-        && part
-            .split('/')
-            .all(|s| !s.is_empty() && s != "." && s != "..")
-}
-
-/// Bounds checked before any network request or file creation.
-pub fn valid_selection(
-    model: &str,
-    endpoint: &str,
-    request_price_limit: &str,
-    budget_usd: &str,
-) -> std::result::Result<(), String> {
-    if !identifier(model) || !identifier(endpoint) {
+fn selection(request: &Provider) -> Result<()> {
+    let valid = |part: &str| {
+        !part.is_empty()
+            && part.len() <= 256
+            && part
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-._/".contains(&c))
+            && part
+                .split('/')
+                .all(|s| !s.is_empty() && s != "." && s != "..")
+    };
+    if !valid(&request.model) || !valid(&request.endpoint) {
         return Err("bounded exact model ID and endpoint tag required".into());
     }
-    let cap = crate::args::parse_usd(budget_usd)?;
-    let price =
-        vcp_models::catalog::usd_micros(request_price_limit).map_err(|error| error.to_string())?;
+    let cap = crate::args::parse_usd(&request.budget_usd)?;
+    let price = vcp_models::catalog::usd_micros(&request.request_price_limit)?;
     if cap == Micros::ZERO || cap.get() > 25_000_000 || price > cap.get() {
         return Err("provider setup budget must be greater than zero and at most 25 USD; request ceiling must fit it".into());
     }
     Ok(())
-}
-
-fn selection(request: &Request) -> Result<()> {
-    let target = &request.target;
-    valid_selection(
-        &target.model,
-        &target.endpoint,
-        &target.request_price_limit,
-        &request.budget_usd,
-    )?;
-    Ok(())
-}
-
-/// A new generation folder name under `<data>\providers`.
-pub(crate) fn default_output(data: &Path, workspace: &Path, target: &Target) -> Result<PathBuf> {
-    let slug = |text: &str| -> String {
-        text.chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
-                    c
-                } else {
-                    '-'
-                }
-            })
-            .take(80)
-            .collect()
-    };
-    let directory = crate::settings::local_path(data, workspace)?.join("providers");
-    std::fs::create_dir_all(&directory)
-        .map_err(|_| "providers folder cannot be created in the private data folder")?;
-    Ok(directory.join(format!(
-        "{}--{}--{}",
-        slug(&target.model),
-        slug(&target.endpoint),
-        CommandId::new().as_str()
-    )))
 }
 
 fn client() -> Result<reqwest::Client> {
@@ -191,63 +91,25 @@ fn fresh_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// The fixed provider origin. Tests inject a local origin through the private
-/// `*_with` seams; no CLI or profile field can change it.
-pub(crate) const OPENROUTER_API: &str = "https://openrouter.ai/api/v1";
-
-/// The public endpoint catalog for one model. Estimates fetch it without a
-/// credential; provider setup sends the credential and rejects reflection.
-pub(crate) async fn fetch_catalog(model: &str, key: Option<&str>, api: &str) -> Result<Vec<u8>> {
-    if !identifier(model) {
-        return Err("bounded exact model ID required".into());
-    }
-    let mut url = reqwest::Url::parse(&format!("{api}/models/"))?;
-    url.path_segments_mut()
-        .map_err(|_| "provider catalog URL")?
-        .pop_if_empty()
-        .extend(model.split('/'))
-        .push("endpoints");
-    get(&client()?, url, key).await
-}
-
 /// The credential comes only from the process environment; it is never a field
 /// in the persisted authorization spec. Every inference attempt uses the owner
 /// ledger and retains unresolved liability on failure or interruption.
 pub async fn run(
     request: &Provider,
     workspace: &Path,
-    data: impl FnOnce() -> std::result::Result<PathBuf, String>,
-    interactive: bool,
 ) -> std::result::Result<serde_json::Value, String> {
-    let target = request.target()?;
-    valid_selection(
-        &target.model,
-        &target.endpoint,
-        &target.request_price_limit,
-        &request.budget_usd,
-    )?;
-    let key = credential(interactive)?;
-    let output = match &request.output {
-        Some(output) => output.clone(),
-        None => {
-            let canonical = workspace
-                .canonicalize()
-                .map_err(|_| "setup requires an existing accessible workspace directory")?;
-            default_output(&data()?, &canonical, &target).map_err(|e| e.to_string())?
-        }
-    };
-    let request = Request {
-        target,
-        budget_usd: request.budget_usd.clone(),
-        output,
-    };
-    let result = run_with(&request, workspace, key.expose(), OPENROUTER_API).await;
+    selection(request).map_err(|e| e.to_string())?;
+    let key = credential()?;
+    let result = run_with(request, workspace, &key, "https://openrouter.ai/api/v1").await;
     // Do not pass arbitrary transport or provider error text to terminal logs.
-    result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
+    result.map_err(|error| error.to_string().replace(&key, "[redacted]"))
 }
 
-fn credential(interactive: bool) -> std::result::Result<crate::credential::Secret, String> {
-    crate::credential::require(interactive)
+fn credential() -> std::result::Result<String, String> {
+    std::env::var("OPENROUTER_API_KEY")
+        .ok()
+        .filter(|key| !key.is_empty() && key.len() <= 16384 && !key.chars().any(char::is_control))
+        .ok_or_else(|| "supply OPENROUTER_API_KEY through a masked prompt or credential manager in this process; never use command arguments".into())
 }
 
 /// Resume receipt retrieval after delayed metadata, without repeating a model
@@ -255,14 +117,13 @@ fn credential(interactive: bool) -> std::result::Result<crate::credential::Secre
 pub async fn complete(
     directory: &Path,
     workspace: &Path,
-    interactive: bool,
 ) -> std::result::Result<serde_json::Value, String> {
-    let key = credential(interactive)?;
-    let result = complete_with(directory, workspace, key.expose(), OPENROUTER_API).await;
-    result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
+    let key = credential()?;
+    let result = complete_with(directory, workspace, &key, "https://openrouter.ai/api/v1").await;
+    result.map_err(|error| error.to_string().replace(&key, "[redacted]"))
 }
 
-pub(crate) async fn complete_with(
+async fn complete_with(
     directory: &Path,
     workspace: &Path,
     key: &str,
@@ -293,13 +154,12 @@ pub(crate) async fn complete_with(
 // `api` is a private dependency-injection seam for offline HTTP tests. The only
 // production caller above supplies the fixed HTTPS origin; no CLI/profile field
 // can change it.
-pub(crate) async fn run_with(
-    request: &Request,
+async fn run_with(
+    request: &Provider,
     workspace: &Path,
     key: &str,
     api: &str,
 ) -> Result<serde_json::Value> {
-    selection(request)?;
     let workspace = workspace.canonicalize()?;
     let output = crate::settings::local_path(&request.output, &workspace)?;
     reject_links(&output)?;
@@ -308,17 +168,23 @@ pub(crate) async fn run_with(
     })?;
     let root = crate::settings::registry_root(&output)?;
     let _pin = root.hold(None, true)?;
+    let client = client()?;
     let observed = now();
-    let target = &request.target;
-    let raw = fetch_catalog(&target.model, Some(key), api).await?;
+    let mut url = reqwest::Url::parse(&format!("{api}/models/"))?;
+    url.path_segments_mut()
+        .map_err(|_| "provider catalog URL")?
+        .pop_if_empty()
+        .extend(request.model.split('/'))
+        .push("endpoints");
+    let raw = get(&client, url, Some(key)).await?;
     let catalog = output.join("endpoints.json");
     fresh_bytes(&catalog, &raw)?;
     let spec = Spec {
         catalog,
         catalog_sha256: digest_bytes(&raw),
-        model: target.model.clone(),
-        endpoint: target.endpoint.clone(),
-        request_price_limit: target.request_price_limit.clone(),
+        model: request.model.clone(),
+        endpoint: request.endpoint.clone(),
+        request_price_limit: request.request_price_limit.clone(),
         cap_usd: request.budget_usd.clone(),
         max_output_tokens: 512,
         observed_at: observed,
@@ -363,7 +229,7 @@ async fn finish(
             reject_links(&path)?;
             crate::settings::read_bounded(&path, 1024 * 1024)?
         } else {
-            let bytes=get(&client,url,Some(key)).await.map_err(|_| format!("{RECEIPTS_PENDING}; preserve this directory and use vcp setup provider-complete --directory <directory>; this does not repeat inference"))?;
+            let bytes=get(&client,url,Some(key)).await.map_err(|_| "generation receipt unavailable; preserve this directory and use vcp setup provider-complete --directory <directory>; this does not repeat inference")?;
             fresh_bytes(&path, &bytes)?;
             bytes
         };
@@ -407,12 +273,9 @@ async fn finish(
         &output.join("qualified"),
         &digest_bytes(&canonical_bytes(&qualification)?),
     )?;
-    Ok(
-        json!({"status":"qualified","directory":output,"catalog":spec.catalog,
-        "model":spec.model,"endpoint":spec.endpoint,
+    Ok(json!({"status":"qualified","catalog":spec.catalog,
         "snapshot":output.join("qualified/snapshot.json"),"valid_until":spec.valid_until,
-        "actual_cost_micros":report["actual_cost_micros"],"max_requests":2,"retries":0}),
-    )
+        "actual_cost_micros":report["actual_cost_micros"],"max_requests":2,"retries":0}))
 }
 
 #[cfg(test)]
@@ -465,12 +328,10 @@ mod tests {
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
             std::fs::create_dir(&workspace).unwrap();
-            let request = Request {
-                target: Target {
-                    model: "fixture/probe".into(),
-                    endpoint: "fixture".into(),
-                    request_price_limit: "0.001".into(),
-                },
+            let request = Provider {
+                model: "fixture/probe".into(),
+                endpoint: "fixture".into(),
+                request_price_limit: "0.001".into(),
                 budget_usd: "0.01".into(),
                 output: temp.path().join("renewal"),
             };
@@ -546,8 +407,14 @@ mod tests {
     }
     #[test]
     fn provider_selection_is_explicit_and_bounded_before_network_or_files() {
-        let valid = |model: &str, cap: &str| valid_selection(model, "provider/region", "0.01", cap);
-        assert!(valid("owner/model", "1").is_ok());
+        let mut request = Provider {
+            model: "owner/model".into(),
+            endpoint: "provider/region".into(),
+            request_price_limit: "0.01".into(),
+            budget_usd: "1".into(),
+            output: PathBuf::from("unused"),
+        };
+        assert!(selection(&request).is_ok());
         for model in [
             "../model",
             "owner//model",
@@ -555,81 +422,13 @@ mod tests {
             "owner/model\n",
             "https://host/model",
         ] {
-            assert!(valid(model, "1").is_err());
+            request.model = model.into();
+            assert!(selection(&request).is_err());
         }
+        request.model = "owner/model".into();
         for cap in ["0", "25.000001", "-1", "NaN"] {
-            assert!(valid("owner/model", cap).is_err());
+            request.budget_usd = cap.into();
+            assert!(selection(&request).is_err());
         }
-        assert!(valid_selection("owner/model", "provider", "2", "1").is_err());
-    }
-
-    #[test]
-    fn sets_supply_the_target_and_explicit_flags_still_work() {
-        use clap::Parser;
-        let parse = |args: &[&str]| {
-            let mut argv = vec!["vcp", "setup", "provider"];
-            argv.extend(args);
-            crate::args::Cli::try_parse_from(argv)
-        };
-        let target = |args: &[&str]| match parse(args).unwrap().command {
-            Some(crate::args::Command::Setup {
-                command: Some(crate::onboarding::Command::Provider(provider)),
-            }) => provider.target(),
-            _ => panic!("expected setup provider"),
-        };
-        let quick = target(&["--set", "quick", "--budget-usd", "7"]).unwrap();
-        assert_eq!(
-            quick,
-            Target {
-                model: "qwen/qwen3.8-max-0902".into(),
-                endpoint: "alibaba".into(),
-                request_price_limit: "0.001".into()
-            }
-        );
-        let child = target(&["--set", "qwen", "--role", "child", "--budget-usd", "2"]).unwrap();
-        assert_eq!(child.model, "qwen/qwen3.8-27b");
-        let explicit = target(&[
-            "--model",
-            "owner/model",
-            "--endpoint",
-            "provider",
-            "--request-price-limit",
-            "0.01",
-            "--budget-usd",
-            "1",
-        ])
-        .unwrap();
-        assert_eq!(explicit.model, "owner/model");
-        assert!(target(&["--set", "unknown", "--budget-usd", "1"]).is_err());
-        for invalid in [
-            &["--budget-usd", "1"][..],
-            &[
-                "--set",
-                "quick",
-                "--model",
-                "owner/model",
-                "--budget-usd",
-                "1",
-            ],
-            &["--set", "quick"],
-            &["--set", "quick", "--budget-usd", "1", "--api-key", "secret"],
-        ] {
-            assert!(parse(invalid).is_err(), "{invalid:?}");
-        }
-        // clap accepts a conflicting --model here; the target rejects it.
-        assert!(target(&[
-            "--role",
-            "child",
-            "--model",
-            "a/b",
-            "--endpoint",
-            "e",
-            "--request-price-limit",
-            "0.01",
-            "--budget-usd",
-            "1",
-        ])
-        .unwrap_err()
-        .contains("--role applies only with --set"));
     }
 }

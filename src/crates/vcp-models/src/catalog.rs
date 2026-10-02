@@ -362,22 +362,6 @@ impl Snapshot {
     }
 }
 
-/// Bounds admission reserves for one request. The reservation input is counted
-/// independently as ordinary input, cache read and cache write (inclusive input
-/// is three times the bound), plus the output ceiling and one request. Worker
-/// admission, routing eligibility, decision evaluation and setup estimates
-/// share this rule. None on overflow.
-pub fn admission_usage(reservation_input: Units, output: Units) -> Option<Usage> {
-    Some(Usage {
-        input: Units::new(reservation_input.get().checked_mul(3)?),
-        cache_read: reservation_input,
-        cache_write: reservation_input,
-        output,
-        requests: Units::new(1),
-        ..Usage::default()
-    })
-}
-
 /// Qualification tooling may price a candidate without claiming its protocol or
 /// provider-policy conformance. This type grants no production Snapshot.
 #[derive(Clone, Debug, Serialize)]

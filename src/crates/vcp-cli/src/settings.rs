@@ -125,113 +125,8 @@ pub fn default_data() -> Result<PathBuf, String> {
         .ok_or("LOCALAPPDATA or --data-dir is required".into())
 }
 
-/// The shared or versioned root that would contain a plaintext path.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PlacementConflict {
-    Workspace(PathBuf),
-    SyncRoot { variable: String, root: PathBuf },
-    Repository(PathBuf),
-}
-
-impl std::fmt::Display for PlacementConflict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Workspace(root) => write!(f, "the selected workspace {}", display_path(root)),
-            Self::SyncRoot { variable, root } => {
-                write!(
-                    f,
-                    "the synchronized folder {} (%{variable}%)",
-                    display_path(root)
-                )
-            }
-            Self::Repository(root) => write!(f, "the Git repository at {}", display_path(root)),
-        }
-    }
-}
-
-/// Canonical Windows paths carry a verbatim prefix that people do not type.
-pub fn display_path(path: &Path) -> String {
-    let text = path.display().to_string();
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest.to_owned(),
-        _ => text,
-    }
-}
-
-fn known_sync_roots() -> Result<Vec<(String, PathBuf)>, String> {
-    let mut roots = Vec::new();
-    for name in ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"] {
-        if let Some(root) = std::env::var_os(name) {
-            if Path::new(&root).exists() {
-                roots.push((
-                    name.to_owned(),
-                    PathBuf::from(root)
-                        .canonicalize()
-                        .map_err(|_| "sync root cannot be resolved")?,
-                ));
-            }
-        }
-    }
-    Ok(roots)
-}
-
-/// First conflict for a resolved path: the workspace, then the given sync
-/// roots, then the nearest enclosing Git repository.
-pub fn placement_conflict_with(
-    resolved: &Path,
-    workspace: &Path,
-    sync_roots: &[(String, PathBuf)],
-) -> Option<PlacementConflict> {
-    if within(resolved, workspace) {
-        return Some(PlacementConflict::Workspace(workspace.to_path_buf()));
-    }
-    if let Some((variable, root)) = sync_roots.iter().find(|(_, root)| within(resolved, root)) {
-        return Some(PlacementConflict::SyncRoot {
-            variable: variable.clone(),
-            root: root.clone(),
-        });
-    }
-    resolved
-        .ancestors()
-        .find(|p| p.join(".git").exists())
-        .map(|root| PlacementConflict::Repository(root.to_path_buf()))
-}
-
-/// The conflict `local_path` would reject for this path, if any.
-pub fn local_path_conflict(
-    path: &Path,
-    workspace: &Path,
-) -> Result<Option<PlacementConflict>, String> {
-    let (_, _, resolved) = resolve_local(path)?;
-    Ok(placement_conflict_with(
-        &resolved,
-        workspace,
-        &known_sync_roots()?,
-    ))
-}
-
 /// Resolve existing ancestors, including junctions, before writing plaintext.
 pub fn local_path(path: &Path, workspace: &Path) -> Result<PathBuf, String> {
-    let (absolute, ancestor, resolved) = resolve_local(path)?;
-    if let Some(conflict) = placement_conflict_with(&resolved, workspace, &known_sync_roots()?) {
-        return Err(format!(
-            "{} is inside {conflict}; plaintext configuration and data must stay outside workspaces, Git repositories and known sync roots",
-            display_path(&absolute)
-        ));
-    }
-    let suffix = absolute
-        .strip_prefix(&ancestor)
-        .map_err(|_| "local path resolution failed")?;
-    Ok(if suffix.as_os_str().is_empty() {
-        resolved
-    } else {
-        resolved.join(suffix)
-    })
-}
-
-/// Absolute path, its nearest existing ancestor and that ancestor resolved on
-/// a local drive.
-fn resolve_local(path: &Path) -> Result<(PathBuf, PathBuf, PathBuf), String> {
     if path
         .components()
         .any(|part| matches!(part, std::path::Component::ParentDir))
@@ -242,8 +137,7 @@ fn resolve_local(path: &Path) -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let ancestor = absolute
         .ancestors()
         .find(|p| p.exists())
-        .ok_or("local path ancestor unavailable")?
-        .to_path_buf();
+        .ok_or("local path ancestor unavailable")?;
     let resolved = ancestor
         .canonicalize()
         .map_err(|_| "local path cannot be resolved")?;
@@ -267,7 +161,33 @@ fn resolve_local(path: &Path) -> Result<(PathBuf, PathBuf, PathBuf), String> {
             return Err("mapped network data roots are rejected".into());
         }
     }
-    Ok((absolute, ancestor, resolved))
+    let mut forbidden = vec![workspace.to_path_buf()];
+    for name in ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"] {
+        if let Some(root) = std::env::var_os(name) {
+            if Path::new(&root).exists() {
+                forbidden.push(
+                    PathBuf::from(root)
+                        .canonicalize()
+                        .map_err(|_| "sync root cannot be resolved")?,
+                );
+            }
+        }
+    }
+    if forbidden.iter().any(|root| within(&resolved, root))
+        || resolved.ancestors().any(|p| p.join(".git").exists())
+    {
+        return Err(
+            "plaintext configuration/data must be outside repositories and known sync roots".into(),
+        );
+    }
+    let suffix = absolute
+        .strip_prefix(ancestor)
+        .map_err(|_| "local path resolution failed")?;
+    Ok(if suffix.as_os_str().is_empty() {
+        resolved
+    } else {
+        resolved.join(suffix)
+    })
 }
 
 pub fn within(path: &Path, root: &Path) -> bool {
@@ -900,21 +820,11 @@ mod registry_tests {
     }
 }
 
-/// Registry key for a canonical workspace path.
-pub fn workspace_path_key(workspace: &Path) -> String {
-    vcp_protocol::digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes())
-}
-
 pub fn save(path: &Path, entry: &WorkspaceEntry) -> Result<(), String> {
     // The caller holds the canonical store owner lock; never replace another
     // process's active entry. Write and sync before publishing the new hint.
-    let bytes = serde_json::to_vec(entry).map_err(|e| e.to_string())?;
-    replace_file(path, &bytes)
-}
-
-/// Write and sync a uniquely named sibling, then atomically replace `path`.
-pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let temporary = path.with_extension("new");
+    let bytes = serde_json::to_vec(entry).map_err(|e| e.to_string())?;
     use std::io::Write;
     // A stale temporary is never truncated: it may be a redirected path.
     let temporary = temporary.with_extension(vcp_domain::ids::CommandId::new().as_str());
@@ -923,7 +833,7 @@ pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .write(true)
         .open(&temporary)
         .map_err(|e| e.to_string())?;
-    file.write_all(bytes)
+    file.write_all(&bytes)
         .and_then(|()| file.sync_all())
         .map_err(|e| e.to_string())?;
     drop(file);
@@ -944,7 +854,7 @@ pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
             )
         } == 0
         {
-            return Err(format!("{} publication failed", path.display()));
+            return Err("workspace descriptor publication failed".into());
         }
         Ok(())
     }
