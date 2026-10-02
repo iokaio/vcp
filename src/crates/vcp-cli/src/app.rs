@@ -275,7 +275,7 @@ fn setup_guidance(format: Format, workspace: &Path, data_dir: Option<&Path>) -> 
     for (number, (command, purpose)) in SETUP_STEPS.iter().enumerate() {
         text.push_str(&format!("  {}. {command}\n     {purpose}\n", number + 1));
     }
-    text.push_str("Run setup from your project folder, or pass --workspace <project folder>. Walkthrough: docs/usage/beta-onboarding.md");
+    text.push_str("In an interactive terminal, `vcp setup` walks through these steps for you. Run setup from your project folder, or pass --workspace <project folder>. Walkthrough: docs/usage/beta-onboarding.md");
     command_guidance(
         format,
         json!({"status":"input_required","reason":"choose an explicit setup step",
@@ -286,6 +286,41 @@ fn setup_guidance(format: Format, workspace: &Path, data_dir: Option<&Path>) -> 
     )
 }
 
+/// The interactive wizard. An approved read-only test task then runs through
+/// the ordinary `run` path with the newly selected profile.
+async fn guided_setup(cli: Cli) -> Result<u8, String> {
+    let context =
+        crate::setup_wizard::Context::attended(cli.workspace.clone(), cli.data_dir.clone());
+    let outcome =
+        crate::setup_wizard::run(&context, &mut crate::setup_wizard::ConsolePrompter).await?;
+    if let Some((workspace, objective)) = outcome.smoke_task {
+        return Box::pin(run(Cli {
+            workspace,
+            data_dir: cli.data_dir,
+            config: None,
+            format: cli.format,
+            non_interactive: false,
+            control_stdin: false,
+            command: Some(crate::args::Command::Run(Run {
+                objective: Some(objective),
+                file: None,
+                budget_usd: None,
+                autonomy: Autonomy::Ask,
+                skills: Vec::new(),
+            })),
+        }))
+        .await;
+    }
+    if outcome.exit_code != 0 {
+        eprintln!(
+            "Setup stopped: {}.",
+            outcome.value["reason"]
+                .as_str()
+                .unwrap_or("no change was made")
+        );
+    }
+    Ok(outcome.exit_code)
+}
 /// Readable text for a person at a text terminal, otherwise the result record.
 fn command_view(format: Format, view: crate::render::View, data: Value) -> Result<u8, String> {
     let text = crate::render::human(view, &data, settings::now());
@@ -378,6 +413,9 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 pub async fn run(cli: Cli) -> Result<u8, String> {
     if let Some(crate::args::Command::Setup { command }) = &cli.command {
         let Some(command) = command else {
+            if cli.attended() {
+                return guided_setup(cli).await;
+            }
             return setup_guidance(cli.format, &cli.workspace, cli.data_dir.as_deref());
         };
         return command_view(

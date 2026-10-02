@@ -245,7 +245,7 @@ fn default_output(data: &Path, workspace: &Path) -> Result<PathBuf, String> {
     )))
 }
 
-fn create(request: &Profile, workspace: &Path, data: &Path) -> Result<PathBuf, String> {
+pub(crate) fn create(request: &Profile, workspace: &Path, data: &Path) -> Result<PathBuf, String> {
     if !request.trust_workspace {
         return Err("explicit --trust-workspace is required".into());
     }
