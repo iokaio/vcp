@@ -217,6 +217,86 @@ fn command_outcome(format: Format, data: Value, exit_code: u8) -> Result<u8, Str
     .map_err(|e| e.to_string())?;
     Ok(exit_code)
 }
+/// Guidance for a person at a text terminal; JSONL and redirected output keep
+/// the versioned result record carrying the same next steps.
+fn command_guidance(format: Format, data: Value, text: &str, exit_code: u8) -> Result<u8, String> {
+    use std::io::IsTerminal;
+    if emit_result_record(format == Format::Jsonl, std::io::stdout().is_terminal()) {
+        return command_outcome(format, data, exit_code);
+    }
+    writeln!(std::io::stdout(), "{text}").map_err(|e| e.to_string())?;
+    Ok(exit_code)
+}
+
+const SETUP_STEPS: [(&str, &str); 4] = [
+    (
+        "vcp setup provider --help",
+        "Verify one model endpoint with at most two accounted provider calls; needs OPENROUTER_API_KEY in this terminal.",
+    ),
+    (
+        "vcp setup profile --help",
+        "Create and select this workspace's profile from the verified metadata, offline.",
+    ),
+    (
+        "vcp setup check",
+        "Validate the selected profile, tools, budget and metadata expiry, offline.",
+    ),
+    (
+        "vcp run \"<task>\" --autonomy ask",
+        "Start a first task with the selected profile.",
+    ),
+];
+
+/// A bare `vcp setup` asks for an explicit step; exit 2 keeps it from looking
+/// like a completed configuration. A workspace that cannot hold the private
+/// data folder is reported before the steps that would fail on it.
+fn setup_guidance(format: Format, workspace: &Path, data_dir: Option<&Path>) -> Result<u8, String> {
+    let canonical = workspace.canonicalize().ok();
+    let shown = settings::display_path(canonical.as_deref().unwrap_or(workspace));
+    let placement = canonical.as_deref().and_then(|canonical| {
+        let data = data_dir
+            .map(Path::to_path_buf)
+            .map(Ok)
+            .unwrap_or_else(settings::default_data)
+            .ok()?;
+        settings::local_path(&data, canonical)
+            .err()
+            .map(|error| crate::render::data_placement(error, &data, canonical))
+    });
+    let mut text = String::new();
+    if let Some(problem) = &placement {
+        text.push_str(&format!("Before you start: {problem}\n\n"));
+    }
+    text.push_str(&format!("VCP first-run setup for workspace {shown}\n"));
+    for (number, (command, purpose)) in SETUP_STEPS.iter().enumerate() {
+        text.push_str(&format!("  {}. {command}\n     {purpose}\n", number + 1));
+    }
+    text.push_str("Run setup from your project folder, or pass --workspace <project folder>. Walkthrough: docs/usage/beta-onboarding.md");
+    command_guidance(
+        format,
+        json!({"status":"input_required","reason":"choose an explicit setup step",
+            "workspace":shown,"workspace_problem":placement,
+            "next":SETUP_STEPS.iter().map(|(command, purpose)| json!({"command":command,"purpose":purpose})).collect::<Vec<_>>()}),
+        &text,
+        2,
+    )
+}
+
+/// Readable text for a person at a text terminal, otherwise the result record.
+fn command_view(format: Format, view: crate::render::View, data: Value) -> Result<u8, String> {
+    let text = crate::render::human(view, &data, settings::now());
+    command_guidance(format, data, &text, 0)
+}
+
+fn setup_view(command: &crate::onboarding::Command) -> crate::render::View {
+    use crate::{onboarding::Command, render::View};
+    match command {
+        Command::Provider(_) | Command::ProviderComplete { .. } => View::SetupProvider,
+        Command::Profile(_) => View::SetupProfile,
+        Command::Select => View::SetupSelect,
+        Command::Check => View::SetupCheck,
+    }
+}
 
 async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, String> {
     use std::io::{BufRead, IsTerminal};
@@ -235,7 +315,12 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
     }
     for (index, row) in rows.iter().enumerate() {
         // Escape all stored text, including objective and filenames.
-        writeln!(std::io::stderr(), "{}: {}", index + 1, row).map_err(|e| e.to_string())?;
+        writeln!(
+            std::io::stderr(),
+            "{}",
+            crate::render::candidate(index + 1, row)
+        )
+        .map_err(|e| e.to_string())?;
     }
     if value["truncated"] == true {
         eprintln!("More tasks exist; use an explicit task ID to resume an unlisted task.");
@@ -286,9 +371,19 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 
 pub async fn run(cli: Cli) -> Result<u8, String> {
     if let Some(crate::args::Command::Setup { command }) = &cli.command {
-        return command_result(
+        let Some(command) = command else {
+            return setup_guidance(cli.format, &cli.workspace, cli.data_dir.as_deref());
+        };
+        return command_view(
             cli.format,
-            crate::onboarding::execute(command, &cli.workspace, cli.config.as_deref()).await?,
+            setup_view(command),
+            crate::onboarding::execute(
+                command,
+                &cli.workspace,
+                cli.config.as_deref(),
+                cli.data_dir.as_deref(),
+            )
+            .await?,
         );
     }
     if let Some(crate::args::Command::Config {
@@ -310,9 +405,10 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             .clone()
             .map(Ok)
             .unwrap_or_else(settings::default_data)?;
-        return command_result(
+        return command_view(
             cli.format,
-            crate::doctor::execute(request, &data, &cli.workspace)?,
+            crate::render::View::Doctor,
+            crate::doctor::execute(request, &data, &cli.workspace, cli.config.as_deref())?,
         );
     }
     if let Some(crate::args::Command::Restore(request)) = &cli.command {
@@ -330,14 +426,14 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         .workspace
         .canonicalize()
         .map_err(|_| "workspace is unavailable; restore its root or explicitly rebind/reconcile its durable history before continuing")?;
-    let data = settings::local_path(
-        &cli.data_dir
-            .clone()
-            .map(Ok)
-            .unwrap_or_else(settings::default_data)?,
-        &workspace,
-    )?;
-    let path_key = digest_bytes(workspace.to_string_lossy().to_lowercase().as_bytes());
+    let data_root = cli
+        .data_dir
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(settings::default_data)?;
+    let data = settings::local_path(&data_root, &workspace)
+        .map_err(|error| crate::render::data_placement(error, &data_root, &workspace))?;
+    let path_key = settings::workspace_path_key(&workspace);
     let existing_directory = if matches!(
         cli.command,
         Some(
@@ -377,12 +473,10 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         )
     );
     let profile = if needs_profile {
-        Some(settings::load(
-            &cli.config
-                .clone()
-                .unwrap_or_else(|| data.join("profile.json")),
-            &workspace,
-        ).map_err(|error| format!("{error}; choose the matching --config for this workspace, or run vcp setup profile --help for first-run setup"))?)
+        let resolved = crate::profile_selection::resolve(&data, &workspace, cli.config.as_deref())?;
+        Some(settings::load(&resolved.path, &workspace).map_err(|error| {
+            format!("{error}; choose the matching --config for this workspace, or run `vcp setup`")
+        })?)
     } else {
         None
     };
@@ -624,12 +718,8 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     }
     if let ValidatedCommand::Skills(crate::skills::OfflineCommand::List { offset }) = &cli.command {
         let entry = entry.as_ref().ok_or("Skill inspection requires a registered workspace; open or restore its durable session first.")?;
-        let profile = settings::load(
-            &cli.config
-                .clone()
-                .unwrap_or_else(|| data.join("profile.json")),
-            &workspace,
-        )?;
+        let resolved = crate::profile_selection::resolve(&data, &workspace, cli.config.as_deref())?;
+        let profile = settings::load(&resolved.path, &workspace)?;
         return command_result(
             cli.format,
             crate::skills::offline::execute(&profile, entry, &workspace, &pipe, *offset).await?,
@@ -732,9 +822,12 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
     if let Some(query_request) = read {
         let Some(entry) = entry.as_ref() else {
             if matches!(query_request, Query::Continuation) {
-                return command_result(
+                const MESSAGE: &str = "No unfinished tasks in this workspace. New to VCP? Run `vcp setup` for the first-run steps. Once a profile is selected, start a task with `vcp run \"<task>\"`.";
+                return command_guidance(
                     cli.format,
-                    json!({"candidates":[],"truncated":false,"message":"No unfinished tasks. For first-run setup use vcp setup provider --help, then vcp setup profile --help. Validate your selected --config with vcp setup check before vcp run."}),
+                    json!({"candidates":[],"truncated":false,"message":MESSAGE}),
+                    MESSAGE,
+                    0,
                 );
             }
             return Err("workspace has no durable session".into());

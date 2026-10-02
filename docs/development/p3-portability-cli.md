@@ -91,6 +91,15 @@ exist so the report describes actual paths. Undeclared synchronizers are not
 inferred. Capacity figures are point-in-time lower bounds excluding backend
 overhead; they neither reserve free space nor guarantee materialization fits.
 
+The same report adds `ready` and an ordered `readiness` list (BETA-12):
+installation, workspace (the home folder fails), data-folder placement, provider
+key presence, the profile from `--config` or the legacy `<data>\profile.json`,
+its metadata expiry, and the offline `setup check` validation. Each item has
+`check`, `label`, `status` (`ok`, `warn` or `fail`), `detail` and `next`. The
+key's value is never read, and no model call or provider request is made. With
+a text-mode terminal on stdout, the report is rendered as a checklist instead of
+the JSON record; setup command results are rendered the same way.
+
 Public vault paths and ciphertext reads admit the Windows Cloud Files tag family
 used by OneDrive. The native check pins ancestors and the object, exposes the
 actual placeholder tag for that thread, and rejects junctions, symbolic links and

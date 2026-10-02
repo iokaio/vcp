@@ -124,6 +124,8 @@ Return to the [documentation index](../README.md).
 
 [ADR-075](075-marketplace-manual-upload.md) selects the `iokaio` publisher and a fresh verified pre-release pair, with the first Marketplace upload reserved for the owner.
 
-[ADR-076](076-signed-beta-qualification.md) records the signed beta qualification decision.
+[ADR-076](076-signed-beta-qualification.md) selects the signed beta artifact contract, Qwen 3.8 Max at `alibaba` and the $40 provider ceiling for final qualification.
 
-[ADR-077](077-installer-path-scope.md) adds current-user and all-users Windows installer PATH modes while keeping each user's data private.
+[ADR-077](077-guided-cli-setup.md) adds guided CLI setup: terminal-only readable output, per-workspace profile selection without granted authority, and model sets as suggestions with typed spending confirmation.
+
+[ADR-078](078-installer-path-scope.md) adds current-user and all-users Windows installer PATH modes while keeping each user's data private.

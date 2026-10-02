@@ -1,4 +1,4 @@
-# ADR-077 — Windows installer PATH and data scope
+# ADR-078 — Windows installer PATH and data scope
 
 Date: October 2, 2026. Status: selected for implementation.
 Owning item: BETA-06, extending [ADR-072](072-internal-windows-beta.md).

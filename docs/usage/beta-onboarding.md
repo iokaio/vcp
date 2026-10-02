@@ -116,9 +116,13 @@ The first accepted task registers the workspace and durable history. Starting
 Reopening does not resume a task. Use the displayed task ID and revision for an
 explicit resume; the original task's budget and spent amount remain in force.
 
-Each workspace gets its own profile filename. Always pass its matching
-`--workspace` and `--config`; the legacy global `profile.json` default cannot
-represent several workspace bindings. For VS Code, select the installed CLI and
+Each workspace gets its own profile filename. `setup profile` also selects the
+new profile for that workspace, so later `setup check`, `run`, `resume` and
+`doctor` commands in the same workspace may omit `--config`. Omitting `--output`
+creates the profile under the data folder's `profiles` directory. Select a
+different existing profile with `& $vcp --workspace $workspace --config $other
+setup select`. An explicit `--config` always takes precedence; the legacy global
+`profile.json` is used only when nothing is selected. For VS Code, select the installed CLI and
 data directory in **User** settings, select this execution profile through
 **VCP: Start Execution-backed Task**, use its credential input, and review
 workspace trust there. Never copy the key to settings. See the packaged VSIX
@@ -146,9 +150,16 @@ preferences you still want. Keep the prior profile and receipts for inspection.
 
 Repeat `setup provider` into a **new** directory when metadata expires, then
 create a **new** profile filename and reapply reviewed process/check settings and
-imports. Select the new profile explicitly in the CLI and VS Code. Never edit
+imports. `setup profile` selects the new profile for the CLI; select it
+explicitly in VS Code. Never edit
 timestamps, prices, compatibility flags or hashes to extend old evidence.
 Workspace history stays in its existing data root.
+
+To see what is missing for a workspace, run `& $vcp --workspace $workspace doctor`
+(add `--config $profile` once you have one). It checks the installation,
+workspace, data folder, whether `OPENROUTER_API_KEY` is set (never its value),
+the profile and its metadata expiry offline, and names the next step for each
+failed item. It makes no model calls.
 
 | Observed condition | Required next step |
 | --- | --- |

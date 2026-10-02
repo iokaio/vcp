@@ -37,10 +37,12 @@ pub mod onboarding;
 pub mod optimize;
 pub mod outcome;
 pub mod output;
+pub mod profile_selection;
 pub mod provider_setup;
 pub mod questions;
 #[cfg(windows)]
 pub mod rebind;
+pub mod render;
 #[cfg(windows)]
 pub mod restore;
 pub mod selection;

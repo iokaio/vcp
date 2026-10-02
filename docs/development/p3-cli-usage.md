@@ -38,8 +38,12 @@ roots. Existing junctions are resolved before admission. Add other synchronized
 directories to `sync_roots` in the profile. These are local plaintext records.
 The CLI does not import project configuration as execution authority.
 
-The default profile is `<data-dir>/profile.json`; `--config` selects another
-explicit user-owned file. Version 1 uses JSON and rejects unknown fields.
+Profiles resolve in this order: an explicit `--config`; the profile selected for
+the canonical workspace in `<data-dir>/profiles/selected/<workspace key>.json`
+(written by `setup profile` and `setup select`; see ADR-077); then the legacy
+`<data-dir>/profile.json`. The selection only names a file; loading still
+enforces the profile's workspace binding, trust and expiry. Version 1 profiles
+use JSON and reject unknown fields.
 Its fields are:
 
 | Field | Meaning |
@@ -90,8 +94,12 @@ vcp --workspace <directory> tasks cancel <task-id>
 vcp --workspace <directory> inspect <id> --view verification
 ```
 
-All commands accept `--format jsonl`. Task files are bounded UTF-8 input, never
-shell scripts. `--non-interactive` returns required input without inventing an
+All commands accept `--format jsonl`. In JSONL mode, and whenever stdout is
+redirected, a failed or guidance-only command still ends with exactly one result
+record. In text mode with stdout on a terminal, the diagnostic on stderr (or the
+printed guidance) replaces that record; the exit code is unchanged. A bare
+`vcp setup` lists the explicit setup steps and exits 2 with `input_required`.
+Task files are bounded UTF-8 input, never shell scripts. `--non-interactive` returns required input without inventing an
 answer; structured mode also does not prompt. Resume retains the canonical cap
 and revalidates the current environment. A fork requires a completed canonical
 turn and a persisted cap for its independent root. It quotes bounded history
