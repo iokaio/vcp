@@ -223,23 +223,9 @@ fn evaluate(
         // separately from the configured expected task cost used for ranking.
         row.assumptions.push("Input byte estimate is unqualified; immediate admission reserves the full endpoint input capacity for ordinary input, cache read and cache write.".into());
         let bound = snapshot.reservation_input(input.input_tokens);
-        let maximum = bound
-            .get()
-            .checked_mul(3)
+        let maximum = crate::catalog::admission_usage(bound, input.output_tokens)
             .ok_or(Exclusion::InvalidCost)
-            .and_then(|inclusive| {
-                cost(
-                    snapshot,
-                    &Usage {
-                        input: Units::new(inclusive),
-                        cache_read: bound,
-                        cache_write: bound,
-                        output: input.output_tokens,
-                        requests: Units::new(1),
-                        ..Usage::default()
-                    },
-                )
-            });
+            .and_then(|usage| cost(snapshot, &usage));
         match maximum {
             Err(reason) => row.exclusions.push(reason),
             Ok(maximum) => {
