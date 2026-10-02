@@ -147,6 +147,13 @@ pub fn readiness(
             "OPENROUTER_API_KEY is set in this terminal (value not shown)".into(),
             None,
         ),
+        Some(crate::credential::Source::Session) => item(
+            "credential",
+            "Provider key",
+            "ok",
+            "entered for this setup session only (value not shown)".into(),
+            None,
+        ),
         Some(crate::credential::Source::CredentialManager) => item(
             "credential",
             "Provider key",

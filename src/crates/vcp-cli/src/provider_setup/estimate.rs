@@ -103,7 +103,7 @@ pub async fn run(request: &Estimate) -> std::result::Result<Value, String> {
     estimate_with(request, production::OPENROUTER_API, now()).await
 }
 
-async fn estimate_with(
+pub(crate) async fn estimate_with(
     request: &Estimate,
     api: &str,
     now: Timestamp,

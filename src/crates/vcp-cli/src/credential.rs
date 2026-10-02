@@ -19,6 +19,8 @@ pub const MISSING: &str = "OPENROUTER_API_KEY is required: set it in this termin
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     Environment,
+    /// Entered during guided setup and held only in this process.
+    Session,
     CredentialManager,
 }
 
@@ -69,7 +71,7 @@ impl std::fmt::Debug for Secret {
 /// the stored entry. `stored` is only consulted when the environment is unset.
 fn resolve(
     environment: Option<std::ffi::OsString>,
-    stored: impl FnOnce() -> Result<Option<Secret>, String>,
+    other: impl FnOnce() -> Result<Option<(Secret, Source)>, String>,
 ) -> Result<Option<(Secret, Source)>, String> {
     if let Some(value) = environment.filter(|value| !value.is_empty()) {
         let value = value
@@ -77,18 +79,40 @@ fn resolve(
             .map_err(|_| "OPENROUTER_API_KEY must be valid Unicode".to_owned())?;
         return Secret::new(value).map(|secret| Some((secret, Source::Environment)));
     }
-    Ok(stored()?.map(|secret| (secret, Source::CredentialManager)))
+    other()
+}
+
+/// A key entered during guided setup, held only in this process memory. Child
+/// processes never inherit it, unlike the environment variable.
+static SESSION: std::sync::Mutex<Option<Secret>> = std::sync::Mutex::new(None);
+
+/// Keep `secret` for the rest of this attended process.
+pub fn set_session(secret: Secret) {
+    if let Ok(mut session) = SESSION.lock() {
+        *session = Some(secret);
+    }
+}
+
+fn session() -> Option<Secret> {
+    SESSION
+        .lock()
+        .ok()?
+        .as_ref()
+        .and_then(|secret| Secret::new(secret.expose().to_owned()).ok())
 }
 
 /// The key to use and where it came from, if any. `interactive` permits the
-/// stored entry; it must be true only for an interactive terminal session.
+/// session and stored keys; it must be true only for an interactive terminal.
 pub fn openrouter(interactive: bool) -> Result<Option<(Secret, Source)>, String> {
     resolve(std::env::var_os(ENVIRONMENT), || {
         if !interactive {
             return Ok(None);
         }
+        if let Some(secret) = session() {
+            return Ok(Some((secret, Source::Session)));
+        }
         #[cfg(windows)]
-        return read(TARGET);
+        return Ok(read(TARGET)?.map(|secret| (secret, Source::CredentialManager)));
         #[cfg(not(windows))]
         Ok(None)
     })
@@ -217,7 +241,12 @@ mod tests {
 
     #[test]
     fn environment_wins_and_secrets_are_never_formatted() {
-        let stored = || Ok(Some(Secret::new("stored-key".into()).unwrap()));
+        let stored = || {
+            Ok(Some((
+                Secret::new("stored-key".into()).unwrap(),
+                Source::CredentialManager,
+            )))
+        };
         let (secret, source) = resolve(Some("environment-key".into()), stored)
             .unwrap()
             .unwrap();

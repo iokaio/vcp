@@ -52,6 +52,7 @@ pub mod selection;
 #[cfg(windows)]
 pub mod session;
 pub mod settings;
+pub mod setup_wizard;
 pub mod skills;
 pub mod storage;
 pub mod terminal;

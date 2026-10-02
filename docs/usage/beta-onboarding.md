@@ -13,11 +13,31 @@ one fixed probe pair, at most two requests with no inference retries, capped at
 budget. Each later task has a separate task cap. Neither cap is a daily or
 account-wide spending limit. Offline profile creation and checking spend nothing.
 
+## Quick start: guided setup
+
+In a PowerShell window, change into your project folder and run `vcp setup`.
+In an interactive terminal it walks through seven steps:
+
+1. Check the installation and data folder.
+2. Confirm and trust the workspace. The home folder and folders containing the data folder are refused, with a prompt for a project folder.
+3. Find or enter the OpenRouter key. It is entered hidden and can optionally be saved to Windows Credential Manager.
+4. Choose a model set (default: Quick test, Qwen 3.8 Max) and see its live reservations.
+5. Verify the model. You type the cap and `yes`; at most two paid requests, never retried, and delayed receipts are retrieved for free.
+6. Type a task budget and create and select the profile.
+7. Check offline, and optionally run a short read-only test task.
+
+The wizard never fills in an amount or substitutes a model; an empty answer
+stops it. Each step is the same as the explicit commands below, which remain
+the way to script setup. Redirected or `--non-interactive` runs of `vcp setup`
+print those commands instead of prompting.
+
 ## Select local roots and enter the credential
 
-Setup does not add VCP to PATH. Select the stable launcher below; for a custom
-program directory, replace `$vcp` with its absolute path. For portable use, select
-the `vcp.exe` in the extracted payload instead.
+Setup adds the program directory to PATH: the user PATH for a current-user
+installation, the machine PATH for an all-users installation. Open a new
+terminal after installing so `vcp` resolves by name. The commands below use
+`$vcp`, the stable launcher found on PATH. For portable use, set `$vcp` to the
+`vcp.exe` in the extracted payload instead.
 
 Create or select a workspace containing the files you want VCP to inspect.
 Use a separate private, nonsynchronized directory for metadata and profiles.
@@ -28,7 +48,7 @@ drives, and redirected setup paths. Declare additional sync roots in your truste
 profile before task execution.
 
 ```powershell
-$vcp = Join-Path $env:LOCALAPPDATA 'Programs\VCP\vcp.exe'
+$vcp = (Get-Command vcp -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 & $vcp --version
 if ($LASTEXITCODE -ne 0) { throw 'Select the installed VCP executable before continuing.' }
 $workspace = 'C:\work\beta-sample'

@@ -40,7 +40,8 @@ version and chosen program/data/workspace roots privately.
    Program Files location, and VS Code **1.138.0**. Follow organizational policy
    for unsigned software. Run the documented `--version` and
    `--resolve-installation` commands through the stable installed launcher.
-   Confirm the selected data directory; setup does not add VCP to PATH.
+   Confirm the selected data directory, and in a new terminal confirm that
+   `vcp` resolves by name from the PATH entry setup added.
 2. **Prepare the first task deliberately.** Follow
    [onboarding](../usage/beta-onboarding.md) using a sample `README.md`.
    Provider setup and task execution wait until the owner supplies credentials

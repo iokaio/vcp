@@ -113,8 +113,13 @@ vcp --workspace <directory> inspect <id> --view verification
 All commands accept `--format jsonl`. In JSONL mode, and whenever stdout is
 redirected, a failed or guidance-only command still ends with exactly one result
 record. In text mode with stdout on a terminal, the diagnostic on stderr (or the
-printed guidance) replaces that record; the exit code is unchanged. A bare
-`vcp setup` lists the explicit setup steps and exits 2 with `input_required`.
+printed guidance) replaces that record; the exit code is unchanged. In an
+interactive terminal (text format, no `--non-interactive` or `--control-stdin`,
+all three streams on a console), a bare `vcp setup` runs the guided wizard
+(`src/crates/vcp-cli/src/setup_wizard`). Its prompts go to stderr, it exits 0
+when a profile is ready and 2 when stopped, and it uses the same functions as
+the explicit setup commands. Otherwise `vcp setup` lists the explicit steps and
+exits 2 with `input_required`.
 Task files are bounded UTF-8 input, never shell scripts. `--non-interactive` returns required input without inventing an
 answer; structured mode also does not prompt. Resume retains the canonical cap
 and revalidates the current environment. A fork requires a completed canonical

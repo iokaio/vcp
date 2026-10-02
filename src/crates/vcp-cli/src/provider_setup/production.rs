@@ -68,11 +68,14 @@ impl Provider {
     }
 }
 
-struct Request {
-    target: Target,
-    budget_usd: String,
-    output: PathBuf,
+pub(crate) struct Request {
+    pub target: Target,
+    pub budget_usd: String,
+    pub output: PathBuf,
 }
+
+/// Marks the delayed-receipt failure, which free completion can finish.
+pub(crate) const RECEIPTS_PENDING: &str = "generation receipt unavailable";
 
 fn identifier(part: &str) -> bool {
     !part.is_empty()
@@ -116,7 +119,7 @@ fn selection(request: &Request) -> Result<()> {
 }
 
 /// A new generation folder name under `<data>\providers`.
-fn default_output(data: &Path, workspace: &Path, target: &Target) -> Result<PathBuf> {
+pub(crate) fn default_output(data: &Path, workspace: &Path, target: &Target) -> Result<PathBuf> {
     let slug = |text: &str| -> String {
         text.chars()
             .map(|c| {
@@ -259,7 +262,7 @@ pub async fn complete(
     result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
 }
 
-async fn complete_with(
+pub(crate) async fn complete_with(
     directory: &Path,
     workspace: &Path,
     key: &str,
@@ -290,7 +293,7 @@ async fn complete_with(
 // `api` is a private dependency-injection seam for offline HTTP tests. The only
 // production caller above supplies the fixed HTTPS origin; no CLI/profile field
 // can change it.
-async fn run_with(
+pub(crate) async fn run_with(
     request: &Request,
     workspace: &Path,
     key: &str,
@@ -360,7 +363,7 @@ async fn finish(
             reject_links(&path)?;
             crate::settings::read_bounded(&path, 1024 * 1024)?
         } else {
-            let bytes=get(&client,url,Some(key)).await.map_err(|_| "generation receipt unavailable; preserve this directory and use vcp setup provider-complete --directory <directory>; this does not repeat inference")?;
+            let bytes=get(&client,url,Some(key)).await.map_err(|_| format!("{RECEIPTS_PENDING}; preserve this directory and use vcp setup provider-complete --directory <directory>; this does not repeat inference"))?;
             fresh_bytes(&path, &bytes)?;
             bytes
         };
