@@ -12,6 +12,7 @@ const FIELD: usize = 512;
 pub enum View {
     Doctor,
     SetupCheck,
+    SetupEstimate,
     SetupProfile,
     SetupProvider,
     SetupSelect,
@@ -21,6 +22,7 @@ pub fn human(view: View, value: &Value, now: Timestamp) -> String {
     match view {
         View::Doctor => doctor(value, now),
         View::SetupCheck => setup_check(value, now),
+        View::SetupEstimate => setup_estimate(value),
         View::SetupProfile => setup_profile(value),
         View::SetupProvider => setup_provider(value, now),
         View::SetupSelect => setup_select(value),
@@ -198,14 +200,112 @@ fn setup_select(value: &Value) -> String {
 fn setup_provider(value: &Value, now: Timestamp) -> String {
     let snapshot = path(&value["snapshot"]);
     let catalog = path(&value["catalog"]);
+    let next = if value["directory"].is_string() {
+        format!("--provider \"{}\"", path(&value["directory"]))
+    } else {
+        format!("--snapshot \"{snapshot}\" --catalog \"{catalog}\"")
+    };
+    let model = if value["model"].is_string() {
+        format!(" {} @ {}", text(&value["model"]), text(&value["endpoint"]))
+    } else {
+        String::new()
+    };
     format!(
-        "Model endpoint verified ({}). Actual cost {}; at most {} requests, {} retries.\n  Snapshot  {snapshot}\n  Catalog   {catalog}\n  Metadata  {}\n  Next: vcp setup profile --snapshot \"{snapshot}\" --catalog \"{catalog}\" --output <new profile.json> --trust-workspace --budget-usd <amount> --autonomy ask --affected-path <path>",
+        "Model endpoint{model} verified ({}). Actual cost {}; at most {} requests, {} retries.\n  Snapshot  {snapshot}\n  Catalog   {catalog}\n  Metadata  {}\n  Next: vcp setup profile {next} --trust-workspace --budget-usd <amount> --autonomy ask --affected-path <path>",
         text(&value["status"]),
         usd(&value["actual_cost_micros"]),
         text(&value["max_requests"]),
         text(&value["retries"]),
         validity(&value["valid_until"], now),
     )
+}
+
+/// Exact micros as dollars with trailing zeros trimmed to cents.
+fn dollars(micros: &Value) -> String {
+    let full = usd(micros);
+    match full.split_once('.') {
+        Some((whole, fraction)) => {
+            let trimmed = fraction.trim_end_matches('0');
+            format!("{whole}.{trimmed:0<2}")
+        }
+        None => full,
+    }
+}
+
+fn setup_estimate(value: &Value) -> String {
+    let mut lines = vec![match value["set"].as_str() {
+        Some(set) => format!(
+            "Model set {}: {} (live catalog prices; no model calls)",
+            sanitize(set, 64),
+            text(&value["title"])
+        ),
+        None => "Endpoint estimate (live catalog prices; no model calls)".into(),
+    }];
+    for member in value["members"].as_array().into_iter().flatten() {
+        let roles = member["roles"]
+            .as_array()
+            .map(|roles| roles.iter().map(text).collect::<Vec<_>>().join(", "))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  {roles:<18} {} @ {}  [{}]",
+            text(&member["model"]),
+            text(&member["endpoint"]),
+            text(&member["level"])
+        ));
+        if member["available"] != true {
+            lines.push(format!(
+                "                     unavailable: {}",
+                text(&member["error"])
+            ));
+            continue;
+        }
+        let rates = &member["per_million_micros"];
+        lines.push(format!(
+            "                     per million tokens: {} in, {} out, {} cache write; {} input tokens",
+            dollars(&rates["input"]),
+            dollars(&rates["output"]),
+            dollars(&rates["cache_write"]),
+            text(&member["max_input"])
+        ));
+        lines.push(format!(
+            "                     verify: {} reserved per probe call ({} covers both){}",
+            dollars(&member["probe_reservation_micros"]),
+            dollars(&member["probe_pair_micros"]),
+            if member["within_setup_ceiling"] == true {
+                ""
+            } else {
+                "; exceeds the $25 setup ceiling"
+            }
+        ));
+        lines.push(format!(
+            "                     task: {} reserved per request at {} output tokens",
+            dollars(&member["task_request_reservation_micros"]),
+            text(&member["task_output_tokens"])
+        ));
+    }
+    if value["status"] == "estimated" {
+        lines.push(format!(
+            "Setup minimum {}; task budget at least {} per request.",
+            dollars(&value["setup_minimum_micros"]),
+            dollars(&value["task_budget_minimum_micros"])
+        ));
+        lines.push("Reservations cover the full context; only actual usage is charged and the rest is released when each call settles.".into());
+        if let Some(set) = value["set"].as_str() {
+            lines.push(format!(
+                "Next: vcp setup provider --set {} --budget-usd <cap at least the verify amount>",
+                sanitize(set, 64)
+            ));
+        }
+    } else {
+        lines.push(
+            "Some members are unavailable; nothing is substituted. Choose another set or endpoint."
+                .into(),
+        );
+    }
+    for note in value["notes"].as_array().into_iter().flatten() {
+        lines.push(format!("Note: {}", text(note)));
+    }
+    lines.join("\n")
 }
 
 /// One numbered unfinished task for the discovery chooser.
@@ -344,6 +444,61 @@ mod tests {
             "{shown}"
         );
         assert!(shown.contains("not set in this terminal"), "{shown}");
+    }
+
+    #[test]
+    fn estimates_show_reservations_and_never_hide_unavailable_members() {
+        let mut value = json!({"status":"estimated","set":"quick","title":"Quick test: Qwen 3.8 Max",
+            "notes":["Measured limits."],"setup_minimum_micros":"6397576","task_budget_minimum_micros":"6492808",
+            "members":[{"roles":["main"],"model":"qwen/qwen3.8-max-0902","endpoint":"alibaba","level":"high",
+                "available":true,"max_input":"983616","within_setup_ceiling":true,
+                "per_million_micros":{"input":"2000000","output":"6000000","cache_write":"2500000"},
+                "probe_reservation_micros":"6397576","probe_pair_micros":"12795152",
+                "task_request_reservation_micros":"6492808","task_output_tokens":"16384"}]});
+        let shown = human(View::SetupEstimate, &value, Timestamp::new(NOW));
+        assert!(
+            shown.contains("$2.00 in, $6.00 out, $2.50 cache write"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("verify: $6.397576 reserved per probe call ($12.795152 covers both)"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("task: $6.492808 reserved per request at 16384 output tokens"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("Next: vcp setup provider --set quick"),
+            "{shown}"
+        );
+        assert!(shown.ends_with("Note: Measured limits."), "{shown}");
+        value["status"] = json!("unavailable");
+        value["members"][0] = json!({"roles":["main","child"],"model":"z-ai/glm-5.3-flash",
+            "endpoint":"z-ai/fp8","level":"medium","available":false,"error":"endpoint unavailable\u{1b}"});
+        let shown = human(View::SetupEstimate, &value, Timestamp::new(NOW));
+        assert!(shown.contains("main, child"), "{shown}");
+        assert!(
+            shown.contains(r"unavailable: endpoint unavailable\u{1b}"),
+            "{shown}"
+        );
+        assert!(shown.contains("nothing is substituted"), "{shown}");
+        assert!(!shown.contains("Next:"), "{shown}");
+        let provider = json!({"status":"qualified","directory":r"C:\data\providers\gen",
+            "model":"qwen/qwen3.8-max-0902","endpoint":"alibaba","snapshot":r"C:\data\providers\gen\qualified\snapshot.json",
+            "catalog":r"C:\data\providers\gen\endpoints.json","valid_until":null,
+            "actual_cost_micros":"2232","max_requests":2,"retries":0});
+        let shown = human(View::SetupProvider, &provider, Timestamp::new(NOW));
+        assert!(
+            shown.starts_with("Model endpoint qwen/qwen3.8-max-0902 @ alibaba verified"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(
+                r#"Next: vcp setup profile --provider "C:\data\providers\gen" --trust-workspace"#
+            ),
+            "{shown}"
+        );
     }
 
     #[test]

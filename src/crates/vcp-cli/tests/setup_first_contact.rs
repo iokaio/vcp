@@ -122,9 +122,10 @@ fn bare_setup_lists_explicit_steps_without_clap_errors() {
             .iter()
             .map(|step| step["command"].as_str().unwrap())
             .collect();
-        assert_eq!(commands[0], "vcp setup provider --help");
-        assert_eq!(commands[1], "vcp setup profile --help");
-        assert_eq!(commands.len(), 4);
+        assert_eq!(commands[0], "vcp setup estimate --set quick");
+        assert!(commands[1].starts_with("vcp setup provider --set quick"));
+        assert!(commands[2].starts_with("vcp setup profile --provider"));
+        assert_eq!(commands.len(), 5);
     }
     assert!(!inside.exists() && !outside.exists());
     // Explicit steps keep their required arguments.

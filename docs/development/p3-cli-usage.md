@@ -65,7 +65,20 @@ Its fields are:
 
 The provider snapshot must still be current and match the captured catalog.
 `vcp setup provider` obtains fresh metadata through explicitly budgeted fixed
-conformance probes and generation-receipt attribution. Ordinary execution
+conformance probes and generation-receipt attribution. `--set <id>` (with an
+optional `--role main|child|compaction`) takes the exact model and endpoint from
+the built-in model sets in `src/crates/vcp-cli/src/model_sets.json`;
+`--model/--endpoint/--request-price-limit` select one explicitly. Without
+`--output`, the generation folder is created under `<data-dir>/providers`.
+`vcp setup estimate --set <id>` (or `--model/--endpoint`) reads only the public
+endpoint catalog, without a credential, and reports per-member rates, the
+amount admission reserves per setup probe and per task request, and the setup
+and task-budget minimums. It writes nothing and makes no model call.
+`vcp setup profile --provider <folder>` reads that folder's snapshot and
+catalog. `--set <id>` checks that the snapshot verifies the set's main model,
+applies the set's limits, and records the set in the workspace selection. Sets
+that assign different child or compaction models are refused until per-role
+assignment exists. Ordinary execution
 consumes that qualified metadata without inventing pricing or compatibility.
 Provider credentials come only from
 `OPENROUTER_API_KEY`, are passed to transport, and are not stored in the workspace

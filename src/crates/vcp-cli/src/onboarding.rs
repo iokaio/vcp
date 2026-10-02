@@ -13,6 +13,10 @@ use vcp_models::catalog::Snapshot;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Show model-set prices and the reservations setup and tasks need; no
+    /// credential, files or model calls. Sets: quick, qwen, openai, anthropic,
+    /// glm, frontier, high, medium.
+    Estimate(crate::provider_setup::estimate::Estimate),
     /// Make at most two accounted provider calls and validate generation receipts.
     Provider(crate::provider_setup::production::Provider),
     /// Retrieve delayed generation receipts for a settled probe, without inference.
@@ -30,12 +34,20 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct Profile {
+    /// Folder written by a successful `vcp setup provider` command; supplies
+    /// its qualified snapshot and endpoint catalog.
+    #[arg(long, conflicts_with_all = ["snapshot", "catalog"])]
+    pub provider: Option<PathBuf>,
     /// Snapshot produced by a successful `vcp setup provider` command.
-    #[arg(long)]
-    pub snapshot: PathBuf,
+    #[arg(long, required_unless_present = "provider", requires = "catalog")]
+    pub snapshot: Option<PathBuf>,
     /// Exact captured endpoint catalog matching the snapshot.
+    #[arg(long, required_unless_present = "provider", requires = "snapshot")]
+    pub catalog: Option<PathBuf>,
+    /// Built-in model set the snapshot was verified for; applies the set's
+    /// profile limits and records it for switching.
     #[arg(long)]
-    pub catalog: PathBuf,
+    pub set: Option<String>,
     /// New profile path outside workspaces, repositories and known sync roots;
     /// defaults to a new file under the private data folder's `profiles`.
     #[arg(long)]
@@ -73,8 +85,9 @@ pub async fn execute(
             .unwrap_or_else(settings::default_data)
     };
     match command {
+        Command::Estimate(request) => crate::provider_setup::estimate::run(request).await,
         Command::Provider(request) => {
-            crate::provider_setup::production::run(request, &workspace).await
+            crate::provider_setup::production::run(request, &workspace, data).await
         }
         Command::ProviderComplete { directory } => {
             crate::provider_setup::production::complete(directory, &workspace).await
@@ -82,8 +95,13 @@ pub async fn execute(
         Command::Profile(request) => {
             let data = data()?;
             let output = create(request, &workspace, &data)?;
-            let selection =
-                profile_selection::select(&data, &workspace, &output, None, settings::now());
+            let selection = profile_selection::select(
+                &data,
+                &workspace,
+                &output,
+                request.set.as_deref(),
+                settings::now(),
+            );
             let next = match &selection {
                 Ok(_) => "vcp --workspace <workspace> setup check".to_owned(),
                 Err(_) => "vcp --workspace <workspace> --config <profile> setup select".to_owned(),
@@ -178,11 +196,46 @@ fn create(request: &Profile, workspace: &Path, data: &Path) -> Result<PathBuf, S
     if crate::args::parse_usd(&request.budget_usd)? == vcp_domain::Micros::ZERO {
         return Err("profile budget must be greater than zero".into());
     }
-    let snapshot_path = settings::local_path(&request.snapshot, workspace)?;
-    let catalog = settings::local_path(&request.catalog, workspace)?;
+    let (snapshot_path, catalog) = match (&request.provider, &request.snapshot, &request.catalog) {
+        (Some(directory), _, _) => (
+            directory.join("qualified").join("snapshot.json"),
+            directory.join("endpoints.json"),
+        ),
+        (None, Some(snapshot), Some(catalog)) => (snapshot.clone(), catalog.clone()),
+        _ => return Err("pass --provider <folder>, or --snapshot and --catalog".into()),
+    };
+    let snapshot_path = settings::local_path(&snapshot_path, workspace)?;
+    let catalog = settings::local_path(&catalog, workspace)?;
     let snapshot: Snapshot =
         serde_json::from_slice(&settings::read_bounded(&snapshot_path, 256 * 1024)?)
             .map_err(|_| "invalid qualified snapshot; run vcp setup provider --help")?;
+    // Without a set, keep the historical conservative limits.
+    let (max_requests, output_tokens, timeout, deadline) = match request.set.as_deref() {
+        None => (8, 2048, 120, 300),
+        Some(id) => {
+            let set = crate::model_sets::find(id)?;
+            if set.distinct().len() > 1 {
+                return Err(format!("model set {id} assigns different models to child and compaction work; per-role assignment is not available yet, so use a single-model set such as quick or omit --set"));
+            }
+            let main = set
+                .member(crate::model_sets::Role::Main)
+                .ok_or("model set has no main member")?;
+            let verified = &snapshot.compatibility;
+            if verified.model != main.model || verified.endpoint != main.endpoint {
+                return Err(format!(
+                    "the snapshot verifies {} @ {}, not model set {id} ({} @ {}); run `vcp setup provider --set {id}` first",
+                    verified.model, verified.endpoint, main.model, main.endpoint
+                ));
+            }
+            let limits = &crate::model_sets::LIMITS;
+            (
+                limits.max_requests,
+                limits.output_tokens,
+                limits.provider_timeout_seconds,
+                limits.deadline_seconds,
+            )
+        }
+    };
     let explicit = request
         .output
         .as_ref()
@@ -193,8 +246,9 @@ fn create(request: &Profile, workspace: &Path, data: &Path) -> Result<PathBuf, S
         "budget_usd":request.budget_usd,"provider":snapshot,"catalog":catalog,
         "affected_paths":request.affected_path,
         "canonical_tools":["vcp_read","vcp_list","vcp_search","vcp_patch","vcp_verify"],
-        "max_requests":8,"output_tokens":"2048","provider_timeout_seconds":120,
-        "max_transport_retries":0,"deadline_seconds":300,"processes":[],"checks":[]});
+        "max_requests":max_requests,"output_tokens":output_tokens.to_string(),
+        "provider_timeout_seconds":timeout,
+        "max_transport_retries":0,"deadline_seconds":deadline,"processes":[],"checks":[]});
     let profile: settings::Profile =
         serde_json::from_value(value.clone()).map_err(|_| "profile settings rejected")?;
     profile
@@ -304,8 +358,10 @@ mod tests {
         let data = temp.path().join("data");
         let output = temp.path().join("profile.json");
         let mut request = Profile {
-            snapshot: snapshot_path.clone(),
-            catalog: catalog.clone(),
+            provider: None,
+            snapshot: Some(snapshot_path.clone()),
+            catalog: Some(catalog.clone()),
+            set: None,
             output: Some(output.clone()),
             trust_workspace: true,
             budget_usd: "1".into(),
@@ -317,11 +373,30 @@ mod tests {
         assert!(create(&request, &workspace, &data).is_err());
         assert_eq!(before, std::fs::read(&output).unwrap());
         let loaded = settings::load(&output, &workspace).unwrap();
+        assert_eq!((loaded.max_requests, loaded.deadline_seconds), (8, 300));
         assert!(loaded.prepare(vcp_domain::policy::Autonomy::Ask).is_ok());
         assert!(
             !data.exists(),
             "an explicit output never touches the data folder"
         );
+
+        // A set must match the verified snapshot; multi-model sets wait for
+        // per-role assignment.
+        request.output = Some(temp.path().join("set.json"));
+        request.set = Some("quick".into());
+        let error = create(&request, &workspace, &data).unwrap_err();
+        assert!(
+            error.contains("verifies fixture/model @ fixture, not model set quick"),
+            "{error}"
+        );
+        request.set = Some("qwen".into());
+        assert!(create(&request, &workspace, &data)
+            .unwrap_err()
+            .contains("per-role assignment"));
+        request.set = Some("unknown".into());
+        assert!(create(&request, &workspace, &data).is_err());
+        assert!(!temp.path().join("set.json").exists());
+        request.set = None;
 
         // Without --output the profile is a new file under <data>\profiles,
         // and selecting it lets later commands omit --config.
@@ -387,6 +462,75 @@ mod tests {
         std::fs::write(snapshot_path, serde_json::to_vec(&expired).unwrap()).unwrap();
         assert!(create(&request, &workspace, &data).is_err());
         assert!(!temp.path().join("next.json").exists());
+    }
+
+    #[test]
+    fn quick_set_profiles_use_measured_limits_and_record_the_set() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let generation = temp.path().join("generation");
+        std::fs::create_dir_all(generation.join("qualified")).unwrap();
+        let raw = serde_json::to_vec(&json!({"data":{"id":"qwen/qwen3.8-max-0902","endpoints":[{
+            "tag":"alibaba","status":0,"context_length":1000000,"max_prompt_tokens":983616,
+            "max_completion_tokens":131072,"supported_parameters":["tools","tool_choice","max_tokens"],
+            "pricing":{"prompt":"0.000002","completion":"0.000006","input_cache_write":"0.0000025"}}]}}))
+        .unwrap();
+        let observed = settings::now();
+        let until = Timestamp::new(observed.get() + 60000);
+        let snapshot = Snapshot::from_endpoints(
+            &raw,
+            observed,
+            until,
+            Compatibility {
+                id: "offline-test-only".into(),
+                model: "qwen/qwen3.8-max-0902".into(),
+                endpoint: "alibaba".into(),
+                qualified_at: observed,
+                valid_until: until,
+                responses_text_tools: true,
+                byte_ceiling_qualified: false,
+                provider_preferences_qualified: true,
+                qualified_reasoning_efforts: Default::default(),
+                deny_data_collection: true,
+                require_zdr: false,
+                request_price_limit: "0.001".into(),
+                required_parameters: Default::default(),
+            },
+        )
+        .unwrap();
+        std::fs::write(generation.join("endpoints.json"), &raw).unwrap();
+        std::fs::write(
+            generation.join("qualified").join("snapshot.json"),
+            serde_json::to_vec(&snapshot).unwrap(),
+        )
+        .unwrap();
+        let data = temp.path().join("data");
+        let request = Profile {
+            provider: Some(generation),
+            snapshot: None,
+            catalog: None,
+            set: Some("quick".into()),
+            output: None,
+            trust_workspace: true,
+            budget_usd: "7".into(),
+            autonomy: crate::args::Autonomy::Ask,
+            affected_path: vec![PathBuf::from("README.md")],
+        };
+        let output = create(&request, &workspace, &data).unwrap();
+        let written: Value = serde_json::from_slice(&std::fs::read(&output).unwrap()).unwrap();
+        assert_eq!(written["output_tokens"], "16384");
+        assert_eq!(written["provider_timeout_seconds"], 180);
+        assert_eq!(written["deadline_seconds"], 900);
+        assert_eq!(written["max_requests"], 16);
+        assert!(settings::load(&output, &workspace)
+            .unwrap()
+            .prepare(vcp_domain::policy::Autonomy::Ask)
+            .is_ok());
+        profile_selection::select(&data, &workspace, &output, Some("quick"), observed).unwrap();
+        let selection = profile_selection::read(&data, &workspace).unwrap().unwrap();
+        assert_eq!(selection.active_set.as_deref(), Some("quick"));
     }
 
     #[test]

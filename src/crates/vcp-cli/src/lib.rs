@@ -33,6 +33,7 @@ pub mod jsonl;
 pub mod local;
 pub mod mcp;
 pub mod memory;
+pub mod model_sets;
 pub mod onboarding;
 pub mod optimize;
 pub mod outcome;

@@ -228,14 +228,18 @@ fn command_guidance(format: Format, data: Value, text: &str, exit_code: u8) -> R
     Ok(exit_code)
 }
 
-const SETUP_STEPS: [(&str, &str); 4] = [
+const SETUP_STEPS: [(&str, &str); 5] = [
     (
-        "vcp setup provider --help",
-        "Verify one model endpoint with at most two accounted provider calls; needs OPENROUTER_API_KEY in this terminal.",
+        "vcp setup estimate --set quick",
+        "See a model set's prices and what setup and tasks reserve; no key, files or model calls. Sets: quick, qwen, openai, anthropic, glm, frontier, high, medium.",
     ),
     (
-        "vcp setup profile --help",
-        "Create and select this workspace's profile from the verified metadata, offline.",
+        "vcp setup provider --set quick --budget-usd <cap>",
+        "Verify the set's model with at most two accounted provider calls; needs OPENROUTER_API_KEY in this terminal.",
+    ),
+    (
+        "vcp setup profile --provider <folder> --set quick --trust-workspace --budget-usd <amount> --autonomy ask --affected-path README.md",
+        "Create and select this workspace's profile from the verified folder, offline.",
     ),
     (
         "vcp setup check",
@@ -291,6 +295,7 @@ fn command_view(format: Format, view: crate::render::View, data: Value) -> Resul
 fn setup_view(command: &crate::onboarding::Command) -> crate::render::View {
     use crate::{onboarding::Command, render::View};
     match command {
+        Command::Estimate(_) => View::SetupEstimate,
         Command::Provider(_) | Command::ProviderComplete { .. } => View::SetupProvider,
         Command::Profile(_) => View::SetupProfile,
         Command::Select => View::SetupSelect,
