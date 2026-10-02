@@ -145,7 +145,13 @@ if ($Action -eq 'Verify') {
     if ($ExpectedArchive -cnotmatch '^[a-f0-9]{64}$' -or $CandidateId -cnotmatch '^[a-f0-9]{64}$') { throw 'Exact candidate identity required' }
     $engine = Join-Path $app 'engine'
     $pointer = Get-Content -LiteralPath (Join-Path $engine 'active.json') -Raw | ConvertFrom-Json
-    if ($pointer.schema -cne 'vcp-install-pointer/1' -or $pointer.package_sha256 -cne $ExpectedArchive -or $pointer.release -cne $ExpectedArchive -or [IO.Path]::GetFullPath($pointer.data_root).TrimEnd('\') -ine $data) { throw 'Active engine differs from selected setup candidate' }
+    # A shared installation binds no data root; each account resolves its own.
+    $scopeMatches = if ($DataScope -eq 'Private') {
+        $pointer.schema -ceq 'vcp-install-pointer/1' -and $pointer.data_root -and [IO.Path]::GetFullPath($pointer.data_root).TrimEnd('\') -ieq $data
+    } else {
+        $pointer.schema -ceq 'vcp-install-pointer/2' -and $pointer.data_scope -ceq 'user' -and $pointer.PSObject.Properties.Name -notcontains 'data_root'
+    }
+    if (-not $scopeMatches -or $pointer.package_sha256 -cne $ExpectedArchive -or $pointer.release -cne $ExpectedArchive) { throw 'Active engine differs from selected setup candidate' }
     $manifest = Get-Content -LiteralPath (Join-Path $engine "releases\$ExpectedArchive\manifest.json") -Raw | ConvertFrom-Json
     if ($manifest.release.candidate_id -cne $CandidateId) { throw 'Installed candidate provenance differs' }
     # The Rust launcher writes UTF-8 even when Inno starts PowerShell without a
