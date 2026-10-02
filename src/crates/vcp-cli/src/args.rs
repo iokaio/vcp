@@ -290,16 +290,53 @@ pub struct ValidatedCli {
     pub command: ValidatedCommand,
 }
 
+/// A redirected stream or automation input keeps the finite CLI protocol.
+/// The terminal renderer writes stderr, so it must also be a console.
+fn interactive(
+    format: Format,
+    non_interactive: bool,
+    control_stdin: bool,
+    stdin: bool,
+    stdout: bool,
+    stderr: bool,
+) -> bool {
+    format == Format::Text && !non_interactive && !control_stdin && stdin && stdout && stderr
+}
+
 impl ValidatedCli {
-    /// A redirected stream or automation input keeps the finite CLI protocol.
-    /// The terminal renderer writes stderr, so it must also be a console.
     pub fn interactive_terminal(&self, stdin: bool, stdout: bool, stderr: bool) -> bool {
-        self.format == Format::Text
-            && !self.non_interactive
-            && !self.control_stdin
-            && stdin
-            && stdout
-            && stderr
+        interactive(
+            self.format,
+            self.non_interactive,
+            self.control_stdin,
+            stdin,
+            stdout,
+            stderr,
+        )
+    }
+}
+
+impl Cli {
+    /// The same rule before validation, for commands dispatched early.
+    pub fn interactive_terminal(&self, stdin: bool, stdout: bool, stderr: bool) -> bool {
+        interactive(
+            self.format,
+            self.non_interactive,
+            self.control_stdin,
+            stdin,
+            stdout,
+            stderr,
+        )
+    }
+
+    /// Whether this process is an interactive terminal session now.
+    pub fn attended(&self) -> bool {
+        use std::io::IsTerminal;
+        self.interactive_terminal(
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+            std::io::stderr().is_terminal(),
+        )
     }
 }
 

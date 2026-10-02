@@ -12,6 +12,7 @@ const FIELD: usize = 512;
 pub enum View {
     Doctor,
     SetupCheck,
+    SetupCredential,
     SetupEstimate,
     SetupProfile,
     SetupProvider,
@@ -22,6 +23,7 @@ pub fn human(view: View, value: &Value, now: Timestamp) -> String {
     match view {
         View::Doctor => doctor(value, now),
         View::SetupCheck => setup_check(value, now),
+        View::SetupCredential => setup_credential(value),
         View::SetupEstimate => setup_estimate(value),
         View::SetupProfile => setup_profile(value),
         View::SetupProvider => setup_provider(value, now),
@@ -133,10 +135,14 @@ fn setup_check(value: &Value, now: Timestamp) -> String {
         Value::Array(names) => names.iter().map(text).collect::<Vec<_>>().join(", "),
         other => text(other),
     };
-    let key = if value["credential_present"] == true {
-        "OPENROUTER_API_KEY is set in this terminal (value not shown)"
-    } else {
-        "OPENROUTER_API_KEY is not set in this terminal; set it before `vcp run`"
+    let key = match value["credential_source"].as_str() {
+        Some("credential_manager") => {
+            "stored in Windows Credential Manager (value not shown); interactive sessions only"
+        }
+        _ if value["credential_present"] == true => {
+            "OPENROUTER_API_KEY is set in this terminal (value not shown)"
+        }
+        _ => "not set; run `vcp setup credential store` or set OPENROUTER_API_KEY before `vcp run`",
     };
     let source = match value["profile_source"].as_str() {
         Some("selected") => " (selected for this workspace)",
@@ -220,6 +226,35 @@ fn setup_provider(value: &Value, now: Timestamp) -> String {
     )
 }
 
+fn setup_credential(value: &Value) -> String {
+    let environment = value["environment"] == true;
+    match value["status"].as_str() {
+        Some("stored") => format!(
+            "Stored the OpenRouter key in Windows Credential Manager ({}) for this Windows user.\n  It is used only in interactive terminal sessions; JSONL, redirected and automation runs still need OPENROUTER_API_KEY.{}",
+            text(&value["target"]),
+            if value["environment_overrides"] == true {
+                "\n  OPENROUTER_API_KEY is set in this terminal and takes precedence."
+            } else {
+                ""
+            }
+        ),
+        Some("removed") => "Removed the stored OpenRouter key.".into(),
+        Some("absent") => "No stored OpenRouter key was found; nothing changed.".into(),
+        _ => {
+            let stored = value["credential_manager"] == true;
+            let active = match value["active"].as_str() {
+                Some("environment") => "OPENROUTER_API_KEY in this terminal",
+                Some("credential_manager") => "the stored key (interactive terminal sessions only)",
+                _ => "none; run `vcp setup credential store` or set OPENROUTER_API_KEY",
+            };
+            format!(
+                "OpenRouter key (values are never shown)\n  Environment         {}\n  Credential Manager  {}\n  In use              {active}",
+                if environment { "set" } else { "not set" },
+                if stored { "stored" } else { "not stored" },
+            )
+        }
+    }
+}
 /// Exact micros as dollars with trailing zeros trimmed to cents.
 fn dollars(micros: &Value) -> String {
     let full = usd(micros);
@@ -443,9 +478,39 @@ mod tests {
             !shown.contains('\u{7}') && !shown.contains('\u{1b}'),
             "{shown}"
         );
-        assert!(shown.contains("not set in this terminal"), "{shown}");
+        assert!(
+            shown.contains("not set; run `vcp setup credential store`"),
+            "{shown}"
+        );
     }
 
+    #[test]
+    fn credential_views_never_show_values_and_name_the_scope() {
+        let status = json!({"status":"reported","environment":false,"credential_manager":true,
+            "active":"credential_manager","target":"VCP/OpenRouter/v1"});
+        let shown = human(View::SetupCredential, &status, Timestamp::new(NOW));
+        assert!(shown.contains("Credential Manager  stored"), "{shown}");
+        assert!(
+            shown.contains("the stored key (interactive terminal sessions only)"),
+            "{shown}"
+        );
+        let stored =
+            json!({"status":"stored","target":"VCP/OpenRouter/v1","environment_overrides":true});
+        let shown = human(View::SetupCredential, &stored, Timestamp::new(NOW));
+        assert!(
+            shown.contains("JSONL, redirected and automation runs still need OPENROUTER_API_KEY"),
+            "{shown}"
+        );
+        assert!(shown.contains("takes precedence"), "{shown}");
+        let check = json!({"profile":"p.json","workspace":"w","valid_until":null,"canonical_tools":[],
+            "checks":0,"processes":0,"trust_granted":true,"credential_present":true,
+            "credential_source":"credential_manager"});
+        let shown = human(View::SetupCheck, &check, Timestamp::new(NOW));
+        assert!(
+            shown.contains("stored in Windows Credential Manager"),
+            "{shown}"
+        );
+    }
     #[test]
     fn estimates_show_reservations_and_never_hide_unavailable_members() {
         let mut value = json!({"status":"estimated","set":"quick","title":"Quick test: Qwen 3.8 Max",

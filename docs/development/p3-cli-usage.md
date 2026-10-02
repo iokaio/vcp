@@ -80,9 +80,12 @@ applies the set's limits, and records the set in the workspace selection. Sets
 that assign different child or compaction models are refused until per-role
 assignment exists. Ordinary execution
 consumes that qualified metadata without inventing pricing or compatibility.
-Provider credentials come only from
-`OPENROUTER_API_KEY`, are passed to transport, and are not stored in the workspace
-descriptor or JSONL stream. Do not put credential values in arguments or profiles.
+Provider credentials come from `OPENROUTER_API_KEY`, or, for interactive
+terminal sessions only, from the Windows Credential Manager entry written by
+`vcp setup credential store` (ADR-079). The variable takes precedence. Keys
+are passed to transport and are not stored in the workspace descriptor,
+profile, data folder or JSONL stream. Do not put credential values in
+arguments or profiles.
 
 A process entry has `name`, absolute `executable`, explicit `environment` map,
 `required_isolation` array, `reduced_isolation` boolean, and `inputs` array.

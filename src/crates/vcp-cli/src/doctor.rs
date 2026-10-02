@@ -20,7 +20,8 @@ pub struct Doctor {
 pub struct Environment {
     /// "installed" or "portable", or why the installation cannot be resolved.
     pub installation: Result<&'static str, String>,
-    pub credential_present: bool,
+    /// Where an interactive session would take the provider key from.
+    pub credential: Option<crate::credential::Source>,
     pub home: Option<PathBuf>,
     pub now: Timestamp,
 }
@@ -42,7 +43,7 @@ impl Environment {
         let installation = Ok("portable");
         Self {
             installation,
-            credential_present: crate::onboarding::credential_present(),
+            credential: crate::credential::source(true),
             home: std::env::var_os("USERPROFILE")
                 .and_then(|home| PathBuf::from(home).canonicalize().ok()),
             now: crate::settings::now(),
@@ -138,16 +139,28 @@ pub fn readiness(
             Some("create it, or pass --data-dir <existing private folder>"),
         ),
     });
-    items.push(if environment.credential_present {
-        item("credential", "Provider key", "ok", "OPENROUTER_API_KEY is set in this terminal (value not shown)".into(), None)
-    } else {
-        item(
+    items.push(match environment.credential {
+        Some(crate::credential::Source::Environment) => item(
+            "credential",
+            "Provider key",
+            "ok",
+            "OPENROUTER_API_KEY is set in this terminal (value not shown)".into(),
+            None,
+        ),
+        Some(crate::credential::Source::CredentialManager) => item(
+            "credential",
+            "Provider key",
+            "ok",
+            "stored in Windows Credential Manager (value not shown); used only in interactive terminal sessions".into(),
+            None,
+        ),
+        None => item(
             "credential",
             "Provider key",
             "warn",
-            "OPENROUTER_API_KEY is not set in this terminal".into(),
-            Some("set it with a masked prompt before `vcp setup provider` or `vcp run`; see docs/usage/beta-onboarding.md"),
-        )
+            "OPENROUTER_API_KEY is not set and no key is stored".into(),
+            Some("run `vcp setup credential store`, or set OPENROUTER_API_KEY with a masked prompt; see docs/usage/beta-onboarding.md"),
+        ),
     });
     let (path, source) = match crate::profile_selection::resolve(data, &workspace, config) {
         Ok(resolved) => (resolved.path, resolved.source),
@@ -208,7 +221,7 @@ pub fn readiness(
     items.push(metadata);
     if current {
         items.push(
-            match crate::onboarding::check(&path, &workspace, environment.credential_present) {
+            match crate::onboarding::check(&path, &workspace, environment.credential.is_some()) {
                 Ok(_) => item(
                     "profile_check",
                     "Profile check",
@@ -417,9 +430,10 @@ mod tests {
     }
 
     fn environment(credential_present: bool, home: Option<PathBuf>) -> Environment {
+        let credential = credential_present.then_some(crate::credential::Source::Environment);
         Environment {
             installation: Ok("portable"),
-            credential_present,
+            credential,
             home,
             now: Timestamp::new(1_759_400_000_000),
         }

@@ -66,7 +66,13 @@ pub(super) async fn execute(
     let prepared = profile.prepare(requested)?;
     let prepared_http = crate::mcp::prepare_http(&prepared.profile.mcp_http)?;
     let credential = vcp_engine::capture::ProviderCredential::from_config(
-        std::env::var("OPENROUTER_API_KEY").map_err(|_| "OPENROUTER_API_KEY is required")?,
+        crate::credential::require(cli.interactive_terminal(
+            std::io::stdin().is_terminal(),
+            std::io::stdout().is_terminal(),
+            std::io::stderr().is_terminal(),
+        ))?
+        .expose()
+        .to_owned(),
     );
     let retained = crate::execution_profile::retained_config(
         data,
