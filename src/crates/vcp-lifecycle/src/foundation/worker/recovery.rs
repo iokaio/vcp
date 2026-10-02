@@ -76,6 +76,7 @@ impl Context {
                 .as_ref()
                 .ok_or("resume requires current provider configuration")?;
             provider.snapshot.current(now())?;
+            self.fixed_snapshot(binding)?.current(now())?;
             #[cfg(windows)]
             {
                 let workspace: Workspace = self

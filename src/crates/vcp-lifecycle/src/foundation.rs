@@ -273,6 +273,22 @@ impl CanonicalHost {
         self.worker
             .run(move |context| context.configure_provider(snapshot, raw_catalog, timeout))
     }
+    /// Assign a separately qualified model to delegated children (ADR-080).
+    /// Call after `configure_provider`; reconfiguring the main provider clears it.
+    pub fn configure_child_provider(
+        &self,
+        snapshot: vcp_models::catalog::Snapshot,
+        raw_catalog: Vec<u8>,
+    ) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.configure_child_provider(snapshot, raw_catalog))
+    }
+    /// The model recorded in a delegated child's graph assignment, so its
+    /// retained thread can be started on the same model it is admitted with.
+    pub fn child_model_policy(&self, child: vcp_domain::TaskId) -> Result<Option<String>, String> {
+        self.worker
+            .run(move |context| context.child_model_policy(&child))
+    }
     pub fn context_revisions(
         &self,
         id: ThreadId,

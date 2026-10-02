@@ -68,6 +68,11 @@ impl Context {
         if !self.owner_alive || self.authority_pending || self.provider.is_none() {
             return Err("routing requires a configured current provider owner".into());
         }
+        if self.provider.as_ref().is_some_and(|p| p.child.is_some()) {
+            return Err(
+                "automatic routing cannot be combined with a child model assignment".into(),
+            );
+        }
         configuration
             .validate()
             .map_err(|e| -> Failure { e.into() })?;
@@ -226,12 +231,7 @@ impl Context {
     ) -> Result<Snapshot> {
         self.require_configured_routing()?;
         let Some(runtime) = self.routing.as_ref() else {
-            return Ok(self
-                .provider
-                .as_ref()
-                .ok_or("provider missing")?
-                .snapshot
-                .clone());
+            return self.fixed_snapshot(binding);
         };
         let mut configuration = runtime.configuration.clone();
         self.routing
