@@ -31,8 +31,8 @@ pub const LIMITS: Limits = Limits {
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     Main,
+    /// Delegated sub-agents started with /agents; compaction makes no model request.
     Child,
-    Compaction,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,7 +125,7 @@ fn validate(catalog: &Catalog) -> Result<(), String> {
             || !ids.insert(set.id.as_str())
             || set.title.is_empty()
             || set.members.is_empty()
-            || set.members.len() > 3
+            || set.members.len() > 2
             || !set.members.iter().any(|member| member.role == Role::Main)
             || !set.members.iter().all(|member| {
                 roles.insert(member.role)
@@ -216,7 +216,8 @@ mod tests {
         let glm = find("glm").unwrap();
         let distinct = glm.distinct();
         assert_eq!(distinct.len(), 2);
-        assert_eq!(distinct[1].0, [Role::Child, Role::Compaction]);
+        assert_eq!(distinct[1].0, [Role::Child]);
+        assert!(sets.iter().all(|set| set.members.len() <= 2));
         assert!(find("fable").unwrap_err().contains("quick, qwen"));
     }
 

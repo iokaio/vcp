@@ -20,8 +20,7 @@
       "description": "Alibaba's Qwen 3.8 models at descending capability levels, all on Alibaba's own endpoint.",
       "members": [
         {"role": "main", "model": "qwen/qwen3.8-max-0902", "endpoint": "alibaba", "level": "high"},
-        {"role": "child", "model": "qwen/qwen3.8-27b", "endpoint": "alibaba", "level": "medium"},
-        {"role": "compaction", "model": "qwen/qwen3.8-flash", "endpoint": "alibaba", "level": "medium"}
+        {"role": "child", "model": "qwen/qwen3.8-27b", "endpoint": "alibaba", "level": "medium"}
       ],
       "notes": ["Research advises medium reasoning effort; default high effort overthinks."]
     },
@@ -32,8 +31,7 @@
       "description": "GPT-5.6 Sol, Terra and Luna at descending capability levels.",
       "members": [
         {"role": "main", "model": "openai/gpt-5.6-sol", "endpoint": "openai/flex", "level": "frontier"},
-        {"role": "child", "model": "openai/gpt-5.6-terra", "endpoint": "openai/flex", "level": "high"},
-        {"role": "compaction", "model": "openai/gpt-5.6-luna", "endpoint": "openai/flex", "level": "high"}
+        {"role": "child", "model": "openai/gpt-5.6-terra", "endpoint": "openai/flex", "level": "high"}
       ],
       "notes": [
         "Uses OpenAI flex processing: about half price, slower, and occasionally unavailable when busy. VCP never retries, so a busy period fails visibly.",
@@ -48,8 +46,7 @@
       "description": "Claude Opus 5, Sonnet 5 and Haiku 4.5 at descending capability levels.",
       "members": [
         {"role": "main", "model": "anthropic/claude-opus-5", "endpoint": "google-vertex/global", "level": "frontier"},
-        {"role": "child", "model": "anthropic/claude-sonnet-5", "endpoint": "anthropic", "level": "unrated"},
-        {"role": "compaction", "model": "anthropic/claude-haiku-4.5", "endpoint": "anthropic", "level": "unrated"}
+        {"role": "child", "model": "anthropic/claude-sonnet-5", "endpoint": "anthropic", "level": "unrated"}
       ],
       "notes": [
         "The anthropic endpoint cannot be pinned alone for Opus 5 because the catalog also lists anthropic/fast; Vertex global has the same price.",
@@ -64,8 +61,7 @@
       "description": "GLM 5.3 with GLM 5.3 Flash helpers, pinned to Z.ai's own endpoint.",
       "members": [
         {"role": "main", "model": "z-ai/glm-5.3", "endpoint": "z-ai/fp8", "level": "high"},
-        {"role": "child", "model": "z-ai/glm-5.3-flash", "endpoint": "z-ai/fp8", "level": "medium"},
-        {"role": "compaction", "model": "z-ai/glm-5.3-flash", "endpoint": "z-ai/fp8", "level": "medium"}
+        {"role": "child", "model": "z-ai/glm-5.3-flash", "endpoint": "z-ai/fp8", "level": "medium"}
       ],
       "notes": [
         "Research reports thinking loops on some other hosts; the set pins Z.ai.",
@@ -79,8 +75,7 @@
       "description": "Highest-capability main model with cheaper cross-vendor helpers.",
       "members": [
         {"role": "main", "model": "anthropic/claude-opus-5", "endpoint": "google-vertex/global", "level": "frontier"},
-        {"role": "child", "model": "openai/gpt-5.6-terra", "endpoint": "amazon-bedrock/us-east-1", "level": "high"},
-        {"role": "compaction", "model": "openai/gpt-5.6-luna", "endpoint": "amazon-bedrock/us-east-1", "level": "high"}
+        {"role": "child", "model": "openai/gpt-5.6-terra", "endpoint": "amazon-bedrock/us-east-1", "level": "high"}
       ],
       "notes": ["Opus 5 reserves about $20 per full-context request; budgets must cover that reservation."]
     },
@@ -91,8 +86,7 @@
       "description": "High-level models from three vendors, so one vendor outage does not stop every operation.",
       "members": [
         {"role": "main", "model": "qwen/qwen3.8-max-0902", "endpoint": "alibaba", "level": "high"},
-        {"role": "child", "model": "z-ai/glm-5.3", "endpoint": "z-ai/fp8", "level": "high"},
-        {"role": "compaction", "model": "openai/gpt-5.6-luna", "endpoint": "amazon-bedrock/us-east-1", "level": "high"}
+        {"role": "child", "model": "z-ai/glm-5.3", "endpoint": "z-ai/fp8", "level": "high"}
       ],
       "notes": ["DeepSeek V4.1 Flash is not offered yet: VCP's catalog parser does not accept its time-of-day pricing tiers."]
     },
@@ -103,8 +97,7 @@
       "description": "Lowest-cost set: GLM 5.3 Flash with Qwen 3.8 Flash helpers.",
       "members": [
         {"role": "main", "model": "z-ai/glm-5.3-flash", "endpoint": "z-ai/fp8", "level": "medium"},
-        {"role": "child", "model": "qwen/qwen3.8-flash", "endpoint": "alibaba", "level": "medium"},
-        {"role": "compaction", "model": "qwen/qwen3.8-flash", "endpoint": "alibaba", "level": "medium"}
+        {"role": "child", "model": "qwen/qwen3.8-flash", "endpoint": "alibaba", "level": "medium"}
       ],
       "notes": ["Medium-level models; expect weaker results on long or complex tasks."]
     }

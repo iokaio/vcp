@@ -27,6 +27,9 @@ pub struct Profile {
     pub automatic_effects: BTreeSet<EffectClass>,
     pub budget_usd: Option<String>,
     pub provider: Snapshot,
+    /// Explicit per-role assignments (ADR-080); absent roles use `provider`.
+    #[serde(default)]
+    pub roles: Roles,
     #[serde(default)]
     pub routing: Option<vcp_lifecycle::foundation::routing::Configuration>,
     #[cfg(windows)]
@@ -79,10 +82,50 @@ pub struct ProcessProfile {
     pub inputs: Vec<String>,
 }
 
+/// Delegated children may use a second qualified model; compaction makes no
+/// model request and has no assignment.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Roles {
+    #[serde(default)]
+    pub child: Option<RoleModel>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleModel {
+    pub provider: Snapshot,
+    pub catalog: PathBuf,
+}
+
 pub struct PreparedProfile {
     pub profile: Profile,
     pub raw_catalog: Vec<u8>,
+    /// Exact catalog bytes behind `roles.child`, when assigned.
+    pub child_catalog: Option<Vec<u8>>,
     pub processes: Vec<vcp_tools::process::Profile>,
+}
+
+/// Read a snapshot's captured catalog and require the snapshot to be current
+/// and exactly re-derivable from those bytes.
+fn verified_catalog(
+    snapshot: &Snapshot,
+    catalog: &Path,
+    workspace: &Path,
+) -> Result<Vec<u8>, String> {
+    let raw = read_bounded(&local_path(catalog, workspace)?, 4 * 1024 * 1024)?;
+    snapshot.current(now()).map_err(|e| e.to_string())?;
+    let expected = Snapshot::from_endpoints(
+        &raw,
+        snapshot.observed_at,
+        snapshot.valid_until,
+        snapshot.compatibility.clone(),
+    )
+    .map_err(|e| e.to_string())?;
+    if expected != *snapshot {
+        return Err("provider snapshot does not match captured catalog".into());
+    }
+    Ok(raw)
 }
 
 pub fn now() -> Timestamp {
@@ -593,8 +636,26 @@ mod request_limit_tests {
 }
 
 impl Profile {
+    /// Every assigned model must accept the selected output ceiling.
     pub fn output_ceiling(&self) -> Result<Units, String> {
-        startup_output_ceiling(self.output_tokens, self.provider.max_output)
+        let maximum = self
+            .roles
+            .child
+            .as_ref()
+            .map_or(self.provider.max_output, |child| {
+                child.provider.max_output.min(self.provider.max_output)
+            });
+        startup_output_ceiling(self.output_tokens, maximum)
+    }
+
+    /// The earliest expiry across the main and assigned models.
+    pub fn valid_until(&self) -> Timestamp {
+        self.roles
+            .child
+            .as_ref()
+            .map_or(self.provider.valid_until, |child| {
+                child.provider.valid_until.min(self.provider.valid_until)
+            })
     }
 
     pub fn provider_timeout(&self) -> Result<Duration, String> {
@@ -631,27 +692,31 @@ impl Profile {
         for check in &self.checks {
             check.validate().map_err(|e| e.to_string())?;
         }
-        let raw_catalog = read_bounded(
-            &local_path(
-                &self.catalog,
-                &self
-                    .workspace
-                    .canonicalize()
-                    .map_err(|_| "workspace unavailable")?,
-            )?,
-            4 * 1024 * 1024,
-        )?;
-        self.provider.current(now()).map_err(|e| e.to_string())?;
-        let expected = Snapshot::from_endpoints(
-            &raw_catalog,
-            self.provider.observed_at,
-            self.provider.valid_until,
-            self.provider.compatibility.clone(),
-        )
-        .map_err(|e| e.to_string())?;
-        if expected != self.provider {
-            return Err("provider snapshot does not match captured catalog".into());
-        }
+        let workspace = self
+            .workspace
+            .canonicalize()
+            .map_err(|_| "workspace unavailable")?;
+        let raw_catalog = verified_catalog(&self.provider, &self.catalog, &workspace)?;
+        let child_catalog = match &self.roles.child {
+            None => None,
+            Some(child) => {
+                if self.routing.is_some() {
+                    return Err(
+                        "a child model assignment cannot be combined with automatic routing".into(),
+                    );
+                }
+                if child.provider.compatibility.model == self.provider.compatibility.model {
+                    return Err("child model assignment must differ from the main model".into());
+                }
+                if child.provider.price.currency != self.provider.price.currency {
+                    return Err("child model currency differs from the main model".into());
+                }
+                Some(
+                    verified_catalog(&child.provider, &child.catalog, &workspace)
+                        .map_err(|e| format!("child model: {e}"))?,
+                )
+            }
+        };
         if let Some(routing) = &self.routing {
             routing.validate()?;
         }
@@ -711,6 +776,7 @@ impl Profile {
         Ok(PreparedProfile {
             profile: self,
             raw_catalog,
+            child_catalog,
             processes,
         })
     }

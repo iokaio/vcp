@@ -97,6 +97,10 @@ impl Session {
             .to_path_buf()
             .try_into()
             .map_err(|_| "absolute child workspace required")?;
+        // The retained thread runs on the model the child was admitted with.
+        if let Some(model) = host.child_model_policy(scope.task.clone())? {
+            config.model = Some(model);
+        }
         host.authorize_child_recovery_startup(&mut ticket)?;
         let mut options = StartThreadOptions::new(config);
         options.thread_extension_init.insert(
@@ -150,6 +154,10 @@ impl Session {
             .to_path_buf()
             .try_into()
             .map_err(|_| "absolute child workspace required")?;
+        // The retained thread runs on the model the child was admitted with.
+        if let Some(model) = host.child_model_policy(scope.task.clone())? {
+            config.model = Some(model);
+        }
         host.lifecycle()
             .authorize_startup(config.cwd.as_path(), None)
             .map_err(|e| format!("child startup: {e:?}"))?;

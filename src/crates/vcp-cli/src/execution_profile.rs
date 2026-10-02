@@ -57,6 +57,7 @@ pub(crate) fn install_host(
     let PreparedProfile {
         profile,
         raw_catalog,
+        child_catalog,
         processes,
     } = prepared;
     host.configure_canonical_tools(profile.canonical_tools.clone())?;
@@ -72,6 +73,9 @@ pub(crate) fn install_host(
         raw_catalog,
         profile.provider_timeout()?,
     )?;
+    if let (Some(child), Some(catalog)) = (&profile.roles.child, child_catalog) {
+        host.configure_child_provider(child.provider.clone(), catalog)?;
+    }
     if let Some(routing) = profile.routing.clone() {
         host.configure_routing(routing)?;
     }

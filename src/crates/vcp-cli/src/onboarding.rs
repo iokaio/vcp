@@ -207,7 +207,8 @@ pub fn check(path: &Path, workspace: &Path, credential_present: bool) -> Result<
         .map_err(|e| format!("{e}; renew expired provider metadata with vcp setup provider --help and create a new profile; review unavailable process/check configuration"))?;
     Ok(
         json!({"status":"ready","workspace":workspace,"profile":path,
-        "valid_until":prepared.profile.provider.valid_until,
+        "valid_until":prepared.profile.valid_until(),
+        "child_model":prepared.profile.roles.child.as_ref().map(|child| format!("{} @ {}", child.provider.compatibility.model, child.provider.compatibility.endpoint)),
         "canonical_tools":prepared.profile.canonical_tools,"checks":prepared.profile.checks.len(),
         "processes":prepared.processes.len(),"credential_required":"OPENROUTER_API_KEY in process environment",
         "credential_present":credential_present,
@@ -271,7 +272,7 @@ pub(crate) fn create(request: &Profile, workspace: &Path, data: &Path) -> Result
         Some(id) => {
             let set = crate::model_sets::find(id)?;
             if set.distinct().len() > 1 {
-                return Err(format!("model set {id} assigns different models to child and compaction work; per-role assignment is not available yet, so use a single-model set such as quick or omit --set"));
+                return Err(format!("model set {id} assigns a different model to delegated children; verifying both members is not available yet, so use a single-model set such as quick or omit --set"));
             }
             let main = set
                 .member(crate::model_sets::Role::Main)
@@ -448,7 +449,7 @@ mod tests {
         request.set = Some("qwen".into());
         assert!(create(&request, &workspace, &data)
             .unwrap_err()
-            .contains("per-role assignment"));
+            .contains("verifying both members"));
         request.set = Some("unknown".into());
         assert!(create(&request, &workspace, &data).is_err());
         assert!(!temp.path().join("set.json").exists());
@@ -587,6 +588,87 @@ mod tests {
         profile_selection::select(&data, &workspace, &output, Some("quick"), observed).unwrap();
         let selection = profile_selection::read(&data, &workspace).unwrap().unwrap();
         assert_eq!(selection.active_set.as_deref(), Some("quick"));
+
+        // A child model assignment (ADR-080) is validated like the main model.
+        let child_raw = serde_json::to_vec(&json!({"data":{"id":"qwen/qwen3.8-27b","endpoints":[{
+            "tag":"alibaba","status":0,"context_length":1000000,"max_completion_tokens":65536,
+            "supported_parameters":["tools","tool_choice","max_tokens"],
+            "pricing":{"prompt":"0.000000425","completion":"0.00000255"}}]}}))
+        .unwrap();
+        let child_until = Timestamp::new(observed.get() + 30000);
+        let child_snapshot = |model: &str, until: Timestamp| {
+            Snapshot::from_endpoints(
+                &child_raw,
+                observed,
+                until,
+                Compatibility {
+                    id: "offline-test-only".into(),
+                    model: model.into(),
+                    endpoint: "alibaba".into(),
+                    qualified_at: observed,
+                    valid_until: until,
+                    responses_text_tools: true,
+                    byte_ceiling_qualified: false,
+                    provider_preferences_qualified: true,
+                    qualified_reasoning_efforts: Default::default(),
+                    deny_data_collection: true,
+                    require_zdr: false,
+                    request_price_limit: "0.001".into(),
+                    required_parameters: Default::default(),
+                },
+            )
+        };
+        let child_catalog = temp.path().join("child-endpoints.json");
+        std::fs::write(&child_catalog, &child_raw).unwrap();
+        let with_roles = |roles: Value| -> Result<settings::Profile, String> {
+            let mut value = written.clone();
+            value["roles"] = roles;
+            let path = temp.path().join(format!(
+                "roles-{}.json",
+                vcp_domain::ids::CommandId::new().as_str()
+            ));
+            std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+            settings::load(&path, &workspace)
+        };
+        let assigned = child_snapshot("qwen/qwen3.8-27b", child_until).unwrap();
+        let profile =
+            with_roles(json!({"child":{"provider":assigned,"catalog":child_catalog}})).unwrap();
+        assert_eq!(profile.valid_until(), child_until);
+        assert_eq!(
+            profile.output_ceiling().unwrap(),
+            vcp_domain::Units::new(16384)
+        );
+        let prepared = profile.prepare(vcp_domain::policy::Autonomy::Ask).unwrap();
+        assert_eq!(
+            prepared.child_catalog.as_deref(),
+            Some(child_raw.as_slice())
+        );
+        let check = check(&output, &workspace, false).unwrap();
+        assert!(check["child_model"].is_null());
+        let expired = child_snapshot("qwen/qwen3.8-27b", Timestamp::new(observed.get() - 1));
+        assert!(
+            expired.is_err()
+                || with_roles(
+                    json!({"child":{"provider":expired.unwrap(),"catalog":child_catalog}})
+                )
+                .unwrap()
+                .prepare(vcp_domain::policy::Autonomy::Ask)
+                .is_err()
+        );
+        // The main snapshot itself, re-read from its own catalog.
+        let main_catalog = request.provider.as_ref().unwrap().join("endpoints.json");
+        let same = with_roles(json!({"child":{"provider":snapshot,"catalog":main_catalog}}))
+            .unwrap()
+            .prepare(vcp_domain::policy::Autonomy::Ask);
+        assert!(matches!(same, Err(reason) if reason.contains("must differ from the main model")));
+        assert!(
+            with_roles(json!({"compaction":{"provider":assigned,"catalog":child_catalog}}))
+                .is_err()
+        );
+        assert!(with_roles(
+            json!({"child":{"provider":assigned,"catalog":child_catalog,"extra":1}})
+        )
+        .is_err());
     }
 
     #[test]

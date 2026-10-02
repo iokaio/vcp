@@ -87,12 +87,13 @@ precedence when set. See [ADR-079](../adr/079-stored-provider-credential.md).
 VCP ships model **sets** that name exact models and endpoint tags. `quick` is a
 single Qwen 3.8 Max model and the cheapest setup. Vendor sets (`qwen`, `openai`,
 `anthropic`, `glm`) and capability-level sets (`frontier`, `high`, `medium`)
-assign a main model plus cheaper child and compaction models. A set only
-suggests models; every model is still qualified below, and nothing is
-substituted when one is unavailable. Levels come from the research table in
+assign a main model plus a cheaper model for delegated sub-agents (`/agents`
+children); compaction is local and uses no model. A set only suggests models;
+every model is still qualified below, and nothing is substituted when one is
+unavailable. Levels come from the research table in
 `docs/architecture/model-groups.md` and are not VCP quality evidence. Until
-per-role assignment ships, profiles can be created only from single-model sets
-such as `quick`.
+multi-member verification ships, profiles can be created only from
+single-model sets such as `quick`.
 
 See a set's live prices and what setup and tasks reserve. This makes no model
 call, needs no key and writes nothing:

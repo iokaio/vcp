@@ -218,7 +218,7 @@ fn choose_set(prompts: &mut dyn Prompter) -> Result<Option<estimate::Estimate>, 
         }
         match choice.checked_sub(1).and_then(|index| sets.get(index)) {
             Some(set) if set.distinct().len() > 1 => prompts.say(&format!(
-                "{} assigns different models to child and compaction work, which needs per-role assignment (not available yet). Choose a single-model set or Custom.",
+                "{} assigns a different model to delegated children; verifying both members is not available yet. Choose a single-model set or Custom.",
                 set.title
             )),
             Some(set) => {

@@ -214,8 +214,16 @@ pub fn readiness(
         None,
     ));
     let provider = &profile.provider.compatibility;
-    let model = format!("{} @ {}", provider.model, provider.endpoint);
-    let current = profile.provider.current(environment.now).is_ok();
+    let mut model = format!("{} @ {}", provider.model, provider.endpoint);
+    let mut current = profile.provider.current(environment.now).is_ok();
+    if let Some(child) = &profile.roles.child {
+        let assigned = &child.provider.compatibility;
+        model.push_str(&format!(
+            "; children {} @ {}",
+            assigned.model, assigned.endpoint
+        ));
+        current &= child.provider.current(environment.now).is_ok();
+    }
     let mut metadata = item(
         "provider_metadata",
         "Model metadata",
@@ -224,7 +232,7 @@ pub fn readiness(
         (!current)
             .then_some("renew with `vcp setup provider` and create a new profile; see `vcp setup`"),
     );
-    metadata["valid_until"] = json!(profile.provider.valid_until);
+    metadata["valid_until"] = json!(profile.valid_until());
     items.push(metadata);
     if current {
         items.push(

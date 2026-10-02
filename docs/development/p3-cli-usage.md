@@ -66,7 +66,7 @@ Its fields are:
 The provider snapshot must still be current and match the captured catalog.
 `vcp setup provider` obtains fresh metadata through explicitly budgeted fixed
 conformance probes and generation-receipt attribution. `--set <id>` (with an
-optional `--role main|child|compaction`) takes the exact model and endpoint from
+optional `--role main|child`) takes the exact model and endpoint from
 the built-in model sets in `src/crates/vcp-cli/src/model_sets.json`;
 `--model/--endpoint/--request-price-limit` select one explicitly. Without
 `--output`, the generation folder is created under `<data-dir>/providers`.
@@ -77,8 +77,10 @@ and task-budget minimums. It writes nothing and makes no model call.
 `vcp setup profile --provider <folder>` reads that folder's snapshot and
 catalog. `--set <id>` checks that the snapshot verifies the set's main model,
 applies the set's limits, and records the set in the workspace selection. Sets
-that assign different child or compaction models are refused until per-role
-assignment exists. Ordinary execution
+that assign a different child model are refused until multi-member verification
+exists. A profile's optional `roles.child` (`provider` snapshot and `catalog`,
+ADR-080) assigns a second qualified model to delegated children; it is
+validated like the main provider and cannot be combined with `routing`. Ordinary execution
 consumes that qualified metadata without inventing pricing or compatibility.
 Provider credentials come from `OPENROUTER_API_KEY`, or, for interactive
 terminal sessions only, from the Windows Credential Manager entry written by
