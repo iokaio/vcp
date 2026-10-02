@@ -90,8 +90,12 @@ vcp --workspace <directory> tasks cancel <task-id>
 vcp --workspace <directory> inspect <id> --view verification
 ```
 
-All commands accept `--format jsonl`. Task files are bounded UTF-8 input, never
-shell scripts. `--non-interactive` returns required input without inventing an
+All commands accept `--format jsonl`. In JSONL mode, and whenever stdout is
+redirected, a failed or guidance-only command still ends with exactly one result
+record. In text mode with stdout on a terminal, the diagnostic on stderr (or the
+printed guidance) replaces that record; the exit code is unchanged. A bare
+`vcp setup` lists the explicit setup steps and exits 2 with `input_required`.
+Task files are bounded UTF-8 input, never shell scripts. `--non-interactive` returns required input without inventing an
 answer; structured mode also does not prompt. Resume retains the canonical cap
 and revalidates the current environment. A fork requires a completed canonical
 turn and a persisted cap for its independent root. It quotes bounded history
