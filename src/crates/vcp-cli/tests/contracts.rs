@@ -2,7 +2,7 @@
 use clap::Parser;
 use std::io::{self, Write};
 use vcp_cli::{
-    args::{parse_usd, Cli, Command},
+    args::{emit_result_record, parse_usd, wants_jsonl, Cli, Command},
     exit_status::Conditions,
     jsonl::{Jsonl, Payload},
 };
@@ -81,6 +81,48 @@ fn malformed_commands_never_produce_typed_inputs() {
     ] {
         assert!(Cli::try_parse_from(args).is_ok());
     }
+}
+
+#[test]
+fn bare_setup_parses_and_result_records_follow_the_output_destination() {
+    let parsed = Cli::try_parse_from(["vcp", "setup"]).unwrap();
+    assert!(matches!(
+        parsed.command,
+        Some(Command::Setup { command: None })
+    ));
+    assert!(matches!(
+        Cli::try_parse_from(["vcp", "setup", "check"])
+            .unwrap()
+            .command,
+        Some(Command::Setup { command: Some(_) })
+    ));
+    assert!(Cli::try_parse_from(["vcp", "setup", "provider"]).is_err());
+    assert!(Cli::try_parse_from(["vcp", "setup", "--api-key", "secret"]).is_err());
+
+    let scan = |args: &[&str]| wants_jsonl(args.iter().map(std::ffi::OsString::from));
+    assert!(scan(&["vcp", "--format", "jsonl", "setup"]));
+    assert!(scan(&["vcp", "setup", "--format=jsonl"]));
+    assert!(scan(&[
+        "vcp",
+        "run",
+        "task",
+        "--format",
+        "jsonl",
+        "--budget-usd",
+        "1"
+    ]));
+    assert!(!scan(&["vcp", "--format", "text", "setup"]));
+    assert!(!scan(&["vcp", "--format"]));
+    assert!(!scan(&["vcp", "run", "--", "--format", "jsonl"]));
+    assert!(
+        !scan(&["--format=jsonl"]),
+        "the program name is never an option"
+    );
+
+    assert!(emit_result_record(true, true));
+    assert!(emit_result_record(true, false));
+    assert!(emit_result_record(false, false));
+    assert!(!emit_result_record(false, true));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{ffi::OsString, fs::File, io::Read, path::PathBuf};
 use vcp_domain::{ids::*, revision::Micros};
 
 pub const MAX_TASK_BYTES: usize = 65_536;
@@ -19,7 +19,12 @@ pub enum Autonomy {
     Autonomous,
 }
 #[derive(Debug, Parser)]
-#[command(name = "vcp", version, about = "VCP local task control and inspection")]
+#[command(
+    name = "vcp",
+    version,
+    about = "VCP local task control and inspection",
+    after_help = "Getting started: run `vcp setup` in your project folder."
+)]
 pub struct Cli {
     #[arg(long, global = true, default_value = "text", value_enum)]
     pub format: Format,
@@ -39,10 +44,11 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Explicit first-run profile creation and accounted provider metadata renewal.
+    /// First-run setup steps, profile creation and accounted provider metadata renewal.
     Setup {
+        /// Without a step, shows the setup steps for the selected workspace.
         #[command(subcommand)]
-        command: crate::onboarding::Command,
+        command: Option<crate::onboarding::Command>,
     },
     /// Preview and apply explicit foreign configuration subsets without inference.
     #[cfg(windows)]
@@ -297,8 +303,31 @@ impl ValidatedCli {
     }
 }
 
+/// Whether the command line selects the JSONL protocol. This runs when clap
+/// parsing or later validation failed, so it scans options up to `--` only.
+pub fn wants_jsonl(args: impl IntoIterator<Item = OsString>) -> bool {
+    let mut args = args.into_iter().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            break;
+        }
+        if arg == "--format=jsonl"
+            || (arg == "--format" && args.next().is_some_and(|v| v == "jsonl"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// JSONL and redirected text output keep the final result record for scripts.
+/// A person at a text terminal already has the diagnostic on stderr.
+pub fn emit_result_record(jsonl: bool, stdout_terminal: bool) -> bool {
+    jsonl || !stdout_terminal
+}
+
 pub enum ValidatedCommand {
-    Setup(crate::onboarding::Command),
+    Setup(Option<crate::onboarding::Command>),
     #[cfg(windows)]
     ConfigImport(crate::config_import::Command),
     WorkspaceTrust {
