@@ -2,11 +2,22 @@
 //! Hidden console entry for a provider key. Echo is disabled only for this
 //! read; the original mode is restored by a guard, and by a temporary control
 //! handler if the console is closed or Ctrl+Break ends the process.
-use crate::credential::Secret;
-use zeroize::Zeroizing;
+use crate::credential::{wipe, Secret};
 
 const CTRL_C: u16 = 0x03;
 const MAX_UNITS: usize = 16_384 + 2;
+
+/// UTF-16 input wiped when dropped. Callers size it up front so it never
+/// reallocates and leaves an unwiped copy behind.
+#[cfg(windows)]
+struct Units(Vec<u16>);
+
+#[cfg(windows)]
+impl Drop for Units {
+    fn drop(&mut self) {
+        wipe(&mut self.0);
+    }
+}
 
 /// Decode one entered line. Ctrl+C or an empty line cancels with `None`.
 pub(crate) fn decode(units: &[u16]) -> Result<Option<Secret>, String> {
@@ -20,10 +31,9 @@ pub(crate) fn decode(units: &[u16]) -> Result<Option<Secret>, String> {
     if end == 0 {
         return Ok(None);
     }
-    let text = Zeroizing::new(
-        String::from_utf16(&units[..end]).map_err(|_| "the entered key is not valid text")?,
-    );
-    Secret::new(text.to_string()).map(Some)
+    let text =
+        String::from_utf16(&units[..end]).map_err(|_| "the entered key is not valid text")?;
+    Secret::new(text).map(Some)
 }
 
 #[cfg(windows)]
@@ -95,8 +105,8 @@ mod native {
         let mut stderr = std::io::stderr();
         let _ = write!(stderr, "{prompt}");
         let _ = stderr.flush();
-        let mut units = Zeroizing::new(Vec::with_capacity(256));
-        let mut chunk = Zeroizing::new(vec![0u16; 256]);
+        let mut chunk = Units(vec![0u16; 256]);
+        let mut units = Units(Vec::with_capacity(MAX_UNITS + chunk.0.len()));
         let control = CONSOLE_READCONSOLE_CONTROL {
             nLength: std::mem::size_of::<CONSOLE_READCONSOLE_CONTROL>() as u32,
             nInitialChars: 0,
@@ -110,8 +120,8 @@ mod native {
             let ok = unsafe {
                 ReadConsoleW(
                     handle,
-                    chunk.as_mut_ptr().cast(),
-                    chunk.len() as u32,
+                    chunk.0.as_mut_ptr().cast(),
+                    chunk.0.len() as u32,
                     &mut read,
                     &control,
                 )
@@ -119,21 +129,21 @@ mod native {
             if ok == 0 || read == 0 {
                 break;
             }
-            let part = &chunk[..read as usize];
-            units.extend_from_slice(part);
+            let part = &chunk.0[..read as usize];
+            units.0.extend_from_slice(part);
             if part
                 .iter()
                 .any(|u| *u == CTRL_C || *u == u16::from(b'\r') || *u == u16::from(b'\n'))
-                || units.len() > MAX_UNITS
+                || units.0.len() > MAX_UNITS
             {
                 break;
             }
         }
         let _ = writeln!(stderr);
-        if units.len() > MAX_UNITS {
+        if units.0.len() > MAX_UNITS {
             return Err("the entered key is too long".into());
         }
-        decode(&units)
+        decode(&units.0)
     }
 }
 

@@ -24,7 +24,7 @@ variable and expects refusal.
   `vcp setup credential status` reports only whether each source is present.
 - There is still no `--api-key` argument, and the key never enters a profile,
   the data folder, JSONL, rendered output or diagnostics. In-process copies are
-  zeroized on drop, and the system buffer is overwritten before it is freed.
+  overwritten on drop, and the system buffer is overwritten before it is freed.
 - **Precedence.** A nonempty `OPENROUTER_API_KEY` always wins.
 - **Scope.** The stored entry is consulted only for an interactive terminal
   session: text format, no `--non-interactive` or `--control-stdin`, and stdin,

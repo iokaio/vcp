@@ -6,7 +6,6 @@
 //! value never enters arguments, profiles, the data folder, JSONL or
 //! diagnostics, and copies are wiped when dropped.
 use serde::Serialize;
-use zeroize::Zeroizing;
 
 pub const ENVIRONMENT: &str = "OPENROUTER_API_KEY";
 /// Generic credential target, per user and kept on this machine (no roaming).
@@ -23,19 +22,37 @@ pub enum Source {
     CredentialManager,
 }
 
+/// Overwrite memory in place so a dropped copy does not linger.
+pub(crate) fn wipe<T: Copy + Default>(values: &mut [T]) {
+    for value in values.iter_mut() {
+        // SAFETY: `value` is a valid, exclusively borrowed location.
+        unsafe { std::ptr::write_volatile(value, T::default()) };
+    }
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+}
+
 /// A provider key that is wiped when dropped and never formatted.
-pub struct Secret(Zeroizing<String>);
+pub struct Secret(String);
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        // SAFETY: zero bytes keep the String valid UTF-8 until it is freed.
+        wipe(unsafe { self.0.as_bytes_mut() });
+    }
+}
 
 impl Secret {
     pub fn new(value: String) -> Result<Self, String> {
-        let value = Zeroizing::new(value);
-        if value.is_empty() || value.len() > LIMIT || value.chars().any(char::is_control) {
+        // Wrap first so a rejected value is wiped as well.
+        let secret = Self(value);
+        let text = &secret.0;
+        if text.is_empty() || text.len() > LIMIT || text.chars().any(char::is_control) {
             return Err(
                 "the OpenRouter key must be 1 to 16384 characters without control characters"
                     .into(),
             );
         }
-        Ok(Self(value))
+        Ok(secret)
     }
     pub fn expose(&self) -> &str {
         &self.0
@@ -122,18 +139,20 @@ pub(crate) fn read(target: &str) -> Result<Option<Secret>, String> {
         let credential = &*entry;
         let size = credential.CredentialBlobSize as usize;
         let bytes = if credential.CredentialBlob.is_null() || size == 0 {
-            Zeroizing::new(Vec::new())
+            Vec::new()
         } else {
-            let bytes = Zeroizing::new(
-                std::slice::from_raw_parts(credential.CredentialBlob, size).to_vec(),
-            );
-            std::ptr::write_bytes(credential.CredentialBlob, 0, size);
+            let bytes = std::slice::from_raw_parts(credential.CredentialBlob, size).to_vec();
+            wipe(std::slice::from_raw_parts_mut(
+                credential.CredentialBlob,
+                size,
+            ));
             bytes
         };
         CredFree(entry.cast());
         bytes
     };
-    let text = String::from_utf8(copied.to_vec()).map_err(|_| {
+    let text = String::from_utf8(copied).map_err(|error| {
+        wipe(&mut error.into_bytes());
         "the stored OpenRouter key is not valid UTF-8; remove it and store it again"
     })?;
     Secret::new(text).map(Some)
