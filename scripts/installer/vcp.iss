@@ -45,9 +45,10 @@ AppId={#VcpAppId}
 AppName={#ProductName}
 AppVersion={#ProductVersion}
 AppPublisher=Ioka LLC
-DefaultDirName={localappdata}\Programs\VCP
+DefaultDirName={autopf}\VCP
 DefaultGroupName={#ProductName}
 PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0
@@ -67,7 +68,7 @@ UninstallDisplayName={#ProductName} {#ProductVersion} (unsigned)
 #endif
 CloseApplications=no
 RestartApplications=no
-ChangesEnvironment=no
+ChangesEnvironment=yes
 ArchiveExtraction=basic
 Compression=lzma2
 SolidCompression=yes
@@ -87,7 +88,7 @@ Source: "{#NativeArchive}"; DestName: "native.zip"; Flags: dontcopy
 Source: "{#SetupFiles}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
-Name: "{userprograms}\{#ProductName}"; Filename: "{app}\vcp.exe"; WorkingDir: "{userdocs}"; Tasks: startmenu
+Name: "{autoprograms}\{#ProductName}"; Filename: "{app}\vcp.exe"; WorkingDir: "{autodocs}"; Tasks: startmenu
 
 [UninstallDelete]
 Type: files; Name: "{app}\.vcp-setup-owned.ini"
@@ -112,9 +113,10 @@ function NativeCloseHandle(Handle: THandle): Boolean;
 function AcquireSetupLock: Boolean;
 var Name: String; WaitResult: LongWord;
 begin
-  { OS-derived identity, never caller-controlled environment variables. A rare
-    equal username in different domains serializes conservatively as well. }
-  Name := 'Global\VCP.Setup.' + Uppercase(GetComputerNameString) + '.' + Uppercase(GetUserNameString);
+  { Shared setup serializes machine-wide; private setup uses an OS-derived
+    identity rather than caller-controlled environment variables. }
+  if IsAdminInstallMode then Name := 'Global\VCP.Setup.Shared'
+  else Name := 'Global\VCP.Setup.' + Uppercase(GetComputerNameString) + '.' + Uppercase(GetUserNameString);
   SetupLock := NativeCreateMutex(0, False, Name);
   Result := False;
   if SetupLock <> 0 then begin
@@ -152,6 +154,12 @@ begin
   Result := '"' + Value + '"';
 end;
 
+function ScopeArguments: String;
+begin
+  if IsAdminInstallMode then Result := ' -DataScope User'
+  else Result := ' -DataRoot ' + Quoted(ChosenData);
+end;
+
 function RunScript(Script, Arguments: String): Boolean;
 var Code: Integer; Expected: String;
 begin
@@ -181,6 +189,11 @@ begin
   DataPage.Values[0] := ExpandConstant('{param:DATADIR|{localappdata}\VCP}');
 end;
 
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := IsAdminInstallMode and (PageID = DataPage.ID);
+end;
+
 function AppRootLengthError(const Root: String): String;
 begin
   Result := '';
@@ -199,7 +212,7 @@ begin
       Exit;
     end;
     Marker := AddBackslash(WizardDirValue) + '.vcp-setup-owned.ini';
-    if FileExists(Marker) then
+    if (not IsAdminInstallMode) and FileExists(Marker) then
       DataPage.Values[0] := GetIniString('VCP', 'DataRoot', '', Marker);
   end;
   Result := True;
@@ -212,17 +225,17 @@ begin
   Result := AppRootLengthError(ExpandConstant('{app}'));
   if Result <> '' then Exit;
   try
-    ChosenData := DataPage.Values[0];
+    if IsAdminInstallMode then ChosenData := '' else ChosenData := DataPage.Values[0];
     ExtractTemporaryFile('shell.ps1');
     ExtractTemporaryFile('package-install.ps1');
     ExtractTemporaryFile('native.zip');
-    Arguments := '-AppRoot ' + Quoted(ExpandConstant('{app}')) + ' -DataRoot ' + Quoted(ChosenData);
+    Arguments := '-AppRoot ' + Quoted(ExpandConstant('{app}')) + ScopeArguments;
     if not RunScript(ExpandConstant('{tmp}\shell.ps1'), '-Action Prepare ' + Arguments) then
       RaiseException('Installation roots failed ownership, path or data-preservation checks. The program and data directories must be disjoint; existing unowned directories are refused.');
     if FileExists(ExpandConstant('{app}\engine\active.json')) then Action := 'Upgrade' else Action := 'Install';
     if not RunScript(ExpandConstant('{tmp}\package-install.ps1'), '-Action ' + Action +
       ' -PackageZip ' + Quoted(ExpandConstant('{tmp}\native.zip')) +
-      ' -InstallRoot ' + Quoted(ExpandConstant('{app}\engine')) + ' -DataRoot ' + Quoted(ChosenData)) then
+      ' -InstallRoot ' + Quoted(ExpandConstant('{app}\engine')) + ScopeArguments) then
       RaiseException('Engine installation failed. Existing data and retained releases were preserved; inspect the setup log and recover before retrying.');
   except
     Result := GetExceptionMessage;
@@ -236,9 +249,12 @@ begin
       Set the flag before any verification call, including one that raises. }
     PostInstallVerificationFailed := True;
     if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'),
-      '-Action Verify -AppRoot ' + Quoted(ExpandConstant('{app}')) + ' -DataRoot ' + Quoted(ChosenData) +
+      '-Action Verify -AppRoot ' + Quoted(ExpandConstant('{app}')) + ScopeArguments +
       ' -ExpectedArchive {#NativeSha256} -CandidateId {#CandidateId}') then
       RaiseException('The installed selection changed or failed validation. Setup cannot claim this candidate was activated. Preserve the retained engine for recovery.');
+    if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'),
+      '-Action AddPath -AppRoot ' + Quoted(ExpandConstant('{app}')) + ScopeArguments) then
+      RaiseException('The installed launcher was verified, but the selected PATH could not be updated. Setup cannot claim command integration.');
     PostInstallVerificationFailed := False;
   end;
 end;
@@ -264,15 +280,18 @@ var Marker, Arguments: String;
 begin
   if CurStep = usUninstall then begin
     Marker := ExpandConstant('{app}\.vcp-setup-owned.ini');
-    ChosenData := GetIniString('VCP', 'DataRoot', '', Marker);
-    Arguments := '-AppRoot ' + Quoted(ExpandConstant('{app}')) + ' -DataRoot ' + Quoted(ChosenData);
+    if IsAdminInstallMode then ChosenData := ''
+    else ChosenData := GetIniString('VCP', 'DataRoot', '', Marker);
+    Arguments := '-AppRoot ' + Quoted(ExpandConstant('{app}')) + ScopeArguments;
     if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'), '-Action Check ' + Arguments) then
       RaiseException('Uninstall ownership or path validation failed. Registration and program integration were preserved.');
     { In pinned Inno 6.7.3 this event is fatal on an exception and runs before
       PerformUninstall, so a failed engine removal cannot remove registration. }
     if not RunScript(ExpandConstant('{app}\maintenance\package-install.ps1'), '-Action Uninstall' +
-      ' -InstallRoot ' + Quoted(ExpandConstant('{app}\engine')) + ' -DataRoot ' + Quoted(ChosenData)) then
+      ' -InstallRoot ' + Quoted(ExpandConstant('{app}\engine')) + ScopeArguments) then
       RaiseException('Engine uninstall failed. Registration, launcher and protected data were preserved. Recover or close active processes before retrying.');
+    if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'), '-Action RemovePath ' + Arguments) then
+      RaiseException('Engine removal succeeded, but the selected PATH could not be updated. Retry uninstall to remove the registered launcher and PATH entry.');
   end;
 end;
 

@@ -95,9 +95,17 @@ function Wait-Uninstalled([string]$Root) {
         Start-Sleep -Milliseconds 50
     }
 }
+function User-PathEntries([string]$Root) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    try {
+        $path = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        return @($path.Split(';') | Where-Object { $_ -ieq $Root })
+    } finally { $key.Dispose() }
+}
 $tooLong = $app + 'x'
 $failed = Invoke-Hidden $setup (Install-Arguments $tooLong $data 'too-long.log')
 if ($failed -eq 0 -or (Test-Path -LiteralPath $tooLong) -or (Test-Path -LiteralPath $registration)) { throw 'Over-limit setup mutated the app root or registered integration' }
+if ((User-PathEntries $tooLong).Count -ne 0) { throw 'Failed over-limit setup changed user PATH' }
 if (-not (Select-String -LiteralPath (Join-Path $temporary 'too-long.log') -SimpleMatch ('at most ' + $pathLimits.max_app_root_utf16 + ' characters') -Quiet)) { throw 'Over-limit refusal did not give the computed actionable limit' }
 $unowned = Join-Path $temporary 'Unowned'
 New-Item -ItemType Directory -Path $unowned | Out-Null
@@ -124,6 +132,7 @@ try {
     if($survivingHandle){$survivingHandle.Dispose()}
 }
 if (-not (Test-Path -LiteralPath $registration) -or -not (Test-Path -LiteralPath (Join-Path $app 'vcp.exe'))) { throw 'Expected per-user registration and launcher missing' }
+if ((User-PathEntries $app).Count -ne 1) { throw 'Registered setup did not add exactly one user PATH entry' }
 $uninstaller = Join-Path $app 'unins000.exe'
 $engineFile = Join-Path $app "engine\releases\$archiveHash\vcp.exe"
 $mutex = [Threading.Mutex]::new($false,$lockName)
@@ -139,6 +148,7 @@ try {
     [IO.File]::WriteAllText($helper,'exit 0')
     $failed=Invoke-Hidden $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="'+(Join-Path $temporary 'changed-helper.log')+'"'))
     if ($failed -eq 0 -or -not (Test-Path -LiteralPath $registration) -or -not (Test-Path -LiteralPath $engineFile)) { throw 'Changed maintenance helper was accepted' }
+    if ((User-PathEntries $app).Count -ne 1) { throw 'Failed uninstall removed user PATH entry' }
 } finally { [IO.File]::WriteAllBytes($helper,$helperBytes) }
 $notice=Join-Path $app 'setup-notices/Inno-Setup.txt'
 $noticeBytes=[IO.File]::ReadAllBytes($notice)
@@ -155,6 +165,7 @@ try {
 if ((Invoke-Hidden $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="'+(Join-Path $temporary 'uninstall.log')+'"'))) -ne 0) { throw "Fixture uninstall failed; preserve $temporary for recovery" }
 Wait-Uninstalled $app
 if (Test-Path -LiteralPath $registration) { throw 'Successful uninstall retained registration' }
+if ((User-PathEntries $app).Count -ne 0) { throw 'Successful uninstall retained its user PATH entry' }
 if ((Test-Path -LiteralPath (Join-Path $app 'vcp.exe')) -or (Test-Path -LiteralPath (Join-Path $app 'engine'))) { throw 'Successful uninstall retained program integration' }
 if ([IO.File]::ReadAllText((Join-Path $data 'preserve.sentinel')) -cne 'protected user data' -or [IO.File]::ReadAllText((Join-Path $unowned 'preserve.sentinel')) -cne 'unrelated application') { throw 'Protected or unrelated data changed' }
 # A test-only launcher refusal occurs after engine activation and integration.
@@ -164,8 +175,9 @@ $failureSentinel = Join-Path $data 'reject-fixture-verification'
 [IO.File]::WriteAllText($failureSentinel,'synthetic launcher refusal')
 $failed = Invoke-Hidden $setup (Install-Arguments $failedApp $data 'post-verification-failure.log')
 if ($failed -ne 1001 -or -not (Test-Path -LiteralPath $registration) -or -not (Test-Path -LiteralPath (Join-Path $failedApp 'engine/active.json'))) { throw 'Post-install verification failure did not return 1001 and preserve recovery state' }
+if ((User-PathEntries $failedApp).Count -ne 0) { throw 'Failed post-install verification added user PATH entry' }
 Remove-Item -LiteralPath $failureSentinel
 if ((Invoke-Hidden (Join-Path $failedApp 'unins000.exe') @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="'+(Join-Path $temporary 'post-verification-uninstall.log')+'"'))) -ne 0) { throw 'Synthetic verification-failure cleanup refused; preserve evidence' }
 Wait-Uninstalled $failedApp
 if ([IO.File]::ReadAllText((Join-Path $data 'preserve.sentinel')) -cne 'protected user data') { throw 'Verification-failure cleanup changed protected data' }
-[ordered]@{schema='vcp-setup-shell-tests/1';status='pass';evidence=$temporary;compiler='6.7.3';max_app_root_utf16=$pathLimits.max_app_root_utf16;cases=@('over-limit-no-mutation','maximum-root-install','unowned-root','data-overlap','registered-install','abandoned-lock-recovery','competing-setup','changed-helper-refused','changed-notice-preserved','failed-uninstall-preserves-registration','uninstall-preserves-data','post-verification-failure-nonzero');limitations=@('Synthetic engine and launcher; not installed-product beta qualification.')} | ConvertTo-Json -Depth 5
+[ordered]@{schema='vcp-setup-shell-tests/1';status='pass';evidence=$temporary;compiler='6.7.3';max_app_root_utf16=$pathLimits.max_app_root_utf16;cases=@('over-limit-no-mutation','maximum-root-install','unowned-root','data-overlap','registered-install','user-path-added-once','abandoned-lock-recovery','competing-setup','changed-helper-refused','changed-notice-preserved','failed-uninstall-preserves-registration-and-path','uninstall-preserves-data-and-removes-path','post-verification-failure-no-path');limitations=@('Synthetic engine and launcher; not installed-product beta qualification.')} | ConvertTo-Json -Depth 5
