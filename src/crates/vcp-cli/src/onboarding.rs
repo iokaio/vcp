@@ -72,24 +72,38 @@ pub async fn execute(
         Command::Profile(request) => create(request, &workspace),
         Command::Check => {
             let path = config.ok_or("setup check requires an explicit --config profile path; use setup profile for first-run creation")?;
-            let profile = settings::load(path, &workspace)
-                .map_err(|e| format!("{e}; select the matching --config for this workspace or run vcp setup profile --help"))?;
-            let cap = profile
-                .budget_usd
-                .as_deref()
-                .ok_or("profile needs an explicit budget_usd")?;
-            crate::args::parse_usd(cap)?;
-            let prepared = profile.prepare(vcp_domain::policy::Autonomy::Plan)
-                .map_err(|e| format!("{e}; renew expired provider metadata with vcp setup provider --help and create a new profile; review unavailable process/check configuration"))?;
-            Ok(
-                json!({"status":"ready","workspace":workspace,"profile":path,
-                "valid_until":prepared.profile.provider.valid_until,
-                "canonical_tools":prepared.profile.canonical_tools,"checks":prepared.profile.checks.len(),
-                "processes":prepared.processes.len(),"credential_required":"OPENROUTER_API_KEY in process environment",
-                "model_calls":0,"trust_granted":prepared.profile.trust_workspace}),
-            )
+            check(path, &workspace, credential_present())
         }
     }
+}
+
+/// Whether the provider key is present; its value is never read here.
+pub fn credential_present() -> bool {
+    std::env::var_os("OPENROUTER_API_KEY").is_some_and(|key| !key.is_empty())
+}
+
+/// Offline profile validation shared by `setup check` and `doctor`.
+pub fn check(path: &Path, workspace: &Path, credential_present: bool) -> Result<Value, String> {
+    let profile = settings::load(path, workspace).map_err(|e| {
+        format!(
+            "{e}; select the matching --config for this workspace or run vcp setup profile --help"
+        )
+    })?;
+    let cap = profile
+        .budget_usd
+        .as_deref()
+        .ok_or("profile needs an explicit budget_usd")?;
+    crate::args::parse_usd(cap)?;
+    let prepared = profile.prepare(vcp_domain::policy::Autonomy::Plan)
+        .map_err(|e| format!("{e}; renew expired provider metadata with vcp setup provider --help and create a new profile; review unavailable process/check configuration"))?;
+    Ok(
+        json!({"status":"ready","workspace":workspace,"profile":path,
+        "valid_until":prepared.profile.provider.valid_until,
+        "canonical_tools":prepared.profile.canonical_tools,"checks":prepared.profile.checks.len(),
+        "processes":prepared.processes.len(),"credential_required":"OPENROUTER_API_KEY in process environment",
+        "credential_present":credential_present,
+        "model_calls":0,"trust_granted":prepared.profile.trust_workspace}),
+    )
 }
 
 fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {

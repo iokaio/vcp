@@ -161,3 +161,38 @@ fn new_workspace_discovery_points_to_setup() {
         .unwrap()
         .contains("Run `vcp setup`"));
 }
+
+#[test]
+fn doctor_reports_readiness_without_a_profile_or_key() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("project");
+    let data = temp.path().join("data");
+    fs::create_dir(&workspace).unwrap();
+    fs::create_dir(&data).unwrap();
+    let output = vcp(&[
+        "--workspace",
+        workspace.to_str().unwrap(),
+        "--data-dir",
+        data.to_str().unwrap(),
+        "doctor",
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let record = single_record(&output.stdout);
+    let report = &record["data"];
+    assert_eq!(report["ready"], false);
+    assert_eq!(report["path_checks_passed"], true);
+    let status = |check: &str| {
+        report["readiness"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["check"] == check)
+            .map(|item| item["status"].as_str().unwrap().to_owned())
+    };
+    assert_eq!(status("installation").as_deref(), Some("ok"));
+    assert_eq!(status("workspace").as_deref(), Some("ok"));
+    assert_eq!(status("data_folder").as_deref(), Some("ok"));
+    assert_eq!(status("credential").as_deref(), Some("warn"));
+    assert_eq!(status("profile").as_deref(), Some("fail"));
+    assert_eq!(status("provider_metadata"), None);
+}

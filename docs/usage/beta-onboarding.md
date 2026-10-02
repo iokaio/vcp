@@ -150,6 +150,12 @@ imports. Select the new profile explicitly in the CLI and VS Code. Never edit
 timestamps, prices, compatibility flags or hashes to extend old evidence.
 Workspace history stays in its existing data root.
 
+To see what is missing for a workspace, run `& $vcp --workspace $workspace doctor`
+(add `--config $profile` once you have one). It checks the installation,
+workspace, data folder, whether `OPENROUTER_API_KEY` is set (never its value),
+the profile and its metadata expiry offline, and names the next step for each
+failed item. It makes no model calls.
+
 | Observed condition | Required next step |
 | --- | --- |
 | Missing credential | Enter it with the masked prompt or the extension credential input in the process that launches VCP. No call is made without it. |
