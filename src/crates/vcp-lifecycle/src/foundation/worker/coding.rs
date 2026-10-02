@@ -675,12 +675,7 @@ impl Context {
         // Portable compaction runs before candidate capacity filtering. All
         // qualified candidates use this codec, whose model/provider constants
         // cancel out of the before/after gain calculation.
-        let codec_snapshot = self
-            .provider
-            .as_ref()
-            .ok_or("provider missing")?
-            .snapshot
-            .clone();
+        let codec_snapshot = self.fixed_snapshot(binding)?;
         let output_ceiling = self.current_output_ceiling()?;
         let codec_envelope =
             request::envelope(&codec_snapshot, output_ceiling, Units::new(512), now())?;

@@ -282,6 +282,12 @@ impl Fixture {
             .unwrap();
         let mut config = self.test.config.clone();
         config.cwd = child_path.clone().try_into().unwrap();
+        // A child thread runs on the model recorded in its graph assignment.
+        let state = self.host.snapshot().unwrap();
+        let graph = vcp_engine::agents::graph(&state, &self.binding.scope, &self.config.root_task)
+            .unwrap()
+            .unwrap();
+        config.model = Some(graph.children[id].model_policy.clone());
         let mut extensions = codex_extension_api::ExtensionDataInit::default();
         extensions.insert(AllowedTools(vec![]));
         let child = self
@@ -319,6 +325,133 @@ impl Fixture {
             child.shutdown_and_wait().await.unwrap();
         }
         self.test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+/// A second qualified model for delegated children, priced differently from
+/// the main fixture so attempts show which snapshot quoted them.
+fn child_provider_snapshot() -> (vcp_models::catalog::Snapshot, Vec<u8>) {
+    use vcp_models::catalog::*;
+    let raw = serde_json::to_vec(&serde_json::json!({"data":{"id":"fixture/child-model","endpoints":[{"tag":"fixture/child","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0002"}}]}})).unwrap();
+    let compatibility = Compatibility {
+        id: "synthetic-responses/1".into(),
+        model: "fixture/child-model".into(),
+        endpoint: "fixture/child".into(),
+        qualified_at: Timestamp::ZERO,
+        valid_until: Timestamp::new(u64::MAX),
+        responses_text_tools: true,
+        byte_ceiling_qualified: true,
+        provider_preferences_qualified: true,
+        deny_data_collection: true,
+        require_zdr: true,
+        request_price_limit: "0.0002".into(),
+        qualified_reasoning_efforts: Default::default(),
+        required_parameters: BTreeSet::from(["tools".into(), "max_tokens".into()]),
+    };
+    (
+        Snapshot::from_endpoints(
+            &raw,
+            Timestamp::ZERO,
+            Timestamp::new(u64::MAX),
+            compatibility,
+        )
+        .unwrap(),
+        raw,
+    )
+}
+
+async fn run_child_turn(
+    f: &Fixture,
+    thread: codex_protocol::ThreadId,
+    child: &Arc<codex_core::CodexThread>,
+    snapshot: &vcp_models::catalog::Snapshot,
+) {
+    let sealed = sealed_provider_context(&f.host, thread, snapshot, None);
+    f.host
+        .prepare_context(thread, sealed, serde_json::json!([]), vec![])
+        .unwrap();
+    child
+        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "Report the assigned observation.".into(),
+            text_elements: vec![],
+        }]))
+        .await
+        .unwrap();
+    wait_for_event_with_timeout(
+        child,
+        |event| {
+            if let EventMsg::Error(error) = event {
+                panic!("child request failed: {error:?}");
+            }
+            matches!(event, EventMsg::TurnComplete(_))
+        },
+        Duration::from_secs(30),
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn child_model_assignment_selects_and_prices_the_child_snapshot() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let mut f = Fixture::new(backend, 2).await;
+        let (main, main_raw) = provider_snapshot();
+        let (assigned, assigned_raw) = child_provider_snapshot();
+        // A child delegated before the assignment stays on the main model.
+        let earlier = f.assign(&[]).await;
+        assert!(f
+            .host
+            .configure_child_provider(main.clone(), main_raw)
+            .unwrap_err()
+            .contains("must differ from the main model"));
+        assert!(f
+            .host
+            .configure_child_provider(assigned.clone(), b"{}".to_vec())
+            .is_err());
+        f.host
+            .configure_child_provider(assigned.clone(), assigned_raw)
+            .unwrap();
+        let later = f.assign(&[]).await;
+        let state = f.host.snapshot().unwrap();
+        let graph = vcp_engine::agents::graph(&state, &f.binding.scope, &f.config.root_task)
+            .unwrap()
+            .unwrap();
+        assert_eq!(graph.children[&earlier].model_policy, "gpt-5.1");
+        assert_eq!(graph.children[&later].model_policy, "fixture/child-model");
+
+        let (thread, _, child) = f.start(&earlier).await;
+        run_child_turn(&f, thread, &child, &main).await;
+        let (thread, _, child) = f.start(&later).await;
+        run_child_turn(&f, thread, &child, &assigned).await;
+
+        let requests = f.server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 2);
+        let bodies: Vec<serde_json::Value> = requests
+            .iter()
+            .map(|request| serde_json::from_slice(&request.body).unwrap())
+            .collect();
+        assert_eq!(bodies[0]["model"], "gpt-5.1");
+        assert_eq!(bodies[1]["model"], "fixture/child-model");
+        assert_eq!(
+            bodies[1]["provider"]["only"],
+            serde_json::json!(["fixture/child"])
+        );
+        let state = f.host.snapshot().unwrap();
+        let attempt = |task: &TaskId| -> Attempt {
+            state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Attempt)
+                .map(|row| row.decode::<Attempt>().unwrap())
+                .find(|attempt| &attempt.scope.task == task)
+                .unwrap()
+        };
+        let (first, second) = (attempt(&earlier), attempt(&later));
+        assert_eq!(first.quote.price.model, "gpt-5.1");
+        assert_eq!(second.role, RequestRole::Child);
+        assert_eq!(second.quote.price.model, "fixture/child-model");
+        assert_eq!(second.quote.price.provider, "fixture/child");
+        assert_eq!(second.quote.price, assigned.price);
+        f.close().await;
     }
 }
 

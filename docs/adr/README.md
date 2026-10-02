@@ -131,3 +131,5 @@ Return to the [documentation index](../README.md).
 [ADR-078](078-installer-path-scope.md) adds current-user and all-users Windows installer PATH modes while keeping each user's data private.
 
 [ADR-079](079-stored-provider-credential.md) adds an opt-in Windows Credential Manager OpenRouter key, used only in interactive terminal sessions, with the environment variable taking precedence.
+
+[ADR-080](080-child-model-assignment.md) assigns one separately qualified model to delegated children by recorded assignment, with no compaction model and no mixing with automatic routing.
