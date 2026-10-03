@@ -78,6 +78,9 @@ registry sources, Git checkouts, configuration, credentials and compiled targets
 are excluded. Cache hits still run locked installation and source verification.
 Rust 1.95.0 is provisioned at every checkpoint; the qualification-only 1.98.0
 toolchain is provisioned when `-StopAfter installed-editor` selects native tests.
+Strict SDK/extension compilation passes the selected ordinary absolute npm cache
+directory explicitly to its offline install. Other npm configuration overrides
+remain filtered, and package integrity and compiler provenance checks still run.
 
 The build provisions npm locks without install scripts and explicitly runs
 `cargo +1.95.0 fetch --locked --target x86_64-pc-windows-msvc` before the offline

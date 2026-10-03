@@ -91,7 +91,7 @@ test('strict builds reject Node preloads and module-path overrides', () => {
   for (const name of ['NODE_OPTIONS', 'NODE_PATH', 'node_options', 'Node_Path']) assert.throws(() => checkEnvironment({ [name]: 'unreviewed' }), /refuses/);
 });
 
-test('strict Windows compilation installs dev tools under production NODE_ENV and never uses a poisoned ancestor compiler', { skip: process.platform !== 'win32' }, t => {
+test('strict Windows compilation uses the isolated cache, installs dev tools under production NODE_ENV and refuses poisoned alternatives', { skip: process.platform !== 'win32' }, async t => {
   const repository = path.resolve(__dirname, '../../../..');
   fs.mkdirSync(path.join(repository, 'artifacts'), { recursive: true });
   const root = fs.mkdtempSync(path.join(repository, 'artifacts/beta-vsix-build-'));
@@ -121,14 +121,66 @@ test('strict Windows compilation installs dev tools under production NODE_ENV an
   const git = args => execFileSync('git', ['-c', 'safe.directory=' + root.replaceAll('\\', '/'), ...args], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
   git(['init']); git(['add', '.']); git(['-c', 'user.name=Release Test', '-c', 'user.email=release@example.invalid', 'commit', '-m', 'fixture']);
   const reviewed = git(['rev-parse', 'HEAD']), output = path.join(root, 'artifacts'); fs.mkdirSync(output);
-  const priorNodeEnv = process.env.NODE_ENV;
+  const npmRoot = path.join(path.dirname(process.execPath), 'node_modules/npm');
+  const npmCli = path.join(npmRoot, 'bin/npm-cli.js'), cacache = require(path.join(npmRoot, 'node_modules/cacache'));
+  const sourceCache = process.env.npm_config_cache || execFileSync(process.execPath, [npmCli, 'config', 'get', 'cache'], { encoding: 'utf8', windowsHide: true }).trim();
+  const isolatedCache = path.join(output, 'isolated npm cache'), unavailable = path.join(output, 'unavailable npm cache');
+  fs.mkdirSync(isolatedCache); fs.mkdirSync(unavailable);
+  // Populate only the actual locked tarball bytes, retaining npm's integrity
+  // checks. No user configs, cache logs, unrelated packages or network fetches.
+  const copied = new Set();
+  const supports = (values, current) => !values || (!values.includes('!' + current) &&
+    (!values.some(value => !value.startsWith('!')) || values.includes(current) || values.includes('any')));
+  for (const name of ['sdk-ts', 'vscode']) for (const row of Object.values(provenance.json(path.join(root, 'src/packages', name, 'package-lock.json')).packages)) {
+    if (!row.integrity || copied.has(row.integrity)) continue;
+    if (row.optional && (!supports(row.os, process.platform) || !supports(row.cpu, process.arch))) continue;
+    const bytes = await cacache.get.byDigest(path.join(sourceCache, '_cacache'), row.integrity);
+    await cacache.put(path.join(isolatedCache, '_cacache'), 'release-fixture:' + row.integrity, bytes, { integrity: row.integrity });
+    copied.add(row.integrity);
+  }
+  assert(copied.size > 0);
+  const overrideNames = ['NODE_ENV', 'npm_config_cache', 'npm_config_userconfig', 'npm_config_globalconfig', 'npm_config_prefix', 'LOCALAPPDATA', 'APPDATA'];
+  const priorEnvironment = Object.fromEntries(overrideNames.map(name => [name, process.env[name]]));
+  const poisonConfig = path.join(output, 'poisoned-npm.conf');
+  fs.writeFileSync(poisonConfig, 'cache=' + unavailable.replaceAll('\\', '/') + '\nregistry=https://unavailable.invalid/\n');
   let record;
   try {
     process.env.NODE_ENV = 'production';
+    process.env.npm_config_cache = isolatedCache;
+    process.env.npm_config_userconfig = poisonConfig;
+    process.env.npm_config_globalconfig = poisonConfig;
+    process.env.npm_config_prefix = unavailable;
+    process.env.LOCALAPPDATA = unavailable;
+    process.env.APPDATA = unavailable;
+    const emptyOutput = path.join(output, 'empty-cache-attempt'); fs.mkdirSync(emptyOutput);
+    process.env.npm_config_cache = unavailable;
+    assert.throws(() => compileRelease(root, reviewed, emptyOutput), /Release sdk-ts install failed/);
+    assert.match(fs.readFileSync(path.join(emptyOutput, 'sdk-ts-install.log'), 'utf8'), /ENOTCACHED/);
+    process.env.npm_config_cache = 'relative-cache';
+    assert.throws(() => compileRelease(root, reviewed, emptyOutput), /absolute directory/);
+    const redirected = path.join(output, 'redirected-cache'); fs.symlinkSync(isolatedCache, redirected, 'junction');
+    process.env.npm_config_cache = redirected;
+    try { assert.throws(() => compileRelease(root, reviewed, emptyOutput), /Redirected release npm cache/); }
+    finally { fs.unlinkSync(redirected); }
+    process.env.npm_config_cache = isolatedCache;
+    // The failed npm ci cleared SDK node_modules. Restore the poisoned local
+    // compilers so the successful control still tests both original boundaries.
+    for (const name of ['sdk-ts', 'vscode']) {
+      const compiler = path.join(root, 'src/packages', name, 'node_modules/typescript/bin/tsc');
+      fs.mkdirSync(path.dirname(compiler), { recursive: true });
+      fs.writeFileSync(compiler, 'throw Error("UNVERIFIED_COMPILER_MUST_NOT_RUN")');
+    }
     record = compileRelease(root, reviewed, output);
+    for (const build of record.packages) {
+      const install = fs.readFileSync(path.join(output, build.install_log.file), 'utf8');
+      assert(install.includes(JSON.stringify(isolatedCache)), 'offline install must explicitly select the populated cache');
+      assert(!install.includes(JSON.stringify(poisonConfig)), 'npm configuration overrides must stay filtered');
+    }
   } finally {
-    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = priorNodeEnv;
+    for (const [name, value] of Object.entries(priorEnvironment)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
   assert.match(record.node_sha256, /^[a-f0-9]{64}$/);
   assert.match(record.npm_tree_sha256, /^[a-f0-9]{64}$/);
