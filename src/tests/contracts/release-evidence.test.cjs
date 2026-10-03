@@ -87,6 +87,31 @@ function selectPrefix(f,stop){
   else if(stop==='production-build')f.run.receipts={build:f.run.receipts.build};
   return f;
 }
+function timedFixture(t) {
+  const f=selectPrefix(fixture(t,true),'production-build'), timing=require('../../../scripts/release/cargo-timings.cjs');
+  const report=f.file('original-timing.html','<script>throw Error("never execute");</script>\nconst UNIT_DATA = [{"name":"fixture","version":"1.0.0","target":"","start":0,"duration":1,"sections":null}];\nconst CONCURRENCY_DATA = [{"t":0,"active":1,"waiting":0,"inactive":0}];\n');
+  const receipt=p.json(f.run.receipts.build);receipt.command.push('--timings');
+  receipt.cargo_timings=timing.capture(report,f.root);
+  receipt.phase_timings={measurement:'Input verification through timing-report preservation; excludes receipt write and final strict receipt verification.',input_verification_seconds:1,cargo_seconds:1,post_verification_seconds:1,total_seconds:3};
+  fs.writeFileSync(f.run.receipts.build,JSON.stringify(receipt));return f;
+}
+test('timing evidence retains bounded JSON observations and excludes active HTML',t=>{
+  const f=timedFixture(t),result=evidence.packet(f.write(),path.join(f.root,'packet'));
+  assert.equal(result.selection_status,'pass');assert.deepEqual(result.validation_failures,[]);
+  const retained=JSON.parse(fs.readFileSync(path.join(f.root,'packet/diagnostics/cargo-timings.json'),'utf8'));
+  assert.equal(retained.units[0].duration_seconds,1);assert.equal(retained.maximum_active_units,1);
+  assert(result.files.every(row=>!row.path.endsWith('.html')));
+});
+test('timing evidence refuses missing or changed reports and bindings',t=>{
+  for(const mutate of [f=>fs.unlinkSync(path.join(f.root,'cargo-timing.html')),
+    f=>fs.appendFileSync(path.join(f.root,'cargo-timing.html'),'changed'),
+    f=>fs.appendFileSync(path.join(f.root,'cargo-timings.json'),'changed'),
+    f=>{const receipt=p.json(f.run.receipts.build);delete receipt.cargo_timings;fs.writeFileSync(f.run.receipts.build,JSON.stringify(receipt));}]) {
+    const f=timedFixture(t);mutate(f);
+    const result=evidence.packet(f.write(),path.join(f.root,'packet'));
+    assert.equal(result.selection_status,'fail');assert(result.validation_failures.length>0);
+  }
+});
 test('explicit successful prefixes pass their selection without claiming an unfinished pipeline or manual qualification',t=>{
   for(const stop of ['portable-contracts','production-build','pair','installed-editor']){
     const f=selectPrefix(fixture(t,stop!=='portable-contracts'),stop);

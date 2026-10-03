@@ -68,6 +68,17 @@ image selection is mutable; the packet records the actual image and OS version,
 native compiler hashes and measured build resources. This changes build capacity,
 not the supported Windows envelope or the clean-host qualification requirement.
 
+The workflow caches download inputs in dedicated temporary Cargo and npm homes,
+using exact OS, architecture, tool-pin and lockfile save keys. A fallback retains
+the same platform and tool pins while allowing downloads from a prior lockfile;
+this keeps a product-version-only lock change from discarding the download cache.
+Only npm's `_cacache`,
+Cargo registry indexes/archives and Git object databases are retained. Extracted
+registry sources, Git checkouts, configuration, credentials and compiled targets
+are excluded. Cache hits still run locked installation and source verification.
+Rust 1.95.0 is provisioned at every checkpoint; the qualification-only 1.98.0
+toolchain is provisioned when `-StopAfter installed-editor` selects native tests.
+
 The build provisions npm locks without install scripts and explicitly runs
 `cargo +1.95.0 fetch --locked --target x86_64-pc-windows-msvc` before the offline
 production recipe. No compiled Cargo target cache is restored. Production uses a
@@ -75,6 +86,26 @@ new target directory. Qualification uses a different target directory and never
 supplies its executable to packaging. The strict recipe checks original locked
 archives, extracted registry files and pinned Git checkouts before and after
 compilation. A cache change fails the build.
+
+Production builds also request Cargo's stable [HTML timings report](https://doc.rust-lang.org/cargo/reference/timings.html).
+The original `cargo-timing.html` and a bounded `cargo-timings.json` summary remain
+beside the build receipt after compiled-target cleanup. The receipt binds both
+digests and records input-verification, Cargo, post-verification and total wall
+times through timing-report preservation. Receipt writing and final strict
+receipt verification are excluded from that diagnostic total; candidate stage
+start/end timestamps measure the complete production stage. Shared evidence
+includes the verified JSON observations; HTML scripts
+are never evaluated or shared. Unit timings and Cargo scheduler concurrency do
+not measure threads inside rustc, and missing compiler sections remain null.
+Previously produced receipts without timing diagnostics remain supported.
+
+The [October 3 baseline](https://github.com/iokaio/vcp/actions/runs/37140357261)
+spent 25m05s in production build/verification, 1m29s provisioning compiler/editor/
+Cargo inputs and 24s installing npm tools. Its Cargo supervision measured 1,421s
+elapsed, 11,480.5 CPU seconds and 14.7 GiB peak committed memory. Different source
+revisions and runner images prevent treating historical durations as a controlled
+comparison. Download caching affects provisioning; no faster fresh compilation
+is claimed until a measured build demonstrates it.
 
 The orchestrator is also available for a controlled Windows builder after the
 three npm development lockfiles have been installed:
