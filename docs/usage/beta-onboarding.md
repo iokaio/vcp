@@ -29,7 +29,8 @@ itself in command arguments or profile files.
 
 Offline tooling can set `VCP_DENY_PROVIDER_CREDENTIALS` to disable all provider
 credential access. Any value, including an empty value, denies access before
-credential lookup. Removing only `OPENROUTER_API_KEY` does not disable a selected
+credential lookup. This reserved name cannot be selected as a credential source.
+Removing only `OPENROUTER_API_KEY` does not disable a selected
 environment-variable alias.
 
 The interview fetches current endpoint metadata and asks permission for **one**

@@ -38,6 +38,7 @@ function Invoke-NativeLogged {
     elseif (($ArgumentList[-3..-1] -join ' ') -eq 'setup credential status') { $data = @{ environment = 'VCP_REFRESH_KEY' } }
     elseif ($index -ge 0 -and $ArgumentList[$index + 1] -eq 'provider-refresh') {
         if ($Environment.VCP_DENY_PROVIDER_CREDENTIALS -ne '1') { throw 'Metadata refresh must deny provider credentials' }
+        if ($env:VCP_SCENARIO_CREDENTIAL_ENV -eq 'VCP_REFRESH_KEY' -and (-not $Environment.ContainsKey('VCP_REFRESH_KEY') -or $null -ne $Environment.VCP_REFRESH_KEY)) { throw 'Metadata refresh inherited its configured credential alias' }
         $command = $ArgumentList[$index + 1]
         $generation = $ArgumentList[-1]
         if (Test-Path -LiteralPath $generation) { throw 'Refresh must create a unique new directory' }
@@ -49,7 +50,11 @@ function Invoke-NativeLogged {
             $code = 1; $data = @{ status = 'failed' }
         }
         else {
-            $endpoint = if ($env:VCP_REFRESH_CASE -eq 'wrong-endpoint') { 'different/endpoint' } else { 'fixture/endpoint' }
+            $endpoint = switch ($env:VCP_REFRESH_CASE) {
+                'wrong-endpoint' { 'different/endpoint' }
+                'case-different-endpoint' { 'Fixture/endpoint' }
+                default { 'fixture/endpoint' }
+            }
             @{ data = @{ id = 'fixture/model'; endpoints = @(@{ tag = $endpoint }) } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $generation 'endpoints.json')
             @{ valid_until = [DateTimeOffset]::UtcNow.AddHours(12).ToUnixTimeMilliseconds()
                 raw_sha256 = (Get-FileHash -LiteralPath (Join-Path $generation 'endpoints.json')).Hash.ToLowerInvariant()
@@ -118,7 +123,7 @@ exit 0
     Check ($renewal.status -eq 'refreshed' -and $renewal.model_calls -eq 0) 'Metadata-only refresh evidence incomplete'
     $reuse = Invoke-Fixture 'reuse' -Case 'failure' -Root $success.RunRoot
     Check ($reuse.Code -eq 0 -and @($reuse.Commands | Where-Object label -like 'refresh-provider*').Count -eq 0) 'Fresh same-provider generation unnecessarily renewed'
-    foreach ($case in 'failure', 'unsupported', 'wrong-endpoint') {
+    foreach ($case in 'failure', 'unsupported', 'wrong-endpoint', 'case-different-endpoint') {
         $run = Invoke-Fixture $case -Case $case
         Check ($run.Code -ne 0) "Unexpected outcome for ${case}: $($run.Output)"
         Check (-not $run.Output.Contains('REFRESH_CHILD_STARTED')) "$case started an invalid scenario"
@@ -132,7 +137,7 @@ exit 0
     $dry = Invoke-Fixture 'dry' -Mode 'DryRun'
     Check ($dry.Code -eq 0 -and $dry.Output.Contains('REFRESH_CHILD_STARTED')) 'DryRun could not refresh metadata without inference'
     Check (@($dry.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'DryRun omitted logged metadata refresh'
-    Check (@($dry.Commands | Where-Object label -eq 'credential-status').Count -eq 0) 'DryRun metadata refresh accessed credentials'
+    Check (@($dry.Commands | Where-Object label -eq 'credential-status').Count -eq 1) 'DryRun metadata refresh omitted credential alias discovery'
     # A newer cached generation at another endpoint cannot replace this provider.
     $otherRoot = Join-Path $temporary 'other-endpoint-cache'
     New-Metadata (Join-Path $otherRoot 'launch-previous/setup/provider-other') 60 'other/endpoint'

@@ -723,9 +723,15 @@ function Invoke-Vcp {
         }
     }
     try {
+        $environment = @{}
+        if ($DenyProviderCredentials -or $Ctx.SkipPaidStages) {
+            $environment['OPENROUTER_API_KEY'] = $null
+            if ($env:VCP_SCENARIO_CREDENTIAL_ENV) { $environment[$env:VCP_SCENARIO_CREDENTIAL_ENV] = $null }
+            $environment['VCP_DENY_PROVIDER_CREDENTIALS'] = '1'
+        }
         $result = Invoke-NativeLogged -FilePath $Ctx.Vcp -ArgumentList $all -WorkingDirectory $Ctx.Workspace -StdoutPath $stdout `
         -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -OnLine $onLine -HeartbeatLabel "$Stage/$Label" -Ctx $Ctx `
-        -Environment $(if ($DenyProviderCredentials -or $Ctx.SkipPaidStages) { @{ OPENROUTER_API_KEY = $null; VCP_DENY_PROVIDER_CREDENTIALS = '1' } } else { @{} })
+        -Environment $environment
         $record.exit_code = $result.ExitCode; $record.timed_out = $result.TimedOut; $record.duration_seconds = $result.DurationSeconds
         $parsed = ConvertFrom-JsonLines ([System.IO.File]::ReadAllText($stdout))
         $accepted = $parsed.Frames | Where-Object { $_.type -eq 'accepted' } | Select-Object -First 1
@@ -1036,8 +1042,8 @@ function Get-FreshScenarioProfile {
     $neededUntil = [DateTimeOffset]::UtcNow.AddSeconds($window)
     if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$profile.provider.valid_until) -gt $neededUntil) { return $Config }
     $snapshot = if ($Ctx.SnapshotText) { $Ctx.SnapshotText | ConvertFrom-Json -AsHashtable -Depth 100 } else { $null }
-    $matches = $snapshot -and $snapshot.compatibility.model -eq $profile.provider.compatibility.model -and
-        $snapshot.compatibility.endpoint -eq $profile.provider.compatibility.endpoint
+    $matches = $snapshot -and $snapshot.compatibility.model -ceq $profile.provider.compatibility.model -and
+        $snapshot.compatibility.endpoint -ceq $profile.provider.compatibility.endpoint
     if (-not $matches -or [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until) -le $neededUntil) {
         $generation = Join-Path $Ctx.Root ('provider-refresh-' + [guid]::NewGuid().ToString('N'))
         $inputSnapshot = Join-Path $Ctx.Profiles ('refresh-input-' + [guid]::NewGuid().ToString('N') + '.json')
@@ -1051,8 +1057,8 @@ function Get-FreshScenarioProfile {
         $newSnapshot = Join-Path $generation 'snapshot.json'
         $newCatalog = Join-Path $generation 'endpoints.json'
         $snapshot = Get-Content -LiteralPath $newSnapshot -Raw | ConvertFrom-Json -AsHashtable -Depth 100
-        Assert-That ($snapshot.compatibility.model -eq $profile.provider.compatibility.model -and
-            $snapshot.compatibility.endpoint -eq $profile.provider.compatibility.endpoint) 'Refresh changed the selected model or endpoint'
+        Assert-That ($snapshot.compatibility.model -ceq $profile.provider.compatibility.model -and
+            $snapshot.compatibility.endpoint -ceq $profile.provider.compatibility.endpoint) 'Refresh changed the selected model or endpoint'
         Assert-That ((Get-FileHash -LiteralPath $newCatalog -Algorithm SHA256).Hash -ieq $snapshot.raw_sha256) 'Refreshed catalog hash mismatch'
         Assert-That ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until) -gt $neededUntil) 'Fresh metadata does not cover the next task deadline'
         $Ctx.Snapshot = $newSnapshot; $Ctx.Catalog = $newCatalog
@@ -1633,8 +1639,7 @@ function Invoke-GuardrailRun {
     param($Ctx, [string]$Stage, [string]$Id, [string]$Description, [string[]]$Arguments, [string]$Config, [string]$ExpectStderr)
     $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label "guardrail-$Id" -Config $Config -Arguments $Arguments -TimeoutSeconds 120 -DenyProviderCredentials
     [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "guardrail.$Id" -Description $Description -Test {
-            Assert-That ($run.ExitCode -eq 2) "expected exit 2, got $($run.ExitCode)"
-            Assert-That ($null -eq $run.Accepted) 'a task was accepted; guardrail did not stop before execution'
+            Assert-That (Test-VcpPreAdmissionRejection $run) 'expected a complete unscoped invalid_configuration result with exit 2 and no task acceptance'
             if ($ExpectStderr) {
                 $combined = $run.Stderr + (Get-Content -LiteralPath $run.StdoutPath -Raw)
                 Assert-That ($combined -match $ExpectStderr) "diagnostic did not match /$ExpectStderr/: $($run.Stderr.Trim())"

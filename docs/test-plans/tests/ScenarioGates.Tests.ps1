@@ -101,6 +101,9 @@ try {
         Assert-Rejected { New-InventoryConnection "Server=fixture;Integrated Security=True;$key=fixture-secret" 'VcpInventory_fixture' } "$key was accepted"
     }
     Assert-Rejected { New-InventoryConnection 'Server=fixture;User ID=someone' 'VcpInventory_fixture' } 'SQL authentication without integrated security was accepted'
+    foreach ($key in 'AttachDBFilename', 'Initial File Name', 'Extended Properties') {
+        Assert-Rejected { New-InventoryConnection "Server=fixture;Integrated Security=True;$key=C:\existing\user-data.mdf" 'VcpInventory_fixture' } "$key can redirect migrations to an existing database file"
+    }
 
     Import-ScenarioFunction 'scenario-a-vue-taskboard.ps1' 'Test-UnitAndBuild'
     New-Item -ItemType Directory -Path (Join-Path $ws 'dist/client/assets') -Force | Out-Null
@@ -132,6 +135,7 @@ try {
 
     Import-ScenarioFunction 'scenario-b-aspnet-inventory.ps1' 'Test-Tests'
     $script:trxOutcome = 'Passed'
+    $script:trxTestName = 'Suite.Required'
     $script:trxPaths = [System.Collections.Generic.List[string]]::new()
     function Invoke-Dotnet {
         param($Stage, $Label, $Arguments)
@@ -139,15 +143,19 @@ try {
         $script:trxPaths.Add($path)
         New-Item -ItemType Directory -Path $path -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $path 'first.trx') -Value '<TestRun><Results><UnitTestResult testName="Suite.First" outcome="Passed"/></Results></TestRun>'
-        Set-Content -LiteralPath (Join-Path $path 'second.trx') -Value "<TestRun><Results><UnitTestResult testName=`"Suite.Required`" outcome=`"$script:trxOutcome`"/></Results></TestRun>"
+        Set-Content -LiteralPath (Join-Path $path 'second.trx') -Value "<TestRun><Results><UnitTestResult testName=`"$script:trxTestName`" outcome=`"$script:trxOutcome`"/></Results></TestRun>"
         @{ ExitCode = 0; Output = ''; Errors = '' }
     }
     Test-Tests 'dotnet' 2 @('Required')
     Assert-Gate 'dotnet' 'dotnet-test' 'pass'
+    $script:trxTestName = 'Suite.NotRequired'
+    Test-Tests 'dotnet-suffix' 2 @('Required')
+    Assert-Gate 'dotnet-suffix' 'dotnet-test' 'fail'
+    $script:trxTestName = 'Suite.Required'
     $script:trxOutcome = 'NotExecuted'
     Test-Tests 'dotnet' 2 @('Required')
     Assert-Gate 'dotnet' 'dotnet-test' 'fail'
-    Assert-That (@($script:trxPaths | Select-Object -Unique).Count -eq 2) 'TRX reused a stale report directory'
+    Assert-That (@($script:trxPaths | Select-Object -Unique).Count -eq 3) 'TRX reused a stale report directory'
 
     foreach ($name in 'Assert-Probability', 'Get-PredictionMetrics', 'Assert-ReportedMetrics', 'Test-Pytest') {
         Import-ScenarioFunction 'scenario-d-python-textlab.ps1' $name
@@ -175,6 +183,38 @@ try {
     Assert-Rejected { Get-PredictionMetrics $predictions $expected @('a', 'b') 'category' } 'Invalid label was accepted'
     $predictions[0].category = 'a'; $predictions[0].category_confidence = $null
     Assert-Rejected { Get-PredictionMetrics $predictions $expected @('a', 'b') 'category' } 'Missing confidence was accepted'
+
+    Import-ScenarioFunction 'scenario-d-python-textlab.ps1' 'Test-Robustness'
+    $holdoutRows = $expected; $labels = @('a', 'b'); $holdoutPath = 'fixture.csv'; $edgePath = 'fixture-edge.csv'
+    $script:confidenceFixture = 'valid'
+    function Invoke-Python {
+        param($Stage, $Label, $Arguments)
+        if ($Label -eq 'predict-edge') { return @{ ExitCode = 4; Output = ''; Errors = 'unrelated edge gate fixture' } }
+        $out = $Arguments[[array]::IndexOf($Arguments, '--output') + 1]
+        $rows = @($holdoutRows | ForEach-Object { [pscustomobject]@{ id = $_.id; category = 'a'; category_confidence = '0.8' } })
+        $rows[1].category_confidence = '0.999'
+        if ($Label -eq 'predict-strict') {
+            foreach ($row in $rows) { $row.category = 'needs_review' }
+            $rows[1].category = 'a'
+        }
+        if ($script:confidenceFixture -eq 'truncated') { $rows = @($rows[0]) }
+        if ($script:confidenceFixture -eq 'reordered') { [array]::Reverse($rows) }
+        if ($script:confidenceFixture -eq 'invalid') { $rows[0].category_confidence = 'NaN' }
+        if ($script:confidenceFixture -eq 'wrong-threshold' -and $Label -eq 'predict-strict') { $rows[0].category = 'a' }
+        if ($script:confidenceFixture -eq 'wrong-boundary' -and $Label -eq 'predict-strict') { $rows[1].category = 'needs_review' }
+        if ($script:confidenceFixture -eq 'changed-confidence' -and $Label -eq 'predict-strict') { $rows[0].category_confidence = '0.7' }
+        if ($script:confidenceFixture -eq 'wrong-open-label' -and $Label -eq 'predict-open') { $rows[0].category = 'invalid' }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $out) -Force | Out-Null
+        $rows | Export-Csv -LiteralPath $out -NoTypeInformation
+        @{ ExitCode = 0; Output = ''; Errors = '' }
+    }
+    Test-Robustness 'confidence-valid' 'fixture-models'
+    Assert-Gate 'confidence-valid' 'min-confidence' 'pass'
+    foreach ($case in 'truncated', 'reordered', 'invalid', 'wrong-threshold', 'wrong-boundary', 'changed-confidence', 'wrong-open-label') {
+        $script:confidenceFixture = $case
+        Test-Robustness "confidence-$case" 'fixture-models'
+        Assert-Gate "confidence-$case" 'min-confidence' 'fail'
+    }
 
     $script:pytestSkipped = $false
     function Invoke-Python {

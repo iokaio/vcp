@@ -6,7 +6,7 @@ param(
     [string]$NativeResult,
     [string]$BuildReceipt,
     [string]$Launcher,
-    [Parameter(Mandatory)][string]$CompilerInstaller,
+    [string]$CompilerInstaller,
     [string]$OutputRoot,
     [ValidateRange(1,16)][int]$Jobs = 4
 )
@@ -25,15 +25,91 @@ function Ordinary-File([string]$Path) {
     return $full
 }
 function Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
-$channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json -Depth 100
-if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/local-setup' }
-$versionRoot = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) $channel.native_version
-if (Test-Path -LiteralPath $versionRoot) { throw 'This local candidate version already has an output directory. Increment all synchronized product versions before producing another candidate.' }
+function Resolve-CompilerInstaller([string]$Requested,$Pin,[string]$CacheRoot) {
+    if ($Pin.sha256 -notmatch '^[a-f0-9]{64}$' -or $Pin.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid pinned Inno Setup identity' }
+    if ($Requested) {
+        $file = Ordinary-File $Requested
+        if ((Hash $file) -cne $Pin.sha256) { throw 'Pinned Inno Setup installer hash mismatch' }
+        return $file
+    }
+    $cache = [IO.Path]::GetFullPath($CacheRoot)
+    for ($cursor = $cache; $cursor; $cursor = [IO.Path]::GetDirectoryName($cursor)) {
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Ordinary compiler cache directory required' }
+        }
+    }
+    New-Item -ItemType Directory -Path $cache -Force | Out-Null
+    $file = Join-Path $cache ('innosetup-' + $Pin.version + '-' + $Pin.sha256 + '.exe')
+    if (-not (Test-Path -LiteralPath $file)) {
+        $uri = [uri]$Pin.download_url
+        if (-not $uri.IsAbsoluteUri -or $uri.Scheme -cne 'https') { throw 'HTTPS pinned compiler download required' }
+        $temporary = Join-Path $cache ([guid]::NewGuid().ToString('N') + '.download')
+        try {
+            Write-Information ('Downloading pinned Inno Setup ' + $Pin.version) -InformationAction Continue
+            Invoke-WebRequest -Uri $uri -OutFile $temporary -TimeoutSec 180
+            $download = Ordinary-File $temporary
+            if ((Hash $download) -cne $Pin.sha256) { throw 'Pinned Inno Setup installer hash mismatch' }
+            # Concurrent builders may have populated the same verified cache.
+            if (-not (Test-Path -LiteralPath $file)) { Move-Item -LiteralPath $download -Destination $file -ErrorAction Stop }
+        } finally {
+            if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
+        }
+    }
+    $file = Ordinary-File $file
+    if ((Hash $file) -cne $Pin.sha256) { throw 'Pinned Inno Setup installer hash mismatch' }
+    return $file
+}
+function Assert-SetupProductVersion([string]$Actual,[string]$Expected) {
+    # Inno's PE string resource pads ProductVersion with spaces.
+    if ($Actual.Trim() -cnotin @($Expected,($Expected + '.0'))) { throw 'Built setup product version differs from the selected candidate' }
+}
+function Open-LocalBuildLock([string]$Repository) {
+    $directory = Join-Path $Repository 'artifacts'
+    for ($cursor = $directory; $cursor; $cursor = [IO.Path]::GetDirectoryName($cursor)) {
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Ordinary local build directory required' }
+        }
+    }
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    $file = Join-Path $directory 'local-setup-build.lock'
+    if (Test-Path -LiteralPath $file) {
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Ordinary local build lock file required' }
+    }
+    try { return [IO.File]::Open($file,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) }
+    catch [IO.IOException] {
+        if (($_.Exception.HResult -band 0xffff) -in @(32,33)) { throw 'Another local setup build is already using this checkout. Wait for it to finish before retrying.' }
+        throw
+    }
+}
 $provided = @(@($NativeResult,$BuildReceipt,$Launcher) | Where-Object { $_ }).Count
 if ($provided -notin @(0,3)) { throw 'Supply NativeResult, BuildReceipt and Launcher together, or omit all three for a local production build.' }
-$CompilerInstaller = Ordinary-File $CompilerInstaller
-if ((Hash $CompilerInstaller) -cne $channel.installer.sha256) { throw 'Pinned Inno Setup installer hash mismatch' }
-New-Item -ItemType Directory -Path $versionRoot | Out-Null
+$buildLock = Open-LocalBuildLock $repository
+try {
+$channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json -Depth 100
+if (-not $OutputRoot) { $OutputRoot = Join-Path $repository 'artifacts/local-setup' }
+if ($provided -eq 3) {
+    $versionRoot = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) $channel.native_version
+    $canonicalRoot = Join-Path (Join-Path $repository 'artifacts/local-setup') $channel.native_version
+    if ((Test-Path -LiteralPath $versionRoot) -or (Test-Path -LiteralPath $canonicalRoot)) { throw 'This local candidate version already has an output directory. Omit the existing build inputs to build a new automatically versioned candidate.' }
+}
+$CompilerInstaller = Resolve-CompilerInstaller $CompilerInstaller $channel.installer (Join-Path $repository 'artifacts/build-tools/inno-setup')
+if ($provided -eq 0) {
+    $preparedJson = & $node (Join-Path $PSScriptRoot 'release/local-version.cjs') prepare $repository ([IO.Path]::GetFullPath($OutputRoot))
+    if ($LASTEXITCODE -ne 0) { throw 'Local candidate version preparation failed' }
+    $prepared = $preparedJson | ConvertFrom-Json -Depth 20
+    $channel = Get-Content -LiteralPath (Join-Path $repository 'release/internal-beta.json') -Raw | ConvertFrom-Json -Depth 100
+    if ($prepared.version -cne $channel.native_version) { throw 'Prepared candidate version differs from the release channel' }
+    $versionRoot = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) $channel.native_version
+    if ($prepared.versionRoot -ine $versionRoot -or -not (Test-Path -LiteralPath $versionRoot -PathType Container)) { throw 'Prepared candidate output directory differs from the requested output root' }
+    Write-Information ('Building local candidate ' + $channel.native_version) -InformationAction Continue
+} else {
+    # Existing receipts bind their version and source; never rewrite those inputs.
+    New-Item -ItemType Directory -Path $canonicalRoot | Out-Null
+    if ($versionRoot -ine $canonicalRoot) { New-Item -ItemType Directory -Path $versionRoot | Out-Null }
+}
 $out = Join-Path $versionRoot ([guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $out | Out-Null
 if ($provided -eq 0) {
@@ -88,8 +164,8 @@ $nativeResultPath = Join-Path $out 'native-result.json'
 $native | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $nativeResultPath -Encoding utf8NoBOM
 $compiler = Join-Path $out 'compiler'
 $compilerLog = Join-Path $out 'compiler-provision.log'
-# Portable extraction is explicit, local and pinned. No network operation or
-# product prerequisite installation is part of this builder or the setup EXE.
+# Extract the verified compiler locally; the setup EXE does not download or
+# install product prerequisites.
 $process = Start-Process -FilePath $CompilerInstaller -ArgumentList @('/PORTABLE=1','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/NOICONS',('/DIR="' + $compiler + '"'),('/LOG="' + $compilerLog + '"')) -WindowStyle Hidden -PassThru -Wait
 if ($process.ExitCode -ne 0) { throw "Pinned compiler extraction failed; retained $compilerLog" }
 $iscc = Ordinary-File (Join-Path $compiler 'ISCC.exe')
@@ -129,7 +205,7 @@ $setupSigning = @{status='unsigned'}
 if ($LASTEXITCODE -ne 0) { throw "Setup compilation failed; retained $log" }
 $setup = Ordinary-File (Join-Path $out ('vcp-' + $channel.native_version + '-windows-x64-unsigned-setup.exe'))
 $productVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($setup).ProductVersion
-if ($productVersion -notin @($channel.native_version,($channel.native_version + '.0'))) { throw 'Built setup product version differs from the selected candidate' }
+Assert-SetupProductVersion $productVersion $channel.native_version
 if ((Get-AuthenticodeSignature -LiteralPath $setup).Status -ne 'NotSigned') { throw 'Local setup must be explicitly unsigned' }
 # Revalidate after compilation; an input change invalidates the assembled bytes.
 $afterBuild = & $node $localTool verify $repository $BuildReceipt $Launcher
@@ -153,3 +229,4 @@ $result = [ordered]@{
 $resultPath = Join-Path $out 'setup-result.json'
 $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $resultPath -Encoding utf8NoBOM
 Write-Output $resultPath
+} finally { $buildLock.Dispose() }

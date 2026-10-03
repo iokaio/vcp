@@ -223,6 +223,10 @@
     {
       "path": "src/third_party/patches/codex/0048-cli-tests-product-version.patch",
       "sha256": "b44703088214423be8469993ed6a80cd2b0570f455680d4bcdcfde9981c2d35f"
+    },
+    {
+      "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
+      "sha256": "ac0b1de660ba293bc9df7ac33867d7a14d3a39d332417867f5eda45a9559e18f"
     }
   ],
   "licenses": [

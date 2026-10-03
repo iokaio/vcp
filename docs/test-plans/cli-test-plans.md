@@ -84,6 +84,8 @@ The launcher reads the installed CLI's effective model selection in the chosen p
 and reuses matching metadata from a registered project profile or completed account setup.
 It also recognizes existing provider generation directories. Fresh metadata is reused
 without qualification. The configured provider selection is preserved.
+Reuse requires a retained catalog SHA256 and exact, case-sensitive model and endpoint
+identities matching the captured catalog; incomplete or mismatched candidates are rejected.
 
 Both account metadata (`snapshot.json` plus `endpoints.json`) and qualified generations
 (`qualified\snapshot.json` plus `endpoints.json`) are supported. Metadata must still be
@@ -123,7 +125,9 @@ and is clamped to the endpoint's `max_output`.
 The launcher checks the installed credential selection and prompts with masked input
 only when its environment credential is absent. It restores the environment afterward.
 VCP's automated JSONL commands cannot use a stored Windows key; the launcher respects
-that boundary. Credentials are excluded from project build/test/server processes.
+that boundary. DryRun reads credential-selection metadata without retrieving a key,
+then strips custom aliases from subsequent metadata-only VCP commands and project
+build/test/server processes. DryRun never prompts for a credential.
 
 When invoking an individual scenario directly with the default credential selection:
 
@@ -179,7 +183,9 @@ Scenario B's optional `-SqlConnectionString` must use integrated authentication 
 embedded password. The script creates a distinct database name for the run; connection
 settings are written into newly generated projects. Reused project configuration is preserved;
 the per-run database override is passed to both harness and agent processes.
-Password-bearing connection strings are rejected before seeding.
+Password-bearing connection strings and attached database-file options (including SQL
+aliases) are rejected before seeding, so a generated database name cannot attach and
+modify an existing MDF file.
 
 ---
 
@@ -825,7 +831,8 @@ These limitations need evidence from actual scenario runs:
    own EF and HTTP commands set `ASPNETCORE_ENVIRONMENT` and `ConnectionStrings__Inventory`.
 4. **Guardrails exit before acceptance.** The autonomy ceiling, trust, bounds and empty-file
    checks are expected to fail in `profile.prepare` or argument validation, with exit 2 and
-   no `accepted` frame. A different outcome is reported as a failed gate.
+   one complete unscoped `invalid_configuration` result, no `accepted` frame and no malformed
+   JSONL. Missing, scoped or interrupted evidence fails the gate even if the process exits 2.
 5. **Short-deadline pause.** If T5 finishes inside `-ShortDeadlineSeconds`, the continuation
    gate is recorded as `skip`, not `fail`. A scenario can therefore pass functional gates
    without covering resume; report that coverage gap explicitly. Lower the value in a
@@ -865,6 +872,7 @@ These limitations need evidence from actual scenario runs:
 | `scenario-d-python-textlab.ps1` | Dataset generator, hidden holdout, seed, prompts and gates for scenario D |
 | `tests/Harness.Tests.ps1` | Offline regressions for process handling, cost accounting, manifests and scorecards |
 | `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
+| `tests/ScenarioInitialization.Tests.ps1` | Toolchain/setup failures retain zero-spend fatal scorecards and summaries and close transcripts for all four scenarios |
 | `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
 | `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |
@@ -889,6 +897,7 @@ Before running a scenario, run the offline checks from the repository workspace 
 ```powershell
 pwsh -NoProfile -File docs/test-plans/tests/Harness.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ScenarioGates.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ScenarioInitialization.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProfileDeadlines.Tests.ps1

@@ -41,6 +41,9 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 $ctx = Initialize-VcpScenario -Name 'a-vue-taskboard' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
+# Finalize initialized runs even when toolchain discovery or fixture setup fails.
+$exitCode = 1
+try {
 $ws = $ctx.Workspace
 $base = "http://127.0.0.1:$ApiPort"
 
@@ -780,8 +783,6 @@ $namesT4 = $namesT3 + @('POST /api/tasks trims title whitespace', 'POST /api/tas
 $namesT5 = $namesT4 + @('GET /api/stats counts tasks by status')
 $uiIds = @('column-todo', 'column-doing', 'column-done', 'task-card', 'task-form', 'search-input')
 
-$exitCode = 1
-try {
     Invoke-CommonPreflight $ctx
 
     # --- B0: seed and baseline (no VCP) ---------------------------------

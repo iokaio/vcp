@@ -23,8 +23,11 @@ function Import-LauncherFunction([string]$Name) {
 }
 function New-ProviderFixture([string]$Path, [int]$Hours) {
     New-Item -ItemType Directory -Path (Join-Path $Path 'qualified') -Force | Out-Null
-    @{ valid_until = [DateTimeOffset]::UtcNow.AddHours($Hours).ToUnixTimeMilliseconds() } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Path 'qualified/snapshot.json')
-    '{}' | Set-Content -LiteralPath (Join-Path $Path 'endpoints.json')
+    @{ data = @{ id = 'fixture/model'; endpoints = @(@{ tag = 'fixture/endpoint' }) } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Path 'endpoints.json')
+    @{ valid_until = [DateTimeOffset]::UtcNow.AddHours($Hours).ToUnixTimeMilliseconds()
+        raw_sha256 = (Get-FileHash -LiteralPath (Join-Path $Path 'endpoints.json')).Hash.ToLowerInvariant()
+        compatibility = @{ model = 'fixture/model'; endpoint = 'fixture/endpoint' }
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Path 'qualified/snapshot.json')
 }
 $originalCulture = [Globalization.CultureInfo]::CurrentCulture
 $originalVcpEnv = $env:VCP_EXE
@@ -64,6 +67,28 @@ try {
     $rejected = $false
     try { Assert-LauncherProvider (Join-Path $temporary 'missing') | Out-Null } catch { $rejected = $true }
     Check $rejected 'Missing generation accepted'
+    foreach ($case in 'missing-hash', 'missing-identity', 'catalog-identity', 'duplicate-endpoint') {
+        $invalid = Join-Path $profiles "provider-invalid-$case"
+        New-ProviderFixture $invalid 12
+        $snapshotPath = Join-Path $invalid 'qualified/snapshot.json'
+        $snapshot = Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+        switch ($case) {
+            'missing-hash' { $snapshot.PSObject.Properties.Remove('raw_sha256') }
+            'missing-identity' { $snapshot.PSObject.Properties.Remove('compatibility') }
+            'catalog-identity' { $snapshot.compatibility.model = 'Fixture/model' }
+            'duplicate-endpoint' {
+                @{ data = @{ id = 'fixture/model'; endpoints = @(@{ tag = 'fixture/endpoint' }, @{ tag = 'fixture/endpoint' }) } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $invalid 'endpoints.json')
+                $snapshot.raw_sha256 = (Get-FileHash -LiteralPath (Join-Path $invalid 'endpoints.json')).Hash.ToLowerInvariant()
+            }
+        }
+        $snapshot | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $snapshotPath
+        $rejected = $false
+        try { Assert-LauncherProvider $invalid | Out-Null } catch { $rejected = $true }
+        Check $rejected "Invalid $case metadata accepted"
+        Check ((Find-LauncherProvider $profiles) -eq $generation) "Invalid $case cache hid valid retained metadata"
+    }
+    Check (-not (Find-LauncherProvider $profiles 'Fixture/model' 'fixture/endpoint')) 'Cache selection treated case-different model identifiers as equal'
+    Check (-not (Find-LauncherProvider $profiles 'fixture/model' 'Fixture/endpoint')) 'Cache selection treated case-different endpoint identifiers as equal'
 
     [Globalization.CultureInfo]::CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('fr-FR')
     $arguments = @(New-LauncherArguments 'C:\path with spaces\scenario.ps1' @{ TurnBudgetUsd = [decimal]1.25; ProviderGeneration = $generation } $true)
@@ -78,7 +103,24 @@ try {
     $fixture = Join-Path $temporary 'launcher fixture'
     New-Item -ItemType Directory -Path $fixture | Out-Null
     Copy-Item -LiteralPath $launcher -Destination $fixture
-    Copy-Item -LiteralPath (Join-Path $scenarioRoot 'VcpScenarioHarness.psm1') -Destination $fixture
+    $harnessPath = Join-Path $scenarioRoot 'VcpScenarioHarness.psm1'
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile($harnessPath, [ref]$tokens, [ref]$errors)
+    $native = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-NativeLogged' }, $true)
+    Check ($errors.Count -eq 0 -and $null -ne $native) 'Cannot isolate launcher credential metadata read'
+    $replacement = @'
+function Invoke-NativeLogged {
+    param($FilePath, $ArgumentList, $WorkingDirectory, $StdoutPath, $StderrPath, $TimeoutSeconds, $Environment, $OnLine, $HeartbeatLabel, $Ctx)
+    if (($ArgumentList[-3..-1] -join ' ') -ne 'setup credential status' -or $Environment.VCP_DENY_PROVIDER_CREDENTIALS -ne '1') { throw 'Unexpected launcher command' }
+    $line = @{ type = 'result'; exit_code = 0; data = @{ environment = 'OPENROUTER_API_KEY' } } | ConvertTo-Json -Depth 10 -Compress
+    [IO.File]::WriteAllText($StdoutPath, $line)
+    [IO.File]::WriteAllText($StderrPath, '')
+    return [pscustomobject]@{ ExitCode = 0; TimedOut = $false; DurationSeconds = 0.01 }
+}
+'@
+    $source = [IO.File]::ReadAllText($harnessPath)
+    $source = $source.Remove($native.Extent.StartOffset, $native.Extent.EndOffset - $native.Extent.StartOffset).Insert($native.Extent.StartOffset, $replacement)
+    [IO.File]::WriteAllText((Join-Path $fixture 'VcpScenarioHarness.psm1'), $source)
     $childFixture = @'
 param($ProviderGeneration, $Vcp, $RunRoot, $ProjectPath, [decimal]$TurnBudgetUsd, $MaxScenarioUsd, $MaxRepairTurns,
     $OutputTokens, $MaxRequests, $DeadlineSeconds, $ShortDeadlineSeconds, [switch]$SkipPaidStages)
@@ -167,7 +209,8 @@ finally {
     [Globalization.CultureInfo]::CurrentCulture = $originalCulture
     [Environment]::SetEnvironmentVariable('VCP_EXE', $originalVcpEnv, 'Process')
     $resolved = [IO.Path]::GetFullPath($temporary)
-    if ($resolved.StartsWith($temporaryBase, [StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $resolved) -like 'vcp-launcher-tests-*') {
+    $prefix = $temporaryBase.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if ($resolved.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $resolved) -like 'vcp-launcher-tests-*') {
         Remove-Item -LiteralPath $resolved -Recurse -Force
     }
 }

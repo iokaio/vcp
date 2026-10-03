@@ -45,6 +45,9 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 $ctx = Initialize-VcpScenario -Name 'b-aspnet-inventory' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
+# Finalize initialized runs even when toolchain discovery or fixture setup fails.
+$exitCode = 1
+try {
 $ws = $ctx.Workspace
 $webProject = 'src/Inventory.Web/Inventory.Web.csproj'
 $testProject = 'tests/Inventory.Tests/Inventory.Tests.csproj'
@@ -70,6 +73,11 @@ function New-InventoryConnection([string]$ConnectionString, [string]$Database) {
     # PowerShell treats property assignment on this IDictionary as adding a key.
     $builder.set_ConnectionString($ConnectionString)
     foreach ($key in @($builder.Keys)) {
+        # These SqlClient synonyms select a physical database even when Database
+        # is replaced. Migrations and optional cleanup must use a new database.
+        if ([string]$key -match '(?i)^(attachdbfilename|initial\s+file\s+name|extended\s+properties)$') {
+            throw 'SqlConnectionString must not attach a database file. Use a server connection with integrated authentication so the harness can create an isolated database.'
+        }
         if ([string]$key -match '(?i)^(password|pwd|access\s*token|token)$') {
             throw 'SqlConnectionString must not contain credentials: it is stored in the model-visible workspace and published artifacts. Use integrated authentication.'
         }
@@ -311,7 +319,10 @@ function Test-Tests([string]$Stage, [int]$MinTests, [string[]]$Required = @()) {
             Assert-That ($run.ExitCode -eq 0 -and $failedNames.Count -eq 0) ("exit {0}; failed or skipped: {1}" -f $run.ExitCode, ($failedNames -join '; '))
             $passed = @($testResults | Where-Object { $_.outcome -eq 'Passed' } | ForEach-Object testName)
             Assert-That ($passed.Count -ge $MinTests) "only $($passed.Count) passing tests"
-            $missing = @($Required | Where-Object { $name = $_; -not ($passed | Where-Object { $_ -like "*$name" }) })
+            $missing = @($Required | Where-Object {
+                $name = $_
+                -not ($passed | Where-Object { $_ -ceq $name -or $_.EndsWith(".$name", [System.StringComparison]::Ordinal) })
+            })
             Assert-That ($missing.Count -eq 0) ('required tests not passing: ' + ($missing -join ', '))
             $true })
 }
@@ -505,8 +516,6 @@ function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
 
 #endregion
 
-$exitCode = 1
-try {
     Invoke-CommonPreflight $ctx
 
     # --- B0: scaffold with the real dotnet templates ---------------------

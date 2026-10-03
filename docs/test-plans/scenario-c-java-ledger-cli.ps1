@@ -40,6 +40,9 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 $ctx = Initialize-VcpScenario -Name 'c-java-ledger-cli' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
+# Finalize initialized runs even when toolchain discovery or fixture setup fails.
+$exitCode = 1
+try {
 $ws = $ctx.Workspace
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
@@ -825,8 +828,6 @@ function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
 
 $regressionNames = @('parenthesizedAmountsAreNegative', 'thousandsSeparatorsAreParsed', 'quotedDescriptionWithCommaIsCategorized', 'reimportReportsAllRowsAsDuplicates', 'emptyMonthReportsZeros')
 
-$exitCode = 1
-try {
     Invoke-CommonPreflight $ctx
 
     # --- B0 ---------------------------------------------------------------

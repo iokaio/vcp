@@ -13,14 +13,14 @@ function Check([bool]$Condition, [string]$Message) {
 }
 function New-ProviderFixture([string]$Path, [int]$Minutes = 45, [string]$Model = 'fixture/model') {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
-    [IO.File]::WriteAllText((Join-Path $Path 'endpoints.json'), '{"data":{"fixture":true}}')
+    @{ data = @{ id = $Model; endpoints = @(@{ tag = 'fixture/endpoint' }) } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Path 'endpoints.json')
     @{ valid_until = [DateTimeOffset]::UtcNow.AddMinutes($Minutes).ToUnixTimeMilliseconds()
         raw_sha256 = (Get-FileHash -LiteralPath (Join-Path $Path 'endpoints.json')).Hash.ToLowerInvariant()
         compatibility = @{ model = $Model; endpoint = 'fixture/endpoint' }; max_output = '8192'
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Path 'snapshot.json')
 }
 $savedEnvironment = @{}
-foreach ($name in 'LOCALAPPDATA', 'VCP_PROVIDER_GENERATION', 'VCP_DENY_PROVIDER_CREDENTIALS', 'VCP_SCENARIO_CREDENTIAL_ENV', 'VCP_REUSE_MODEL', 'VCP_REUSE_KEY') {
+foreach ($name in 'LOCALAPPDATA', 'VCP_PROVIDER_GENERATION', 'VCP_DENY_PROVIDER_CREDENTIALS', 'VCP_SCENARIO_CREDENTIAL_ENV', 'VCP_REUSE_MODEL', 'VCP_REUSE_KEY', 'VCP_REUSE_STATUS_CASE') {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
@@ -40,38 +40,59 @@ function Invoke-NativeLogged {
         $TimeoutSeconds, $Environment, $OnLine, $HeartbeatLabel, $Ctx)
     # Unexpected configuration or qualification fails immediately.
     if ($ArgumentList[-1] -eq 'models') {
+        if ($env:VCP_SCENARIO_CREDENTIAL_ENV -eq 'VCP_REUSE_KEY' -and ($Environment['VCP_REUSE_KEY'] -ne $null -or -not $Environment.ContainsKey('VCP_REUSE_KEY'))) { throw 'DryRun provider discovery inherited its configured credential' }
         $data = @{ effective = @{ set = @{ roles = @{ main = @($env:VCP_REUSE_MODEL) } } }
             account = @{ set = @{ roles = @{ main = @('wrong/account-default') } } } }
     }
     elseif (($ArgumentList[-3..-1] -join ' ') -eq 'setup credential status') {
+        if ($env:VCP_DENY_PROVIDER_CREDENTIALS -and $Environment.VCP_DENY_PROVIDER_CREDENTIALS -ne '1') { throw 'DryRun credential metadata discovery must deny credentials' }
         $data = @{ environment = 'VCP_REUSE_KEY'; model_calls = 0 }
+        switch ($env:VCP_REUSE_STATUS_CASE) {
+            'missing-data' { $data = $null }
+            'missing-environment' { $data.Remove('environment') }
+            'empty-environment' { $data.environment = '' }
+            'malformed-environment' { $data.environment = $true }
+        }
     }
     else { throw ('Unexpected VCP command: ' + ($ArgumentList -join ' ')) }
     $line = @{ type = 'result'; exit_code = 0; data = $data } | ConvertTo-Json -Depth 20 -Compress
+    if (($ArgumentList[-3..-1] -join ' ') -eq 'setup credential status') {
+        if ($env:VCP_REUSE_STATUS_CASE -eq 'missing-result') { $line = '{}' }
+        if ($env:VCP_REUSE_STATUS_CASE -eq 'truncated') { $line += "`n{" }
+    }
     [IO.File]::WriteAllText($StdoutPath, $line + "`n")
     [IO.File]::WriteAllText($StderrPath, '')
     if ($OnLine) { & $OnLine $line }
-    return [pscustomobject]@{ ExitCode = 0; TimedOut = $false; DurationSeconds = 0.01 }
+    return [pscustomobject]@{ ExitCode = 0; TimedOut = $env:VCP_REUSE_STATUS_CASE -eq 'timed-out'; DurationSeconds = 0.01 }
 }
 '@
     $source = [IO.File]::ReadAllText($harnessPath)
     $source = $source.Remove($native.Extent.StartOffset, $native.Extent.EndOffset - $native.Extent.StartOffset).Insert($native.Extent.StartOffset, $replacement)
     [IO.File]::WriteAllText((Join-Path $fixture 'VcpScenarioHarness.psm1'), $source)
-    @'
+    $childSource = @'
 param($ProviderGeneration, $Vcp, $RunRoot, $ProjectPath, $TurnBudgetUsd, $MaxScenarioUsd, $MaxRepairTurns,
     $OutputTokens, $MaxRequests, $DeadlineSeconds, $ShortDeadlineSeconds, [switch]$SkipPaidStages, [switch]$AllowProcessPublish)
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath (Join-Path $ProviderGeneration 'snapshot.json'))) { throw 'Missing retained metadata' }
 $root = Join-Path $RunRoot 'a-vue-taskboard/fixture-run'
 foreach ($name in 'results', 'logs', 'vcp-data', 'profiles') { New-Item -ItemType Directory -Path (Join-Path $root $name) -Force | Out-Null }
+$probeExit = $null
+if ($SkipPaidStages) {
+    Import-Module '__REAL_HARNESS__' -Force -DisableNameChecking
+    $probeCtx = @{ Workspace = $ProjectPath; Logs = (Join-Path $root 'logs'); ToolLog = (Join-Path $root 'logs/tools.log'); ProgressLog = (Join-Path $root 'logs/progress.log') }
+    $probe = Invoke-Tool -Ctx $probeCtx -Stage 'credentials' -Label 'strip-probe' -FilePath (Get-Process -Id $PID).Path -ArgumentList @(
+        '-NoProfile', '-NonInteractive', '-Command', "if (Test-Path Env:VCP_REUSE_KEY) { exit 9 }; if (`$env:VCP_SCENARIO_CREDENTIAL_ENV -ne 'VCP_REUSE_KEY') { exit 10 }; exit 0")
+    $probeExit = $probe.ExitCode
+}
 @{ generation = $ProviderGeneration; credential_name = $env:VCP_SCENARIO_CREDENTIAL_ENV
     project = $ProjectPath; project_exists = (Test-Path -LiteralPath $ProjectPath -PathType Container)
-    dry_run = [bool]$SkipPaidStages; allow_process_publish = [bool]$AllowProcessPublish
+    dry_run = [bool]$SkipPaidStages; allow_process_publish = [bool]$AllowProcessPublish; credential_probe_exit = $probeExit
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'arguments.json')
 @{ verdict = 'fixture-only' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'results/scorecard.json')
 Write-Host 'PROVIDER_REUSE_CHILD_STARTED'
 exit 0
-'@ | Set-Content -LiteralPath (Join-Path $fixture 'scenario-a-vue-taskboard.ps1')
+'@
+    $childSource.Replace('__REAL_HARNESS__', $harnessPath.Replace("'", "''")) | Set-Content -LiteralPath (Join-Path $fixture 'scenario-a-vue-taskboard.ps1')
     $env:LOCALAPPDATA = Join-Path $temporary 'account data'
     $account = Join-Path $env:LOCALAPPDATA 'VCP/account'
     New-Item -ItemType Directory -Path $account -Force | Out-Null
@@ -81,12 +102,13 @@ exit 0
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $account 'setup-complete.json')
     $env:VCP_REUSE_MODEL = 'fixture/model'
     $env:VCP_REUSE_KEY = 'synthetic-reuse-key-not-a-real-secret'
+    Remove-Item -LiteralPath Env:VCP_REUSE_STATUS_CASE -ErrorAction SilentlyContinue
     foreach ($name in 'VCP_PROVIDER_GENERATION', 'VCP_DENY_PROVIDER_CREDENTIALS', 'VCP_SCENARIO_CREDENTIAL_ENV') { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
     $pwsh = (Get-Process -Id $PID).Path
     $project = Join-Path $temporary 'existing project'
     New-Item -ItemType Directory -Path $project | Out-Null
     'preserve this file' | Set-Content -LiteralPath (Join-Path $project 'owner.txt')
-    function Invoke-ReuseFixture([string]$Name, [string]$Mode = 'DryRun', [bool]$AuthorizeProcesses = $true) {
+    function Invoke-ReuseFixture([string]$Name, [string]$Mode = 'DryRun', [bool]$AuthorizeProcesses = $true, [bool]$ExpectProviderSelection = $true) {
         $runRoot = Join-Path $temporary $Name
         $launchArgs = @('-NoProfile', '-NonInteractive', '-File', (Join-Path $fixture 'run-cli-scenarios.ps1'),
             '-Scenario', 'A', '-Mode', $Mode, '-ProjectPath', $project, '-RunRoot', $runRoot, '-Vcp', $pwsh)
@@ -103,9 +125,12 @@ exit 0
         $literal = Get-Content -LiteralPath (Join-Path $root 'setup/logs/vcp-commands.log') -Raw
         Check (-not $literal.Contains('synthetic-reuse-key')) 'Credential leaked into literal command log'
         Check (@($commands | Where-Object { $_.argv -contains 'provider' -or $_.argv -contains 'provider-complete' }).Count -eq 0) 'Provider qualification occurred'
-        Check (@($commands | Where-Object label -eq 'models').Count -eq 1) 'Installed selection not read exactly once'
-        $models = @($commands | Where-Object label -eq 'models')[0]
-        Check ($models.argv -contains $project) 'Installed selection was not queried for selected project'
+        if ($ExpectProviderSelection) {
+            Check (@($commands | Where-Object label -eq 'models').Count -eq 1) 'Installed selection not read exactly once'
+            $models = @($commands | Where-Object label -eq 'models')[0]
+            Check ($models.argv -contains $project) 'Installed selection was not queried for selected project'
+        }
+        else { Check (@($commands | Where-Object label -eq 'models').Count -eq 0) 'Incomplete credential status reached provider selection' }
         return [pscustomobject]@{ Code = $code; Output = $output; Root = $root; Commands = $commands; Literal = $literal }
     }
     $before = [IO.File]::ReadAllBytes((Join-Path $connection 'snapshot.json'))
@@ -128,10 +153,26 @@ exit 0
     Check ($success.Literal.Contains('results') -and $success.Literal.Contains('models')) 'Literal command log lacks command/results pointers'
     Check (Test-Path -LiteralPath (Join-Path $success.Root 'setup/results/provider-selection.json')) 'No selection provenance retained'
     $env:VCP_DENY_PROVIDER_CREDENTIALS = '1'
+    Check (-not (Test-Path Env:VCP_SCENARIO_CREDENTIAL_ENV)) 'DryRun alias regression requires an absent parent marker'
     $dry = Invoke-ReuseFixture 'reuse dry'
     Check ($dry.Code -eq 0) "DryRun unnecessarily required credentials: $($dry.Output)"
-    Check (@($dry.Commands | Where-Object label -eq 'credential-status').Count -eq 0) 'DryRun inspected credentials'
+    Check (@($dry.Commands | Where-Object label -eq 'credential-status').Count -eq 1) 'DryRun did not discover credential metadata exactly once'
+    $dryChild = Get-Content -LiteralPath (Join-Path $dry.Root 'a-vue-taskboard/fixture-run/arguments.json') -Raw | ConvertFrom-Json
+    Check ($dryChild.credential_name -eq 'VCP_REUSE_KEY' -and $dryChild.credential_probe_exit -eq 0) 'DryRun did not discover and strip the custom key from actual project processes'
+    Check (-not (Test-Path Env:VCP_SCENARIO_CREDENTIAL_ENV)) 'DryRun changed the parent marker'
+    foreach ($case in 'missing-result', 'missing-data', 'missing-environment', 'empty-environment', 'malformed-environment', 'truncated', 'timed-out') {
+        $env:VCP_REUSE_STATUS_CASE = $case
+        $invalidStatus = Invoke-ReuseFixture "status-$case" -ExpectProviderSelection $false
+        Check ($invalidStatus.Code -eq 1 -and -not $invalidStatus.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) "$case credential status started a scenario"
+        Check ($invalidStatus.Output.Contains('incomplete credential status')) "$case credential status omitted failure diagnostic"
+    }
+    Remove-Item -LiteralPath Env:VCP_REUSE_STATUS_CASE
     Remove-Item -LiteralPath Env:VCP_DENY_PROVIDER_CREDENTIALS
+    $env:VCP_REUSE_STATUS_CASE = 'missing-environment'
+    $invalidFullStatus = Invoke-ReuseFixture 'full-status-missing-environment' 'Full'
+    Check ($invalidFullStatus.Code -eq 1 -and -not $invalidFullStatus.Output.Contains('PROVIDER_REUSE_CHILD_STARTED') -and
+        $invalidFullStatus.Output.Contains('incomplete credential status')) 'Full mode defaulted a missing configured credential alias'
+    Remove-Item -LiteralPath Env:VCP_REUSE_STATUS_CASE
     # Extract a registered profile's JSON tokens and catalog bytes exactly.
     $profilePath = Join-Path $account 'profile-fixture.json'
     $snapshotText = [IO.File]::ReadAllText((Join-Path $connection 'snapshot.json'))
@@ -150,12 +191,26 @@ exit 0
     $mismatch = Invoke-ReuseFixture 'mismatched model'
     Check ($mismatch.Code -eq 1 -and -not $mismatch.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) 'Unselected account connection model ran'
     $env:VCP_REUSE_MODEL = 'fixture/model'
+    $completionPath = Join-Path $account 'setup-complete.json'
+    $completion = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json
+    $completion.connection.endpoint = 'other/endpoint'
+    $completion | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $completionPath
+    $endpointMismatch = Invoke-ReuseFixture 'mismatched endpoint'
+    Check ($endpointMismatch.Code -eq 1 -and -not $endpointMismatch.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) 'Account metadata at an unselected endpoint ran'
+    $completion.connection.endpoint = 'fixture/endpoint'
+    $completion | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $completionPath
+    $env:VCP_REUSE_MODEL = 'Fixture/model'
+    $caseMismatch = Invoke-ReuseFixture 'case mismatched model'
+    Check ($caseMismatch.Code -eq 1 -and -not $caseMismatch.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) 'Case-different model identity ran'
+    $env:VCP_REUSE_MODEL = 'fixture/model'
     New-ProviderFixture $connection -1
     $expired = Invoke-ReuseFixture 'expired metadata'
     Check ($expired.Code -eq 1 -and -not $expired.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) 'Expired metadata started scenario'
     $failure = Get-Content -LiteralPath (Join-Path $expired.Root 'setup/results/provider-selection.json') -Raw | ConvertFrom-Json
-    Check (($failure.rejected -join ' ').Contains('expired')) 'Expiry limitation not recorded'
-    Check (@($expired.Commands | Where-Object label -eq 'credential-status').Count -eq 0) 'Metadata failure unnecessarily requested credentials'
+    Check ($failure.refresh_attempted -and $failure.prior_generation -eq $connection -and $failure.status -eq 'failed') 'Expired metadata lost retained renewal failure evidence'
+    $renewal = Get-Content -LiteralPath $failure.refresh_evidence -Raw | ConvertFrom-Json
+    Check ($renewal.status -eq 'failed' -and $renewal.model -ceq 'fixture/model' -and $renewal.endpoint -ceq 'fixture/endpoint') 'Renewal failure lost selected identity'
+    Check (@($expired.Commands | Where-Object label -eq 'credential-status').Count -eq 1) 'DryRun metadata failure omitted safe credential alias discovery'
     New-ProviderFixture $connection
     '{}' | Set-Content -LiteralPath (Join-Path $connection 'endpoints.json')
     $tampered = Invoke-ReuseFixture 'changed catalog'

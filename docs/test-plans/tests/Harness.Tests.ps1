@@ -125,6 +125,27 @@ switch ($Mode) {
     Check ($pages.Count -eq 2 -and $pages[1].gaps.Count -eq 1) 'Failed second inspect page lost completeness marker'
     Check ((Get-FailedGates $ctx 'test').Count -eq 1) 'Inspection failure did not fail evidence gate'
 
+    foreach ($mode in 'valid', 'missing-result', 'invalid-jsonl', 'scoped', 'accepted', 'wrong-condition', 'timed-out') {
+        $ctx = New-TestContext
+        & $module {
+            param($context, $mode)
+            $frame = @{ type = 'result'; schema_version = 1; correlation = 'guardrail'; scope = $null; receipt = $null;
+                exit_code = 2; conditions = [pscustomobject]@{ invalid_configuration = $true } }
+            $run = @{ ExitCode = 2; TimedOut = $false; InvalidLines = 0; Accepted = $null; Scope = $null; Frames = @($frame) }
+            switch ($mode) {
+                'missing-result' { $run.Frames = @() }
+                'invalid-jsonl' { $run.InvalidLines = 1 }
+                'scoped' { $run.Scope = @{ task = 'unexpected' }; $frame.scope = $run.Scope }
+                'accepted' { $run.Accepted = @{ type = 'accepted' } }
+                'wrong-condition' { $frame.conditions = [pscustomobject]@{ provider_failure = $true } }
+                'timed-out' { $run.TimedOut = $true }
+            }
+            function Invoke-Vcp { return $run }
+            Invoke-GuardrailRun $context 'G0-guardrail' $mode 'rejected before task acceptance' @('run') 'unused.json'
+        } $ctx $mode
+        Check (((Get-FailedGates $ctx 'G0-guardrail').Count -eq 0) -eq ($mode -eq 'valid')) "$mode guardrail evidence was misclassified"
+    }
+
     $message = & $module {
         param($context)
         $sse = 'data: {"type":"response.completed","response":{"output":[{"content":[{"type":"output_text","text":"latest response"}]}]}}' + "`n`n"

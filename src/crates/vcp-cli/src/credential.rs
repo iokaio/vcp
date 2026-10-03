@@ -45,6 +45,14 @@ struct Configuration {
 /// Environment variable names are metadata, never credential values. A portable
 /// ASCII identifier avoids shell syntax and terminal control characters.
 pub fn validate_environment_name(name: &str) -> Result<(), String> {
+    // Presence of this variable seals every credential lookup. Selecting it
+    // as the key source would create a configuration that can never work.
+    if name.eq_ignore_ascii_case(DENY_ENVIRONMENT) {
+        return Err(
+            "VCP_DENY_PROVIDER_CREDENTIALS is reserved for disabling provider credential access"
+                .into(),
+        );
+    }
     let mut bytes = name.bytes();
     if name.len() > 128
         || !bytes
@@ -698,6 +706,8 @@ mod tests {
         }
         for name in [
             "",
+            DENY_ENVIRONMENT,
+            "vcp_deny_provider_credentials",
             "2KEY",
             "KEY=secret",
             " KEY",
@@ -724,6 +734,12 @@ mod tests {
             value,
             serde_json::json!({"version":1,"selection":{"kind":"environment","name":"MY_ROUTER_KEY"}})
         );
+        for name in [DENY_ENVIRONMENT, "vcp_deny_provider_credentials"] {
+            assert!(
+                save_selection_at(&root, Selection::Environment { name: name.into() }).is_err()
+            );
+            assert_eq!(selection_at(&root).unwrap(), selection);
+        }
         save_selection_at(&root, Selection::Default {}).unwrap();
         assert_eq!(selection_at(&root).unwrap(), Selection::Default {});
         save_selection_at(&root, Selection::Stored {}).unwrap();
@@ -737,6 +753,8 @@ mod tests {
         for value in [
             serde_json::json!({"version":2,"selection":{"kind":"default"}}),
             serde_json::json!({"version":1,"selection":{"kind":"environment","name":"BAD=secret"}}),
+            serde_json::json!({"version":1,"selection":{"kind":"environment","name":DENY_ENVIRONMENT}}),
+            serde_json::json!({"version":1,"selection":{"kind":"environment","name":"vcp_deny_provider_credentials"}}),
             serde_json::json!({"version":1,"selection":{"kind":"environment"}}),
             serde_json::json!({"version":1,"selection":{"kind":"default","secret":"private-sentinel"}}),
             serde_json::json!({"version":1,"selection":{"kind":"stored","secret":"private-sentinel"}}),

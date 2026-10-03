@@ -27,3 +27,14 @@ foreach ($case in $cases) {
     if (-not $rejected) { throw 'Invalid identity unexpectedly accepted' }
 }
 Write-Output 'PASS: local/release identities accepted only in their explicit mode; mismatches rejected (6 checks).'
+$builder=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../build-local-setup.ps1'),[ref]$tokens,[ref]$errors)
+if ($errors.Count) { throw $errors[0] }
+$versionFunction=$builder.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Assert-SetupProductVersion'},$true)
+. ([scriptblock]::Create($versionFunction.Extent.Text))
+foreach ($actual in @('0.2.6','0.2.6   ','0.2.6.0   ')) { Assert-SetupProductVersion $actual '0.2.6' }
+foreach ($actual in @('0.2.5   ','0.2.60','0.2.6-local','')) {
+    $rejected=$false
+    try { Assert-SetupProductVersion $actual '0.2.6' } catch { $rejected=$true }
+    if (-not $rejected) { throw 'Incorrect installer version unexpectedly accepted' }
+}
+Write-Output 'PASS: padded Inno versions accepted; different or malformed product versions rejected (7 checks).'
