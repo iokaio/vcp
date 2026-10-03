@@ -167,7 +167,7 @@ impl Context {
             || attempts
                 .iter()
                 .any(|a| a.phase != ReservationState::Settled)
-            || (attempts.is_empty() != matches!(probe, Probe::ToolCall))
+            || (attempts.is_empty() != matches!(probe, Probe::ToolCall | Probe::Connection))
         {
             return Err("conformance probes are exactly one fresh call and one settled continuation; no replay".into());
         }

@@ -149,6 +149,7 @@ pub(super) fn routing_configuration(profile: Profile, forbidden: bool) -> Config
         assumptions: vec!["Single scripted answer, no tools, retries, children or additional verification calls".into()], evidence_refs: vec!["fixture://retained-routing-scripted".into()],
     }).collect();
     Configuration {
+        owner_assignments: vec![],
         escalation: None,
         catalog: CatalogRevision::create(None, observed, None, entries).unwrap(),
         policy,
@@ -160,8 +161,80 @@ pub(super) fn routing_configuration(profile: Profile, forbidden: bool) -> Config
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
+    retained_routing_cases(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_set_fallback_reserves_only_the_replacement_and_retains_prior_liability() {
+    retained_routing_cases(true).await;
+}
+
+async fn retained_routing_cases(owner_http_only: bool) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for (mode, profile, role, expected, price) in [
+            (
+                "owner-assignment",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/stronger",
+                200,
+            ),
+            (
+                "owner-assignment-helper",
+                Profile::Low,
+                RequestRole::Helper,
+                "fixture/stronger",
+                200,
+            ),
+            (
+                "owner-assignment-existing-registry",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/stronger",
+                200,
+            ),
+            (
+                "owner-assignment-fallback",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/economical",
+                100,
+            ),
+            (
+                "owner-assignment-missing-role",
+                Profile::Low,
+                RequestRole::Helper,
+                "",
+                0,
+            ),
+            (
+                "owner-assignment-http-fallback",
+                Profile::Low,
+                RequestRole::Main,
+                "fixture/economical",
+                100,
+            ),
+            (
+                "owner-assignment-http-exhausted",
+                Profile::Low,
+                RequestRole::Main,
+                "",
+                0,
+            ),
+            (
+                "owner-assignment-http-budget",
+                Profile::Low,
+                RequestRole::Main,
+                "",
+                0,
+            ),
+            (
+                "owner-assignment-http-outside-set",
+                Profile::Low,
+                RequestRole::Main,
+                "",
+                0,
+            ),
             (
                 "low-main",
                 Profile::Low,
@@ -242,12 +315,22 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                 100,
             ),
         ] {
+            if mode.starts_with("owner-assignment-http") != owner_http_only {
+                continue;
+            }
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
             std::fs::create_dir(&workspace).unwrap();
             let workspace = workspace.canonicalize().unwrap();
             std::fs::write(workspace.join("file.txt"), "Synthetic routing evidence.\n").unwrap();
-            let config = config(&temp.path().join("canonical"), &workspace, backend);
+            let mut config = config(&temp.path().join("canonical"), &workspace, backend);
+            if mode == "owner-assignment-http-fallback" {
+                // One failed primary (200) plus its cheaper replacement (100)
+                // fits, but reserving the primary twice would exceed this cap.
+                config.cap.micros = Micros::new(300);
+            } else if mode == "owner-assignment-http-budget" {
+                config.cap.micros = Micros::new(299);
+            }
             let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
             let mut binding = task(&host, &config, config.root_task.clone(), None);
             binding.role = role;
@@ -290,6 +373,54 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
             host.configure_provider(snapshot, raw).unwrap();
             if mode != "fixed" {
                 let mut routing = routing_configuration(profile, mode == "forbidden");
+                if mode.starts_with("owner-assignment") {
+                    let primary = routing
+                        .catalog
+                        .entries
+                        .iter()
+                        .find(|entry| entry.identity.model == "fixture/stronger")
+                        .unwrap()
+                        .identity
+                        .clone();
+                    let alternative = routing
+                        .catalog
+                        .entries
+                        .iter()
+                        .find(|entry| entry.identity.model == "fixture/economical")
+                        .unwrap()
+                        .identity
+                        .clone();
+                    routing.owner_assignments =
+                        vec![vcp_lifecycle::foundation::routing::OwnerAssignment {
+                            role: if mode == "owner-assignment-missing-role" {
+                                RequestRole::Main
+                            } else {
+                                role
+                            },
+                            candidates: if mode == "owner-assignment-http-outside-set" {
+                                vec![primary]
+                            } else {
+                                vec![primary, alternative]
+                            },
+                        }];
+                    for entry in &mut routing.catalog.entries {
+                        entry.memberships.clear();
+                        entry.compatibility.clear();
+                        if mode == "owner-assignment-fallback"
+                            && entry.identity.model == "fixture/stronger"
+                        {
+                            entry.availability = State::Unsupported;
+                            entry.reasons.push("Synthetic primary outage".into());
+                        }
+                    }
+                    routing.catalog = CatalogRevision::create(
+                        None,
+                        routing.catalog.observed_at,
+                        None,
+                        routing.catalog.entries,
+                    )
+                    .unwrap();
+                }
                 if mode.starts_with("escalat") || mode == "retry-zero" {
                     routing.escalation = Some(vcp_models::escalation::Policy {
                         max_transport_retries: if mode == "retry-zero" { 0 } else { 2 },
@@ -358,6 +489,12 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                         .unwrap();
                     }
                 }
+                if mode == "owner-assignment-existing-registry" {
+                    // Another accepted task may already have published a
+                    // different catalog and optimizer policy in this workspace.
+                    host.configure_routing(routing_configuration(Profile::Low, false))
+                        .unwrap();
+                }
                 host.configure_routing(routing).unwrap();
                 if mode == "escalation-selected-cap" {
                     super::routing_output::select_edits(&host, vec![vcp_lifecycle::foundation::routing_state::Edit::EscalationMaxQualitySwitches(Some(0))]);
@@ -375,6 +512,9 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                 let charged=if body["model"]=="fixture/stronger" {200}else{100};
                 observations.push(body);
                 if mode=="retry-zero" {return ResponseTemplate::new(503).insert_header("retry-after","0").set_body_string("scripted transient failure");}
+                if mode.starts_with("owner-assignment-http") && (index == 0 || mode.ends_with("exhausted")) {
+                    return ResponseTemplate::new(if index == 0 { 429 } else { 503 }).insert_header("retry-after", "0").set_body_string("scripted endpoint unavailable");
+                }
                 let mut events=Vec::new();let mut output=Vec::new();
                 if (mode.starts_with("escalat") && index==0) || (mode == "escalate-owner-capability" && index == 1) {
                     if mode.contains("owner") && index == 0 {
@@ -426,7 +566,10 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                     canonical_tools: Default::default(),
                     operating: "Report the observed fixture only.".into(),
                     affected_paths: vec!["file.txt".into()],
-                    max_requests: if mode.starts_with("escalat") || mode == "retry-zero" {
+                    max_requests: if mode.starts_with("escalat")
+                        || mode == "retry-zero"
+                        || mode.starts_with("owner-assignment-http")
+                    {
                         3
                     } else {
                         1
@@ -470,7 +613,15 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                 .filter(|r| r.value["document_type"] == "vcp_routing_decision_v1")
                 .collect();
             let bodies = observed.lock().unwrap().clone();
-            if mode == "forbidden" {
+            if mode.starts_with("owner-assignment") {
+                for body in &bodies {
+                    assert_eq!(body["provider"]["allow_fallbacks"], false);
+                    assert_eq!(body["provider"]["require_parameters"], true);
+                    assert_eq!(body["provider"]["data_collection"], "deny");
+                    assert_eq!(body["provider"]["only"].as_array().unwrap().len(), 1);
+                }
+            }
+            if mode == "forbidden" || mode == "owner-assignment-missing-role" {
                 assert!(bodies.is_empty());
                 assert!(attempts.is_empty());
                 assert!(decisions.is_empty());
@@ -480,6 +631,104 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                     .decode()
                     .unwrap();
                 assert_eq!(turn.state, TurnState::Paused);
+            } else if mode == "owner-assignment-http-budget"
+                || mode == "owner-assignment-http-outside-set"
+            {
+                assert_eq!(bodies.len(), 1, "{backend:?}/{mode}: {attempts:?}");
+                assert_eq!(attempts.len(), 1);
+                assert_eq!(bodies[0]["model"], "fixture/stronger");
+                assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
+                let ledger: vcp_domain::accounting::Ledger = state
+                    .record(
+                        Collection::Ledger,
+                        config.root_task.as_str(),
+                        &config.workspace,
+                    )
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                assert_eq!(ledger.unresolved, Micros::new(200));
+                assert_eq!(ledger.settled, Micros::ZERO);
+                assert_eq!(ledger.active, Micros::ZERO);
+                assert!(!ledger.overrun);
+            } else if mode.starts_with("owner-assignment-http") {
+                assert_eq!(bodies.len(), 2, "{backend:?}/{mode}: {attempts:?}");
+                assert_eq!(attempts.len(), 2);
+                assert_eq!(decisions.len(), 2);
+                assert_eq!(bodies[0]["model"], "fixture/stronger");
+                assert_eq!(bodies[1]["model"], "fixture/economical");
+                let primary = attempts
+                    .iter()
+                    .find(|attempt| attempt.quote.price.model == "fixture/stronger")
+                    .unwrap();
+                let fallback = attempts
+                    .iter()
+                    .find(|attempt| attempt.quote.price.model == "fixture/economical")
+                    .unwrap();
+                assert_eq!(fallback.previous.as_ref(), Some(&primary.id));
+                assert_eq!(primary.phase, ReservationState::ReconciliationPending);
+                assert_eq!(
+                    fallback.phase,
+                    if mode.ends_with("exhausted") {
+                        ReservationState::ReconciliationPending
+                    } else {
+                        ReservationState::Settled
+                    }
+                );
+                let ledger: vcp_domain::accounting::Ledger = state
+                    .record(
+                        Collection::Ledger,
+                        config.root_task.as_str(),
+                        &config.workspace,
+                    )
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                assert_eq!(
+                    ledger.unresolved,
+                    Micros::new(if mode.ends_with("exhausted") {
+                        300
+                    } else {
+                        200
+                    }),
+                    "each failed request must retain its full liability"
+                );
+                assert_eq!(ledger.active, Micros::ZERO);
+                if !mode.ends_with("exhausted") {
+                    assert_eq!(ledger.settled, Micros::new(100));
+                } else {
+                    assert_eq!(ledger.settled, Micros::ZERO);
+                }
+                assert!(!ledger.overrun);
+                let second: RoutingDecision = decisions
+                    .iter()
+                    .map(|record| {
+                        serde_json::from_value::<RoutingDecision>(record.value["decision"].clone())
+                            .unwrap()
+                    })
+                    .find(|decision| {
+                        decision
+                            .selected
+                            .as_ref()
+                            .is_some_and(|identity| identity.model == "fixture/economical")
+                    })
+                    .unwrap();
+                assert!(second.input.retry_pin.is_none());
+                if mode == "owner-assignment-http-fallback" {
+                    assert_eq!(primary.quote.amount.micros, Micros::new(200));
+                    assert_eq!(fallback.quote.amount.micros, Micros::new(100));
+                    assert_eq!(second.input.available.micros, Micros::new(100));
+                    assert!(second.input.available.micros < primary.quote.amount.micros);
+                    assert_eq!(
+                        ledger.unresolved.get() + ledger.settled.get(),
+                        ledger.cap.get()
+                    );
+                }
+                assert!(second
+                    .input
+                    .excluded
+                    .iter()
+                    .any(|identity| identity.model == "fixture/stronger"));
             } else if mode.starts_with("escalat") {
                 let switched = mode == "escalate" || mode.starts_with("escalate-owner");
                 assert_eq!(
@@ -621,14 +870,24 @@ async fn retained_routing_selects_admits_and_sends_the_same_model_and_price() {
                         .find(|candidate| candidate.identity == *selected)
                         .unwrap();
                     assert!(winner.exclusions.is_empty());
-                    assert_eq!(
-                        winner.group,
-                        Some(if expected == "fixture/stronger" {
-                            Group::High
-                        } else {
-                            Group::Low
-                        })
-                    );
+                    if mode.starts_with("owner-assignment") {
+                        assert_eq!(winner.group, None);
+                        assert_eq!(winner.quality_bps, None);
+                        assert_eq!(winner.samples, None);
+                        assert_eq!(winner.latency_p95_ms, None);
+                        assert!(winner.assumptions.iter().any(|assumption| {
+                            assumption.contains("Explicit owner role assignment")
+                        }));
+                    } else {
+                        assert_eq!(
+                            winner.group,
+                            Some(if expected == "fixture/stronger" {
+                                Group::High
+                            } else {
+                                Group::Low
+                            })
+                        );
+                    }
                     assert_eq!(
                         decisions[0].value["request_digest"],
                         attempts[0].request_digest

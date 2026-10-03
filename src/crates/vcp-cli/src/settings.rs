@@ -15,7 +15,7 @@ use vcp_domain::{
 };
 use vcp_models::catalog::Snapshot;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
     pub version: u32,
@@ -64,7 +64,7 @@ pub struct Profile {
     pub qualification_endpoint: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessProfile {
     #[serde(default)]
@@ -438,7 +438,9 @@ mod request_limit_tests {
         assert!(!read_only.canonical_tools.contains("vcp_verify"));
         assert_eq!(
             crate::skills::available_tools(&read_only),
-            ["vcp_read", "vcp_list", "vcp_search"]
+            // ADR-071: verified skill references follow the read ceiling;
+            // recorded ceiling names themselves remain the original seven.
+            ["vcp_read", "vcp_list", "vcp_search", "vcp_skill"]
                 .into_iter()
                 .map(str::to_owned)
                 .collect()

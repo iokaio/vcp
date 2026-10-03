@@ -1,7 +1,8 @@
 # P3-04 workspace continuation
 
-Starting `vcp` without a command reads unfinished root tasks from the canonical
-workspace. JSONL and noninteractive modes return a bounded candidate list without
+`vcp workspace discover` reads unfinished root tasks from the canonical
+workspace. Bare launches now follow [account setup and help](p3-cli-usage.md).
+JSONL and noninteractive modes return a bounded candidate list without
 requiring provider credentials or dispatching work. A console presents numbered
 choices; an empty answer exits without resuming. Candidates carry task revisions,
 child states and pause reasons, partial artifact references, pending input,

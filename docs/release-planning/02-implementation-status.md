@@ -10,6 +10,14 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-03C/D: the October 2 owner-approved follow-up implements reusable provider
+compatibility and optional-project account setup with balanced quality/cost
+defaults. The scoped contract and verification status are in
+[balanced onboarding](06-balanced-onboarding.md); decisions are
+[ADR-081](../adr/081-reusable-provider-compatibility.md) and
+[ADR-082](../adr/082-account-setup-and-model-selections.md). Source changes do not
+update the previously published installer or grant installed-product acceptance.
+
 BETA-07/08/11 update: the renamed signed candidate and limited publication are
 complete. [Candidate 36938973679/1](https://github.com/iokaio/vcp/actions/runs/36938973679/attempts/1)
 passed through `pair` on source `a4a5b93b0077eb8f6a63f005379c09ce0ff4773e`.

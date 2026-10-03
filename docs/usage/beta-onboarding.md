@@ -7,6 +7,76 @@ known-issues document identify the supported release pair and its current limits
 These instructions assume PowerShell and an existing
 OpenRouter account with permission and funds for the exact selected provider.
 
+## Guided account setup
+
+Run `vcp` in an interactive Windows terminal. On first launch the interview
+configures an OpenRouter key, model preferences and a default per-task budget.
+The proposed task cap is $10 and can be changed. Project selection is optional.
+The initial set is **balanced quality and cost**;
+choose another set by maker or coding-project type, inspect each role and its
+alternatives, or customize the assignments before accepting them.
+
+Choose Windows protected storage or designate an environment variable (the
+suggested name is `OPENROUTER_API_KEY`). Key entry for protected storage is
+hidden and saving requires consent. Selecting an environment variable saves
+only its name; a missing or invalid value never falls back to a stored key.
+An explicitly selected stored key takes precedence in attended sessions.
+Automation, redirected output, JSONL and control-stdin use only an environment
+credential: the designated name, or `OPENROUTER_API_KEY` for stored/default mode.
+Use `vcp setup credential environment MY_ROUTER_KEY` to select a variable, or
+`store`, `status` and `remove` to manage the protected entry. Never put the key
+itself in command arguments or profile files.
+
+Offline tooling can set `VCP_DENY_PROVIDER_CREDENTIALS` to disable all provider
+credential access. Any value, including an empty value, denies access before
+credential lookup. Removing only `OPENROUTER_API_KEY` does not disable a selected
+environment-variable alias.
+
+The interview fetches current endpoint metadata and asks permission for **one**
+short connection prompt, with a displayed reservation and a separate explicit
+test cap. It shows the response, model and reported charge. This verifies that
+credential's text connection and accounting for the displayed model; it does
+not qualify every model, role or tool in the set. Conservative reservation may
+be larger than the eventual charge. It never raises the budget automatically.
+
+Setup is complete only after success. An interrupted successful test can be
+recovered without another paid call; unresolved accounting prevents a repeat.
+Later bare `vcp` prints the same help as `vcp --help`. Explicit help always works
+without configuration. Use `vcp setup` to revisit the interview, and
+`vcp workspace discover` for the unfinished-task chooser.
+
+Account setup belongs to the Windows user, regardless of current folder or
+`--data-dir`. To add a project later, rerun setup and explicitly trust its folder.
+New tasks use the selected account defaults unless a project override or explicit
+profile takes precedence. Existing tasks retain their captured model selections.
+Bare `vcp models` opens the same chooser in a terminal, with an explicit choice
+of account or project scope and confirmation before saving. Redirected use
+returns the current selections. Explicit subcommands support automation without
+an interview. Changing model selections makes no model calls and preserves
+project tools, checks and permissions.
+
+```powershell
+vcp models
+vcp models list --maker openai
+vcp models list --project-type web
+vcp models show balanced
+vcp models select balanced
+vcp --workspace C:\work\sample models select web --project
+vcp models customize --role main --model openai/gpt-4.1-mini --model qwen/qwen3-coder
+vcp models budget 5.00
+```
+
+Only eligible alternatives within the selected set and remaining budget may be
+used. If none qualify, VCP stops and asks the owner to change the selection before
+using an outside model. Gateway fallback is disabled. Set labels describe
+preferences, not a live comparative-quality qualification.
+Retryable provider unavailability can use another eligible model assigned to
+the same role, within the task's retry and spending limits. An uncertain charge
+from the previous request still counts against available funds. New project
+profiles allow at most two retries; the setup test never retries inference.
+
+The remaining sections document the supported explicit, expert setup commands.
+
 `setup provider` performs paid inference. Its `--budget-usd` explicitly admits
 one fixed probe pair, at most two requests with no inference retries, capped at
 25 USD per invocation. Select a cap within your separately authorized test
@@ -112,7 +182,7 @@ and a five-minute task deadline. A denied effect needs explicit applicable user
 approval; changing the requested autonomy cannot exceed the profile ceiling.
 
 The first accepted task registers the workspace and durable history. Starting
-`& $vcp --workspace $workspace` without `run` only discovers unfinished tasks.
+`& $vcp --workspace $workspace workspace discover` discovers unfinished tasks.
 Reopening does not resume a task. Use the displayed task ID and revision for an
 explicit resume; the original task's budget and spent amount remain in force.
 

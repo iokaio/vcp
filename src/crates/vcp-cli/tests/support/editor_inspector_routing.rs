@@ -132,6 +132,7 @@ pub(super) fn configure(path: &Path) {
             evidence_refs: vec!["fixture://editor-loopback-routing".into()],
         }],
         raw_catalogs: BTreeMap::from([(snapshot.id.clone(), raw)]),
+        owner_assignments: vec![],
     };
     configuration.validate().unwrap();
     profile["routing"] = serde_json::to_value(configuration).unwrap();

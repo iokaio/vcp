@@ -136,13 +136,14 @@ test('preparation creates fresh Git workspaces and freezes exact PTY controls be
       assert.equal(args[1], 'jsonl');
       assert.match(args[args.indexOf('--data-dir') + 1], /preflight-data$/);
       assert.equal(Object.keys(options.env).some(key => key.toUpperCase() === 'OPENROUTER_API_KEY'), false);
+      assert.equal(options.env.VCP_DENY_PROVIDER_CREDENTIALS, '1');
       return {
         status: 2, error: null,
         stdout: `${JSON.stringify({
           type: 'result', scope: null, exit_code: 2,
           conditions: {invalid_configuration: true},
         })}\n`,
-        stderr: 'vcp: OPENROUTER_API_KEY is required\n',
+        stderr: 'vcp: provider credential access is disabled by VCP_DENY_PROVIDER_CREDENTIALS\n',
       };
     });
     assert.equal(preflight.status, 'passed');

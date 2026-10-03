@@ -27,6 +27,7 @@ use vcp_models::{
 use vcp_protocol::{canonical_bytes, command::Command, digest_bytes};
 use vcp_store::{contract::Collection, BackendKind};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub mod connection;
 #[cfg(feature = "qualification")]
 #[path = "../bin/conformance/native.rs"]
 mod native_probe;
@@ -170,6 +171,23 @@ async fn request(
         raw.extend_from_slice(&chunk);
     }
     reject_credential(&raw, key)?;
+    // Decode in memory before capture as well: JSON escapes or streamed text
+    // fragments must not hide a credential from the raw-byte reflection guard.
+    let schemas = lease
+        .body()
+        .get("tools")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let mut preview = vcp_models::stream::Stream::new(vcp_models::request::Tools::parse(&schemas)?);
+    if raw
+        .chunks(65_536)
+        .try_for_each(|chunk| preview.push(chunk).map(|_| ()))
+        .is_ok()
+    {
+        if let Ok(normalized) = preview.finish() {
+            reject_credential(&canonical_bytes(&normalized)?, key)?;
+        }
+    }
     if !success {
         let _ = lease.capture(&raw);
         return Err("provider HTTP error; canonical liability retained, no retry".into());
@@ -179,7 +197,87 @@ async fn request(
 }
 
 fn reject_credential(bytes: &[u8], key: &str) -> Result<()> {
-    if !key.is_empty() && bytes.windows(key.len()).any(|part| part == key.as_bytes()) {
+    fn contains(json: &[u8], key: &str) -> bool {
+        // Inspect every JSON string, including object names and duplicate
+        // fields that Value deserialization would overwrite. Serde still owns
+        // escape decoding; this scan grants no protocol validity.
+        let mut index = 0;
+        while index < json.len() {
+            if json[index] != b'"' {
+                index += 1;
+                continue;
+            }
+            let start = index;
+            index += 1;
+            while index < json.len() {
+                match json[index] {
+                    b'\\' => index = (index + 2).min(json.len()),
+                    b'"' => {
+                        index += 1;
+                        if serde_json::from_slice::<String>(&json[start..index])
+                            .is_ok_and(|value| value.contains(key))
+                        {
+                            return true;
+                        }
+                        break;
+                    }
+                    _ => index += 1,
+                }
+            }
+        }
+        false
+    }
+    let decoded = || {
+        let reflected = |json: &[u8]| contains(json, key);
+        if reflected(bytes) {
+            return true;
+        }
+        // Match Stream's SSE framing: CR, LF, CRLF, an initial UTF-8 BOM,
+        // one optional field-value space, and newline-joined data fields.
+        // Inspect whole JSON events, including fields normalization ignores.
+        // The response is buffered first, so HTTP chunk boundaries cannot hide
+        // a string or delimiter. This does not grant protocol validity.
+        let mut event = Vec::new();
+        let mut first_line = true;
+        let mut skip_lf = false;
+        for raw_line in bytes.split_inclusive(|byte| *byte == b'\r' || *byte == b'\n') {
+            if skip_lf && raw_line == b"\n" {
+                skip_lf = false;
+                continue;
+            }
+            skip_lf = raw_line.ends_with(b"\r");
+            let mut line = raw_line
+                .strip_suffix(b"\r")
+                .or_else(|| raw_line.strip_suffix(b"\n"))
+                .unwrap_or(raw_line);
+            if first_line {
+                first_line = false;
+                while let Some(rest) = line.strip_prefix(b"\xef\xbb\xbf") {
+                    line = rest;
+                }
+            }
+            if line.is_empty() {
+                if reflected(&event) {
+                    return true;
+                }
+                event.clear();
+            } else if let Some(data) = line.strip_prefix(b"data:") {
+                let data = data.strip_prefix(b" ").unwrap_or(data);
+                if reflected(data) {
+                    return true;
+                }
+                event.extend_from_slice(data);
+                event.push(b'\n');
+            } else if line == b"data" {
+                event.push(b'\n');
+            }
+        }
+        // Check incomplete framing too; it remains invalid to the protocol
+        // parser, but cannot publish reflected material as failed evidence.
+        reflected(&event)
+    };
+    if !key.is_empty() && (bytes.windows(key.len()).any(|part| part == key.as_bytes()) || decoded())
+    {
         return Err(
             "provider reflected credential material; response rejected and any liability retained"
                 .into(),
@@ -398,11 +496,11 @@ pub async fn legacy_run(args: Vec<std::ffi::OsString>) -> Result<()> {
             "catalog":digest_bytes(include_bytes!("../../../vcp-models/src/catalog.rs"))
         },"spec":spec,"claimed_at":now(),"scope":"one-shot max two requests; shared user budget is coordinator-owned"}),
     )?;
-    let key = std::env::var("OPENROUTER_API_KEY").map_err(|_| "OPENROUTER_API_KEY is required")?;
+    let key = crate::credential::require(false)?;
     let report = execute(
         &spec,
         &output,
-        &key,
+        key.expose(),
         "https://openrouter.ai/api/v1/responses",
     )
     .await?;
@@ -530,6 +628,49 @@ mod tests {
         .concat();
         assert!(reject_credential(&raw, "synthetic-loopback-credential").is_err());
         assert!(reject_credential(b"ordinary response", "synthetic-loopback-credential").is_ok());
+        assert!(reject_credential(
+            br#"{"response":"synthetic-\u006coopback-credential"}"#,
+            "synthetic-loopback-credential"
+        )
+        .is_err());
+        assert!(reject_credential(
+            br#"data: {"response":"synthetic-\u006coopback-credential"}"#,
+            "synthetic-loopback-credential"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn credential_guard_inspects_ignored_fields_in_complete_sse_frames() {
+        let key = "synthetic-loopback-credential";
+        let response = json!({"id":"guard-response","status":"completed","model":"fixture/probe",
+            "output":[{"type":"message","id":"message","role":"assistant","content":[{"type":"output_text","text":"Safe greeting."}]}],
+            "usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"cost":0.000007}});
+        for newline in ["\n", "\r", "\r\n"] {
+            for ignored in [
+                r#"{"nested":["synthetic-\u006coopback-credential"]}"#,
+                r#"{"synthetic-\u006coopback-credential":"ignored"}"#,
+                r#"{"duplicate":"synthetic-\u006coopback-credential","duplicate":"ordinary"}"#,
+            ] {
+                let wire = format!(
+                    "\u{feff}:comment{newline}event: response.completed{newline}data: {{\"type\":\"response.completed\",{newline}data: \"ignored\":{ignored},{newline}data: \"response\":{response}}}{newline}{newline}"
+                );
+                // Both the framing and ignored JSON fields are accepted by the
+                // real parser; its normalized response intentionally drops them.
+                let mut stream = vcp_models::stream::Stream::new(
+                    vcp_models::request::Tools::parse(&json!([])).unwrap(),
+                );
+                for chunk in wire.as_bytes().chunks(3) {
+                    stream.push(chunk).unwrap();
+                }
+                let normalized = canonical_bytes(&stream.finish().unwrap()).unwrap();
+                assert!(reject_credential(&normalized, key).is_ok());
+                assert!(reject_credential(wire.as_bytes(), key).is_err());
+                let benign =
+                    wire.replace("synthetic-\\u006coopback-credential", "ordinary-metadata");
+                assert!(reject_credential(benign.as_bytes(), key).is_ok());
+            }
+        }
     }
 
     #[tokio::test]

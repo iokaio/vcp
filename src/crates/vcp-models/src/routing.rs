@@ -287,4 +287,4 @@ pub struct RoutingDecision {
 
 mod selection;
 mod validation;
-pub use selection::select;
+pub use selection::{select, select_owner_set};

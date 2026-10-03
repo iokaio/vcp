@@ -66,7 +66,7 @@ pub(super) async fn execute(
     let prepared = profile.prepare(requested)?;
     let prepared_http = crate::mcp::prepare_http(&prepared.profile.mcp_http)?;
     let credential = vcp_engine::capture::ProviderCredential::from_config(
-        std::env::var("OPENROUTER_API_KEY").map_err(|_| "OPENROUTER_API_KEY is required")?,
+        crate::credential::require(interactive)?.expose().to_owned(),
     );
     let retained = crate::execution_profile::retained_config(
         data,
@@ -207,6 +207,7 @@ pub(super) async fn execute(
             ValidatedCommand::Run(run) => run.budget,
             _ => cap.ok_or("fork requires persisted budget cap")?,
         };
+        crate::model_preferences::retain_task(directory, &config.root_task, &prepared.profile)?;
     }
     config.price = prepared.profile.provider.price.clone();
     config.input_ceiling = prepared.profile.provider.max_input;

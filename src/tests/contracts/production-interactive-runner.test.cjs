@@ -8,7 +8,23 @@ const path = require('node:path');
 const readline = require('node:readline');
 const {Readable} = require('node:stream');
 const {spawn, spawnSync} = require('node:child_process');
-const {controlFrame,controlWriter} = require('../../../scripts/evals/production-interactive-qualification.cjs');
+const {controlFrame,controlWriter,credentialFreePreflight} = require('../../../scripts/evals/production-interactive-qualification.cjs');
+
+test('unreserved production preflight denies every credential despite inherited alias selection',()=>{
+  const plan={executable:'synthetic-vcp.exe',workspace:'synthetic-workspace',data:'synthetic-data',profile:'synthetic-profile'};
+  const inherited={LOCALAPPDATA:'synthetic-account',MY_ROUTER_KEY:'synthetic-alias',OPENROUTER_API_KEY:'synthetic-default',openrouter_api_key:'synthetic-mixed-case',VCP_DENY_PROVIDER_CREDENTIALS:''};
+  const before={...inherited};let calls=0;
+  const expected={status:2,stderr:'provider credential access is disabled by VCP_DENY_PROVIDER_CREDENTIALS'};
+  const result=credentialFreePreflight(plan,(program,args,options)=>{
+    calls++;assert.equal(program,plan.executable);
+    assert.deepEqual(args,['--format','jsonl','--non-interactive','--workspace',plan.workspace,'--data-dir',plan.data,'--config',plan.profile,'run','Offline startup validation','--budget-usd','16.000000','--autonomy','plan']);
+    assert.equal(options.timeout,10000);assert.equal(options.env.VCP_DENY_PROVIDER_CREDENTIALS,'1');
+    assert.equal(options.env.MY_ROUTER_KEY,'synthetic-alias');assert.equal(options.env.LOCALAPPDATA,'synthetic-account');
+    assert.equal(Object.keys(options.env).some(key=>key.toUpperCase()==='OPENROUTER_API_KEY'),false);
+    return expected;
+  },inherited);
+  assert.equal(calls,1);assert.deepEqual(result,expected);assert.deepEqual(inherited,before);
+});
 
 test('native control pipe closing during a pending write preserves supervisor cleanup', {timeout:10000}, async () => {
   const child=spawn(process.execPath,['-e',"process.stdout.write('PIPE-READY');setTimeout(()=>process.exit(0),200)"],{windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{SystemRoot:process.env.SystemRoot||''}});

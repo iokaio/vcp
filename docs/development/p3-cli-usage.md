@@ -4,7 +4,10 @@ P3-01 supplies the Windows `vcp` executable, P3-02 supplies its interactive
 terminal, P3-03 supplies paged evidence inspection, and P3-04 supplies workspace
 continuation and explicit local rebinding.
 
-Starting `vcp` without a command discovers unfinished tasks. A console offers a
+Starting interactive `vcp` without a command offers account setup once per Windows
+user; after successful setup it prints the same help as `vcp --help`. Explicit
+help and redirected bare invocation never require setup or a project.
+`vcp workspace discover` discovers unfinished tasks. A console offers a
 numbered chooser; Enter leaves all tasks paused. `--format jsonl` or
 `--non-interactive` returns candidates without prompting or provider access.
 Each candidate includes its expected revision and recovery/accounting summary.
@@ -38,8 +41,12 @@ roots. Existing junctions are resolved before admission. Add other synchronized
 directories to `sync_roots` in the profile. These are local plaintext records.
 The CLI does not import project configuration as execution authority.
 
-The default profile is `<data-dir>/profile.json`; `--config` selects another
-explicit user-owned file. Version 1 uses JSON and rejects unknown fields.
+`vcp setup` configures account defaults and optionally a trusted project.
+`vcp models` manages defaults and project overrides for future tasks. An explicit
+`--config` selects an authoritative user-owned profile; registered projects use
+their selected defaults, with `<data-dir>/profile.json` retained as the legacy
+fallback. Existing tasks retain model selections while current policy ceilings
+still apply. Version 1 uses JSON and rejects unknown fields.
 Its fields are:
 
 | Field | Meaning |

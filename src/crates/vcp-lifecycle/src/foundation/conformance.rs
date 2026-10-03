@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit fixed provider setup probes. Candidate metadata never becomes a qualified
 //! Snapshot. The canonical owner still captures, reserves and settles every call.
+use super::worker::now;
 use super::*;
 #[cfg(feature = "qualification")]
 pub mod cohort;
@@ -14,11 +15,36 @@ use vcp_models::{
 
 pub const MARKER: &str = "VCP_CONFORMANCE_\u{2603}";
 pub const FINAL: &str = "VCP_CONFORMANCE_OK";
+pub const CONNECTION_PROMPT: &str =
+    "Reply with a short greeting confirming that VCP can reach this model. Do not use tools.";
+/// Preview the conservative bound used by isolated setup admission.
+pub fn reservation(
+    snapshot: &vcp_models::catalog::Snapshot,
+    output: Units,
+) -> Result<Micros, String> {
+    snapshot.current(now()).map_err(|e| e.to_string())?;
+    if output == Units::ZERO || output > snapshot.max_output {
+        return Err("connection output exceeds provider bounds".into());
+    }
+    let input = snapshot.max_input;
+    let bounds = Usage {
+        input: Units::new(input.get().checked_mul(3).ok_or("input bound overflow")?),
+        cache_read: input,
+        cache_write: input,
+        output,
+        requests: Units::new(1),
+        ..Default::default()
+    };
+    vcp_budget::arithmetic::quote(snapshot.price.clone(), bounds, now())
+        .map(|quote| quote.amount.micros)
+        .map_err(|e| e.to_string())
+}
 pub fn tools() -> serde_json::Value {
     serde_json::json!([{"type":"function","name":"vcp_conformance_echo","description":"Return the exact marker as a local synthetic tool result.","parameters":{"type":"object","properties":{"marker":{"type":"string","enum":[MARKER]}},"required":["marker"],"additionalProperties":false}}])
 }
 #[derive(Clone)]
 pub enum Probe {
+    Connection,
     ToolCall,
     Continuation(Call),
 }
@@ -62,11 +88,17 @@ pub(super) fn body(
         request_rate.micros.get() / 1_000_000_000_000,
         request_rate.micros.get() % 1_000_000_000_000
     );
-    Ok(
-        serde_json::json!({"model":candidate.price.model,"input":input,"tools":tools(),"tool_choice":"auto","max_output_tokens":output.get(),"stream":true,"store":false,
+    let mut body = serde_json::json!({"model":candidate.price.model,"input":input,"tools":tools(),"tool_choice":"auto","max_output_tokens":output.get(),"stream":true,"store":false,
         "provider":{"only":[candidate.price.provider],"order":[candidate.price.provider],"allow_fallbacks":false,"require_parameters":true,"data_collection":"deny","zdr":false,
-        "max_price":{"prompt":price(ChargeCategory::Input)?,"completion":price(ChargeCategory::Output)?,"request":request}}}),
-    )
+        "max_price":{"prompt":price(ChargeCategory::Input)?,"completion":price(ChargeCategory::Output)?,"request":request}}});
+    if matches!(probe, Probe::Connection) {
+        body["input"] = serde_json::json!([{"type":"message","role":"user","content":[{"type":"input_text","text":CONNECTION_PROMPT}]}]);
+        if let Some(fields) = body.as_object_mut() {
+            fields.remove("tools");
+            fields.remove("tool_choice");
+        }
+    }
+    Ok(body)
 }
 pub struct Lease {
     host: CanonicalHost,
@@ -135,6 +167,11 @@ impl CanonicalHost {
         candidate: CandidateMetadata,
         probe: Probe,
     ) -> Result<Lease, String> {
+        let tool_schemas = if matches!(probe, Probe::Connection) {
+            serde_json::json!([])
+        } else {
+            tools()
+        };
         let admitted = binding.clone();
         let (attempt, body) = self
             .worker
@@ -145,7 +182,7 @@ impl CanonicalHost {
             attempt,
             body,
             parser: Some(Stream::new(
-                Tools::parse(&tools()).map_err(|e| e.to_string())?,
+                Tools::parse(&tool_schemas).map_err(|e| e.to_string())?,
             )),
             finished: false,
         })

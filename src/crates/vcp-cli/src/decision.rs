@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit shadow configuration and caller-owned asynchronous observation.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use vcp_lifecycle::foundation::{decision, CanonicalHost};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Configuration {
     pub evaluator: decision::Configuration,

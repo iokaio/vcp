@@ -15,6 +15,48 @@ pub(super) struct Runtime {
     pub pending: HashMap<TaskId, super::escalation::Pending>,
 }
 impl Context {
+    /// Admission and send fences replay the same owner preference boundary used
+    /// for selection, rather than treating it as empirical optimizer evidence.
+    pub(super) fn revalidate_routing_selection(
+        &self,
+        decision: &RoutingDecision,
+        catalog: &routing::CatalogRevision,
+        policy: &routing::Policy,
+        available: Money,
+        protected: Micros,
+    ) -> Result<()> {
+        let owner = self
+            .routing
+            .as_ref()
+            .filter(|runtime| !runtime.configuration.owner_assignments.is_empty());
+        let Some(owner) = owner else {
+            return decision
+                .validate_selected_at(catalog, policy, now(), available, protected)
+                .map_err(|error| error.into());
+        };
+        decision.validate()?;
+        let ordered = owner
+            .configuration
+            .owner_assignments
+            .iter()
+            .find(|assignment| assignment.role == decision.input.role)
+            .map(|assignment| assignment.candidates.as_slice())
+            .unwrap_or(&[]);
+        let mut input = decision.input.clone();
+        input.now = now();
+        input.available = available;
+        input.protected_verification = protected;
+        let refreshed = routing::select_owner_set(catalog, policy, &input, ordered)?;
+        if !refreshed.candidates.iter().any(|candidate| {
+            Some(&candidate.identity) == decision.selected.as_ref()
+                && candidate.exclusions.is_empty()
+        }) {
+            return Err(
+                "selected model is no longer eligible within its owner-selected set".into(),
+            );
+        }
+        Ok(())
+    }
     pub(super) fn require_configured_routing(&self) -> Result<()> {
         if self.routing.is_none()
             && routing_state::current_policy(self.engine.store(), &self.routing_access())
@@ -64,7 +106,7 @@ impl Context {
             tasks: history.tasks,
         }
     }
-    pub fn configure_routing(&mut self, configuration: Configuration) -> Result<()> {
+    pub fn configure_routing(&mut self, mut configuration: Configuration) -> Result<()> {
         if !self.owner_alive || self.authority_pending || self.provider.is_none() {
             return Err("routing requires a configured current provider owner".into());
         }
@@ -88,6 +130,23 @@ impl Context {
         let access = self.routing_access();
         let previous = routing_state::current_registry(self.engine.store(), &access)
             .map_err(|e| -> Failure { e.into() })?;
+        if !configuration.owner_assignments.is_empty()
+            && previous
+                .as_ref()
+                .is_none_or(|record| record.value.catalog.id != configuration.catalog.id)
+        {
+            // Materialized account/task profiles do not own the workspace's
+            // publication sequence. Preserve their exact candidates while
+            // linking this owner selection to the current canonical revision.
+            configuration.catalog = routing::CatalogRevision::create(
+                previous
+                    .as_ref()
+                    .map(|record| record.value.catalog.id.clone()),
+                configuration.catalog.observed_at,
+                configuration.catalog.effective_at,
+                configuration.catalog.entries,
+            )?;
+        }
         if previous
             .as_ref()
             .is_none_or(|record| record.value.catalog.id != configuration.catalog.id)
@@ -135,6 +194,16 @@ impl Context {
         let Some(ceilings) = self.routing_ceilings()? else {
             return Ok(None);
         };
+        // Explicit owner role assignments are frozen with the task profile.
+        // Workspace optimizer history cannot silently replace a task's selected
+        // set when another task changes account or project defaults.
+        if self
+            .routing
+            .as_ref()
+            .is_some_and(|runtime| !runtime.configuration.owner_assignments.is_empty())
+        {
+            return Ok(Some(ceilings));
+        }
         let access = self.routing_access();
         let current = routing_state::current_policy(self.engine.store(), &access)
             .map_err(|e| -> Failure { e.into() })?
@@ -143,6 +212,21 @@ impl Context {
             routing_state::effective_policy(current.value, &ceilings)
                 .map_err(|e| -> Failure { e.into() })?,
         ))
+    }
+
+    pub(super) fn current_routing_catalog(&self) -> Result<Option<routing::CatalogRevision>> {
+        if let Some(runtime) = self
+            .routing
+            .as_ref()
+            .filter(|runtime| !runtime.configuration.owner_assignments.is_empty())
+        {
+            // Canonical publication captures this task's metadata and source
+            // bytes. Later workspace catalog heads cannot replace its choices.
+            return Ok(Some(runtime.configuration.catalog.clone()));
+        }
+        routing_state::current_registry(self.engine.store(), &self.routing_access())
+            .map(|registry| registry.map(|record| record.value.catalog))
+            .map_err(|error| error.into())
     }
 
     pub(super) fn routing_ceilings(&self) -> Result<Option<routing::Policy>> {
@@ -244,10 +328,9 @@ impl Context {
             .ok_or("routing policy unavailable")?;
         configuration.escalation = self.current_escalation_policy()?;
         let output_ceiling = self.current_output_ceiling()?;
-        let registry = routing_state::current_registry(self.engine.store(), &self.routing_access())
-            .map_err(|e| -> Failure { e.into() })?
+        configuration.catalog = self
+            .current_routing_catalog()?
             .ok_or("routing registry unavailable")?;
-        configuration.catalog = registry.value.catalog;
         self.can_start(binding)?;
         self.ensure_coding_ledger()?;
         let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
@@ -314,11 +397,18 @@ impl Context {
             .and_then(|v| v.checked_sub(ledger.active.get()))
             .and_then(|v| v.checked_sub(ledger.unresolved.get()))
             .unwrap_or(0);
+        if !configuration.owner_assignments.is_empty() {
+            for estimate in &mut configuration.estimates {
+                estimate.first_attempt.input = Units::new(estimated_input);
+                estimate.first_attempt.output = output_ceiling;
+            }
+        }
         let input = RoutingInput {
             retry_pin: self
                 .provider
                 .as_ref()
                 .and_then(|provider| provider.retries.get(&binding.scope.task))
+                .filter(|retry| !retry.switch_owner_model)
                 .map(|retry| {
                     let attempt: Attempt = self
                         .engine
@@ -336,10 +426,20 @@ impl Context {
                     })
                 })
                 .transpose()?,
-            excluded: escalation
-                .as_ref()
-                .map(|e| e.excluded.clone())
-                .unwrap_or_default(),
+            excluded: {
+                let mut excluded = escalation
+                    .as_ref()
+                    .map(|e| e.excluded.clone())
+                    .unwrap_or_default();
+                if let Some(retry) = self
+                    .provider
+                    .as_ref()
+                    .and_then(|provider| provider.retries.get(&binding.scope.task))
+                {
+                    excluded.extend(retry.owner_excluded.iter().cloned());
+                }
+                excluded
+            },
             workspace: binding.scope.workspace.clone(),
             root: task.root,
             task: binding.scope.task.clone(),
@@ -361,7 +461,22 @@ impl Context {
             protected_verification: ledger.protected,
             estimates: configuration.estimates.clone(),
         };
-        let decision = routing::select(&configuration.catalog, &configuration.policy, &input)?;
+        let decision = if configuration.owner_assignments.is_empty() {
+            routing::select(&configuration.catalog, &configuration.policy, &input)?
+        } else {
+            let assigned = configuration
+                .owner_assignments
+                .iter()
+                .find(|assignment| assignment.role == input.role)
+                .map(|assignment| assignment.candidates.as_slice())
+                .unwrap_or(&[]);
+            routing::select_owner_set(
+                &configuration.catalog,
+                &configuration.policy,
+                &input,
+                assigned,
+            )?
+        };
         self.capture(
             &binding.scope,
             Channel::Evidence,
@@ -370,7 +485,7 @@ impl Context {
         )?;
         let snapshot = decision
             .selected_snapshot(&configuration.catalog)?
-            .ok_or("no qualified model satisfies routing policy, context and budget")?
+            .ok_or("no eligible model in the selected set satisfies compatibility, context and budget; ask the owner to change the selected set before using an outside model")?
             .clone();
         if let (Some(policy), Some(evidence)) = (&configuration.escalation, escalation) {
             if let Some((previous, trigger)) = evidence.trigger {
