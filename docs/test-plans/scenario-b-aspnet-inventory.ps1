@@ -260,9 +260,11 @@ $environmentBlock = @'
 - Process profile available to `vcp_exec` (no shell; literal arguments): `dotnet` runs the
   .NET {{MAJOR}} SDK. Examples: `["build", "{{SOLUTION}}"]`, `["test", "{{SOLUTION}}"]`,
   `["tool", "run", "dotnet-ef", "migrations", "add", "<Name>", "--project", "src/Inventory.Web",
-  "--output-dir", "Data/Migrations", "--", "--environment", "Development"]`.
-  The process profile sets Development and `ConnectionStrings__Inventory` to this run's
-  isolated test database; preserve that override and never target an existing application's database.
+  "--output-dir", "Data/Migrations", "--", "--environment", "Development",
+  "--ConnectionStrings:Inventory", {{CONNECTION_JSON}}]`.
+  The process profile only supplies VCP's allowed public bootstrap environment. For every EF
+  command, forward the Development environment and this run's connection string as shown above;
+  never target an existing application's database. The harness applies migrations itself.
 - Target framework {{TFM}}; EF Core and ASP.NET Core packages {{EFVERSION}} are already referenced.
   Add a package only if essential, pinned to an exact version, and explain why.
 - Keep `appsettings.Development.json` and its `Inventory` connection string unchanged.
@@ -280,6 +282,7 @@ function New-Prompt([string]$Body, [string]$Protected = '') {
         $Protected = '`, `tests/Inventory.Tests/RegressionTests.cs`'
     }
     $block = $environmentBlock.Replace('{{MAJOR}}', [string]$major).Replace('{{TFM}}', $tfm).Replace('{{EFVERSION}}', $efVersion).Replace('{{SOLUTION}}', (Split-Path -Leaf (Get-Solution)))
+    $block = $block.Replace('{{CONNECTION_JSON}}', (ConvertTo-Json -InputObject $connection -Compress))
     return $Body + $block.Replace('{{PROTECTED}}', $Protected)
 }
 
@@ -690,8 +693,6 @@ listing at most 10 findings ordered by severity.
     # --- Profiles ------------------------------------------------------------
     $stage = 'P1-profiles'
     $dotnetProcess = New-ProcessProfile -Name 'dotnet' -Executable $dotnet -Ctx $ctx -MaxTimeoutMs 1200000
-    $dotnetProcess.environment['ASPNETCORE_ENVIRONMENT'] = 'Development'
-    $dotnetProcess.environment['ConnectionStrings__Inventory'] = $connection
     $affected = @('README.md', 'src', 'tests')
     $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($dotnetProcess)
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($dotnetProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
