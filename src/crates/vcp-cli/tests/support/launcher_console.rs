@@ -426,6 +426,8 @@ pub async fn broker(input: &Value) -> Result<Value> {
             input["workspace"].as_str().ok_or("missing workspace")?,
             "--data-dir",
             input["data"].as_str().ok_or("missing data")?,
+            "workspace",
+            "discover",
         ])
         .current_dir(input["workspace"].as_str().ok_or("missing workspace")?)
         .stdin(Stdio::inherit())

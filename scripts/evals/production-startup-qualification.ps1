@@ -138,6 +138,7 @@ try {
                 $start.WorkingDirectory=$runDirectory; $start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
                 foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
                 foreach ($name in @('OPENROUTER_API_KEY','RUST_MIN_STACK')) { $null=$start.Environment.Remove($name) }
+                $start.Environment['VCP_DENY_PROVIDER_CREDENTIALS']='1'
                 $process=[Diagnostics.Process]::new(); $process.StartInfo=$start
                 $stdoutPath=Join-Path $runDirectory 'stdout.jsonl'; $stderrPath=Join-Path $runDirectory 'stderr.log'
                 $stdout=[IO.File]::Create($stdoutPath); $stderr=[IO.File]::Create($stderrPath)

@@ -125,3 +125,7 @@ Return to the [documentation index](../README.md).
 [ADR-075](075-marketplace-manual-upload.md) selects the `iokaio` publisher and a fresh verified pre-release pair, with the first Marketplace upload reserved for the owner.
 
 [ADR-078](078-installer-path-scope.md) adds current-user and all-users Windows installer PATH modes while keeping each user's data private.
+
+[ADR-081](081-reusable-provider-compatibility.md) separates reusable adapter compatibility, fresh endpoint metadata and one accounted connection test.
+
+[ADR-082](082-account-setup-and-model-selections.md) defines optional-project account setup, balanced model defaults and retained task selections.

@@ -36,6 +36,12 @@ function controlWriter(stream,onFailure,onControl=()=>{}) {
 }
 const put = (file, value) => fs.writeFileSync(file, typeof value === 'string' ? value : json(value), {flag:'wx', mode:0o600});
 const CAP = 16000000;
+
+function credentialFreePreflight(plan,call=spawnSync,inherited=process.env) {
+  const env={...inherited,VCP_DENY_PROVIDER_CREDENTIALS:'1'};
+  for(const key of Object.keys(env))if(key.toUpperCase()==='OPENROUTER_API_KEY')delete env[key];
+  return call(plan.executable,['--format','jsonl','--non-interactive','--workspace',plan.workspace,'--data-dir',plan.data,'--config',plan.profile,'run','Offline startup validation','--budget-usd','16.000000','--autonomy','plan'],{windowsHide:true,encoding:'utf8',timeout:10000,maxBuffer:1024*1024,env});
+}
 const PAUSED = 'Pause requested; inspect retained effects before resuming.';
 const RESUMED = 'Resumed after revalidation.';
 const DRAINED = 'Parent turn interrupted; inspect current state before explicit /resume.';
@@ -168,10 +174,9 @@ async function run(file, expected) {
   }
   try {
     // Credential-free startup preflight makes no paid call and consumes no reservation.
-    const env={...process.env};delete env.OPENROUTER_API_KEY;
-    const pre=spawnSync(plan.executable,['--format','jsonl','--non-interactive','--workspace',plan.workspace,'--data-dir',plan.data,'--config',plan.profile,'run','Offline startup validation','--budget-usd','16.000000','--autonomy','plan'],{windowsHide:true,encoding:'utf8',timeout:10000,maxBuffer:1024*1024,env});
+    const pre=credentialFreePreflight(plan);
     result.preflight={exit_code:pre.status,stdout:checkSurface('preflight stdout',pre.stdout),stderr:checkSurface('preflight stderr',pre.stderr)};save();
-    if(pre.status!==2||pre.error||!String(pre.stderr).includes('OPENROUTER_API_KEY is required')||terminal.discoverWorkspace(plan.data))throw Error('Offline credential-free startup preflight rejected');
+    if(pre.status!==2||pre.error||!String(pre.stderr).includes('provider credential access is disabled by VCP_DENY_PROVIDER_CREDENTIALS')||terminal.discoverWorkspace(plan.data))throw Error('Offline credential-free startup preflight rejected');
     if(result.failures.length)throw Error('Preflight sensitive-output check failed');
     // Atomic existing-campaign reservation is required immediately before the only paid launch.
     changeCampaign(plan.campaign,budget=>{
@@ -269,5 +274,5 @@ async function run(file, expected) {
   return {result:path.join(plan.directory,'result.json'),status:result.status,cost_status:result.cost_status,held_upper_bound_micros:result.held_upper_bound_micros};
 }
 
-module.exports={prepare,validate,run,credentialSurface,controlFrame,controlWriter};
+module.exports={prepare,validate,run,credentialSurface,controlFrame,controlWriter,credentialFreePreflight};
 if(require.main===module){(async()=>{const[command,file,extra,sourceProfile,...rest]=process.argv.slice(2);if(rest.length||!file||!extra||!['prepare','run'].includes(command)||(command==='prepare'&&!sourceProfile)||(command==='run'&&sourceProfile))throw Error('Usage: production-interactive-qualification.cjs prepare <package-result.json> <new-private-dir> <private-source-profile.json> | run <plan.json> <exact-plan-sha256>');const result=command==='prepare'?prepare(file,extra,sourceProfile):await run(file,extra);console.log(json(result));if(command==='run'&&result.status!=='observed')process.exitCode=1;})().catch(error=>{console.error(error.message);process.exitCode=1;});}

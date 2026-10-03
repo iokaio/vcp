@@ -17,6 +17,9 @@ pub(super) struct PendingRetry {
     pub count: u32,
     pub deadline: std::time::Instant,
     not_before: std::time::Instant,
+    /// Owner-approved failover is distinct from an ordinary pinned retry.
+    pub switch_owner_model: bool,
+    pub owner_excluded: std::collections::BTreeSet<vcp_models::routing::ModelEndpoint>,
 }
 struct Ready {
     #[cfg(windows)]
@@ -206,7 +209,7 @@ impl Context {
     fn validate_ready(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         #[cfg(windows)]
         self.validate_continuity_ready(binding)?;
-        self.validate_ready_context(binding, ready)
+        self.validate_ready_context(binding, ready, true)
     }
     fn validate_retry_sources(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
         // Reservation/failure accounting makes the prior dynamic facts stale.
@@ -214,26 +217,27 @@ impl Context {
         // facts and a fresh handoff before the next reservation is created.
         #[cfg(windows)]
         self.validate_continuity_sources(binding)?;
-        self.validate_ready_context(binding, ready)
+        self.validate_ready_context(binding, ready, false)
     }
-    fn validate_ready_context(&self, binding: &ThreadBinding, ready: &Ready) -> Result<()> {
+    fn validate_ready_context(
+        &self,
+        binding: &ThreadBinding,
+        ready: &Ready,
+        admitting: bool,
+    ) -> Result<()> {
         #[cfg(windows)]
         self.child_model_scope(binding, &ready.snapshot.compatibility.model)?;
         #[cfg(windows)]
         self.validate_skills(binding)?;
         if let Some(decision) = &ready.routing {
-            let current_catalog = crate::foundation::routing_state::current_registry(
-                self.engine.store(),
-                &self.routing_access(),
-            )
-            .map_err(|e| -> Failure { e.into() })?;
+            let current_catalog = self.current_routing_catalog()?;
             if self
                 .current_routing_policy()?
                 .as_ref()
                 .is_none_or(|policy| policy.id != decision.input.policy)
                 || current_catalog
                     .as_ref()
-                    .is_none_or(|registry| registry.value.catalog.id != decision.input.catalog)
+                    .is_none_or(|catalog| catalog.id != decision.input.catalog)
                 || decision.selected.as_ref().is_none_or(|selected| {
                     selected.model != ready.snapshot.compatibility.model
                         || selected.endpoint != ready.snapshot.compatibility.endpoint
@@ -241,26 +245,42 @@ impl Context {
             {
                 return Err("routing policy or selected endpoint changed before admission".into());
             }
-            let catalog = &current_catalog
-                .ok_or("routing catalog unavailable")?
-                .value
-                .catalog;
+            let catalog = &current_catalog.ok_or("routing catalog unavailable")?;
             let policy = self
                 .current_routing_policy()?
                 .ok_or("routing policy unavailable")?;
             let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
-            let available = Money {
-                currency: ledger.currency.clone(),
-                micros: Micros::new(
-                    ledger
-                        .cap
-                        .get()
-                        .saturating_sub(ledger.settled.get())
-                        .saturating_sub(ledger.active.get())
-                        .saturating_sub(ledger.unresolved.get()),
-                ),
+            let replay_owner_choice = !admitting
+                && self
+                    .routing
+                    .as_ref()
+                    .is_some_and(|runtime| !runtime.configuration.owner_assignments.is_empty());
+            let available = if replay_owner_choice {
+                // Only replay the preceding owner choice here. Its reservation
+                // is already active or unresolved; requiring it a second time
+                // can incorrectly block a cheaper in-set replacement. Retry
+                // selection and admission still check the current balance.
+                decision.input.available.clone()
+            } else {
+                Money {
+                    currency: ledger.currency.clone(),
+                    micros: Micros::new(
+                        ledger
+                            .cap
+                            .get()
+                            .saturating_sub(ledger.settled.get())
+                            .saturating_sub(ledger.active.get())
+                            .saturating_sub(ledger.unresolved.get()),
+                    ),
+                }
             };
-            decision.validate_selected_at(catalog, &policy, now(), available, ledger.protected)?;
+            self.revalidate_routing_selection(
+                decision,
+                catalog,
+                &policy,
+                available,
+                ledger.protected,
+            )?;
         }
         #[cfg(windows)]
         self.instruction_parents(binding)?;
@@ -575,20 +595,15 @@ impl Context {
                 let policy = self
                     .current_routing_policy()?
                     .ok_or("routing configuration missing at send fence")?;
-                let registry = crate::foundation::routing_state::current_registry(
-                    self.engine.store(),
-                    &self.routing_access(),
-                )
-                .map_err(|e| -> Failure { e.into() })?
-                .ok_or("routing registry missing at send fence")?;
-                if policy.id != decision.input.policy
-                    || registry.value.catalog.id != decision.input.catalog
-                {
+                let catalog = self
+                    .current_routing_catalog()?
+                    .ok_or("routing registry missing at send fence")?;
+                if policy.id != decision.input.policy || catalog.id != decision.input.catalog {
                     return Err("routing policy or catalog changed at send fence".into());
                 }
                 ready.snapshot.current(now())?;
                 if decision
-                    .selected_snapshot(&registry.value.catalog)?
+                    .selected_snapshot(&catalog)?
                     .is_none_or(|snapshot| snapshot != &ready.snapshot)
                 {
                     return Err("routing snapshot changed at send fence".into());
@@ -596,10 +611,10 @@ impl Context {
                 // The exact reservation is already active. Recheck expiring
                 // evidence using the recorded pre-reservation allocation;
                 // atomic budget admission owns the current money check.
-                decision.validate_selected_at(
-                    &registry.value.catalog,
+                self.revalidate_routing_selection(
+                    decision,
+                    &catalog,
                     &policy,
-                    now(),
                     decision.input.available.clone(),
                     decision.input.protected_verification,
                 )?;
@@ -695,6 +710,80 @@ impl Context {
         else {
             return Ok(None);
         };
+        let ready = self
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.active.get(&binding.scope.task))
+            .ok_or("retry source context missing")?;
+        let owner = self
+            .routing
+            .as_ref()
+            .filter(|runtime| !runtime.configuration.owner_assignments.is_empty());
+        let mut owner_excluded = if owner.is_some() {
+            ready
+                .routing
+                .as_ref()
+                .map(|decision| decision.input.excluded.clone())
+                .unwrap_or_default()
+        } else {
+            std::collections::BTreeSet::new()
+        };
+        let switch_owner_model = cfg!(windows)
+            && owner.is_some()
+            && matches!(
+                failure,
+                vcp_models::retry::Failure::RateLimit | vcp_models::retry::Failure::Transient
+            );
+        if switch_owner_model {
+            let decision = ready
+                .routing
+                .as_ref()
+                .ok_or("owner fallback requires a retained routing decision")?;
+            let failed = decision
+                .selected
+                .as_ref()
+                .ok_or("owner fallback requires an exact failed identity")?;
+            owner_excluded.insert(failed.clone());
+            let assigned = owner
+                .into_iter()
+                .flat_map(|runtime| &runtime.configuration.owner_assignments)
+                .find(|assignment| assignment.role == binding.role)
+                .map(|assignment| assignment.candidates.as_slice())
+                .unwrap_or(&[]);
+            let catalog = self
+                .current_routing_catalog()?
+                .ok_or("owner fallback catalog missing")?;
+            let policy = self
+                .current_routing_policy()?
+                .ok_or("owner fallback policy missing")?;
+            let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+            let mut input = decision.input.clone();
+            input.now = now;
+            input.retry_pin = None;
+            input.excluded = owner_excluded.clone();
+            input.catalog = catalog.id.clone();
+            input.policy = policy.id.clone();
+            // A failed submitted request is never treated as free. Moving its
+            // active reservation to unknown liability preserves this balance.
+            input.available = Money {
+                currency: ledger.currency.clone(),
+                micros: Micros::new(
+                    ledger
+                        .cap
+                        .get()
+                        .saturating_sub(ledger.settled.get())
+                        .saturating_sub(ledger.active.get())
+                        .saturating_sub(ledger.unresolved.get()),
+                ),
+            };
+            input.protected_verification = ledger.protected;
+            if vcp_models::routing::select_owner_set(&catalog, &policy, &input, assigned)?
+                .selected
+                .is_none()
+            {
+                return Ok(None);
+            }
+        }
         let delay = Duration::from_millis(retry.not_before.get() - now.get());
         self.retain_unknown(
             binding,
@@ -708,7 +797,9 @@ impl Context {
             &canonical_bytes(&serde_json::json!({
                 "predecessor": attempt, "retry": count + 1, "failure": failure,
                 "not_before": retry.not_before, "deadline": policy.deadline,
-                "prior_liability_unresolved": true
+                "prior_liability_unresolved": true,
+                "owner_set_fallback": switch_owner_model,
+                "excluded_owner_endpoints": owner_excluded,
             }))?,
             "provider-retry/1",
         )?;
@@ -723,6 +814,8 @@ impl Context {
                     count: count + 1,
                     deadline,
                     not_before: std::time::Instant::now() + delay,
+                    switch_owner_model,
+                    owner_excluded,
                 },
             );
         Ok(Some(delay))

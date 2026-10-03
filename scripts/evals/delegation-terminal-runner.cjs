@@ -410,7 +410,7 @@ function invokeCanonical(executable, args, cwd, timeout = 15000) {
 }
 
 function withoutProviderCredential() {
-  const env = {...process.env, RUST_MIN_STACK};
+  const env = {...process.env, RUST_MIN_STACK, VCP_DENY_PROVIDER_CREDENTIALS: '1'};
   for (const key of Object.keys(env)) {
     if (key.toUpperCase() === 'OPENROUTER_API_KEY') delete env[key];
   }
@@ -467,7 +467,7 @@ function preflight(file, authorization, call = spawnSync) {
     result.accepted_profile = execution.status === 2
       && !result.error
       && inert
-      && text.includes('OPENROUTER_API_KEY is required')
+      && text.includes('provider credential access is disabled by VCP_DENY_PROVIDER_CREDENTIALS')
       && !text.includes('profile resource or acceptance bounds rejected')
       && final?.scope == null
       && final?.exit_code === 2

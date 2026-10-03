@@ -336,6 +336,64 @@ fn excluded(decision: &RoutingDecision, model: &str, reason: Exclusion) {
 }
 
 #[test]
+fn owner_order_is_real_selection_without_inventing_quality_and_stays_inside_set() {
+    let mut first = candidate("first", Group::Low, 9000, 5, "0.000003");
+    let mut second = candidate("second", Group::Low, 9000, 5, "0.000001");
+    let outsider = candidate("outsider", Group::Low, 10000, 1, "0");
+    first.memberships.clear();
+    first.compatibility.clear();
+    second.memberships.clear();
+    second.compatibility.clear();
+    let order = vec![first.identity.clone(), second.identity.clone()];
+    let (catalog, policy, mut input) = setup(vec![first, second, outsider]);
+    let choice = select_owner_set(&catalog, &policy, &input, &order).unwrap();
+    assert_eq!(choice.selected, Some(order[0].clone()));
+    assert_eq!(choice.candidates[0].quality_bps, None);
+    assert_eq!(choice.candidates[0].samples, None);
+    excluded(&choice, "outsider", Exclusion::PinRestricted);
+    // Empirical optimizer still requires empirical evidence.
+    excluded(
+        &select(&catalog, &policy, &input).unwrap(),
+        "first",
+        Exclusion::MissingRoleEvidence,
+    );
+    input.excluded.insert(order[0].clone());
+    assert_eq!(
+        select_owner_set(&catalog, &policy, &input, &order)
+            .unwrap()
+            .fallback_from,
+        Some(order[0].clone())
+    );
+    assert_eq!(
+        select_owner_set(&catalog, &policy, &input, &order)
+            .unwrap()
+            .selected,
+        Some(order[1].clone())
+    );
+    input.excluded.insert(order[1].clone());
+    assert!(select_owner_set(&catalog, &policy, &input, &order)
+        .unwrap()
+        .selected
+        .is_none());
+    assert!(select_owner_set(&catalog, &policy, &input, &[])
+        .unwrap()
+        .selected
+        .is_none());
+    input.excluded.clear();
+    input.available = money(1);
+    let denied = select_owner_set(&catalog, &policy, &input, &order).unwrap();
+    assert!(denied.selected.is_none());
+    excluded(&denied, "first", Exclusion::Budget);
+    input.available = money(10000);
+    input.now = Timestamp::new(1001);
+    excluded(
+        &select_owner_set(&catalog, &policy, &input, &order).unwrap(),
+        "first",
+        Exclusion::StaleSnapshot,
+    );
+}
+
+#[test]
 fn explicit_reasoning_effort_filters_unqualified_endpoints_without_relaxing_a_pin() {
     use vcp_models::reasoning::Effort;
     let cheap = candidate("cheap", Group::Low, 9000, 5, "0.000001");

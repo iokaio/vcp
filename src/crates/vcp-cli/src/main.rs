@@ -50,7 +50,7 @@ async fn run() -> std::process::ExitCode {
                 error.kind(),
                 clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
             );
-            eprint!("{error}");
+            let _ = error.print();
             if help {
                 return std::process::ExitCode::SUCCESS;
             }

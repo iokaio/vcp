@@ -192,6 +192,9 @@ pub async fn execute(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Configuration {
+    /// Explicit owner assignments, distinct from empirical optimizer rankings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owner_assignments: Vec<OwnerAssignment>,
     /// Explicit local policy only; absence preserves ordinary fixed selection.
     #[serde(default)]
     pub escalation: Option<vcp_models::escalation::Policy>,
@@ -203,8 +206,42 @@ pub struct Configuration {
     /// strings preserve the digest of the observed JSON, including whitespace.
     pub raw_catalogs: BTreeMap<String, String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerAssignment {
+    pub role: vcp_domain::accounting::RequestRole,
+    /// Primary first, then finite owner-approved fallback identities.
+    pub candidates: Vec<vcp_models::routing::ModelEndpoint>,
+}
 impl Configuration {
     pub fn validate(&self) -> Result<(), String> {
+        if !self.owner_assignments.is_empty() && self.escalation.is_some() {
+            return Err("owner model assignments cannot use empirical optimizer escalation".into());
+        }
+        if self.owner_assignments.len() > 8 {
+            return Err("owner role assignment count exceeded".into());
+        }
+        for (index, assignment) in self.owner_assignments.iter().enumerate() {
+            if self.owner_assignments[..index]
+                .iter()
+                .any(|other| other.role == assignment.role)
+                || assignment.candidates.is_empty()
+                || assignment.candidates.len() > 32
+                || assignment
+                    .candidates
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != assignment.candidates.len()
+                || assignment
+                    .candidates
+                    .iter()
+                    .any(|identity| self.catalog.snapshot(identity).is_none())
+            {
+                return Err("invalid owner model role assignment".into());
+            }
+        }
         self.catalog.validate().map_err(|e| e.to_string())?;
         self.policy.validate().map_err(|e| e.to_string())?;
         if let Some(policy) = &self.escalation {

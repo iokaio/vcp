@@ -1491,7 +1491,7 @@ async fn executable_startup_chooser_waits_for_explicit_selection_and_allows_blan
     let first = fixture.paused_before_send("Older chooser objective").await;
     let second = fixture.paused_before_send("Newest chooser objective").await;
     for choose in [false, true] {
-        let mut child = fixture.terminal_args(&[]).await;
+        let mut child = fixture.terminal_args(&["workspace", "discover"]).await;
         let writer = child.session.writer_sender();
         let (display, mut observed) = tokio::sync::watch::channel(String::new());
         let output = tokio::spawn(async move {
@@ -1575,7 +1575,7 @@ async fn executable_startup_discovers_paused_roots_and_rejects_stale_selection_w
         .paused_before_send("Second unfinished objective")
         .await;
     assert_ne!(first, second);
-    let mut command = fixture.command(&[]);
+    let mut command = fixture.command(&["workspace", "discover"]);
     command.env_remove("OPENROUTER_API_KEY");
     let startup = tokio::task::spawn_blocking(move || command.output().unwrap())
         .await
@@ -1624,18 +1624,18 @@ async fn executable_missing_or_replaced_root_requires_reconciliation_without_dis
     let task = fixture
         .paused_before_send("Preserve this moved workspace")
         .await;
-    let original = records(&fixture.run(&[]).await);
+    let original = records(&fixture.run(&["workspace", "discover"]).await);
     let workspace_id = original[0]["data"]["workspace"]
         .as_str()
         .unwrap()
         .to_owned();
     let moved = fixture._temp.path().join("moved-workspace");
     fs::rename(&fixture.workspace, &moved).unwrap();
-    let missing = fixture.run(&[]).await;
+    let missing = fixture.run(&["workspace", "discover"]).await;
     assert_eq!(missing.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&missing.stderr).contains("rebind"));
     fs::create_dir(&fixture.workspace).unwrap();
-    let replacement = fixture.run(&[]).await;
+    let replacement = fixture.run(&["workspace", "discover"]).await;
     assert_eq!(replacement.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&replacement.stderr).contains("rebind"));
     assert_eq!(fs::read_to_string(moved.join("value.txt")).unwrap(), "41\n");
@@ -1660,7 +1660,7 @@ async fn executable_missing_or_replaced_root_requires_reconciliation_without_dis
     assert_eq!(result["trust"], "untrusted");
     assert_eq!(result["history_preserved"], true);
     assert_eq!(result["tasks_resumed"], false);
-    let startup = fixture.run(&[]).await;
+    let startup = fixture.run(&["workspace", "discover"]).await;
     assert_eq!(
         startup.status.code(),
         Some(0),
@@ -1729,7 +1729,7 @@ async fn executable_resume_last_skips_a_newer_completed_root() {
     let completed_values = records(&completed);
     assert_ne!(completed_values.last().unwrap()["scope"]["task"], paused);
     let before = count.load(Ordering::SeqCst);
-    let startup = fixture.run(&[]).await;
+    let startup = fixture.run(&["workspace", "discover"]).await;
     assert_eq!(startup.status.code(), Some(0));
     let startup_values = records(&startup);
     let candidates = startup_values[0]["data"]["candidates"].as_array().unwrap();

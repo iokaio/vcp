@@ -285,10 +285,34 @@ async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, Strin
 }
 
 pub async fn run(cli: Cli) -> Result<u8, String> {
-    if let Some(crate::args::Command::Setup { command }) = &cli.command {
+    if cli.command.is_none() {
+        return crate::setup_wizard::first_launch(&cli).await;
+    }
+    if let Some(crate::args::Command::Models { command }) = &cli.command {
+        if command.is_none() && crate::setup_wizard::interactive(&cli) {
+            return crate::setup_wizard::models(&cli);
+        }
         return command_result(
             cli.format,
-            crate::onboarding::execute(command, &cli.workspace, cli.config.as_deref()).await?,
+            crate::model_preferences::execute(command.as_ref(), &cli.workspace).await?,
+        );
+    }
+    if let Some(crate::args::Command::Setup { command }) = &cli.command {
+        let Some(command) = command else {
+            return crate::setup_wizard::run(&cli).await;
+        };
+        if let crate::onboarding::Command::Credential { command } = command {
+            return command_result(cli.format, crate::setup_wizard::credential(command, &cli)?);
+        }
+        return command_result(
+            cli.format,
+            crate::onboarding::execute(
+                command,
+                &cli.workspace,
+                cli.config.as_deref(),
+                crate::setup_wizard::interactive(&cli),
+            )
+            .await?,
         );
     }
     if let Some(crate::args::Command::Config {
@@ -377,12 +401,8 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
         )
     );
     let profile = if needs_profile {
-        Some(settings::load(
-            &cli.config
-                .clone()
-                .unwrap_or_else(|| data.join("profile.json")),
-            &workspace,
-        ).map_err(|error| format!("{error}; choose the matching --config for this workspace, or run vcp setup profile --help for first-run setup"))?)
+        Some(crate::model_preferences::load_for_command(&cli, &data, &directory, &workspace).await
+            .map_err(|error| format!("{error}; choose the matching --config for this workspace, or run vcp setup to configure a project"))?)
     } else {
         None
     };

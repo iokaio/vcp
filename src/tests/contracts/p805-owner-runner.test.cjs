@@ -9,6 +9,21 @@ const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 function temporary(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-p805-runner-test-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
 function budget(){return {schema:'p7-p8-owner-campaign/1',cap_micros:100000000,settled_micros:1278161,reserved_micros:34127269,models:['qwen/qwen3.8-max-0902'],runs:[]};}
 
+test('credential-free command denies inherited aliases before any reserved launch',async()=>{
+  const command={program:'synthetic-vcp.exe',args:['--non-interactive','run','synthetic task']};
+  const inherited={LOCALAPPDATA:'synthetic-account',MY_ROUTER_KEY:'synthetic-alias',OPENROUTER_API_KEY:'synthetic-default',openrouter_api_key:'synthetic-mixed-case',VCP_DENY_PROVIDER_CREDENTIALS:'0'};
+  const before={...inherited};let calls=0;
+  const expected={status:2,error:null,stderr:'provider credential access is disabled by VCP_DENY_PROVIDER_CREDENTIALS'};
+  const result=await runner.credentialFreeCommand(command,(program,args,timeout,env)=>{
+    calls++;assert.equal(program,command.program);assert.deepEqual(args,command.args);assert.equal(timeout,10000);
+    assert.equal(env.VCP_DENY_PROVIDER_CREDENTIALS,'1');
+    assert.equal(env.MY_ROUTER_KEY,'synthetic-alias');assert.equal(env.LOCALAPPDATA,'synthetic-account');
+    assert.equal(Object.keys(env).some(key=>key.toUpperCase()==='OPENROUTER_API_KEY'),false);
+    return Promise.resolve(expected);
+  },inherited);
+  assert.equal(calls,1);assert.deepEqual(result,expected);assert.deepEqual(inherited,before);
+});
+
 test('repeated frozen-input audit rejects changed dispatch inputs but permits completed workspace edits',t=>{
   const root=temporary(t),packageRoot=path.join(root,'package');fs.mkdirSync(packageRoot);
   const put=(name,bytes)=>{const file=path.join(root,name);fs.writeFileSync(file,bytes);return file;};

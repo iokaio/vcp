@@ -443,7 +443,7 @@ async fn final_installed_launcher_console_cancellation_preserves_both_stores() {
                 report["cases"][row_index]["status"] = json!("fail");
                 report["cases"][row_index]["fixture_root"] = json!(private);
                 report["cases"][row_index]["command"] = json!({"executable":executable,
-                    "arguments":["--workspace",fixture.workspace,"--data-dir",fixture.data]});
+                    "arguments":["--workspace",fixture.workspace,"--data-dir",fixture.data,"workspace","discover"]});
                 save(&result, &report);
                 let observation = launcher_console::run_broker(&input_path).await;
                 match &observation {

@@ -67,8 +67,7 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
         || value.observed_at > observed_at
         || value.valid_until <= value.observed_at
         || compatibility.valid_until < value.valid_until
-        || !compatibility.responses_text_tools
-        || !compatibility.provider_preferences_qualified
+        || !crate::catalog::compatibility::admitted(compatibility)
         || (!compatibility.qualified_reasoning_efforts.is_empty()
             && !compatibility.required_parameters.contains("reasoning"))
         || value.context == Units::ZERO
@@ -87,6 +86,11 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
         ));
     }
     crate::catalog::usd_micros(&compatibility.request_price_limit)?;
+    crate::catalog::compatibility::metadata_window(
+        compatibility,
+        value.observed_at,
+        value.valid_until,
+    )?;
     let digest = value.identity_digest()?;
     let capability = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(compatibility)?);
     if value.id != digest || value.price.capability != capability {

@@ -39,10 +39,15 @@ pub struct Cli {
 }
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Explicit first-run profile creation and accounted provider metadata renewal.
+    /// Revisit account setup, or use explicit provider and profile commands.
     Setup {
         #[command(subcommand)]
-        command: crate::onboarding::Command,
+        command: Option<crate::onboarding::Command>,
+    },
+    /// Inspect or change model sets for future tasks.
+    Models {
+        #[command(subcommand)]
+        command: Option<crate::model_preferences::Command>,
     },
     /// Preview and apply explicit foreign configuration subsets without inference.
     #[cfg(windows)]
@@ -125,6 +130,8 @@ pub enum Command {
 }
 #[derive(Debug, Subcommand)]
 pub enum WorkspaceCommand {
+    /// Inspect unfinished tasks and explicitly choose one to resume.
+    Discover,
     Trust {
         #[arg(value_parser=workspace_id)]
         workspace_id: WorkspaceId,
@@ -298,7 +305,8 @@ impl ValidatedCli {
 }
 
 pub enum ValidatedCommand {
-    Setup(crate::onboarding::Command),
+    Setup(Option<crate::onboarding::Command>),
+    Models(Option<crate::model_preferences::Command>),
     #[cfg(windows)]
     ConfigImport(crate::config_import::Command),
     WorkspaceTrust {
@@ -344,6 +352,7 @@ impl Cli {
             None => ValidatedCommand::Discover,
             Some(command) => match command {
                 Command::Setup { command } => ValidatedCommand::Setup(command),
+                Command::Models { command } => ValidatedCommand::Models(command),
                 #[cfg(windows)]
                 Command::Config {
                     command: crate::config_import::ConfigCommand::Import { command },
@@ -351,6 +360,9 @@ impl Cli {
                 Command::Doctor(request) => ValidatedCommand::Doctor(request),
                 #[cfg(windows)]
                 Command::Restore(request) => ValidatedCommand::Restore(request),
+                Command::Workspace {
+                    command: WorkspaceCommand::Discover,
+                } => ValidatedCommand::Discover,
                 Command::Workspace {
                     command:
                         WorkspaceCommand::Trust {

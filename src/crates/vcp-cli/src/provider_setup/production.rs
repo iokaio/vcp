@@ -43,7 +43,7 @@ fn selection(request: &Provider) -> Result<()> {
     Ok(())
 }
 
-fn client() -> Result<reqwest::Client> {
+pub(super) fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())
@@ -53,7 +53,11 @@ fn client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-async fn get(client: &reqwest::Client, url: reqwest::Url, key: Option<&str>) -> Result<Vec<u8>> {
+pub(super) async fn get(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    key: Option<&str>,
+) -> Result<Vec<u8>> {
     let mut request = client.get(url);
     if let Some(key) = key {
         request = request.bearer_auth(key);
@@ -84,32 +88,32 @@ async fn get(client: &reqwest::Client, url: reqwest::Url, key: Option<&str>) -> 
     Ok(bytes)
 }
 
-fn fresh_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn fresh_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     Ok(())
 }
 
-/// The credential comes only from the process environment; it is never a field
-/// in the persisted authorization spec. Every inference attempt uses the owner
+/// The credential uses the shared attended/automation resolver; it is never a
+/// field in the persisted authorization spec. Every inference attempt uses the owner
 /// ledger and retains unresolved liability on failure or interruption.
 pub async fn run(
     request: &Provider,
     workspace: &Path,
+    interactive: bool,
 ) -> std::result::Result<serde_json::Value, String> {
     selection(request).map_err(|e| e.to_string())?;
-    let key = credential()?;
-    let result = run_with(request, workspace, &key, "https://openrouter.ai/api/v1").await;
+    let key = crate::credential::require(interactive)?;
+    let result = run_with(
+        request,
+        workspace,
+        key.expose(),
+        "https://openrouter.ai/api/v1",
+    )
+    .await;
     // Do not pass arbitrary transport or provider error text to terminal logs.
-    result.map_err(|error| error.to_string().replace(&key, "[redacted]"))
-}
-
-fn credential() -> std::result::Result<String, String> {
-    std::env::var("OPENROUTER_API_KEY")
-        .ok()
-        .filter(|key| !key.is_empty() && key.len() <= 16384 && !key.chars().any(char::is_control))
-        .ok_or_else(|| "supply OPENROUTER_API_KEY through a masked prompt or credential manager in this process; never use command arguments".into())
+    result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
 }
 
 /// Resume receipt retrieval after delayed metadata, without repeating a model
@@ -117,10 +121,17 @@ fn credential() -> std::result::Result<String, String> {
 pub async fn complete(
     directory: &Path,
     workspace: &Path,
+    interactive: bool,
 ) -> std::result::Result<serde_json::Value, String> {
-    let key = credential()?;
-    let result = complete_with(directory, workspace, &key, "https://openrouter.ai/api/v1").await;
-    result.map_err(|error| error.to_string().replace(&key, "[redacted]"))
+    let key = crate::credential::require(interactive)?;
+    let result = complete_with(
+        directory,
+        workspace,
+        key.expose(),
+        "https://openrouter.ai/api/v1",
+    )
+    .await;
+    result.map_err(|error| error.to_string().replace(key.expose(), "[redacted]"))
 }
 
 async fn complete_with(

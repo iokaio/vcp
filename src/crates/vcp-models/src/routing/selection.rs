@@ -165,6 +165,7 @@ fn evaluate(
     catalog: &CatalogRevision,
     policy: &Policy,
     input: &RoutingInput,
+    owner_selected: bool,
 ) -> CandidateDecision {
     let mut row = empty(candidate.identity.clone());
     if input
@@ -272,9 +273,10 @@ fn evaluate(
                 )
         })
         .collect();
-    if !observations
-        .iter()
-        .any(|observation| observation.state == State::Supported)
+    if !owner_selected
+        && !observations
+            .iter()
+            .any(|observation| observation.state == State::Supported)
     {
         row.exclusions.push(Exclusion::MissingLiveQualification);
     }
@@ -304,7 +306,9 @@ fn evaluate(
     {
         row.exclusions.push(Exclusion::ContextCapacity);
     }
-    if let Some((membership, evidence)) = role_evidence(candidate, policy, input, &mut row) {
+    if owner_selected {
+        row.assumptions.push("Explicit owner role assignment; no measured quality or live model qualification is claimed. Eligibility uses current provider compatibility and metadata.".into());
+    } else if let Some((membership, evidence)) = role_evidence(candidate, policy, input, &mut row) {
         row.group = Some(membership.group);
         row.quality_bps = Some(evidence.quality_bps);
         row.samples = Some(evidence.samples);
@@ -399,6 +403,33 @@ pub fn select(
     policy: &Policy,
     input: &RoutingInput,
 ) -> Result<RoutingDecision> {
+    select_inner(catalog, policy, input, None)
+}
+
+/// Explicit owner order is a preference, never empirical quality evidence.
+/// Every other capability, exact identity, privacy, context and budget gate
+/// still applies. An empty set denies dispatch; it never expands selection.
+pub fn select_owner_set(
+    catalog: &CatalogRevision,
+    policy: &Policy,
+    input: &RoutingInput,
+    ordered: &[ModelEndpoint],
+) -> Result<RoutingDecision> {
+    if ordered.len() > 32 || ordered.iter().collect::<BTreeSet<_>>().len() != ordered.len() {
+        return Err(Error::Protocol(
+            "owner model set bounds or duplicate identity",
+        ));
+    }
+    ordered.iter().try_for_each(ModelEndpoint::validate)?;
+    select_inner(catalog, policy, input, Some(ordered))
+}
+
+fn select_inner(
+    catalog: &CatalogRevision,
+    policy: &Policy,
+    input: &RoutingInput,
+    owner_order: Option<&[ModelEndpoint]>,
+) -> Result<RoutingDecision> {
     catalog.validate()?;
     policy.validate()?;
     input.validate()?;
@@ -424,7 +455,13 @@ pub fn select(
     let mut candidates: Vec<_> = catalog
         .entries
         .iter()
-        .map(|candidate| evaluate(candidate, catalog, policy, input))
+        .map(|candidate| {
+            let mut row = evaluate(candidate, catalog, policy, input, owner_order.is_some());
+            if owner_order.is_some_and(|order| !order.contains(&candidate.identity)) {
+                row.exclusions.push(Exclusion::PinRestricted);
+            }
+            row
+        })
         .collect();
     if let Some(pin) = &policy.pin {
         if !candidates.iter().any(|row| row.identity == pin.candidate) {
@@ -457,16 +494,43 @@ pub fn select(
             Preference::Capability,
         ]
     };
-    candidates.sort_by(|a, b| compare(a, b, &ordering));
+    candidates.sort_by(|a, b| {
+        if let Some(order) = owner_order {
+            b.exclusions
+                .is_empty()
+                .cmp(&a.exclusions.is_empty())
+                .then_with(|| {
+                    order
+                        .iter()
+                        .position(|id| id == &a.identity)
+                        .unwrap_or(usize::MAX)
+                        .cmp(
+                            &order
+                                .iter()
+                                .position(|id| id == &b.identity)
+                                .unwrap_or(usize::MAX),
+                        )
+                })
+                .then(a.identity.cmp(&b.identity))
+        } else {
+            compare(a, b, &ordering)
+        }
+    });
     let selected = candidates
         .first()
         .filter(|row| row.exclusions.is_empty())
         .map(|row| row.identity.clone());
-    let fallback_from = policy
-        .pin
-        .as_ref()
-        .filter(|pin| selected.as_ref().is_some_and(|id| id != &pin.candidate))
-        .map(|pin| pin.candidate.clone());
+    let fallback_from = owner_order
+        .and_then(|order| order.first())
+        .filter(|primary| selected.as_ref().is_some_and(|id| id != *primary))
+        .cloned()
+        .or_else(|| {
+            policy
+                .pin
+                .as_ref()
+                .filter(|pin| selected.as_ref().is_some_and(|id| id != &pin.candidate))
+                .map(|pin| pin.candidate.clone())
+        });
     let mut decision = RoutingDecision {
         schema_version: SCHEMA_VERSION,
         id: String::new(),

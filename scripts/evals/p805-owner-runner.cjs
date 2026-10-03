@@ -183,6 +183,14 @@ function currentSources(plan,base,row,context,verification,ids,call,capture) {
   if(!matched.length)throw Error('Current integrated source evidence unavailable');return matched;
 }
 
+// Apply denial independently of account-selected environment aliases. Never
+// reuse this environment for the separately reserved paid launch.
+function credentialFreeCommand(command,execute=bounded,inherited=process.env) {
+  const env={...inherited,VCP_DENY_PROVIDER_CREDENTIALS:'1'};
+  for(const key of Object.keys(env))if(key.toUpperCase()==='OPENROUTER_API_KEY')delete env[key];
+  return execute(command.program,command.args,10000,env);
+}
+
 async function run(file,expected) {
   const {plan,preparation}=validate(file,expected),secret=process.env.OPENROUTER_API_KEY;
   if(process.platform!=='win32'||!secret)throw Error('Native Windows and existing credential environment required');
@@ -200,11 +208,10 @@ async function run(file,expected) {
       frozenInputs(plan,file,expected);
       const reasons=profiles.fixedProfileReasons(parse(plan.source_profile),Date.now()+900000);if(reasons.length)throw Error(reasons.join('; '));
       preservation(row,preparation.git_executable,true);
-      const withoutCredential={...process.env};delete withoutCredential.OPENROUTER_API_KEY;
-      const backend=await bounded(row.backend_command.program,row.backend_command.args,10000,withoutCredential);capture('backend.json',backend);
+      const backend=await credentialFreeCommand(row.backend_command);capture('backend.json',backend);
       if(backend.status!==0||backend.error)throw Error('Backend selection failed before launch');
-      const preflight=await bounded(row.paid_command.program,row.paid_command.args,10000,withoutCredential);capture('credential-free.json',preflight);
-      if(preflight.status!==2||preflight.error||!preflight.stderr.includes('OPENROUTER_API_KEY is required'))throw Error('Credential-free exact profile preflight failed');
+      const preflight=await credentialFreeCommand(row.paid_command);capture('credential-free.json',preflight);
+      if(preflight.status!==2||preflight.error||!preflight.stderr.includes('provider credential access is disabled by VCP_DENY_PROVIDER_CREDENTIALS'))throw Error('Credential-free exact profile preflight failed');
       const workspaces=path.join(row.data,'workspaces');
       if(fs.existsSync(workspaces)&&fs.readdirSync(workspaces).some(name=>fs.existsSync(path.join(workspaces,name,'workspace.json'))))throw Error('Credential-free preflight unexpectedly accepted canonical work');
       if(leaked)throw Error('Credential exposure detected before paid launch');
@@ -254,5 +261,5 @@ async function run(file,expected) {
   result.status=result.stopped?'stopped':result.runs.every(r=>r.status==='automated-checks-passed-human-review-pending')?'human-review-pending':'failed';save();return result;
 }
 
-module.exports={validate,frozenInputs,preservation,changeCampaign,reserve,bounded,naturalAnswer,verificationEvidence,sourceManifest,currentSources,run};
+module.exports={validate,frozenInputs,preservation,changeCampaign,reserve,bounded,naturalAnswer,verificationEvidence,sourceManifest,currentSources,credentialFreeCommand,run};
 if(require.main===module){(async()=>{const [command,file,digest,...extra]=process.argv.slice(2);if(!['validate','run'].includes(command)||!file||!digest||extra.length)throw Error('Usage: p805-owner-runner.cjs validate|run <plan.json> <exact-plan-sha256>');if(command==='validate'){validate(path.resolve(file),digest);console.log(JSON.stringify({status:'validated',model_calls:0}));}else{const result=await run(path.resolve(file),digest);console.log(JSON.stringify({directory:path.dirname(file),status:result.status,runs:result.runs.length,actual_cost_micros:result.actual_cost_micros,unknown_upper_bound_micros:result.unknown_upper_bound_micros,human_acceptance:'pending'}));if(result.status!=='human-review-pending')process.exitCode=1;}})().catch(error=>{console.error(error.message);process.exitCode=1;});}

@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{accounting::*, Micros, Timestamp, Units};
 
 pub mod attribution;
+pub mod compatibility;
 
 /// Exact nonnegative decimal conversion, including bounded scientific notation.
 /// Returns millionths rounded upwards, never a floating-point money operation.
@@ -97,9 +98,10 @@ impl Snapshot {
         valid_until: Timestamp,
         compatibility: Compatibility,
     ) -> Result<Self> {
-        if !compatibility.responses_text_tools || !compatibility.provider_preferences_qualified {
+        if !compatibility::admitted(&compatibility) {
             return Err(Error::Capability("dated compatibility record"));
         }
+        compatibility::metadata_window(&compatibility, observed_at, valid_until)?;
         Self::metadata(raw, observed_at, valid_until, compatibility)
     }
     fn metadata(

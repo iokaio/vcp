@@ -89,7 +89,7 @@ async function run(specFile,destination,python,previousFile,selectedIds){
   if(new Set(spec.rows.map(r=>r.id)).size!==spec.rows.length||spec.rows.some(r=>!/^[-a-z0-9]+$/.test(r.id)))throw Error('Unique simple row IDs required');
   fs.mkdirSync(destination,{mode:0o700});
   const report={schema:'p805-integrated-history-result/1',status:'running',purpose:spec.purpose,model_calls:0,package_sha256:pkg.archive_sha256,executable_sha256:exeRow[0].sha256,spec_sha256:hash(specFile),runner_sha256:hash(__filename),oracle_sha256:hash(oracleFile),python_sha256:hash(python),rows:[],limitations:['Current-host disposable copies of actual owner roots; no machine handoff or clean-OS claim.','Whole-task retention oracle supports only fresh single-root history without prior redactions or complex memory/advisory lineage.','No 30-day boundary, cleanup kill, physical exhaustion, retained-cloud-copy deletion or active provider/delegated pause qualification.','Optimizer/skill inspection is not live routing, optimization policy apply/rollback, skill activation or MCP invocation.','No human quality judgment or final acceptance is recorded.']};
-  const secret=process.env.OPENROUTER_API_KEY;const env={...process.env};delete env.OPENROUTER_API_KEY;
+  const secret=process.env.OPENROUTER_API_KEY;const env={...process.env,VCP_DENY_PROVIDER_CREDENTIALS:'1'};delete env.OPENROUTER_API_KEY;
   if(previous)report.reused_observations={file:path.resolve(previousFile),sha256:previousHash,scope:'Completed history, default-no-delete, raw output and read-only inspections; retention is executed anew'};
   report.declared_rows=rows.map(row=>row.id);
   const reusedBindings=[];

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit configured server controls; text and schemas never grant authority.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 pub const HELP: &str = "/mcp list <server> | /mcp call <server> <tool> <identity-digest> <json-object> | /mcp resources <server> | /mcp read <server> <uri> <identity-digest> | /mcp prompts <server> | /mcp prompt <server> <name> <identity-digest> <json-object> | /mcp cached <server> <artifact-id> | /mcp disconnect <server>";
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Server {
     pub name: String,
@@ -19,7 +19,7 @@ pub struct Server {
 }
 
 /// Trusted per-user configuration contains references, never credential values.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HttpServer {
     pub name: String,
@@ -32,7 +32,7 @@ pub struct HttpServer {
     pub allowed_prompts: BTreeSet<String>,
     pub limits: vcp_extensions::mcp::registration::Limits,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CredentialSource {
     pub reference: String,

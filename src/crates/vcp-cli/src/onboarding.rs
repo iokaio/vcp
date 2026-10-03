@@ -13,6 +13,11 @@ use vcp_models::catalog::Snapshot;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Manage the optional per-user Windows Credential Manager entry.
+    Credential {
+        #[command(subcommand)]
+        command: CredentialCommand,
+    },
     /// Make at most two accounted provider calls and validate generation receipts.
     Provider(crate::provider_setup::production::Provider),
     /// Retrieve delayed generation receipts for a settled probe, without inference.
@@ -24,6 +29,18 @@ pub enum Command {
     Profile(Profile),
     /// Validate the selected profile, tools, budgets and expiry without inference.
     Check,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CredentialCommand {
+    /// Use the key in this named environment variable; its value is never saved.
+    Environment { name: String },
+    /// Enter an OpenRouter key with hidden console input and store it locally.
+    Store,
+    /// Report the credential source without displaying its value.
+    Status,
+    /// Remove only VCP's stored OpenRouter credential.
+    Remove,
 }
 
 #[derive(Debug, Args)]
@@ -55,6 +72,7 @@ pub async fn execute(
     command: &Command,
     workspace: &Path,
     config: Option<&Path>,
+    interactive: bool,
 ) -> Result<Value, String> {
     let workspace = workspace
         .canonicalize()
@@ -63,11 +81,14 @@ pub async fn execute(
         return Err("setup workspace must be a directory".into());
     }
     match command {
+        Command::Credential { .. } => {
+            Err("credential management requires the CLI terminal dispatcher".into())
+        }
         Command::Provider(request) => {
-            crate::provider_setup::production::run(request, &workspace).await
+            crate::provider_setup::production::run(request, &workspace, interactive).await
         }
         Command::ProviderComplete { directory } => {
-            crate::provider_setup::production::complete(directory, &workspace).await
+            crate::provider_setup::production::complete(directory, &workspace, interactive).await
         }
         Command::Profile(request) => create(request, &workspace),
         Command::Check => {
@@ -85,7 +106,7 @@ pub async fn execute(
                 json!({"status":"ready","workspace":workspace,"profile":path,
                 "valid_until":prepared.profile.provider.valid_until,
                 "canonical_tools":prepared.profile.canonical_tools,"checks":prepared.profile.checks.len(),
-                "processes":prepared.processes.len(),"credential_required":"OPENROUTER_API_KEY in process environment",
+                "processes":prepared.processes.len(),"credential_required":"configured OpenRouter environment variable, or opt-in Windows Credential Manager in an interactive terminal",
                 "model_calls":0,"trust_granted":prepared.profile.trust_workspace}),
             )
         }
