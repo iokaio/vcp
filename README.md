@@ -2,9 +2,9 @@
 
 VCP is an open-source local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. It includes a native Windows CLI, a TypeScript SDK and a VS Code extension, licensed under Apache 2.0.
 
-**Status: unsigned beta downloads available for manual testing.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
+**Status: signed beta downloads available for manual testing.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
 
-The next candidate, native **0.2.0-beta.2** with SDK/VSIX **0.2.2**, requires Ioka LLC code signatures through Azure Artifact Signing. Its build, installed qualification and owner acceptance are in progress under [ADR-076](docs/adr/076-signed-beta-qualification.md). The currently published beta.1 remains unsigned; new version declarations are not evidence that signed downloads are available.
+The next candidate uses **0.2.3** for the native app, Windows installer, SDK and VSIX. It remains an internal beta and requires Ioka LLC code signatures through Azure Artifact Signing. The published signed native **0.2.0-beta.2** and VSIX **0.2.2** retain their original identities; the source version bump does not publish new downloads or complete installed qualification and owner acceptance.
 
 ## What VCP does
 

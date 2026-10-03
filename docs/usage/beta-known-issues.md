@@ -1,10 +1,10 @@
 # Internal beta scope, known limitations and support
 
-This is an experimental Windows x64 beta. The next source version is
-`0.2.0-beta.2`; SDK and VSIX use `0.2.2`. Its channel requires timestamped
+This is an experimental Windows x64 beta. The native app, Windows installer,
+SDK and VSIX source versions are synchronized at `0.2.3`. Its channel requires timestamped
 Ioka LLC signatures on the native engine, launcher, setup and uninstaller.
-Signed candidate construction and qualification are in progress; the published
-native `0.2.0-beta.1` and VSIX `0.2.1` remain the earlier unsigned-native pair.
+The source version bump does not publish a new candidate or complete qualification.
+Earlier published candidates retain their original versions and evidence.
 The release-pair record and scorecard identify actual artifacts, signature checks
 and observed environment. GitHub downloads and the Marketplace listing are live;
 availability and code signing do not establish completed owner acceptance or

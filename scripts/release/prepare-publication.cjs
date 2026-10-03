@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 'use strict';
 const fs = require('node:fs'), path = require('node:path');
-const { fileHash, pairIdentity, releaseIdentity } = require('./provenance.cjs');
+const { fileHash, pairIdentity, releaseIdentity, validateReleaseVersions } = require('./provenance.cjs');
 const { stages } = require('./evidence.cjs');
 const repository = 'https://github.com/iokaio/vcp';
 const sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -139,8 +139,7 @@ function preparePublication(options) {
     build.source_content_sha256 === release.source_content_sha256 && build.target === release.target &&
     signing.payloadHashes(build, transformation).executable_sha256 === vsix.engine.executable_sha256 && same(build.release, release),
   'Production build/receipt binding mismatch');
-  check(typeof release.native_version === 'string' && /^\d+\.\d+\.\d+-beta\.\d+$/.test(release.native_version) &&
-    typeof release.vsix_version === 'string' && /^\d+\.\d+\.\d+$/.test(release.vsix_version), 'Invalid beta release version');
+  validateReleaseVersions(release, true);
   const tag = `v${release.native_version}-${pair.pair_id.slice(0, 12)}`;
   const href = name => `${repository}/releases/download/${tag}/${encodeURIComponent(name)}`;
   const artifacts = [

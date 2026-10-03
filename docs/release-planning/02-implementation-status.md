@@ -10,6 +10,14 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-04/06/07: the October 2 owner direction synchronizes the native app,
+Windows installer, SDK and VSIX at numeric version `0.2.3`. Current source
+admission requires matching numeric versions; the installer consumes the native
+channel version. Historical beta-suffixed packets and published artifacts retain
+their original identities. The internal-beta channel, signing policy and
+qualification requirements are unchanged. This version increment does not itself
+publish artifacts or establish installed-product acceptance.
+
 BETA-03C/D: the October 2 owner-approved follow-up implements reusable provider
 compatibility and optional-project account setup with balanced quality/cost
 defaults. The scoped contract and verification status are in

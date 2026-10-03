@@ -203,6 +203,10 @@ already include these changes; normal builds never apply patches.
     `0.2.0-beta.2`, for the same local package. External dependencies and
     retained upstream implementation remain unchanged.
 
+45. `0045-synchronized-product-version.patch` advances the local `vcp-cli`
+    package to `0.2.3`, matching the Windows installer, SDK and VSIX. External
+    dependencies and retained upstream implementation remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

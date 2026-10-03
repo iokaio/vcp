@@ -10,9 +10,10 @@ full release qualification and clean-host support remain incomplete.
 
 ## Install
 
-1. Download the matching native installer from [VCP beta downloads](https://downloads.ioka.io/).
+1. Obtain the matching 0.2.3 native installer from the candidate handoff, or from
+   [VCP beta downloads](https://downloads.ioka.io/) once published.
    This version requires the signed Ioka LLC native candidate. Check its release
-   record and signature; the previously published beta.1 is unsigned. PowerShell 7
+   record and signature. PowerShell 7
    and local NTFS paths are required.
 2. Install this Windows x64 pre-release extension, then run **VCP: Open Setup Guide**.
    Installing the extension does not install or update the native engine.
@@ -25,7 +26,8 @@ extension first, then install this one and reconnect explicitly. This is a new
 extension identity, not an automatic update. Keep your native installation,
 data directory and User settings; extension-local connection state does not migrate.
 
-VSIX/SDK 0.2.2 pairs with native 0.2.0-beta.2; candidate qualification is in progress.
+The native app, Windows installer, SDK and VSIX all use version 0.2.3;
+candidate qualification remains separate from this synchronized version.
 Use the exact pair and hashes in
 the download record; matching version numbers alone do not identify matching builds.
 Remote/WSL/container workspaces, ARM64, other operating systems and other VS Code
