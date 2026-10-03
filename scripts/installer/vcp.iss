@@ -37,13 +37,14 @@
   #define VcpAppId "VCP.InternalBeta.1"
 #endif
 #ifndef ProductName
-  #define ProductName "VCP Internal Beta"
+  #define ProductName "VCP Coding Agent Engine"
 #endif
 
 [Setup]
 AppId={#VcpAppId}
 AppName={#ProductName}
 AppVersion={#ProductVersion}
+AppVerName={#ProductName} {#ProductVersion}
 AppPublisher=Ioka LLC
 DefaultDirName={autopf}\VCP
 DefaultGroupName={#ProductName}
@@ -56,15 +57,13 @@ WizardStyle=modern
 DisableProgramGroupPage=yes
 DisableDirPage=no
 UninstallDisplayIcon={app}\vcp.exe
-#ifdef VcpSigned
 UninstallDisplayName={#ProductName} {#ProductVersion}
+#ifdef VcpSigned
 SignTool=vcp
 SignedUninstaller=yes
 SignedUninstallerDir={#SignedUninstallerRoot}
 SignToolRetryCount=0
 SignToolRunMinimized=yes
-#else
-UninstallDisplayName={#ProductName} {#ProductVersion} (unsigned)
 #endif
 CloseApplications=no
 RestartApplications=no

@@ -1,5 +1,14 @@
 # BETA-06 registered Windows setup
 
+The installer product name is **VCP Coding Agent Engine**. Its wizard and
+Windows installed-app entry show that name followed by the exact product
+version being installed, without channel or signing-status suffixes. The name
+also supplies the optional Start menu shortcut and executable product metadata.
+The stable `VCP.InternalBeta.1` application ID is retained for upgrade and
+uninstall continuity. Release-channel and signing requirements remain in the
+release records. This branding applies to the next candidate; existing
+published installer bytes retain their original labels.
+
 `scripts/build-setup.ps1` assembles the unsigned per-user Windows x64 setup from
 one strict native release result and its reviewed production build receipt. The
 receipt must bind both `vcp.exe` and the `vcp-launch.exe` launcher. The builder

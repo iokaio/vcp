@@ -10,6 +10,14 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-06 installer presentation: the October 3 owner direction changes the next
+installer's product name to **VCP Coding Agent Engine**, followed by the version
+being installed. Wizard and installed-app labels omit channel/signing suffixes;
+the stable application ID retains upgrade/uninstall continuity. Existing
+`0.2.4` downloads are unchanged. The next distributable candidate must increment
+all synchronized product versions under the build-version policy before it is
+compiled or signed. See [registered setup](../development/beta-setup.md).
+
 BETA-08/11 publication: the owner authorized building, signing and publishing
 the compatibility fix on October 2. [Candidate 37096239569/1](https://github.com/iokaio/vcp/actions/runs/37096239569/attempts/1)
 passed through `pair` from `53e4d16667eed318208037b63f0f77db804c57b5`, producing
