@@ -220,7 +220,8 @@ already include these changes; normal builds never apply patches.
     production build spent 517.1 seconds in the final engine compilation unit;
     the `0.2.11` candidate reduced that unit to 443.51 seconds and the complete
     production stage from 16m30s to 15m22s in one fresh comparison.
-    Other packages retain four codegen units, and thin LTO, optimization, debug
+    The global release setting remains four units; other package settings,
+    thin LTO, optimization, debug
     information and static CRT settings are unchanged. Both candidates passed
     23 bounded raw-executable smokes; full installed/runtime qualification is
     unrun. See the beta candidate guide for memory/size tradeoffs and evidence.

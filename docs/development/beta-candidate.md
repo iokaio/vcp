@@ -130,8 +130,9 @@ time saving; it does not establish reduced Rust compilation time.
 The [0.2.11 codegen observation](https://github.com/iokaio/vcp/actions/runs/37161917463)
 passed with a package-only release override of 16 codegen units for `vcp-cli`.
 Retain this override: production build/verification improved by 68s (6.9%) in the
-fresh comparison, and the final CLI unit improved by 73.59s (14.2%). Other packages
-retain four units; ThinLTO, optimization, debug information, static CRT and 16
+fresh comparison, and the final CLI unit improved by 73.59s (14.2%). The global
+release setting remains four units; other package settings, ThinLTO,
+optimization, debug information, static CRT and 16
 Cargo jobs remain unchanged. Both observations contained 1,359 units, identical
 recorded compiler/native-tool bytes and Rust flags; `codex-core` changed from
 180.11s to 179.60s. The new version restored both prior download stores through
