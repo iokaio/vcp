@@ -82,14 +82,28 @@ tickets. Continuation of a single task is exercised separately:
 Start `run-cli-scenarios.ps1`; no manual VCP commands or project scaffolding are needed.
 The launcher reads the installed CLI's effective model selection in the chosen project
 and reuses matching metadata from a registered project profile or completed account setup.
-It also recognizes existing provider generation directories. It does not run
-`setup provider`, repeat qualification, or change your configured provider.
+It also recognizes existing provider generation directories. Fresh metadata is reused
+without qualification. The configured provider selection is preserved.
 
 Both account metadata (`snapshot.json` plus `endpoints.json`) and qualified generations
 (`qualified\snapshot.json` plus `endpoints.json`) are supported. Metadata must still be
-unexpired; there is no additional five-hour minimum. If no usable matching metadata exists,
-the launcher stops with the reason and retains its discovery logs. It cannot renew expired
-metadata offline or silently authorize paid qualification.
+unexpired; there is no additional five-hour minimum. Expiry affects captured prices and
+capabilities, not the saved account credentials. Concurrent scenarios can reuse the same
+current metadata; starting another scenario does not invalidate it.
+
+When only expired, integrity-checked metadata is available, interactive Full mode offers
+renewal for the same model and endpoint. The default is No. Agreeing requires an explicit
+USD cap; `-RefreshBudgetUsd` supplies that authorization for a noninteractive launch.
+The installed CLI's `setup provider` command makes at most two paid qualification requests.
+The launcher reserves the entire refresh cap from `-MaxScenarioUsd` before starting the
+scenario, and requires enough remaining budget for a normal turn. It may call
+`setup provider-complete` once to retrieve delayed receipts without more inference.
+
+Renewal writes a new directory under this invocation's `setup` folder. It never modifies
+the account's selection, the expired files, or another running scenario's profiles.
+Authorization, budget allocation, command lines, output and failures are retained alongside
+the discovery evidence. DryRun does not renew or make inference requests. No usable
+matching metadata, declined renewal, or invalid evidence stops with an actionable error.
 
 `-ProviderGeneration` or `VCP_PROVIDER_GENERATION` is an optional explicit metadata-directory
 override, not a project directory. Normally leave it unset. `-OutputTokens` defaults to 8192
@@ -369,7 +383,10 @@ evidence, and an advisory continuation skip is not a successful resume test.
 Budget parameters accept at most two decimal places so the admission guard and rendered
 CLI dollar values agree; sub-cent values are rejected before paid execution.
 
-Provider qualification is a separate paid operation and is outside these ceilings.
+Launcher-authorized metadata renewal reserves its full cap from `-MaxScenarioUsd`; the
+remaining ceiling is passed to the child scenario. For example, a USD 1 refresh cap with
+a USD 30 total leaves USD 29 for scenario tasks, regardless of the actual probe charge.
+Qualification run manually outside the launcher has its own separately authorized cap.
 Settled ledger totals are cumulative per task: a resume contributes only newly observed
 spend. Missing, truncated or unresolved cost evidence causes conservative cap accounting
 until a later complete ledger for the same task reconciles it. Stage snapshots are advisory
@@ -816,6 +833,7 @@ These limitations need evidence from actual scenario runs:
 | `tests/BlockedExecution.Tests.ps1` | Stops further paid admission after approval/recovery blockers; preserves same-task deadline resumes and original repair instructions |
 | `tests/ProcessAuthorization.Tests.ps1` | Explicit process consent, default refusal, DryRun behavior and unchanged review/guardrail permissions |
 | `tests/ProviderReuse.Tests.ps1` | Offline configured-provider discovery and metadata reuse |
+| `tests/ProviderRefresh.Tests.ps1` | Same-provider renewal consent, budget reservation, immutable old metadata and failure evidence |
 | `tests/ProjectContext.Tests.ps1` | Offline project selection, seed preservation and git checkpoint isolation |
 | `tests/ProjectReuseAB.Tests.ps1` / `tests/ProjectReuseCD.Tests.ps1` | Offline scenario scaffold and fixture preservation |
 | `tests/CommandLog.Tests.ps1` | Offline regressions for exact command logging, failure evidence and result-path references |
@@ -836,6 +854,7 @@ pwsh -NoProfile -File docs/test-plans/tests/BlockedExecution.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProcessAuthorization.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderReuse.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProviderRefresh.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectContext.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectReuseAB.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectReuseCD.Tests.ps1
@@ -851,6 +870,7 @@ to check the installed CLI, configured provider metadata and actual scenario too
 | Parameter | Default | Meaning |
 |---|---|---|
 | `-ProviderGeneration` | installed metadata in launcher | Optional explicit metadata directory; individual scenario scripts require it |
+| `-RefreshBudgetUsd` | 0 (not authorized) | Launcher only: explicitly authorizes up to USD 25 for expired-metadata renewal; reserved from the total scenario ceiling; Full only |
 | `-ProjectPath` | stable scenario folder in launcher | Reuse an existing project or create it when absent |
 | `-AllowProcessPublish` | off; interactive Full asks | Explicitly authorizes publish capability needed by VCP's generic process tool; can authorize actual publishing, not only tests |
 | `-RunRoot` | `%SystemDrive%\vcp-scenarios` | Parent folder for run outputs |
