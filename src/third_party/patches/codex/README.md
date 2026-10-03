@@ -218,11 +218,13 @@ already include these changes; normal builds never apply patches.
 48. `0048-windows-cli-codegen.patch` adds an original VCP package override of
     sixteen release codegen units for `vcp-cli`. BETA-08's measured `0.2.10`
     production build spent 517.1 seconds in the final engine compilation unit;
-    the `0.2.11` candidate compares this bounded setting with the retained four.
+    the `0.2.11` candidate reduced that unit to 443.51 seconds and the complete
+    production stage from 16m30s to 15m22s in one fresh comparison.
     Other packages retain four codegen units, and thin LTO, optimization, debug
-    information and static CRT settings are unchanged. This is an experiment,
-    with no speedup or runtime-equivalence claim before measured construction
-    and final-byte checks. The retained Apache-2.0 terms remain unchanged.
+    information and static CRT settings are unchanged. Both candidates passed
+    23 bounded raw-executable smokes; full installed/runtime qualification is
+    unrun. See the beta candidate guide for memory/size tradeoffs and evidence.
+    The retained Apache-2.0 terms remain unchanged.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether

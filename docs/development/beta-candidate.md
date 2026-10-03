@@ -127,12 +127,41 @@ provisioning fell from 52s to 43s and cache restoration cost 7s instead of 1s.
 This single comparison demonstrates cache reuse, with only a small observed
 time saving; it does not establish reduced Rust compilation time.
 
-Candidate `0.2.11` tests a package-only release override of 16 codegen units for
-`vcp-cli`, targeting the measured final-binary bottleneck. Other packages retain
-four units; ThinLTO, optimization, debug information, static CRT and 16 Cargo jobs
-remain unchanged. Preserve the versioned `0.2.10` evidence and use a fresh target
-for this experiment. Retain the override only after measured construction and
-focused final-executable behavior checks; installed qualification remains unrun.
+The [0.2.11 codegen observation](https://github.com/iokaio/vcp/actions/runs/37161917463)
+passed with a package-only release override of 16 codegen units for `vcp-cli`.
+Retain this override: production build/verification improved by 68s (6.9%) in the
+fresh comparison, and the final CLI unit improved by 73.59s (14.2%). Other packages
+retain four units; ThinLTO, optimization, debug information, static CRT and 16
+Cargo jobs remain unchanged. Both observations contained 1,359 units, identical
+recorded compiler/native-tool bytes and Rust flags; `codex-core` changed from
+180.11s to 179.60s. The new version restored both prior download stores through
+the platform/tool-scoped fallback and saved new exact lock keys.
+
+| Observation | `0.2.10`, CLI units 4 | `0.2.11`, CLI units 16 |
+| --- | ---: | ---: |
+| Complete production stage | 16m30s | 15m22s |
+| Cargo supervision elapsed | 944s | 878s |
+| Final `vcp` unit | 517.10s | 443.51s |
+| Job CPU seconds | 8,341.9 | 8,669.4 |
+| Peak committed memory | 13.61 GiB | 14.97 GiB |
+| Engine bytes | 205,189,632 | 206,815,744 |
+| Launcher bytes | 7,425,536 | 7,428,608 |
+
+The tradeoff was 3.9% more CPU time, 1.36 GiB more peak committed memory and a
+0.8% larger engine. This is one comparison on the 16-processor runner pool,
+not a repeated performance qualification. Its stable binary-unit report does
+not separate frontend/codegen/link time, so it does not prove which subphase
+improved. Preserve both versioned candidate packets.
+
+All 72 SHA-256 entries in each production packet and all 56 entries in the warm
+packet verified after download. Actual engine/launcher version probes agreed
+with `0.2.10` and `0.2.11`. Each version passed the same 23 bounded raw-executable
+smokes: help/version, doctor, empty-history reads/refusals, Files/SQLite future
+backend preferences, configuration/path refusals and private synthetic launcher
+selection, forwarding and tamper refusal. Original executable bytes remained
+unchanged. These smokes used no provider operations, registered installation or
+existing user state; they do not qualify populated canonical stores, active-task
+cancellation, runtime throughput, signed setup/VSIX or installed editor behavior.
 
 The orchestrator is also available for a controlled Windows builder after the
 three npm development lockfiles have been installed:
