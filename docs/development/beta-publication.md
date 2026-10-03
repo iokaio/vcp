@@ -2,6 +2,48 @@
 
 ## Current signed beta publication
 
+The October 3 CLI scenario fixes and complete test plans were merged in
+[PR #356](https://github.com/iokaio/vcp/pull/356). The owner authorized the next
+synchronized build and release. Native, installer, SDK and VSIX versions were
+incremented to `0.2.5` before compilation, with lockfiles and generated provenance.
+[Main Delivery checks](https://github.com/iokaio/vcp/actions/runs/37140144115)
+passed, followed by [candidate 37140357261/1](https://github.com/iokaio/vcp/actions/runs/37140357261/attempts/1)
+through the signed `pair` checkpoint.
+[Publication 37143014091](https://github.com/iokaio/vcp/actions/runs/37143014091)
+passed Release and Pages, publishing the unchanged candidate bytes as
+[0.2.5](https://github.com/iokaio/vcp/releases/tag/v0.2.5-26e08e9be854).
+
+- Reviewed source: `59eaea1f3bad310269d4b6cb2120a59f5547515a`.
+- Pair: `26e08e9be854c0769159bb1cbc8c1fbef240bcbe9b10184c76b04d04b2c3ad78`.
+- Changes and failure evidence: [A run investigation](../test-plans/run-review-20261003-092744.md).
+- Validation before packaging: all 15 offline scenario regression scripts, 167 CLI
+  library tests, five native lifecycle verification tests, 35 SDK tests, 165 extension
+  tests, the full fast suite and all four ordinary CI jobs.
+- Packet admission, actual engine/launcher versions, installer ProductVersion,
+  VSIX manifest and bundled SDK all passed at `0.2.5`; the VS Code range remains
+  `^1.138.0`. All four timestamped Ioka LLC Authenticode signatures passed.
+
+Local evidence: `artifacts/local-candidate/signed-0.2.5-37140357261/local-verification/local-verification.json`.
+The original packet and prepared public assets are retained in sibling `packet/`
+and `verified/` directories.
+The signed binary's `setup provider-refresh --help` and `inspect-bundle --help`
+both exited 0 in an isolated environment with inherited provider credentials cleared.
+Literal commands and result paths are in `local-verification/command-verification/vcp-commands.log`;
+structured results and retained output are alongside it. No inference or installation ran.
+
+Public verification passed over ordinary HTTPS: all five GitHub assets matched
+the prepared hashes and sizes, `downloads.ioka.io/latest.json` matched the release
+manifest, and the homepage matched the rendered release page exactly. Evidence:
+`artifacts/beta-delivery/public-verification-37143014091/verification.json` and
+`artifacts/beta-delivery/public-verification-37143014091/asset-verification.json`.
+
+This remains a limited beta: later native-boundaries, installed-native and
+installed-editor pipeline stages were explicitly unrun. A full paid scenario A
+rerun, clean-host qualification and Marketplace publication are not established
+by this candidate. Existing account configuration and installed VCP were preserved.
+
+## Historical signed 0.2.4 publication
+
 The owner authorized building, signing and publishing synchronized `0.2.4`
 artifacts, including the VS Code compatibility correction. The
 [candidate run 37096239569](https://github.com/iokaio/vcp/actions/runs/37096239569/attempts/1)
@@ -32,7 +74,7 @@ provider task. Successful Marketplace publication and exact public package
 verification are recorded separately
 in [Marketplace publication](marketplace-publication.md).
 
-[downloads.ioka.io](https://downloads.ioka.io/) serves this release over HTTPS
+At publication, [downloads.ioka.io](https://downloads.ioka.io/) served this release over HTTPS
 with normal certificate validation. All five public assets matched the prepared
 SHA-256 hashes and sizes; public HTML matched the renderer exactly, and
 `latest.json` matched the release manifest. Prior releases remain unchanged.

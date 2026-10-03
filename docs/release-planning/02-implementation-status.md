@@ -10,21 +10,37 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
-BETA-06 installer presentation: the October 3 owner direction changes the next
-installer's product name to **VCP Coding Agent Engine**, followed by the version
+BETA-03C/P2-06/P3-03 and CLI test-plan maintenance: the October 3 owner authorized
+the scenario A runtime fixes, complete test scripts/documentation and the next
+build/release. [PR #356](https://github.com/iokaio/vcp/pull/356) merged with all four
+ordinary CI jobs passing, including all 15 offline scenario regressions.
+[Candidate 37140357261/1](https://github.com/iokaio/vcp/actions/runs/37140357261/attempts/1)
+passed through signed `pair` on `59eaea1f3bad310269d4b6cb2120a59f5547515a` after
+successful main Delivery checks. Actual engine, launcher, installer, VSIX and
+bundled SDK versions match synchronized `0.2.5`; all four signatures and full
+packet admission passed. New command help probes passed with literal command logs.
+[Publication 37143014091](https://github.com/iokaio/vcp/actions/runs/37143014091)
+passed Release and Pages; downloads now select signed `0.2.5` from pair
+`26e08e9be854c0769159bb1cbc8c1fbef240bcbe9b10184c76b04d04b2c3ad78`.
+See [publication evidence](../development/beta-publication.md) and the
+[A failure investigation](../test-plans/run-review-20261003-092744.md).
+Full paid A, installed-system and clean-host qualification remain unrun.
+
+BETA-06 installer presentation: the October 3 owner direction changes the
+`0.2.5` installer's product name to **VCP Coding Agent Engine**, followed by the version
 being installed. Wizard and installed-app labels omit channel/signing suffixes;
 the stable application ID retains upgrade/uninstall continuity. Existing
-`0.2.4` downloads are unchanged. The next distributable candidate must increment
-all synchronized product versions under the build-version policy before it is
-compiled or signed. See [registered setup](../development/beta-setup.md).
+`0.2.4` downloads are unchanged. The `0.2.5` candidate incremented all synchronized
+product versions before compilation/signing under the build-version policy.
+See [registered setup](../development/beta-setup.md).
 
-BETA-08/11 publication: the owner authorized building, signing and publishing
+Earlier BETA-08/11 publication: the owner authorized building, signing and publishing
 the compatibility fix on October 2. [Candidate 37096239569/1](https://github.com/iokaio/vcp/actions/runs/37096239569/attempts/1)
 passed through `pair` from `53e4d16667eed318208037b63f0f77db804c57b5`, producing
 pair `1e791436ab850192fba5e4c58f0c294db584d1a3f16d6630d80709a2618ffe55`.
 [Publication 37097991085](https://github.com/iokaio/vcp/actions/runs/37097991085)
 passed Release and Pages; [downloads.ioka.io](https://downloads.ioka.io/)
-now selects signed `0.2.4`. All five public asset hashes/sizes, page HTML and
+then selected signed `0.2.4`. All five public asset hashes/sizes, page HTML and
 latest metadata matched the verified candidate over HTTPS. Actual native,
 launcher, installer, VSIX and bundled SDK versions match `0.2.4`; all four
 native signatures passed. The exact VSIX installed and activated on official
@@ -40,7 +56,7 @@ editor-added package `__metadata`, as recorded in the publication evidence.
 
 BETA-07 compatibility follow-up: the `0.2.3` VSIX's exact `engines.vscode`
 selector rejected the owner's newer VS Code `1.140.0`. The selected synchronized
-native/installer/SDK/VSIX candidate is `0.2.4`, with editor range `^1.138.0`.
+native/installer/SDK/VSIX candidate for that correction was `0.2.4`, with editor range `^1.138.0`.
 API types stay pinned to `1.138.0`; packaging and public release metadata carry
 the declared range instead of a hard-coded editor version. Historical receipts
 and public downloads retain their original restrictions. Marketplace's
