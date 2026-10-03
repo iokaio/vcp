@@ -1,6 +1,55 @@
-# First Marketplace upload
+# Marketplace publication
 
-## Next upload: `iokaio.vcp`
+## Current 0.2.4 publication: `iokaio.vcp`
+
+The owner explicitly authorized publishing the verified `0.2.4` candidate to
+Marketplace. VSCE accepted the exact VSIX upload using the existing authenticated
+Azure publisher-owner login. Public Marketplace validation completed, and the
+exact `0.2.4` Windows x64 prerelease is publicly downloadable. This
+authorization supersedes the earlier manual-first-upload restriction for this
+candidate; [ADR-075](../adr/075-marketplace-manual-upload.md) and the historical
+manual-upload evidence below remain unchanged.
+
+- Candidate: [37096239569, attempt 1](https://github.com/iokaio/vcp/actions/runs/37096239569/attempts/1).
+- Source: `53e4d16667eed318208037b63f0f77db804c57b5`.
+- Pair: `1e791436ab850192fba5e4c58f0c294db584d1a3f16d6630d80709a2618ffe55`.
+- Package: `vcp-0.2.4-win32-x64.vsix`; publisher `iokaio`, name `vcp`, target
+  `win32-x64`, VS Code engine range `^1.138.0`. The VSIX manifest, extension
+  package and bundled SDK all declare `0.2.4`, matching the native installer.
+- Official CLI installation and actual extension activation passed on VS Code
+  `1.138.0` and `1.140.0`; all 59 installed payload files matched the exact VSIX.
+  Installed `package.json` was compared after removing editor-added `__metadata`;
+  the other payload files matched by hash. These were direct-VSIX installations.
+
+Public gallery verification confirmed version `0.2.4`, target `win32-x64`,
+pre-release status and engine range `^1.138.0`. The CDN download's whole-file
+SHA-256, gallery-advertised SHA-256 and all 59 extension payload entries exactly
+matched the submitted VSIX. Marketplace did not alter the container or payload.
+Evidence: `artifacts/beta-delivery/marketplace-024-37096239569-4/verification.json`.
+The first three public checks ran before validation completed and are retained
+as pending observations; no republish was performed.
+
+The submitted VSIX SHA-256 is
+`084932ba6e508b52981f796d36f08fc74da9074fc76e9dda085701db89feda53`.
+The exact package is retained at
+`artifacts/local-candidate/signed-0.2.4-37096239569/verified/assets/vcp-0.2.4-win32-x64.vsix`.
+VSCE reported `Published iokaio.vcp (win32-x64) v0.2.4`; that upload response was
+observed in the tool result, with no separate upload log retained. Editor
+verification receipts are
+`artifacts/local-candidate/editor024-final-1.138.0-retry1/verification.json` and
+`artifacts/local-candidate/editor024-final-1.140.0/verification.json`.
+
+The listing identity is
+[iokaio.vcp](https://marketplace.visualstudio.com/items?itemName=iokaio.vcp).
+The matching signed native downloads were published through
+[run 37097991085](https://github.com/iokaio/vcp/actions/runs/37097991085), as recorded
+in [beta publication](beta-publication.md). Four native executable signatures,
+actual product versions, packet admission and offline CLI checks passed.
+Clean-host support, installed-native qualification, provider tasks and full
+qualification remain incomplete; the editor compatibility checks do not satisfy
+those separate gates.
+
+## Historical 0.2.2 handoff: `iokaio.vcp`
 
 The owner requested the shorter extension ID `iokaio.vcp` for the next candidate.
 Its display name remains **VCP Coding Agent** and its category is **AI**.

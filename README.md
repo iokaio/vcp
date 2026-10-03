@@ -4,11 +4,7 @@ VCP is an open-source local coding agent that combines repository-aware coding, 
 
 **Status: signed beta downloads available for manual testing.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
 
-The published candidate uses **0.2.3** for the native app, Windows installer, SDK and VSIX, available at [downloads.ioka.io](https://downloads.ioka.io/). It remains an internal beta; native artifacts carry verified Ioka LLC code signatures through Azure Artifact Signing. Public asset hashes and versions were verified. Installed qualification and owner acceptance remain incomplete; VS Code Marketplace publication is separate. Earlier releases retain their original identities.
-
-The next candidate, **0.2.4**, widens the VS Code requirement to **1.138.0 and
-newer 1.x releases**, including **1.140.0**. The published `0.2.3` VSIX retains
-its exact `1.138.0` restriction. See [extension compatibility](src/packages/vscode/COMPATIBILITY.md).
+The published candidate uses **0.2.4** for the native app, Windows installer, SDK and VSIX, available at [downloads.ioka.io](https://downloads.ioka.io/). Native artifacts carry verified Ioka LLC code signatures through Azure Artifact Signing. The extension accepts **VS Code 1.138.0 and newer 1.x releases**, including **1.140.0**; exact packaged installation and activation passed on both versions. Public asset hashes and versions were verified. This remains an internal beta with incomplete native/clean-host qualification and owner acceptance. See [extension compatibility](src/packages/vscode/COMPATIBILITY.md) and the [Marketplace publication record](docs/development/marketplace-publication.md). Earlier releases retain their original identities.
 
 ## What VCP does
 

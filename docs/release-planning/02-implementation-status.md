@@ -10,8 +10,28 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-08/11 publication: the owner authorized building, signing and publishing
+the compatibility fix on October 2. [Candidate 37096239569/1](https://github.com/iokaio/vcp/actions/runs/37096239569/attempts/1)
+passed through `pair` from `53e4d16667eed318208037b63f0f77db804c57b5`, producing
+pair `1e791436ab850192fba5e4c58f0c294db584d1a3f16d6630d80709a2618ffe55`.
+[Publication 37097991085](https://github.com/iokaio/vcp/actions/runs/37097991085)
+passed Release and Pages; [downloads.ioka.io](https://downloads.ioka.io/)
+now selects signed `0.2.4`. All five public asset hashes/sizes, page HTML and
+latest metadata matched the verified candidate over HTTPS. Actual native,
+launcher, installer, VSIX and bundled SDK versions match `0.2.4`; all four
+native signatures passed. The exact VSIX installed and activated on official
+editors `1.138.0` and `1.140.0`, with all 59 installed payload files matching
+before and after the checks. No native engine or provider ran in those editor
+checks. Full installed/native and clean-host qualification remain unrun for
+this pair. See the [publication record](../development/beta-publication.md)
+and [Marketplace status](../development/marketplace-publication.md).
+Marketplace also serves `iokaio.vcp` `0.2.4` as a Windows x64 prerelease with
+engine range `^1.138.0`; its downloaded container and all 59 payload entries
+exactly match the submitted VSIX. Installed editor comparisons normalize only
+editor-added package `__metadata`, as recorded in the publication evidence.
+
 BETA-07 compatibility follow-up: the `0.2.3` VSIX's exact `engines.vscode`
-selector rejected the owner's newer VS Code `1.140.0`. The next synchronized
+selector rejected the owner's newer VS Code `1.140.0`. The selected synchronized
 native/installer/SDK/VSIX candidate is `0.2.4`, with editor range `^1.138.0`.
 API types stay pinned to `1.138.0`; packaging and public release metadata carry
 the declared range instead of a hard-coded editor version. Historical receipts
@@ -25,13 +45,13 @@ passed. Isolated staged-source activation on official editors `1.138.0` and
 `1.140.0` passed without development overrides, native execution or provider
 calls. See [editor compatibility evidence](../development/editor-connection.md#development-build).
 
-BETA-08/11: the October 2 owner-authorized publication of synchronized `0.2.3`
+Earlier BETA-08/11: the October 2 owner-authorized publication of synchronized `0.2.3`
 completed in [run 37094167354](https://github.com/iokaio/vcp/actions/runs/37094167354).
 [Candidate 37092293430/1](https://github.com/iokaio/vcp/actions/runs/37092293430/attempts/1)
 passed through `pair` on source `0866686492cd5e1df3378f6c208fd49b610d990e`.
 Pair `f736a0d2c3394d4bda5c43c970c3a20a1aa40e3266979b1ebde484bee78a3a32`
 is [public](https://github.com/iokaio/vcp/releases/tag/v0.2.3-f736a0d2c339)
-and selected by [downloads.ioka.io](https://downloads.ioka.io/). All five public
+and was selected by [downloads.ioka.io](https://downloads.ioka.io/). All five public
 asset hashes and sizes, page HTML, latest metadata and HTTPS were verified.
 The engine, launcher, setup and uninstaller signatures passed; actual native,
 installer, VSIX and bundled SDK versions match `0.2.3`. Installed/native and
