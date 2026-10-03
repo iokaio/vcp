@@ -46,7 +46,10 @@ switch ($Mode) {
     'noisy' { while ($true) { [Console]::Out.WriteLine('still running') } }
     'closed' { [Console]::OpenStandardOutput().Dispose(); Start-Sleep -Seconds 30 }
     'quiet' { Start-Sleep -Seconds 30 }
-    'credential' { if ($env:OPENROUTER_API_KEY) { exit 9 }; 'no inherited provider credential' }
+    'credential' {
+        if ($env:OPENROUTER_API_KEY -or ($env:VCP_SCENARIO_CREDENTIAL_ENV -and [Environment]::GetEnvironmentVariable($env:VCP_SCENARIO_CREDENTIAL_ENV))) { exit 9 }
+        'no inherited provider credential'
+    }
 }
 '@
     $literal = 'spaces "quotes" ; $() & β'
@@ -63,13 +66,24 @@ switch ($Mode) {
     }
     $ctx = New-TestContext
     $savedCredential = $env:OPENROUTER_API_KEY
+    $savedCredentialName = $env:VCP_SCENARIO_CREDENTIAL_ENV
+    $savedAlias = $env:VCP_TEST_HARNESS_KEY
     try {
         $env:OPENROUTER_API_KEY = 'offline-test-sentinel'
         $result = Invoke-Tool -Ctx $ctx -Stage 'test' -Label 'credential' -FilePath $pwsh -ArgumentList @('-NoProfile', '-File', $probe, 'credential')
         Check ($result.ExitCode -eq 0) 'Tool inherited provider credential'
         Check ($env:OPENROUTER_API_KEY -eq 'offline-test-sentinel') 'Tool changed parent credential'
+        $env:VCP_SCENARIO_CREDENTIAL_ENV = 'VCP_TEST_HARNESS_KEY'
+        $env:VCP_TEST_HARNESS_KEY = 'offline-alias-sentinel'
+        $result = Invoke-Tool -Ctx $ctx -Stage 'test' -Label 'credential-alias' -FilePath $pwsh -ArgumentList @('-NoProfile', '-File', $probe, 'credential')
+        Check ($result.ExitCode -eq 0) 'Tool inherited custom provider credential'
+        Check ($env:VCP_TEST_HARNESS_KEY -eq 'offline-alias-sentinel') 'Tool changed parent alias credential'
     }
-    finally { $env:OPENROUTER_API_KEY = $savedCredential }
+    finally {
+        $env:OPENROUTER_API_KEY = $savedCredential
+        $env:VCP_SCENARIO_CREDENTIAL_ENV = $savedCredentialName
+        $env:VCP_TEST_HARNESS_KEY = $savedAlias
+    }
 
     $parsed = ConvertFrom-JsonLines "{`"type`":`"accepted`"}`nnot-json`n{`"type`":`"result`"}"
     Check ($parsed.Frames.Count -eq 2 -and $parsed.Invalid.Count -eq 1) 'Malformed JSONL was hidden'

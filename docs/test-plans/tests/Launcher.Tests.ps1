@@ -29,7 +29,12 @@ function New-ProviderFixture([string]$Path, [int]$Hours) {
 $originalCulture = [Globalization.CultureInfo]::CurrentCulture
 $originalVcpEnv = $env:VCP_EXE
 try {
-    foreach ($name in 'Read-LauncherChoice', 'Assert-LauncherProvider', 'Find-LauncherProvider', 'New-LauncherArguments') { Import-LauncherFunction $name }
+    foreach ($name in 'Read-LauncherChoice', 'Assert-LauncherProvider', 'Find-LauncherProvider', 'New-LauncherArguments', 'Restore-LauncherEnvironment') { Import-LauncherFunction $name }
+    $restoreProbe = 'VCP_LAUNCHER_RESTORE_' + [guid]::NewGuid().ToString('N')
+    Restore-LauncherEnvironment $restoreProbe 'fixture'
+    Check ([Environment]::GetEnvironmentVariable($restoreProbe) -eq 'fixture') 'Environment value was not restored'
+    Restore-LauncherEnvironment $restoreProbe $null
+    Check (-not (Test-Path -LiteralPath "Env:$restoreProbe")) 'Restoring missing environment variable left a present empty value'
     $script:answers = [Collections.Generic.Queue[string]]::new()
     $script:answers.Enqueue('wrong'); $script:answers.Enqueue('b')
     function Read-Host { param($Prompt) $script:answers.Dequeue() }

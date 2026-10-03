@@ -77,13 +77,30 @@ tickets. Continuation of a single task is exercised separately:
 | git (optional; enables one checkpoint commit per stage) | opt | opt | opt | opt |
 | Internet access to npm, NuGet, Maven Central and PyPI (seeding, package restores, `npm ci`) | yes | yes | yes | yes |
 
-### 2.2 One-time provider qualification (paid, done by you)
+### 2.2 Automatic provider preparation
 
-The scripts need a qualified provider generation directory, created once with
-`vcp setup provider` as described in [beta onboarding](../usage/beta-onboarding.md). That
-directory contains `qualified\snapshot.json` and `endpoints.json`. **Snapshots are valid
-for 12 hours**, and each script refuses to start with less than 5 hours of validity left. To
-run several scenarios over a long session, qualify a fresh generation first.
+Start `run-cli-scenarios.ps1`; no manual VCP commands or project scaffolding are needed.
+The launcher reuses a valid provider generation when available. Otherwise it runs
+`vcp setup provider` itself, using the installed account's primary model and matching
+endpoint from completed account setup where available. Missing model/endpoint choices
+are requested inside the launcher. The scenario then creates its project, restores
+dependencies, creates execution profiles and runs the checks.
+
+Qualification makes up to two paid requests. The launcher asks for a **separate setup
+budget** (Enter authorizes 3 USD), or accepts `-SetupBudgetUsd` up to 25 USD. This is
+additional to `-MaxScenarioUsd`, including when preparing a new generation for DryRun.
+An existing valid generation requires no qualification spend. The request-price ceiling
+defaults to 0.001 USD and can be set with `-RequestPriceLimitUsd`.
+
+The resulting directory contains `qualified\snapshot.json` and `endpoints.json`.
+**Snapshots are valid for 12 hours**; scenarios require five hours remaining. Missing or
+expired supplied generations are preserved and replaced with a new generation under
+the invocation's `setup` directory. If only generation receipts are delayed, the launcher
+tries `setup provider-complete` once without repeating inference. Other failures stop
+before the scenario and retain their logs. See [beta onboarding](../usage/beta-onboarding.md)
+for the underlying CLI contracts.
+
+For advanced use, the equivalent manual command remains:
 
 ```powershell
 & $vcp --workspace C:\vcp-scenarios setup provider --model <org/model> --endpoint <tag> `
@@ -95,8 +112,12 @@ generation. `-OutputTokens` defaults to 8192 and is clamped to the endpoint's `m
 
 ### 2.3 Credential (per console)
 
-VCP uses only an environment credential in non-interactive runs. In **each** console that
-will run a scenario:
+The launcher checks the installed credential selection and prompts with masked input
+only when its environment credential is absent. It restores the environment afterward.
+VCP's automated JSONL commands cannot use a stored Windows key; the launcher respects
+that boundary. Credentials are excluded from project build/test/server processes.
+
+When invoking an individual scenario directly with the default credential selection:
 
 ```powershell
 $secret = Read-Host 'OpenRouter API key' -AsSecureString
@@ -770,6 +791,7 @@ These limitations need evidence from actual scenario runs:
 | `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
 | `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
+| `tests/Bootstrap.Tests.ps1` | Offline automatic preparation, renewal, receipt recovery, failure preservation and generation reuse |
 | `tests/CommandLog.Tests.ps1` | Offline regressions for exact command logging, failure evidence and result-path references |
 
 Each scenario script is self-contained apart from the module. Seeds, protected tests and
@@ -784,6 +806,7 @@ pwsh -NoProfile -File docs/test-plans/tests/ScenarioGates.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/Bootstrap.Tests.ps1
 ```
 
 These checks use local fixtures and subprocess probes; they need no VCP installation,
@@ -795,7 +818,10 @@ to check the installed CLI, qualified generation and actual scenario toolchains.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `-ProviderGeneration` | (required) | Directory from `vcp setup provider` |
+| `-ProviderGeneration` | optional in launcher | Reuse an existing qualified directory; individual scenario scripts require it |
+| `-Model` / `-Endpoint` | installed selection when available | Launcher provider selection; prompts when missing |
+| `-SetupBudgetUsd` | prompt (3 USD offered) | Launcher qualification cap, separate from scenario spend, at most 25 USD |
+| `-RequestPriceLimitUsd` | 0.001 | Maximum provider request fee during qualification |
 | `-RunRoot` | `%SystemDrive%\vcp-scenarios` | Parent folder for run outputs |
 | `-Vcp` | installed launcher | Path to `vcp.exe` (or set `VCP_EXE`) |
 | `-TurnBudgetUsd` | 3 | `--budget-usd` per task |
@@ -816,19 +842,19 @@ Open one PowerShell 7 window per scenario. In each window:
 pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1
 ```
 
-Choose A, B, C or D, then dry run or full run. Dry run is the default. Supply the
-qualified provider generation with `-ProviderGeneration` or `VCP_PROVIDER_GENERATION`.
-Otherwise the launcher looks for the newest valid `provider-*` directory under
-`%LOCALAPPDATA%\VCP\profiles` with at least five hours remaining, and prompts if none
-is available. Full runs request a masked provider key only when it is missing from
-the console environment. The launcher streams progress in that console and prints the
-run, workspace, result and command-log locations when the child exits. Qualification itself is still the separate paid
-step in section 2.2.
+Choose A, B, C or D, then dry run or full run and an output folder. Dry run is the default.
+The launcher discovers a valid generation under `%LOCALAPPDATA%\VCP\profiles` or a
+previous launch's `setup` directory beneath the chosen output folder, or
+prepares one automatically as described in section 2.2. `-ProviderGeneration` and
+`VCP_PROVIDER_GENERATION` optionally select an existing generation; neither is required.
+The launcher streams progress in that console and prints the preparation, workspace,
+result and command-log locations when the child exits. Preparation commands and results
+live under `<invocation>\setup\logs` and `<invocation>\setup\results`, including failures.
 
 For a repeatable selection, pass the options explicitly:
 
 ```powershell
-pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode DryRun -ProviderGeneration C:\vcp-private\provider-20261002
+pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode Full -RunRoot D:\clitests\A
 ```
 
 The individual scenario scripts also remain available for scenario-specific parameters:

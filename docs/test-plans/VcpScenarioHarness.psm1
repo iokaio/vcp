@@ -6,7 +6,8 @@
 # the other scenarios in a separate console window.
 #
 # The harness never prints or persists credential values. VCP reads the
-# provider credential from OPENROUTER_API_KEY in the launching console.
+# provider credential from the configured environment variable in the launching
+# console (OPENROUTER_API_KEY by default).
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
@@ -235,6 +236,7 @@ function Invoke-Tool {
     if (-not $WorkingDirectory) { $WorkingDirectory = $Ctx.Workspace }
     $Environment = $Environment.Clone()
     $Environment['OPENROUTER_API_KEY'] = $null
+    if ($env:VCP_SCENARIO_CREDENTIAL_ENV) { $Environment[$env:VCP_SCENARIO_CREDENTIAL_ENV] = $null }
     $safe = ($Label -replace '[^A-Za-z0-9_.-]', '-')
     $directory = Join-Path $Ctx.Logs (Join-Path $Stage 'tools')
     $index = '{0:D2}' -f ((Get-ChildItem -LiteralPath $directory -Filter '*.out.log' -ErrorAction SilentlyContinue | Measure-Object).Count + 1)
@@ -280,6 +282,7 @@ function Start-BackgroundServer {
     $psi.RedirectStandardInput = $true
     foreach ($key in $Environment.Keys) { $psi.Environment[$key] = [string]$Environment[$key] }
     [void]$psi.Environment.Remove('OPENROUTER_API_KEY')
+    if ($env:VCP_SCENARIO_CREDENTIAL_ENV) { [void]$psi.Environment.Remove($env:VCP_SCENARIO_CREDENTIAL_ENV) }
     $process = [System.Diagnostics.Process]::Start($psi)
     $process.StandardInput.Close()
     # Drain both pipes into files so the server never blocks on a full pipe.
@@ -469,10 +472,11 @@ function Initialize-VcpScenario {
     if ($hoursLeft -lt $MinSnapshotHours) {
         throw ('Provider snapshot expires {0} ({1:N1}h left); renew with vcp setup provider into a new directory before a long run.' -f $ctx.SnapshotValidUntil, $hoursLeft)
     }
-    if (-not $SkipPaidStages -and [string]::IsNullOrEmpty($env:OPENROUTER_API_KEY)) {
-        throw 'OPENROUTER_API_KEY is not set in this console. Set it with a masked prompt (plan section 2.3); the harness never logs it.'
+    $credentialName = if ($env:VCP_SCENARIO_CREDENTIAL_ENV) { $env:VCP_SCENARIO_CREDENTIAL_ENV } else { 'OPENROUTER_API_KEY' }
+    if (-not $SkipPaidStages -and [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($credentialName, 'Process'))) {
+        throw "$credentialName is not set in this console. Use run-cli-scenarios.ps1 for guided credential and provider preparation."
     }
-    if ($env:VCP_DENY_PROVIDER_CREDENTIALS -and -not $SkipPaidStages) {
+    if ($null -ne [Environment]::GetEnvironmentVariable('VCP_DENY_PROVIDER_CREDENTIALS', 'Process') -and -not $SkipPaidStages) {
         throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; paid stages cannot run. Remove it or pass -SkipPaidStages.'
     }
     Start-Transcript -LiteralPath (Join-Path $ctx.Logs 'console-transcript.log') | Out-Null
