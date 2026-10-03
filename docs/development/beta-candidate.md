@@ -110,6 +110,30 @@ revisions and runner images prevent treating historical durations as a controlle
 comparison. Download caching affects provisioning; no faster fresh compilation
 is claimed until a measured build demonstrates it.
 
+The [0.2.10 production observation](https://github.com/iokaio/vcp/actions/runs/37159335053)
+passed with empty download caches: 16m30s for the complete production stage,
+944s of Cargo supervision, 8,341.9 CPU seconds and 13.61 GiB peak committed
+memory on 16 logical processors. Of 1,359 Cargo units, the final `vcp` binary
+took 517.10s and `codex-core` took 180.11s. Only the final binary remained active
+from 469.70s to 943.79s; Cargo does not expose its internal compiler sections.
+The verified engine and launcher both report `0.2.10`. This was a production-only
+checkpoint, without packaging, signing, installation or installed qualification.
+
+The [same-commit warm-cache observation](https://github.com/iokaio/vcp/actions/runs/37160727999)
+also passed, stopping at portable contracts. Both exact download keys restored.
+Cache restore plus npm/compiler/editor/Cargo provisioning totaled 73s cold and
+70s warm; npm installation remained 20s in both, while compiler/editor/Cargo
+provisioning fell from 52s to 43s and cache restoration cost 7s instead of 1s.
+This single comparison demonstrates cache reuse, with only a small observed
+time saving; it does not establish reduced Rust compilation time.
+
+Candidate `0.2.11` tests a package-only release override of 16 codegen units for
+`vcp-cli`, targeting the measured final-binary bottleneck. Other packages retain
+four units; ThinLTO, optimization, debug information, static CRT and 16 Cargo jobs
+remain unchanged. Preserve the versioned `0.2.10` evidence and use a fresh target
+for this experiment. Retain the override only after measured construction and
+focused final-executable behavior checks; installed qualification remains unrun.
+
 The orchestrator is also available for a controlled Windows builder after the
 three npm development lockfiles have been installed:
 

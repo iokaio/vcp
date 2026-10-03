@@ -221,8 +221,12 @@
       "sha256": "551bfda589b5e70df4d90c404fabeb914ffc3ee23c899c0f72b8593139727e3b"
     },
     {
+      "path": "src/third_party/patches/codex/0048-windows-cli-codegen.patch",
+      "sha256": "d5e2ddcf5789099234f1abba3b4b7a9efaed48f98c7d429df2b6fe5d0342b461"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
-      "sha256": "f18c2eec137945945d2cc94de0ae3766ab11ecc0c6d6877614f08884fe23a8cf"
+      "sha256": "90e2faedb1b8eece295870cdc1aa1b66b105c3ab8958f1a47c8173983e00b306"
     }
   ],
   "licenses": [

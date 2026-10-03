@@ -215,6 +215,15 @@ already include these changes; normal builds never apply patches.
     package to `0.2.5`, matching the installer, SDK and VSIX candidate containing
     the scenario runtime fixes. External dependencies remain unchanged.
 
+48. `0048-windows-cli-codegen.patch` adds an original VCP package override of
+    sixteen release codegen units for `vcp-cli`. BETA-08's measured `0.2.10`
+    production build spent 517.1 seconds in the final engine compilation unit;
+    the `0.2.11` candidate compares this bounded setting with the retained four.
+    Other packages retain four codegen units, and thin LTO, optimization, debug
+    information and static CRT settings are unchanged. This is an experiment,
+    with no speedup or runtime-equivalence claim before measured construction
+    and final-byte checks. The retained Apache-2.0 terms remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance
