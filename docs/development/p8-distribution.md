@@ -35,6 +35,8 @@ pwsh -File scripts/build-production.ps1 -OutputRoot artifacts/p8-production-buil
 
 Use the copied executable and matching `build-receipt.json` from the same generated build directory when packaging. Keep its source inputs stable through compilation. Packaging and subsequent qualification refer to exact hashes; changing executable bytes requires a new candidate.
 
+The production recipe restores the calling process's environment on success or failure, including compiler flags and Visual Studio developer-shell changes. Repeated local builds in one PowerShell session therefore do not inherit overrides from a prior attempt. Pre-existing build overrides remain rejected, even when they match the recipe's own flags.
+
 ### BETA-04 strict internal beta provenance
 
 The [internal channel](../../release/internal-beta.json) selects native
