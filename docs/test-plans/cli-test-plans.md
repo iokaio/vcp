@@ -794,8 +794,10 @@ These limitations need evidence from actual scenario runs:
    3.9+ with the distribution's launcher jar and `bin/m2.conf`; a shim or unsupported layout
    fails before paid stages.
 3. **`dotnet-ef` inside VCP (B).** Arbitrary environment variables cannot be set through the profile allowlist, so
-   prompts tell the agent to pass `-- --environment Development`. The harness's own EF
-   commands set `ASPNETCORE_ENVIRONMENT`.
+   prompts tell the agent to pass `-- --environment Development --ConnectionStrings:Inventory <run-connection>`.
+   The connection is JSON-escaped as one literal argument in the prompt and selects the run's
+   isolated database even when reusing a project with older protected appsettings. The harness's
+   own EF and HTTP commands set `ASPNETCORE_ENVIRONMENT` and `ConnectionStrings__Inventory`.
 4. **Guardrails exit before acceptance.** The autonomy ceiling, trust, bounds and empty-file
    checks are expected to fail in `profile.prepare` or argument validation, with exit 2 and
    no `accepted` frame. A different outcome is reported as a failed gate.
