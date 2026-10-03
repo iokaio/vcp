@@ -4,7 +4,7 @@
 # No provider, npm install, existing project, or external network is used.
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'VcpScenarioHarness.psm1') -Force -DisableNameChecking
-$node = (Get-Command node -CommandType Application -ErrorAction Stop).Source
+$node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Split-Path -Parent $PSScriptRoot) 'scenario-a-vue-taskboard.ps1'), [ref]$tokens, [ref]$errors)
 Assert-That ($errors.Count -eq 0) 'Scenario parse errors'

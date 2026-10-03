@@ -35,7 +35,7 @@ function Invoke-FixtureGit([string[]]$Arguments) {
 
 try {
     $pwsh = (Get-Process -Id $PID).Path
-    $git = (Get-Command git -CommandType Application -ErrorAction Stop).Source
+    $git = (Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $generation = Join-Path $testRoot 'configured-provider'
     $project = Join-Path $testRoot 'project'
     $runs = Join-Path $testRoot 'runs'
