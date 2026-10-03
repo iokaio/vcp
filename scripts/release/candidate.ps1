@@ -115,8 +115,22 @@ function Remove-CandidateProductionTarget([string]$CandidateRoot,$Run) {
         $pair.schema -cne 'vcp-release-pair/1' -or $pair.release.candidate_id -cnotmatch '^[a-f0-9]{64}$' -or
         $pair.release.candidate_id -cne $receipt.release.candidate_id) { throw 'Cleanup requires the paired production build receipt' }
     $target=Join-Path $buildRoot 'cargo-target'
-    if (@($receipt.command).Count -ne 20 -or $receipt.command[15] -cne '--target-dir' -or
+    $commandCount = @($receipt.command).Count
+    if ($commandCount -notin @(20,21) -or ($commandCount -eq 21 -and $receipt.command[20] -cne '--timings') -or $receipt.command[15] -cne '--target-dir' -or
         -not [IO.Path]::IsPathFullyQualified($receipt.command[16]) -or $receipt.command[16] -ine $target) { throw 'Cleanup refuses an unexpected Cargo target' }
+    if ($commandCount -eq 21) {
+        $timings = $receipt.cargo_timings
+        if ($timings.schema -cne 'vcp-cargo-timings-binding/1' -or $timings.report_file -cne 'cargo-timing.html' -or
+            $timings.summary_file -cne 'cargo-timings.json') { throw 'Cleanup requires preserved build timings' }
+        foreach ($row in @(
+            @{name='cargo-timing.html';sha256=$timings.report_sha256},
+            @{name='cargo-timings.json';sha256=$timings.summary_sha256}
+        )) {
+            $file = Assert-CandidateOrdinaryPath (Join-Path $buildRoot $row.name) $false
+            if ($row.sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+                (Get-FileHash -LiteralPath $file).Hash.ToLowerInvariant() -cne $row.sha256) { throw 'Cleanup requires unchanged copied build timings' }
+        }
+    }
     foreach ($row in @(
         @{name='vcp.exe';path=$receipt.executable;sha256=$receipt.executable_sha256;artifact=$receipt.compiler_artifact},
         @{name='vcp-launch.exe';path=$receipt.launcher;sha256=$receipt.launcher_sha256;artifact=$receipt.launcher_compiler_artifact}
@@ -271,8 +285,11 @@ try {
     }
     }
     if (Selected-Stage 'provision') {
-    Stage 'provision' @('rustup','toolchain','install','1.95.0','1.98.0','--profile','minimal',';','cargo','+1.95.0','fetch','--locked','--target','x86_64-pc-windows-msvc') 'Explicit locked cache and pinned compiler/editor inputs; no provider or model acquisition.' {
-        foreach ($version in @('1.95.0','1.98.0')) { Checked 'rustup' @('toolchain','install',$version,'--profile','minimal') }
+    $compilerVersions = @('1.95.0')
+    if ($StopAfter -ceq 'installed-editor') { $compilerVersions += '1.98.0' }
+    $provisionCommand = @('rustup','toolchain','install') + $compilerVersions + @('--profile','minimal',';','cargo','+1.95.0','fetch','--locked','--target','x86_64-pc-windows-msvc')
+    Stage 'provision' $provisionCommand 'Explicit locked cache and selected pinned compiler/editor inputs; no provider or model acquisition.' {
+        foreach ($version in $compilerVersions) { Checked 'rustup' @('toolchain','install',$version,'--profile','minimal') }
         Push-Location $workspace
         try { Checked 'cargo' @('+1.95.0','fetch','--locked','--target','x86_64-pc-windows-msvc') } finally { Pop-Location }
         $script:compilerInstaller = Join-Path $out ('innosetup-' + $channel.installer.version + '.exe')

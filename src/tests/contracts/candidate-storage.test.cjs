@@ -60,6 +60,14 @@ $removed=Remove-CandidateProductionTarget $input.candidate $input.run
   };
   const checkPreserved = () => { for (const [file, bytes] of preserved) assert.deepEqual(fs.readFileSync(file), bytes, file); };
   const f = { root, candidate, build, target, outside, sentinel, receipt, run, execute, checkPreserved };
+  f.addTimings = () => {
+    const html = '<html>inert retained report</html>', summary = JSON.stringify({ schema: 'inert-retained-summary' });
+    write(path.join(build, 'cargo-timing.html'), html, true);
+    write(path.join(build, 'cargo-timings.json'), summary, true);
+    receipt.command.push('--timings');
+    receipt.cargo_timings = { schema: 'vcp-cargo-timings-binding/1', report_file: 'cargo-timing.html',
+      report_sha256: sha(html), summary_file: 'cargo-timings.json', summary_sha256: sha(summary) };
+  };
   return f;
 }
 
@@ -76,6 +84,27 @@ test('paired production target cleanup removes only its exact tree and records d
   }
   assert.equal(fs.existsSync(f.target), false); f.checkPreserved();
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.build, 'build-receipt.json'))), f.receipt);
+});
+
+test('timed production cleanup preserves copied reports and refuses missing or changed timing evidence', { skip: process.platform !== 'win32' }, t => {
+  const f = fixture(t); f.addTimings();
+  const result = f.execute();
+  assert.ifError(result.error); assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(f.target), false); f.checkPreserved();
+  for (const mutate of [
+    f => { delete f.receipt.cargo_timings; },
+    f => { f.receipt.cargo_timings.summary_sha256 = 'b'.repeat(64); },
+    f => { fs.writeFileSync(path.join(f.build, 'cargo-timing.html'), 'changed report'); },
+    f => { f.receipt.cargo_timings.report_file = '../outside.html'; },
+    f => { f.receipt.command[20] = '--features=qualification'; },
+    f => { f.receipt.command.push('--timings'); },
+  ]) {
+    const f = fixture(t); f.addTimings(); mutate(f);
+    const result = f.execute();
+    assert.ifError(result.error); assert.notEqual(result.status, 0, result.stdout);
+    assert(fs.existsSync(path.join(f.target, 'nested', 'object.obj')));
+    assert.equal(fs.readFileSync(f.sentinel, 'utf8'), 'preserve other directory');
+  }
 });
 
 test('cleanup refuses failed pairing, mismatched targets and redirected paths without deleting sentinels', { skip: process.platform !== 'win32' }, t => {

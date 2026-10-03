@@ -48,6 +48,10 @@ jobs:
       CARGO_INCREMENTAL: '0'
       # Owner-provisioned Windows 2025 runner: 16 cores, 64 GB RAM, 600 GB SSD.
       CARGO_BUILD_JOBS: '16'
+      # Dedicated homes prevent inherited configuration or credentials from
+      # entering the download caches. Compiled/extracted sources stay uncached.
+      CARGO_HOME: ${{ runner.temp }}/vcp-candidate-cargo
+      npm_config_cache: ${{ runner.temp }}/vcp-candidate-npm
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       STOP_AFTER: ${{ inputs.stop_after }}
     steps:
@@ -68,13 +72,30 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.10.0'
+      - name: Cache locked npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.npm_config_cache }}/_cacache/
+          key: beta-npm-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('release/candidate-tools.json') }}-${{ hashFiles('src/tests/package-lock.json', 'src/packages/sdk-ts/package-lock.json', 'src/packages/vscode/package-lock.json') }}
+          # Product-version bumps change locks while dependency archives remain
+          # reusable. The fallback stays inside the same platform and tool pins.
+          restore-keys: beta-npm-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('release/candidate-tools.json') }}-
+      - name: Cache locked Cargo downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.CARGO_HOME }}/registry/index/
+            ${{ env.CARGO_HOME }}/registry/cache/
+            ${{ env.CARGO_HOME }}/git/db/
+          key: beta-cargo-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('release/candidate-tools.json', 'src/third_party/codex/codex-rs/rust-toolchain.toml') }}-${{ hashFiles('src/third_party/codex/codex-rs/Cargo.lock') }}
+          restore-keys: beta-cargo-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('release/candidate-tools.json', 'src/third_party/codex/codex-rs/rust-toolchain.toml') }}-
       - name: Provision locked packaging and contract tools
         env:
           ACTIONS_ID_TOKEN_REQUEST_URL: ''
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ''
         run: |
           foreach ($package in @('src/tests','src/packages/sdk-ts','src/packages/vscode')) {
-            npm.cmd ci --prefix $package --ignore-scripts --no-audit --no-fund
+            npm.cmd ci --prefix $package --ignore-scripts --no-audit --no-fund --prefer-offline
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       # Selected stage limits total at most 325 minutes. Setup consumes part of

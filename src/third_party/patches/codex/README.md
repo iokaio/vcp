@@ -223,3 +223,9 @@ change with updated reconstruction hashes and native checks.
 Use [the reconstruction procedure](../../../../docs/development/codex-source.md#explicit-reconstruction)
 in a fresh disposable directory. Original and resulting per-file hashes remain
 separate, and unchanged files retain their prior transformation labels.
+
+Candidate preparation maintains the final `local-candidate-product-version.patch`
+to synchronize only the VCP CLI Cargo.lock package version. The `0.2.10` candidate
+reserves the next version after locally recorded `0.2.9` for Windows build timing
+verification. Its destination version, selection digest and resulting lock
+inventory advance together; original upstream acquisition evidence is retained.

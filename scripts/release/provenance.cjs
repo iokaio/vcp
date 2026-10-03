@@ -132,7 +132,16 @@ function validateReceipt(receipt, selected, source, executableHash) {
     typeof args[16] === 'string' && /[\\/]cargo-target$/.test(args[16]) &&
     JSON.stringify(args) === JSON.stringify(['cargo', '+1.95.0', 'build', '--locked', '--offline', '--release',
       '--no-default-features', '-p', 'vcp-cli', '--bin', 'vcp', '--bin', 'vcp-launch', '--target', selected.target,
-      '--target-dir', args[16], '-j', args[18], '--message-format=json-render-diagnostics']), 'Unqualified build command');
+      '--target-dir', args[16], '-j', args[18], '--message-format=json-render-diagnostics', ...(args.length === 21 ? ['--timings'] : [])]), 'Unqualified build command');
+  if (args.length === 21 || receipt.cargo_timings !== undefined) require('./cargo-timings.cjs').validateBinding(receipt.cargo_timings);
+  if (args.length === 21 || receipt.phase_timings !== undefined) {
+    const phases = receipt.phase_timings;
+    check(phases && phases.measurement === 'Input verification through timing-report preservation; excludes receipt write and final strict receipt verification.' &&
+      ['input_verification_seconds', 'cargo_seconds', 'post_verification_seconds', 'total_seconds']
+      .every(key => typeof phases[key] === 'number' && Number.isFinite(phases[key]) && phases[key] >= 0) &&
+      Math.abs(phases.input_verification_seconds + phases.cargo_seconds + phases.post_verification_seconds - phases.total_seconds) <= 0.01,
+    'Invalid build phase timings');
+  }
   check(JSON.stringify(receipt.rustflags) === JSON.stringify(['-C', 'link-arg=/STACK:8388608', '-C', 'target-feature=+crt-static']), 'Unqualified Rust flags');
   check(Array.isArray(receipt.rustc) && receipt.rustc.some(line => /^release: 1\.95\.0$/.test(line)), 'Unqualified Rust toolchain');
   for (const name of ['cl', 'link', 'lib', 'cmake', 'ninja', 'rustc', 'cargo', 'node']) {
@@ -156,6 +165,7 @@ function verifyBuild(root, receiptFile, executable, reviewedCommit) {
   const source = captureSource(root, reviewedCommit), receipt = json(receiptFile);
   const release = validateReceipt(receipt, selected, source, fileHash(executable));
   const directory = path.dirname(receiptFile);
+  if (receipt.cargo_timings) require('./cargo-timings.cjs').verify(directory, receipt.cargo_timings);
   const launcherFile = path.join(directory, 'vcp-launch.exe');
   check(fileHash(launcherFile) === receipt.launcher_sha256, 'Launcher differs from reviewed build');
   for (const [file, key] of [['build.log', 'log_sha256'], ['upstream-verification.log', 'upstream_before_sha256'],
