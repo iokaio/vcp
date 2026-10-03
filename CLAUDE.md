@@ -336,6 +336,16 @@ Before completing a task:
 
 Do not generate large artifacts or vendor files into the repository unless required.
 
+## 17a. Increment and Synchronize Build Versions
+
+Before every new distributable candidate, including a local test installer or VSIX, increment the numeric product version's patch/build component from the latest recorded or produced candidate (for example, `0.2.3` to `0.2.4`). Increment once before compilation, packaging or signing; every artifact in that candidate uses the same selected version.
+
+Keep the native app, Windows installer, SDK and VS Code extension on exactly the same `major.minor.patch` version. Update the release channel, package manifests, lockfiles and affected generated provenance together. Beta/pre-release channel status remains separate from the synchronized numeric version.
+
+Never reuse an already produced candidate's version for a new candidate or replacement artifact bytes. Rebuilding or re-signing an already produced candidate requires another increment. A commit, checksum, pair ID or filename change is not a substitute. Downloading, verifying, installing or publishing unchanged existing artifacts preserves their original version.
+
+Before handoff, verify the actual native executable version, installer product version, VSIX manifest and bundled SDK version all match the selected release version. Source declarations alone are not proof of the built artifacts' versions.
+
 ## 18. Resolve First; Escalate When a User Decision Is Necessary
 
 Investigate and resolve ordinary engineering obstacles autonomously. These include missing prerequisites, incomplete internal interfaces, stale plan details, failing tests, merge conflicts, platform differences, and upstream behavior that can be adapted within VCP's contracts. Use bounded experiments and targeted tests, document the resolution, and continue delivery.
