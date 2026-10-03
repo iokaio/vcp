@@ -30,7 +30,7 @@ param(
     [int]$MaxRequests = 96,
     [int]$DeadlineSeconds = 1800,
     [int]$ShortDeadlineSeconds = 150,
-    [int]$ApiPort = 41731,
+    [ValidateRange(1, 65535)][int]$ApiPort = 41731,
     [switch]$SkipPaidStages
 )
 $ErrorActionPreference = 'Stop'
@@ -179,6 +179,7 @@ export default defineConfig({
   test: { environment: 'jsdom', include: ['src/**/*.spec.ts'] },
 })
 '@
+$seed['vite.config.ts'] = $seed['vite.config.ts'].Replace('127.0.0.1:41731', "127.0.0.1:$ApiPort")
 $seed['index.html'] = @'
 <!doctype html>
 <html lang="en">
@@ -520,13 +521,16 @@ function Test-NodeTests([string]$Stage, [string[]]$Expected) {
 
 function Test-UnitAndBuild([string]$Stage, [string[]]$TestIds, [int]$MinUnitTests = 1) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'vitest' -Description "Vitest passes with >= $MinUnitTests tests" -Test {
-            $xml = Join-Path $ctx.Logs "$Stage\vitest-junit.xml"
+            $xml = Join-Path $ctx.Logs "$Stage\vitest-$([guid]::NewGuid().ToString('N')).xml"
             $run = Invoke-Tool -Ctx $ctx -Stage $Stage -Label 'vitest' -FilePath $node `
                 -ArgumentList @('node_modules/vitest/vitest.mjs', 'run', '--reporter=junit', "--outputFile=$xml")
             Assert-That ($run.ExitCode -eq 0) ("vitest exit {0}`n{1}" -f $run.ExitCode, (Get-Tail ($run.Output + $run.Errors)))
             $report = [xml](Get-Content -LiteralPath $xml -Raw)
             $suite = $report.testsuites
-            Assert-That ([int]$suite.tests -ge $MinUnitTests) "only $($suite.tests) tests"
+            $cases = @($report.SelectNodes('//testcase'))
+            $skipped = @($report.SelectNodes('//testcase/skipped'))
+            Assert-That ($cases.Count -ge $MinUnitTests) "only $($cases.Count) test cases"
+            Assert-That ($skipped.Count -eq 0) "$($skipped.Count) skipped tests"
             Assert-That (([int]$suite.failures + [int]$suite.errors) -eq 0) "$($suite.failures) failures, $($suite.errors) errors"
             $true
         })
@@ -564,6 +568,7 @@ function Test-ApiContract([string]$Stage) {
     $server = $null
     try {
         $server = Start-Api $Stage 'api-contract' $dataFile
+        [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'api.start' -Description 'API starts with node server/index.ts' -Outcome 'pass' -Required $true)
     }
     catch {
         [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'api.start' -Description 'API starts with node server/index.ts' -Outcome 'fail' -Detail $_.Exception.Message -Required $true)
@@ -606,12 +611,20 @@ function Test-ApiContract([string]$Stage) {
                 $doing = Invoke-Http GET "$base/api/tasks?status=doing"
                 $done = Invoke-Http GET "$base/api/tasks?status=done"
                 $query = Invoke-Http GET "$base/api/tasks?q=RELEASE"
-                Assert-That ([int]$doing.Json.total -eq 1 -and [int]$done.Json.total -eq 0 -and [int]$query.Json.total -eq 1) "doing=$($doing.Json.total) done=$($done.Json.total) q=$($query.Json.total)"; $true })
+                Assert-That ($doing.Status -eq 200 -and $done.Status -eq 200 -and $query.Status -eq 200 -and [int]$doing.Json.total -eq 1 -and [int]$done.Json.total -eq 0 -and [int]$query.Json.total -eq 1) "doing=$($doing.Json.total) done=$($done.Json.total) q=$($query.Json.total)"; $true })
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.not-found' -Description 'unknown id -> 404 NOT_FOUND' -Test {
                 $r = Invoke-Http GET "$base/api/tasks/does-not-exist"
                 Assert-That ($r.Status -eq 404 -and $r.Json.error.code -eq 'NOT_FOUND') "status $($r.Status) body $($r.Content)"; $true })
         Stop-BackgroundServer $server
-        $server = Start-Api $Stage 'api-contract-restart' $dataFile
+        $server = $null
+        try {
+            $server = Start-Api $Stage 'api-contract-restart' $dataFile
+            [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'api.restart' -Description 'API restarts with persisted data' -Outcome 'pass' -Required $true)
+        }
+        catch {
+            [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'api.restart' -Description 'API restarts with persisted data' -Outcome 'fail' -Detail $_.Exception.Message -Required $true)
+            return
+        }
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.persistence' -Description 'task survives a server restart (file persistence)' -Test {
                 $r = Invoke-Http GET "$base/api/tasks/$($state.task.id)"
                 Assert-That ($r.Status -eq 200 -and $r.Json.status -eq 'doing') "status $($r.Status) body $($r.Content)"; $true })
@@ -625,7 +638,10 @@ function Test-ApiContract([string]$Stage) {
 
 function Test-LabelsAndSort([string]$Stage) {
     $server = $null
-    try { $server = Start-Api $Stage 'api-labels' (New-DataFile $Stage 'labels') }
+    try {
+        $server = Start-Api $Stage 'api-labels' (New-DataFile $Stage 'labels')
+        [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'labels.start' -Description 'API starts' -Outcome 'pass' -Required $true)
+    }
     catch {
         [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'labels.start' -Description 'API starts' -Outcome 'fail' -Detail $_.Exception.Message -Required $true)
         return
@@ -667,7 +683,10 @@ function Test-LabelsAndSort([string]$Stage) {
 
 function Test-Production([string]$Stage) {
     $server = $null
-    try { $server = Start-Api $Stage 'production' (New-DataFile $Stage 'production') }
+    try {
+        $server = Start-Api $Stage 'production' (New-DataFile $Stage 'production')
+        [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'prod.start' -Description 'production server starts' -Outcome 'pass' -Required $true)
+    }
     catch {
         [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'prod.start' -Description 'production server starts' -Outcome 'fail' -Detail $_.Exception.Message -Required $true)
         return
@@ -683,7 +702,7 @@ function Test-Production([string]$Stage) {
                 $index = (Invoke-Http GET "$base/").Content
                 $match = [regex]::Match($index, 'src="(?<p>/assets/[^"]+\.js)"')
                 Assert-That $match.Success 'no /assets/*.js reference in index.html'
-                $r = Invoke-WebRequest -Uri ($base + $match.Groups['p'].Value) -SkipHttpErrorCheck
+                $r = Invoke-WebRequest -Uri ($base + $match.Groups['p'].Value) -SkipHttpErrorCheck -TimeoutSec 30
                 Assert-That ($r.StatusCode -eq 200 -and ([string]$r.Headers['Content-Type']) -match 'javascript') "status $($r.StatusCode) type $($r.Headers['Content-Type'])"; $true })
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'prod.api-404' -Description 'unknown /api route -> 404 JSON, not HTML' -Test {
                 $r = Invoke-Http GET "$base/api/nope"
@@ -737,6 +756,7 @@ try {
     Test-UnitAndBuild $stage @() 1
     if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline scaffold does not build; fix the toolchain before spending on VCP turns.' }
     Initialize-GitCheckpoint $ctx
+    $protected = @{ 'tests/health.test.ts' = (Get-Sha256 (Join-Path $ws 'tests\health.test.ts')) }
 
     # --- Profiles ---------------------------------------------------------
     $stage = 'P1-profiles'
@@ -769,19 +789,19 @@ try {
     }
 
     # --- T1: API -----------------------------------------------------------
-    $gatesT1 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT1; Test-ApiContract $s }
+    $gatesT1 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT1; Test-ApiContract $s; Test-ProtectedUnchanged $s $protected }
     $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-api' -Title 'Task REST API with persistence' -Prompt $promptT1 -Config $profiles['T1'] -AcceptExit @(0)
     if ($t1) { Test-StageExit $ctx $t1 'T1-api'; & $gatesT1 'T1-api'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-api' -Config $profiles['T1'] -GateScript $gatesT1) }
     Save-Checkpoint $ctx 'T1: task REST API'
 
     # --- T2: UI ------------------------------------------------------------
-    $gatesT2 = { param($s) Test-Typecheck $s; Test-UnitAndBuild $s $uiIds 4; Test-NodeTests $s $namesT1 }
+    $gatesT2 = { param($s) Test-Typecheck $s; Test-UnitAndBuild $s $uiIds 4; Test-NodeTests $s $namesT1; Test-ProtectedUnchanged $s $protected }
     $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-ui' -Title 'Vue board UI' -Prompt $promptT2 -Config $profiles['T2']
     if ($t2) { Test-StageExit $ctx $t2 'T2-ui'; & $gatesT2 'T2-ui'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-ui' -Config $profiles['T2'] -GateScript $gatesT2) }
     Save-Checkpoint $ctx 'T2: Vue board UI'
 
     # --- T3: cross-stack feature -------------------------------------------
-    $gatesT3 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT3; Test-UnitAndBuild $s ($uiIds + @('label-chip', 'sort-select')) 5; Test-LabelsAndSort $s; Test-ApiContract $s }
+    $gatesT3 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT3; Test-UnitAndBuild $s ($uiIds + @('label-chip', 'sort-select')) 5; Test-LabelsAndSort $s; Test-ApiContract $s; Test-ProtectedUnchanged $s $protected }
     $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-labels' -Title 'Labels and sorting across API and UI' -Prompt $promptT3 -Config $profiles['T3']
     if ($t3) { Test-StageExit $ctx $t3 'T3-labels'; & $gatesT3 'T3-labels'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-labels' -Config $profiles['T3'] -GateScript $gatesT3) }
     Save-Checkpoint $ctx 'T3: labels and sorting'
@@ -795,8 +815,8 @@ try {
         Write-Utf8File $packagePath $packageText
     }
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
-    $protected = @{ 'tests/health.test.ts' = (Get-Sha256 (Join-Path $ws 'tests\health.test.ts')); 'tests/regressions.test.ts' = (Get-Sha256 (Join-Path $ws 'tests\regressions.test.ts')) }
-    $gatesT4 = { param($s) Test-NodeTests $s $namesT4; Test-ProtectedUnchanged $s $protected; Test-ApiContract $s; Test-LabelsAndSort $s }
+    $protected['tests/regressions.test.ts'] = Get-Sha256 (Join-Path $ws 'tests\regressions.test.ts')
+    $gatesT4 = { param($s) Test-Typecheck $s; Test-UnitAndBuild $s ($uiIds + @('label-chip', 'sort-select')) 5; Test-NodeTests $s $namesT4; Test-ProtectedUnchanged $s $protected; Test-ApiContract $s; Test-LabelsAndSort $s }
     $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profiles['T4']
     if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'

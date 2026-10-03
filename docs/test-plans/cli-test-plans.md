@@ -1,8 +1,9 @@
 # VCP CLI practical scenario test plans
 
-Status: **draft for review - not executed.** Scripts have been syntax-checked with the
-PowerShell parser, and their pure-PowerShell fixture generators have been run for
-determinism. No scenario has been run against VCP, a provider or the toolchains.
+Status: **scenario execution not yet qualified.** Static review and offline harness
+checks do not establish that the paid scenarios pass. Record the CLI version, resolved
+dependencies, parameter values, scorecard and command logs for each actual run; keep dry
+runs, calibration runs and measured runs distinct.
 
 This plan defines four long-running, realistic scenarios. Each one drives the `vcp` CLI
 through several turns of real development work on a fresh project. A PowerShell harness
@@ -31,10 +32,10 @@ engagement:
 1. **Functional delivery per turn.** Did the requested feature work, as judged by
    harness-owned acceptance checks rather than the agent's own claims?
 2. **First-pass quality versus repair.** When a turn fails, the harness feeds the exact
-   failures back as one repair turn. Both the first-pass rate and the final state are
+   failures back as up to `-MaxRepairTurns` repair turns (default one). Both the first-pass rate and the final state are
    reported.
-3. **Regression resistance.** Every earlier contract is replayed after later turns and again
-   in a final independent verification.
+3. **Regression resistance.** The stage gate lists specify which earlier contracts are
+   replayed; the final verification repeats the implemented functional gate suites.
 4. **Following constraints.** Protected test and data files must stay byte-identical. Plan
    autonomy must not change the workspace.
 5. **CLI lifecycle behavior.** This covers structured JSONL output, exit codes, guardrail
@@ -69,7 +70,7 @@ tickets. Continuation of a single task is exercised separately:
 | Windows 11 x64, PowerShell 7.4+ (`pwsh`) | yes | yes | yes | yes |
 | VCP installed: `%LOCALAPPDATA%\Programs\VCP\vcp.exe`, or pass `-Vcp` / set `VCP_EXE` | yes | yes | yes | yes |
 | Node.js 22.18+ (24 LTS recommended) with bundled npm | yes | | | |
-| .NET SDK 8+ (the highest installed major is used) and SQL Server LocalDB (or `-SqlConnectionString`) | | yes | | |
+| .NET SDK 8+ (the selected SDK determines the target major) and SQL Server LocalDB (or a credential-free `-SqlConnectionString`) | | yes | | |
 | `sqlcmd` (optional, enables one advisory database gate) | | opt | | |
 | JDK 21+ (`JAVA_HOME` or PATH) and Apache Maven 3.9+ (`mvn.cmd` on PATH) | | | yes | |
 | Python 3.11+ (py launcher or python.exe, not the Store alias) | | | | yes |
@@ -112,6 +113,11 @@ The default run root is `%SystemDrive%\vcp-scenarios`. Change it with `-RunRoot`
 refuses any run root inside a git repository, a OneDrive root or a network path, because VCP
 rejects data directories and profiles in those locations.
 
+Scenario B's optional `-SqlConnectionString` must use integrated authentication and no
+embedded password. The script creates a distinct database name for the run; connection
+settings are written into the generated project, exposed to VCP, checkpointed and included
+in published assets. Password-bearing connection strings are rejected before seeding.
+
 ---
 
 ## 3. Harness design (shared by all scenarios)
@@ -129,7 +135,8 @@ rejects data directories and profiles in those locations.
   logs\
     console-transcript.log   full console transcript
     progress.log             concise timeline of stages, events and gate outcomes
-    vcp-commands.log         every vcp command line, with its exit code and duration
+    vcp-commands.log         replayable PowerShell command lines, start/end status, task/scope and result paths
+    vcp-commands.jsonl       exact executable/argv and completion records for automated inspection
     tool-commands.log        every toolchain command (npm, dotnet, mvn, java, python, git)
     <stage>\prompt.md                       the exact task text given to VCP
     <stage>\vcp\NN-<label>.stdout.jsonl     raw JSONL from each vcp command
@@ -157,12 +164,13 @@ rejects data directories and profiles in those locations.
 | T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. |
 | T6-review | paid, small (cap 2.00 USD) | A review in `--autonomy plan` with a read-only profile. The workspace must stay byte-identical, and the answer ends with a JSON findings block. |
 | T7-fork (D only) | paid | `sessions fork` of the review session, which tests consistency and immutability |
-| FINAL | none (VCP) | Independent clean build, full regression of every contract, packaging of compiled assets |
+| FINAL | none (VCP) | Independent build and functional regression gates for the final project, packaging of compiled assets; lifecycle actions are not repeated |
 | P9-evidence | none | Read-only CLI sweep: sessions, discover, history, retention, optimize, memory |
 
 `-SkipPaidStages` performs a **zero-spend dry run**: P0, B0, P1 and G0 only. It needs no
 credential. Run it first on every machine to validate toolchains, seeding, profiles and the
-guardrail.
+guardrail. It still requires a valid qualified generation and may download dependencies;
+it does not run provider qualification or prove that a feature turn succeeds.
 
 ### 3.3 Execution profiles
 
@@ -252,15 +260,19 @@ Its prompt lists the failed gate IDs with their exact failure details, followed 
   `result` frame, the count of each event kind and any invalid lines.
 - **Exit codes:** 0 completed, 1 internal or output failure, 2 invalid configuration, 3
   incomplete, 4 required input, 5 budget exhausted, 6 cancelled, 7 unresolved effect, 8
-  durably paused. Feature turns accept only 0. Repair turns accept 0 or 3, short-deadline
-  turns accept 0, 3 or 8, and plan reviews accept 0, 3 or 4.
-- **Cost** is the sum of `settled` micros over the canonical `ledger` records in
-  `inspect --view costs`. If cost evidence is incomplete, the budget guard assumes the full
+  durably paused. Feature turns accept only 0. Repair and resume turns accept 0 or 3,
+  short-deadline turns accept 0, 3 or 8, and plan reviews/forks accept 0, 3 or 4. These
+  allowances never substitute for the stage's functional gates. JSONL acceptance and final
+  result framing are required independently of the process exit code.
+- **Cost** comes from `settled` micros in the canonical task `ledger` records in
+  `inspect --view costs`, counting a resumed task's cumulative total only once. If cost evidence is incomplete, the budget guard assumes the full
   per-turn cap was spent and the scorecard sets `spend_evidence_complete: false`.
 - **Final message.** The final assistant text is not part of the JSONL stream. The harness
-  reads the last captured response artifact through `inspect --view outputs` byte ranges and
-  extracts `output_text` from its `response.completed` SSE event, as the repository's eval
-  runners do. This is best effort and is used only by advisory gates.
+  uses chronological artifact events to select a captured response, reads it through
+  `inspect --view outputs` byte ranges and extracts `output_text` from its
+  `response.completed` SSE event. Inspection page order is canonical key order, not
+  response chronology. Missing ordering or capture evidence leaves the message unavailable;
+  this is best effort and is used only by advisory gates.
 - **Completed turn IDs** for `sessions fork` come from `event.event.data.facts[]` entries with
   `collection == "turn"` and `value.state == "completed"`.
 
@@ -274,18 +286,20 @@ evidence capture is best effort.
 | Gate family | Technique |
 |---|---|
 | Build/compile | Exit code of the real toolchain (`npm run build`, `dotnet build/publish`, `mvn verify`, `pip wheel`, `compileall`) |
-| Tests | JUnit/TRX/TAP parsed for counts, failures and **named** required tests |
+| Tests | Fresh JUnit/TRX/TAP reports parsed for passed counts, failures and **named passing** required tests; skipped tests do not satisfy a minimum |
 | Contracts | The harness starts the produced app and makes HTTP requests, or runs the produced CLI, then compares status codes, bodies and ordering exactly against the contract in the prompt |
-| Expected values | Harness-computed expected outputs (C: report totals from a seeded fixture; D: metrics on a hidden holdout set) |
+| Expected values | Harness-computed expected outputs (C: report totals from a seeded fixture; D: confusion matrix, accuracy and macro-F1 recomputed from ordered evaluation predictions and compared with the application's reported metrics) |
 | Determinism | Two identical training runs must produce byte-identical outputs (D) |
 | Protection | SHA-256 of protected tests and data files before and after each turn |
-| Immutability | Full workspace manifest before and after plan-mode and fork stages |
+| Immutability | Workspace file hashes before and after plan-mode and fork stages, including generated outputs; ordinary stage diffs exclude build outputs and dependencies |
 | Lifecycle | Accepted exit codes, same task after resume, new session after fork, guardrail rejected before acceptance |
 
 Scorecard metrics (`results\scorecard.json`):
 
 - `verdict`: `pass` when every required gate passes in its **latest** attempt (a repair stage
-  supersedes the original stage's result for the same gate ID) and no fatal error occurred;
+  supersedes the original stage's result for the same gate ID), no paid stage was skipped
+  for budget, and no fatal error occurred. `dry-run-pass` covers only the zero-spend
+  preflight path; `incomplete` means the budget ceiling prevented requested stages;
 - `gate_pass_rate`: latest required gates passed divided by the total;
 - `first_pass_rate`: the share of feature turns whose required gates all passed **before**
   any repair;
@@ -294,17 +308,34 @@ Scorecard metrics (`results\scorecard.json`):
   changed, event counts and duration;
 - the produced `assets`, each with its size and SHA-256.
 
-The script exits 0 when the verdict is `pass` and 1 otherwise, which suits CI or batch
-wrappers.
+Successful full runs and successful dry runs exit 0; failures and incomplete runs exit 1.
+Read the verdict as well as the process exit code: a dry run is not functional delivery
+evidence, and an advisory continuation skip is not a successful resume test.
 
 ### 3.7 Budget controls
 
 - `-TurnBudgetUsd` (default 3.00) is passed to every run as `--budget-usd`. VCP enforces it
-  per task.
+  per task. Reviews use the smaller of this value and 2.00 USD. Resume retains the
+  original task's durable cap; it does not grant a fresh task budget.
 - `-MaxScenarioUsd` (default 30) is enforced by the harness. A stage that could exceed the
-  ceiling, based on settled spend plus one more per-turn cap, is skipped and recorded.
+  ceiling is skipped and recorded. New tasks reserve their full cap; a resume reserves
+  only the original task cap not already accounted for. A fork reserves the selected
+  profile's `budget_usd`, which can differ from the source review's smaller run override.
 - Concurrent scenarios do not share a ceiling. The worst-case total is the sum of their
   `-MaxScenarioUsd` values.
+
+Budget parameters accept at most two decimal places so the admission guard and rendered
+CLI dollar values agree; sub-cent values are rejected before paid execution.
+
+Provider qualification is a separate paid operation and is outside these ceilings.
+Settled ledger totals are cumulative per task: a resume contributes only newly observed
+spend. Missing, truncated or unresolved cost evidence causes conservative cap accounting
+until a later complete ledger for the same task reconciles it. Stage snapshots are advisory
+because intentional pauses can leave unsettled liabilities; final accounting requires every
+task's latest evidence to be complete and both task and scenario caps to be respected.
+An execution without task scope leaves unresolved accounting even if another task settles.
+While accounting remains unknown, `spend_evidence_complete` is false and conservative
+estimates must not be presented as measured spend.
 
 ---
 
@@ -335,7 +366,7 @@ then runs `npm install` and checks the baseline typecheck, tests and build.
 | T1-api | Task CRUD API with exact contract: `{items,total}` list with status/q filters, 201/204/400/404 semantics, `VALIDATION_ERROR`/`NOT_FOUND`/`INVALID_JSON` error codes, atomic JSON-file persistence via `createApp({dataFile})`/`TASKBOARD_DATA`, five named API tests | typecheck; `node --test` incl. 6 named tests; 12 HTTP contract checks: health, create defaults, title/status/impossible-date validation, malformed JSON, list, PATCH refreshes `updatedAt`, filters, 404, **persistence across a restart**, delete |
 | T2-ui | Vue board: typed API client, composable, three columns, create form with validation, search, move/delete; required `data-testid`s; at least 3 new Vitest tests | typecheck; Vitest >= 4 tests, 0 failures (JUnit); `vite build` emits `dist/client`; bundle contains `column-todo/doing/done`, `task-card`, `task-form`, `search-input`; API tests still pass |
 | T3-labels | Labels (`^[a-z0-9-]{1,20}$`, max 5, unique), `label=` filter, `sort=createdAt|priority|dueDate` with defined tie-breaks, UI chips and sort selector | 2 more named tests; label validation (uppercase, duplicate, >5 rejected); sort orders asserted exactly on a 4-task fixture (`BDCA`, `DCAB`, `ABCD`), `label=ui` gives `BD`, invalid sort gives 400; bundle has `label-chip`, `sort-select`; **T1 contract replayed** |
-| T4-regressions | Harness adds the protected `tests/regressions.test.ts` (title trimming, whitespace-only title, `UNKNOWN_FIELD`, `READ_ONLY_FIELD`) and lists it in `npm test` | 4 regression tests pass; protected files unchanged; T1 and T3 contracts replayed |
+| T4-regressions | Harness adds the protected `tests/regressions.test.ts` (title trimming, whitespace-only title, `UNKNOWN_FIELD`, `READ_ONLY_FIELD`) and lists it in `npm test` | 4 regression tests pass; typecheck, build and UI tests pass; protected files unchanged; T1 and T3 contracts replayed |
 | T5-production (short deadline) | Serve `dist/client` from the API process with SPA fallback; JSON 404 for unknown `/api`; `GET /api/stats` with overdue; stats bar; README production instructions | resume continues the same task (if paused); `GET /` and `/board` serve index.html; hashed asset served as JavaScript; `/api/nope` gives a JSON 404; stats exactly `{total:4, todo:2, doing:1, done:1, overdue:1}`; protected files unchanged |
 | T6-review | Read-only release review ending in a JSON findings block | workspace byte-identical; exit in {0,3,4} |
 | FINAL | none | `npm ci` from the lockfile; typecheck; all named tests; Vitest; build; T1, T3 and T5 contracts; protected files |
@@ -344,7 +375,7 @@ The VCP-side `node` check carries the cumulative expected test names for each tu
 (`profile-T1` ... `profile-T5`), so VCP's own `vcp_verify` result can be compared with the
 harness gates.
 
-### 4.3 Every vcp command (in order)
+### 4.3 VCP command sequence (default parameters)
 
 ```text
 # P0 - preflight (no inference)
@@ -427,15 +458,15 @@ The pinned versions are recorded in the scorecard notes. The harness also writes
 
 | Stage | Task given to VCP | Required gates |
 |---|---|---|
-| T1-data | `InventoryDbContext` (Products, Suppliers, StockMovements), validation rules, `HasData` seed of 3 suppliers and 10 products with exact SKUs, `InitialCreate` migration, `public partial class Program`, >= 3 unit tests | build; >= 3 tests pass (TRX); `migrations list` contains `InitialCreate`; `database update` applies to SQL Server; advisory: `sqlcmd` counts 10 seeded SKUs; protected appsettings unchanged |
-| T2-api | REST API: suppliers, paged and searchable products, CRUD with 201+Location / 409 duplicate / 400 validation-problem keys, movements with sign rules, stock, low-stock report; >= 8 integration tests (InMemory, `Testing` environment) | build; >= 11 tests; migrations apply; **against SQL Server**: suppliers seeded; paging 5/page with the seeded SKUs in exact order; `pageSize=101` gives 400; search; create with Location; duplicate gives 409; error keys `sku` and `unitPrice`; unknown supplier gives a `supplierId` error; receipt 50 + sale -20 gives onHand 30; zero or negative receipt gives 400; movements newest first; low-stock order; delete 409/204/404 |
-| T3-razor | Razor Pages `/Products` (search, paging), Create/Edit bound to `Input.*`, Details with "Record movement", `/Reports/LowStock` | build; >= 14 tests; the form flow with a real antiforgery token creates a product that is then found through the API; an invalid post re-renders with `field-validation-error`; details page; low-stock page; advisory: post without token gives 400; T2 contract replayed |
-| T4-regressions | Harness adds protected `RegressionTests.cs` (SKU normalization, insufficient-stock problem type, whitespace names, supplier email) | >= 18 tests incl. the 4 named; protected files unchanged; API and Razor contracts replayed |
-| T5-concurrency (short deadline) | rowversion plus `AddProductRowVersion` migration; ETag on GET; PUT requires If-Match (428/412/200); Edit page concurrency error | resume `<task>` continues the same task (if paused); >= 20 tests; both migrations apply; ETag flow: 428 without, 412 bogus, 200 with a new ETag, 412 on replay; API contract replayed |
+| T1-data | `InventoryDbContext` (Products, Suppliers, StockMovements), validation rules, `HasData` seed of 3 suppliers and 10 products with exact SKUs, `InitialCreate` migration, `public partial class Program`, >= 3 unit tests | build; >= 4 tests pass (TRX); `migrations list` contains `InitialCreate`; `database update` applies to SQL Server; advisory: `sqlcmd` counts 10 seeded SKUs; protected appsettings unchanged |
+| T2-api | REST API: suppliers, paged and searchable products, CRUD with 201+Location / 409 duplicate / 400 validation-problem keys, movements with sign rules, stock, low-stock report; >= 8 integration tests (InMemory, `Testing` environment) | build; >= 12 tests; migrations apply; **against SQL Server**: suppliers seeded; paging 5/page with the seeded SKUs in exact order; `pageSize=101` gives 400; search; create with Location; duplicate gives 409; error keys `sku` and `unitPrice`; unknown supplier gives a `supplierId` error; receipt 50 + sale -20 gives onHand 30; zero or negative receipt gives 400; movements newest first; low-stock order; delete 409/204/404 |
+| T3-razor | Razor Pages `/Products` (search, paging), Create/Edit bound to `Input.*`, Details with "Record movement", `/Reports/LowStock` | build; >= 15 tests; the form flow with a real antiforgery token creates a product that is then found through the API; an invalid post re-renders with `field-validation-error`; details page; low-stock page; post without token gives 400; T2 contract replayed |
+| T4-regressions | Harness adds protected `RegressionTests.cs` (SKU normalization, insufficient-stock problem type, whitespace names, supplier email) | >= 19 tests incl. the 4 named; protected files unchanged; API and Razor contracts replayed |
+| T5-concurrency (short deadline) | rowversion plus `AddProductRowVersion` migration; ETag on GET; PUT requires If-Match (428/412/200); Edit page concurrency error | resume `<task>` continues the same task (if paused); >= 22 tests; both migrations apply; ETag flow: 428 without, 412 bogus, 200 with a new ETag, 412 on replay; API and Razor contracts replayed |
 | T6-review | Read-only review | workspace byte-identical |
-| FINAL | none | build; tests; migrations; `dotnet publish -c Release` gives `Inventory.Web.exe`; the **published exe** passes the API, Razor and ETag gates on port 41751; idempotent migration SQL script |
+| FINAL | none | build; >= 22 passing tests; migrations; `dotnet publish -c Release` gives `Inventory.Web.exe`; the **published exe** passes the API, Razor and ETag gates on port 41751; idempotent migration SQL script |
 
-### 5.3 Every vcp command (in order)
+### 5.3 VCP command sequence (default parameters)
 
 ```text
 # P0 - preflight (no inference)
@@ -498,7 +529,7 @@ A personal-finance command-line tool imports bank CSV exports into a local JSON 
 categorizes transactions with rules, reports monthly and quarterly totals, checks budgets and
 exports data. The harness generates a deterministic three-month fixture: 152 rows, 146 unique
 after 6 duplicate rows, with 13 rows that no rule matches. It computes every expected report
-itself, so CLI output is compared **exactly**: money strings, category order, counts and exit
+itself, so CLI output is compared against harness expectations: money strings, category order, counts and exit
 codes. The test focuses on precise CLI contracts, BigDecimal arithmetic, CSV edge cases,
 atomic writes, exit-code discipline, and working inside a constrained toolchain: Maven is a
 batch script, so VCP reaches it through `java.exe` and the classworlds launcher.
@@ -519,9 +550,9 @@ and a README. Baseline: `mvn -B -ntp clean verify`.
 | T4-regressions | Harness adds the protected `RegressionTest.java` (parenthesized negatives, thousands separators, quoted commas, re-import duplicates, empty month) | >= 15 tests incl. the 5 named; bank-export fixture with `(1,204.10)`, `"3,250.00"`, quoted commas, extra whitespace and a duplicate gives `Imported 7 transactions (1 duplicates skipped)` and an exact April report; T2 replayed; protected files unchanged |
 | T5-export (short deadline) | `export` (csv/json, ordered), `--from/--to` ranges, mutually exclusive options, help, README | `sessions resume <session>` continues the same task (if paused); export JSON has 146 ordered, categorized items; CSV header and rows; quarter report equals the harness Q1 totals; `--month` with `--from` gives exit 2; `--help` lists all subcommands |
 | T6-review | Read-only review | workspace byte-identical |
-| FINAL | none | `mvn verify`; every gate above against the final jar; protected files |
+| FINAL | none | `mvn verify`; import, reports, budgets, bank-export and export/range suites against the final jar; protected files |
 
-### 6.3 Every vcp command (in order)
+### 6.3 VCP command sequence (default parameters)
 
 ```text
 # P0 - preflight (no inference)
@@ -583,9 +614,12 @@ A support team wants to triage tickets automatically by category (account, billi
 feedback, shipping, technical) and sentiment, see the keywords that drive each category,
 and get an evaluation report and a model card. The harness generates deterministic,
 balanced, templated ticket data in the workspace: train 1,500 and dev 300, both protected.
-It also generates a **hidden holdout** of 501 tickets outside the workspace: 35% use
+It also generates a **withheld evaluation set** of 501 tickets outside the workspace: 35% use
 phrasings and sentiment cues never seen in training, and one row contains an XSS payload.
-Model quality is measured only on that hidden set. The test focuses on ML engineering:
+Quality gates use that set. It is withheld from the prompt and workspace, but the harness
+reuses it across stages and repairs, so the resulting score is not an untouched final-test
+estimate. Reduced-isolation processes are also not an access-control boundary around
+the run's `hidden` directory. The test focuses on ML engineering:
 reproducibility, honest evaluation, robustness to real-world input, calibrated
 thresholds, safe reporting, packaging, and following a preprocessing specification
 expressed as protected tests.
@@ -598,7 +632,9 @@ runs the baseline tests.
 
 **Thresholds** are parameters, because they were chosen from the dataset design and have not
 yet been measured: `-BaselineMacroF1 0.80` (T1-T2), `-TargetMacroF1 0.85` (T3 onward),
-`-TargetSentimentAccuracy 0.70`. Calibrate them after the first run if needed (section 8).
+`-TargetSentimentAccuracy 0.70`. Use a separately labeled pilot to assess feasibility;
+freeze thresholds before measured runs and retain any original failing scorecard.
+Do not lower a threshold after observing a run and relabel that same run as passing.
 
 ### 7.2 Turns and gates
 
@@ -608,12 +644,12 @@ yet been measured: `-BaselineMacroF1 0.80` (T1-T2), `-TargetMacroF1 0.85` (T3 on
 | T2-sentiment | Sentiment model, extended predict output, `keywords` command | pytest >= 10; T1 gates with sentiment; **holdout sentiment accuracy >= 0.70**; keywords: 10 lowercase non-stop-word terms per category, with >= 2 known signal words each |
 | T3-robustness | Empty text gives `unknown`; 5,000-char truncation; probabilities; `--min-confidence` gives `needs_review`; BOM, emoji, non-English and multi-line input | pytest >= 14; **holdout macro-F1 >= 0.85**; edge-case batch (BOM, empty, whitespace, emoji, Spanish, a 20,000-char text, a multi-line quoted field): ids kept in order, empty rows `unknown`, long refund text billing, confidences in [0,1]; `--min-confidence 0.999` gives >= 1 `needs_review` and `0` gives none |
 | T4-regressions | Harness adds the protected `tests/test_regressions.py` (NFKC/casefold, `<url>`, `<email>`, `<order>` masking, whitespace) | pytest >= 19 incl. the 5 named; model and robustness gates still pass after preprocessing changes; protected files unchanged |
-| T5-report (short deadline) | Self-contained HTML report (tables, confusion matrix, keywords, escaped examples) and MODEL_CARD.md | `workspace discover` lists the paused task with an expected revision; **stale `--expected-revision` rejected**; `resume <task> --expected-revision <rev>` continues the same task; report has >= 2 tables and every label, contains no raw `<script>alert(1)</script>`, and has no scripts or external URLs; MODEL_CARD sections |
+| T5-report (short deadline) | Self-contained HTML report (tables, confusion matrix, keywords, escaped examples) and MODEL_CARD.md | If paused: `workspace discover` lists the task with an expected revision; **stale `--expected-revision` gives exit 2 with no events**; valid revision resumes the same task. Report has >= 2 tables and every label; an intentionally misclassified XSS fixture checks escaping; no scripts or external URLs; MODEL_CARD sections |
 | T6-review | Read-only ML review | workspace byte-identical |
 | T7-fork | `sessions fork` of the review session through its last completed turn | new session and task; workspace byte-identical; advisory: overlap of cited files between the two reviews (Jaccard >= 0.3) |
-| FINAL | none | every gate above on the final code; models retrained into `workspace\models`; holdout metrics; dev-set report; keywords; `pip wheel`; `compileall` |
+| FINAL | none | pytest, model, robustness, keywords, report and protection gates on the final code; verified model bytes and metrics copied into deliverables; dev-set report; keywords; wheel built in a fresh directory; `compileall`; required artifact gates |
 
-### 7.3 Every vcp command (in order)
+### 7.3 VCP command sequence (default parameters)
 
 ```text
 # P0 - preflight (no inference)
@@ -676,35 +712,45 @@ The holdout and edge-case files stay in `hidden\`.
 
 ## 8. Known risks and assumptions to confirm on the first run
 
-These come from reading the source. None has been observed yet:
+These limitations need evidence from actual scenario runs:
 
 1. **Environment filtering in process profiles.** Profiles allow only `SYSTEMROOT`, `WINDIR`,
    `PATH`, `PATHEXT`, `TEMP`, `TMP`, `LANG`, `LC_ALL`, `TERM`, `CI` and a few build variables.
    npm, NuGet, Maven and pip normally find the user profile through Windows APIs, but a
    failure inside `vcp_exec` is a real finding: the turn shows it in `inspect-tools.json`
    and the harness gates will still judge the produced code.
-2. **Maven inside VCP (C).** The `java.exe` classworlds invocation copies what `mvn.cmd`
-   does for Maven 3.9. If the Maven layout differs, the agent falls back to `javac` and the
-   scorecard notes it.
-3. **`dotnet-ef` inside VCP (B).** Environment variables cannot be set for processes, so
+2. **Maven invocation (C).** Both the harness and VCP use `java.exe` with the classworlds
+   launcher rather than executing `mvn.cmd` as a native binary. Preflight requires Maven
+   3.9+ with the distribution's launcher jar and `bin/m2.conf`; a shim or unsupported layout
+   fails before paid stages.
+3. **`dotnet-ef` inside VCP (B).** Arbitrary environment variables cannot be set through the profile allowlist, so
    prompts tell the agent to pass `-- --environment Development`. The harness's own EF
    commands set `ASPNETCORE_ENVIRONMENT`.
 4. **Guardrails exit before acceptance.** The autonomy ceiling, trust, bounds and empty-file
    checks are expected to fail in `profile.prepare` or argument validation, with exit 2 and
    no `accepted` frame. A different outcome is reported as a failed gate.
 5. **Short-deadline pause.** If T5 finishes inside `-ShortDeadlineSeconds`, the continuation
-   gate is recorded as `skip`, not `fail`. Lower the value to make pausing more likely.
+   gate is recorded as `skip`, not `fail`. A scenario can therefore pass functional gates
+   without covering resume; report that coverage gap explicitly. Lower the value in a
+   separate run to make pausing more likely, within the profile's verification bounds.
+   D's fork likewise requires a completed review turn; a missing turn leaves fork uncovered.
 6. **Final message extraction** depends on the captured SSE response format. Only advisory
    gates depend on it.
-7. **ML thresholds (D)** are design estimates. Record the measured holdout metrics from the
-   first run and set the parameters accordingly.
+7. **ML thresholds (D)** are design estimates, and the fixture is templated synthetic data.
+   Keep pilot calibration separate from scored comparisons. These gates establish behavior
+   on the fixture, not generalization to real support tickets or calibrated probabilities.
 8. **Floating dependency resolution.** npm caret ranges, latest-in-major NuGet versions and
    pip lower bounds resolve when the run happens. The lockfile, the scorecard notes and the
    pip freeze capture what was used. Maven versions are pinned.
 9. **Reduced isolation** is used for all toolchain profiles (section 3.3).
 10. **Approvals.** If a turn hits an effect outside `automatic_effects`, it stops with exit 4
-    and the harness notes the required input. That means the profile needs adjusting; it is
-    not a model failure.
+    and the harness notes the required input. Inspect the requested effect against the
+    intended contract before attributing the failure; do not automatically widen permission
+    to make the scenario pass. Review stages permit this exit while still checking immutability.
+11. **UI and review coverage.** A's component tests and bundle markers and B's HTTP form
+    checks do not exercise a real browser or establish visual quality or accessibility.
+    A successful read-only review gate proves preservation of files; its findings content
+    and D's review consistency are advisory, not proof of a correct review.
 
 ---
 
@@ -715,13 +761,35 @@ These come from reading the source. None has been observed yet:
 | File | Role |
 |---|---|
 | `VcpScenarioHarness.psm1` | Shared engine: run-root setup and safety checks; shell-free process execution (`ProcessStartInfo.ArgumentList`) with streamed logs, heartbeats and timeouts; `Invoke-Vcp` with JSONL parsing; the evidence sweep; paged inspect; cost and final-message extraction; workspace manifests; gates; repair loop; profile composition; preflight and guardrail helpers; git checkpoints; scorecard and summary |
+| `run-cli-scenarios.ps1` | Interactive scenario and run-mode selection, prerequisite inputs, child process execution and result location |
 | `scenario-a-vue-taskboard.ps1` | Seed, prompts, contracts and gates for scenario A |
 | `scenario-b-aspnet-inventory.ps1` | Seed, prompts, contracts and gates for scenario B |
 | `scenario-c-java-ledger-cli.ps1` | Fixture generator, expected-result calculator, seed, prompts and gates for scenario C |
 | `scenario-d-python-textlab.ps1` | Dataset generator, hidden holdout, seed, prompts and gates for scenario D |
+| `tests/Harness.Tests.ps1` | Offline regressions for process handling, cost accounting, manifests and scorecards |
+| `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
+| `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
+| `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
+| `tests/CommandLog.Tests.ps1` | Offline regressions for exact command logging, failure evidence and result-path references |
 
 Each scenario script is self-contained apart from the module. Seeds, protected tests and
-prompts are embedded as here-strings, so a run never depends on the state of this repository.
+prompts are embedded as here-strings; the generated project does not import VCP repository
+files. Keep the scenario scripts and module from the same revision when copying them.
+
+Before running a scenario, run the offline checks from the repository workspace root:
+
+```powershell
+pwsh -NoProfile -File docs/test-plans/tests/Harness.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ScenarioGates.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
+```
+
+These checks use local fixtures and subprocess probes; they need no VCP installation,
+provider generation, provider credential or network access. They validate the harness,
+not the generated applications or paid provider workflows. Run `-SkipPaidStages` next
+to check the installed CLI, qualified generation and actual scenario toolchains.
 
 ### 9.2 Common parameters
 
@@ -745,12 +813,34 @@ Scenario-specific: A `-ApiPort`; B `-AppPort`, `-PublishedPort`, `-SqlConnection
 Open one PowerShell 7 window per scenario. In each window:
 
 ```powershell
-# 1. credential for this console only (section 2.3)
-$secret = Read-Host 'OpenRouter API key' -AsSecureString
-$env:OPENROUTER_API_KEY = [pscredential]::new('k', $secret).GetNetworkCredential().Password; $secret = $null
+pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1
+```
 
-# 2. zero-spend dry run first
+Choose A, B, C or D, then dry run or full run. Dry run is the default. Supply the
+qualified provider generation with `-ProviderGeneration` or `VCP_PROVIDER_GENERATION`.
+Otherwise the launcher looks for the newest valid `provider-*` directory under
+`%LOCALAPPDATA%\VCP\profiles` with at least five hours remaining, and prompts if none
+is available. Full runs request a masked provider key only when it is missing from
+the console environment. The launcher streams progress in that console and prints the
+run, workspace, result and command-log locations when the child exits. Qualification itself is still the separate paid
+step in section 2.2.
+
+For a repeatable selection, pass the options explicitly:
+
+```powershell
+pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode DryRun -ProviderGeneration C:\vcp-private\provider-20261002
+```
+
+The individual scenario scripts also remain available for scenario-specific parameters:
+
+```powershell
+# 1. zero-spend dry run first (no credential needed)
 pwsh -File D:\code\Github\vcp\docs\test-plans\scenario-a-vue-taskboard.ps1 -ProviderGeneration C:\vcp-private\provider-20261002 -SkipPaidStages
+
+# 2. credential for this console only (section 2.3)
+$secret = Read-Host 'OpenRouter API key' -AsSecureString
+$env:OPENROUTER_API_KEY = [pscredential]::new('k', $secret).GetNetworkCredential().Password
+$secret = $null
 
 # 3. the real run
 pwsh -File D:\code\Github\vcp\docs\test-plans\scenario-a-vue-taskboard.ps1 -ProviderGeneration C:\vcp-private\provider-20261002
@@ -771,8 +861,10 @@ Concurrent runs are isolated by design:
   correctness. Gate timeouts are generous (15-30 minutes per toolchain command).
 
 Each console shows timestamped stage, event and gate lines prefixed with the scenario name.
-A heartbeat line appears every 60 seconds during long commands. Ctrl+C reaches both the
-script and the running `vcp`, which cancels the task. Inspect the evidence before re-running.
+A heartbeat appears after 30 seconds and then every 60 seconds during long commands.
+Harness timeouts terminate the process tree. Ctrl+C or forced termination is not proof of
+durable task cancellation: inspect task state and unresolved effects before resuming or
+starting another run. An interrupted script may not write its final scorecard.
 
 ### 9.4 Reading the results
 
@@ -791,8 +883,10 @@ script and the running `vcp`, which cancels the task. Inspect the evidence befor
 
 ### 9.5 Expected duration and spend
 
-These are rough ceilings, not measurements. A scenario has 5 feature turns, up to 5 repair
-turns, 1 review and, in D, 1 fork. Each task is capped by `-TurnBudgetUsd` and
-`-DeadlineSeconds`, and the whole run by `-MaxScenarioUsd`. Wall time is expected to be
+These are planning estimates, not measurements or wall-time guarantees. With default
+repair settings, a scenario has 5 feature turns, up to 5 repair turns, 1 review and, in D,
+1 fork. Each task has a spend cap; each execution has a profile deadline, with a new
+deadline when a paused task resumes. The harness guards total spend with `-MaxScenarioUsd`.
+Wall time is estimated at
 **1.5-4 hours** per scenario, dominated by model turns and toolchain builds. Record actual
 time and spend from `scorecard.json` after the first runs and update this section.

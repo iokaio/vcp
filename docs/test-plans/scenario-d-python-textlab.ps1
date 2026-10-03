@@ -9,8 +9,9 @@ built over multiple VCP CLI turns and assessed on a hidden holdout set.
 .DESCRIPTION
 See docs/test-plans/cli-test-plans.md, "Scenario D". The harness generates
 deterministic labelled train/dev data inside the workspace and a holdout set
-(with unseen phrasings) outside it, so model quality is measured on data the
-agent never saw. Turns: baseline classifier and evaluation, sentiment and
+(with unseen phrasings) outside it. Metrics are independently scored from batch
+predictions. This is a withheld fixture, not a security boundary or a blind
+evaluation: repair feedback can expose results across turns. Turns: baseline classifier and evaluation, sentiment and
 keywords, robustness, protected preprocessing regression tests, HTML report
 and model card (interrupted by a short deadline, then resumed with
 'vcp resume <task> --expected-revision <rev>' from 'vcp workspace discover'),
@@ -32,9 +33,9 @@ param(
     [int]$MaxRequests = 96,
     [int]$DeadlineSeconds = 1800,
     [int]$ShortDeadlineSeconds = 150,
-    [double]$BaselineMacroF1 = 0.80,
-    [double]$TargetMacroF1 = 0.85,
-    [double]$TargetSentimentAccuracy = 0.70,
+    [ValidateRange(0, 1)][double]$BaselineMacroF1 = 0.80,
+    [ValidateRange(0, 1)][double]$TargetMacroF1 = 0.85,
+    [ValidateRange(0, 1)][double]$TargetSentimentAccuracy = 0.70,
     [switch]$SkipPaidStages
 )
 $ErrorActionPreference = 'Stop'
@@ -412,15 +413,15 @@ listing at most 10 findings ordered by severity.
 function Test-Pytest([string]$Stage, [int]$MinTests, [string[]]$Required = @()) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'pytest' -Description "pytest passes with >= $MinTests tests" -Test {
             $xml = Join-Path $ctx.Logs "$Stage\pytest-junit.xml"
+            if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml }
             $run = Invoke-Python $Stage 'pytest' @('-m', 'pytest', '-q', '-p', 'no:cacheprovider', "--junitxml=$xml")
             Assert-That (Test-Path -LiteralPath $xml) ("no junit report (exit {0})`n{1}" -f $run.ExitCode, (Get-Tail ($run.Output + $run.Errors)))
             $report = [xml](Get-Content -LiteralPath $xml -Raw)
             $suites = @($report.SelectNodes('//testsuite'))
-            $tests = ($suites | ForEach-Object { [int]$_.tests } | Measure-Object -Sum).Sum
             $failures = ($suites | ForEach-Object { [int]$_.failures + [int]$_.errors } | Measure-Object -Sum).Sum
             Assert-That ($run.ExitCode -eq 0 -and $failures -eq 0) ("exit {0}, {1} failures`n{2}" -f $run.ExitCode, $failures, (Get-Tail $run.Output 40))
-            Assert-That ($tests -ge $MinTests) "only $tests tests"
-            $passed = @($report.SelectNodes('//testcase') | Where-Object { -not $_.failure -and -not $_.error -and -not $_.skipped } | ForEach-Object name)
+            $passed = @($report.SelectNodes('//testcase') | Where-Object { -not $_.SelectSingleNode('failure|error|skipped') } | ForEach-Object name)
+            Assert-That ($passed.Count -ge $MinTests) "only $($passed.Count) passing tests"
             $missing = @($Required | Where-Object { $passed -notcontains $_ })
             Assert-That ($missing.Count -eq 0) ('required tests not passing: ' + ($missing -join ', ')); $true })
 }
@@ -435,6 +436,50 @@ function Invoke-Train([string]$Stage, [string]$ModelDir, [string]$Label = 'train
     return Invoke-Python $Stage $Label @('-m', 'textlab', 'train', '--train', 'data/tickets_train.csv', '--dev', 'data/tickets_dev.csv', '--model-dir', $ModelDir, '--seed', '13') 1800
 }
 
+function Assert-Probability($Value, [string]$Label) {
+    $number = 0.0
+    Assert-That ($null -ne $Value -and [double]::TryParse([string]$Value, [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number) -and
+        [double]::IsFinite($number) -and $number -ge 0 -and $number -le 1) "$Label must be a finite probability in [0,1]"
+}
+
+function Get-PredictionMetrics([object[]]$Rows, [object[]]$Expected, [string[]]$Labels, [string]$Field) {
+    Assert-That ($Rows.Count -eq $Expected.Count -and $Rows.Count -gt 0) 'batch output row count differs from input'
+    $matrix = @{}
+    foreach ($actual in $Labels) {
+        foreach ($predicted in $Labels) { $matrix["$actual|$predicted"] = 0 }
+    }
+    for ($i = 0; $i -lt $Rows.Count; $i++) {
+        Assert-That ($Rows[$i].id -ceq $Expected[$i].id) "batch output id/order differs at row $i"
+        $truth = [string]$Expected[$i].$Field; $prediction = [string]$Rows[$i].$Field
+        Assert-That ($Labels -ccontains $truth -and $Labels -ccontains $prediction) "invalid $Field label at row $i"
+        Assert-Probability $Rows[$i].("${Field}_confidence") "$Field confidence at row $i"
+        $matrix["$truth|$prediction"]++
+    }
+    $correct = 0; $f1Sum = 0.0
+    $perLabel = @{}
+    $confusion = [System.Collections.Generic.List[object]]::new()
+    foreach ($label in $Labels) {
+        $tp = $matrix["$label|$label"]; $correct += $tp
+        $support = 0; $predictedCount = 0
+        foreach ($other in $Labels) { $support += $matrix["$label|$other"]; $predictedCount += $matrix["$other|$label"] }
+        $precision = if ($predictedCount) { $tp / $predictedCount } else { 0.0 }
+        $recall = if ($support) { $tp / $support } else { 0.0 }
+        $f1 = if ($support + $predictedCount) { 2.0 * $tp / ($support + $predictedCount) } else { 0.0 }
+        $f1Sum += $f1
+        $perLabel[$label] = @{ precision = $precision; recall = $recall; f1 = $f1; support = $support }
+        $confusion.Add(@($Labels | ForEach-Object { $matrix["$label|$_"] }))
+    }
+    return @{ accuracy = $correct / $Rows.Count; macro_f1 = $f1Sum / $Labels.Count; per_label = $perLabel; confusion_matrix = $confusion }
+}
+
+function Assert-ReportedMetrics($Reported, $Computed, [string]$Label) {
+    foreach ($field in 'accuracy', 'macro_f1') {
+        Assert-Probability $Reported.$field "$Label $field"
+        Assert-That ([math]::Abs([double]$Reported.$field - $Computed[$field]) -le 0.000001) "$Label $field differs from independently scored predictions"
+    }
+}
+
 function Test-Model([string]$Stage, [double]$MinMacroF1, [switch]$Sentiment) {
     $models = New-GateDir $Stage 'models'
     $state = @{}
@@ -443,6 +488,7 @@ function Test-Model([string]$Stage, [double]$MinMacroF1, [switch]$Sentiment) {
             Assert-That ($run.ExitCode -eq 0) ("exit {0}`n{1}" -f $run.ExitCode, (Get-Tail ($run.Output + $run.Errors)))
             Assert-That (Test-Path -LiteralPath (Join-Path $models 'category.joblib')) 'category.joblib missing'
             $meta = Get-Content -LiteralPath (Join-Path $models 'metadata.json') -Raw | ConvertFrom-Json -Depth 20
+            Assert-That ($meta.version -eq 1 -and $meta.seed -eq 13) 'metadata version/seed differs from the training contract'
             Assert-That ((@($meta.labels.category) -join ',') -eq ($labels -join ',')) "labels.category = $(@($meta.labels.category) -join ',')"
             if ($Sentiment) {
                 Assert-That (Test-Path -LiteralPath (Join-Path $models 'sentiment.joblib')) 'sentiment.joblib missing'
@@ -457,14 +503,32 @@ function Test-Model([string]$Stage, [double]$MinMacroF1, [switch]$Sentiment) {
             $metrics = Get-Content -LiteralPath $metricsPath -Raw | ConvertFrom-Json -Depth 20
             $state.metrics = $metrics
             Assert-That ([int]$metrics.n -eq $holdoutRows.Count) "n = $($metrics.n), expected $($holdoutRows.Count)"
+            $predictionsPath = Join-Path $models 'scored-predictions.csv'
+            $predictionRun = Invoke-Python $Stage 'predict-scored' @('-m', 'textlab', 'predict', '--model-dir', $models, '--input', $holdoutPath, '--output', $predictionsPath)
+            Assert-That ($predictionRun.ExitCode -eq 0) "prediction exit $($predictionRun.ExitCode): $($predictionRun.Errors)"
+            $state.predictions = @(Import-Csv -LiteralPath $predictionsPath)
+            $computed = Get-PredictionMetrics $state.predictions $holdoutRows $labels 'category'
+            Assert-ReportedMetrics $metrics.category $computed 'category'
+            Assert-That ((@($metrics.category.labels) -join ',') -ceq ($labels -join ',')) 'evaluation category labels/order differ'
             $matrix = @($metrics.category.confusion_matrix)
-            $cells = ($matrix | ForEach-Object { $_ } | Measure-Object -Sum).Sum
-            Assert-That ($matrix.Count -eq $labels.Count -and $cells -eq $holdoutRows.Count) "confusion matrix shape/sum wrong ($($matrix.Count) rows, sum $cells)"
-            Assert-That ([double]$metrics.category.macro_f1 -ge $MinMacroF1) ('macro_f1 {0:N4} < {1}' -f [double]$metrics.category.macro_f1, $MinMacroF1); $true })
+            Assert-That ($matrix.Count -eq $labels.Count) 'confusion matrix has the wrong row count'
+            for ($i = 0; $i -lt $labels.Count; $i++) {
+                Assert-That ((@($matrix[$i]) -join ',') -ceq ($computed.confusion_matrix[$i] -join ',')) "confusion matrix row $i differs from predictions"
+                $label = $labels[$i]
+                $reportedLabel = $metrics.category.per_label.$label
+                Assert-That ($null -ne $reportedLabel -and $reportedLabel.support -eq $computed.per_label[$label].support) "support for $label differs"
+                foreach ($field in 'precision', 'recall', 'f1') {
+                    Assert-Probability $reportedLabel.$field "$label $field"
+                    Assert-That ([math]::Abs([double]$reportedLabel.$field - $computed.per_label[$label][$field]) -le 0.000001) "$label $field differs from predictions"
+                }
+            }
+            Assert-That ($computed.macro_f1 -ge $MinMacroF1) ('independent macro_f1 {0:N4} < {1}' -f $computed.macro_f1, $MinMacroF1); $true })
     if ($Sentiment) {
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'holdout.sentiment' -Description "hidden holdout sentiment accuracy >= $TargetSentimentAccuracy" -Test {
                 Assert-That ($null -ne $state.metrics) 'no holdout metrics'
-                Assert-That ([double]$state.metrics.sentiment.accuracy -ge $TargetSentimentAccuracy) ('sentiment accuracy {0:N4}' -f [double]$state.metrics.sentiment.accuracy); $true })
+                $computed = Get-PredictionMetrics $state.predictions $holdoutRows @('negative', 'neutral', 'positive') 'sentiment'
+                Assert-ReportedMetrics $state.metrics.sentiment $computed 'sentiment'
+                Assert-That ($computed.accuracy -ge $TargetSentimentAccuracy) ('independent sentiment accuracy {0:N4}' -f $computed.accuracy); $true })
     }
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'determinism' -Description 'retraining with the same seed reproduces predictions and metadata byte-for-byte' -Test {
             $again = New-GateDir $Stage 'models-repro'
@@ -477,13 +541,18 @@ function Test-Model([string]$Stage, [double]$MinMacroF1, [switch]$Sentiment) {
             Assert-That ((Get-Sha256 $a) -eq (Get-Sha256 $b)) 'batch predictions differ between identical training runs'
             Assert-That ((Get-Sha256 (Join-Path $models 'metadata.json')) -eq (Get-Sha256 (Join-Path $again 'metadata.json'))) 'metadata.json differs between identical training runs'
             $rows = @(Import-Csv -LiteralPath $a)
-            Assert-That ($rows.Count -eq $holdoutRows.Count -and (($rows | Select-Object -First 3 | ForEach-Object id) -join ',') -eq (($holdoutRows | Select-Object -First 3 | ForEach-Object id) -join ',')) 'batch output does not preserve rows/order'; $true })
+            [void](Get-PredictionMetrics $rows $holdoutRows $labels 'category')
+            if ($Sentiment) { [void](Get-PredictionMetrics $rows $holdoutRows @('negative', 'neutral', 'positive') 'sentiment') }
+            $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'predict.single' -Description 'predict --text returns JSON with category and confidence in [0,1]' -Test {
             $run = Invoke-Python $Stage 'predict-text' @('-m', 'textlab', 'predict', '--model-dir', $models, '--text', 'Please refund the double charge on my invoice')
             $json = $run.Output | ConvertFrom-Json -Depth 10
             Assert-That ($run.ExitCode -eq 0 -and $json.category -eq 'billing') "exit $($run.ExitCode): $($run.Output)"
-            Assert-That ([double]$json.category_confidence -ge 0 -and [double]$json.category_confidence -le 1) 'confidence out of range'
-            if ($Sentiment) { Assert-That ($json.sentiment -in 'negative', 'neutral', 'positive' -and @($json.keywords).Count -ge 1) "sentiment/keywords missing: $($run.Output)" }
+            Assert-Probability $json.category_confidence 'category confidence'
+            if ($Sentiment) {
+                Assert-That ($json.sentiment -in 'negative', 'neutral', 'positive' -and @($json.keywords).Count -ge 1 -and @($json.keywords).Count -le 5) "sentiment/keywords missing: $($run.Output)"
+                Assert-Probability $json.sentiment_confidence 'sentiment confidence'
+            }
             $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'input-errors' -Description 'missing file and missing text column -> exit 4' -Test {
             $missing = Invoke-Python $Stage 'evaluate-missing' @('-m', 'textlab', 'evaluate', '--model-dir', $models, '--data', (Join-Path $ctx.Temp 'nope.csv'), '--output', (Join-Path $ctx.Temp 'nope.json'))
@@ -519,8 +588,11 @@ function Test-Robustness([string]$Stage, [string]$Models) {
             Assert-That ($rows[0].category -eq 'unknown' -and $rows[1].category -eq 'unknown') "empty text categories: $($rows[0].category), $($rows[1].category)"
             Assert-That ($rows[4].category -eq 'billing') "20k-char refund text -> $($rows[4].category)"
             foreach ($row in $rows) {
-                $c = [double]::Parse($row.category_confidence, $inv)
-                Assert-That ($c -ge 0 -and $c -le 1) "confidence $c for $($row.id)"
+                Assert-Probability $row.category_confidence "category confidence for $($row.id)"
+                Assert-Probability $row.sentiment_confidence "sentiment confidence for $($row.id)"
+            }
+            foreach ($row in $rows[0..1]) {
+                Assert-That ($row.sentiment -eq 'neutral' -and [double]$row.category_confidence -eq 0 -and [double]$row.sentiment_confidence -eq 0) "empty text sentiment/confidence wrong for $($row.id)"
             }
             $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'min-confidence' -Description '--min-confidence 0.999 yields needs_review rows; 0 yields none' -Test {
@@ -547,6 +619,21 @@ function Test-Report([string]$Stage, [string]$Models) {
             Assert-That ($missing.Count -eq 0) "labels missing: $($missing -join ', ')"
             Assert-That (-not $html.Contains('<script>alert(1)</script>')) 'unescaped ticket text (XSS) in report'
             Assert-That ($html -notmatch '(?i)<script|<link[^>]+href="https?:|src="https?:') 'report is not self-contained'; $true })
+    [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'report.escaping' -Description 'a guaranteed misclassification renders ticket text as escaped HTML' -Test {
+            $payload = '<script>alert(1)</script> my invoice amount is wrong'
+            $prediction = Invoke-Python $Stage 'predict-xss' @('-m', 'textlab', 'predict', '--model-dir', $Models, '--text', $payload)
+            Assert-That ($prediction.ExitCode -eq 0) "XSS probe prediction exit $($prediction.ExitCode)"
+            $predicted = ($prediction.Output | ConvertFrom-Json).category
+            $different = $labels | Where-Object { $_ -ne $predicted } | Select-Object -First 1
+            $inputPath = Join-Path (New-GateDir $Stage 'report-xss') 'input.csv'
+            [pscustomobject]@{ id = 'xss'; text = $payload; category = $different; sentiment = 'neutral' } |
+                Export-Csv -LiteralPath $inputPath -NoTypeInformation -Encoding utf8NoBOM
+            $out = Join-Path $ctx.Logs "$Stage\report-xss.html"
+            $run = Invoke-Python $Stage 'report-xss' @('-m', 'textlab', 'report', '--model-dir', $Models, '--data', $inputPath, '--output', $out)
+            Assert-That ($run.ExitCode -eq 0) "XSS report exit $($run.ExitCode): $($run.Errors)"
+            $html = Get-Content -LiteralPath $out -Raw
+            Assert-That ($html.Contains('&lt;script&gt;alert(1)&lt;/script&gt;') -and $html -notmatch '(?i)<script\b') 'misclassified ticket text is missing or not HTML-escaped'
+            $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'model-card' -Description 'MODEL_CARD.md has the required sections' -Test {
             $path = Join-Path $ws 'MODEL_CARD.md'
             Assert-That (Test-Path -LiteralPath $path) 'MODEL_CARD.md missing'
@@ -586,10 +673,10 @@ try {
     Write-Utf8File $missingColumnPath "id,body`nx1,hello`n"
     $create = Invoke-Tool -Ctx $ctx -Stage $stage -Label 'venv' -FilePath $basePython -ArgumentList @('-m', 'venv', $venv)
     if ($create.ExitCode -ne 0) { throw "venv creation failed: $($create.Errors)" }
-    [void](Invoke-Python $stage 'pip-upgrade' @('-m', 'pip', 'install', '--upgrade', 'pip'))
     $install = Invoke-Python $stage 'pip-install' @('-m', 'pip', 'install', '-e', "$($ws)[dev]") 1800
     if ($install.ExitCode -ne 0) { throw "pip install failed:`n$(Get-Tail ($install.Output + $install.Errors))" }
     $freeze = Invoke-Python $stage 'pip-freeze' @('-m', 'pip', 'freeze', '--exclude-editable')
+    if ($freeze.ExitCode -ne 0) { throw "pip freeze failed: $($freeze.Errors)" }
     Write-Utf8File (Join-Path $ctx.Results 'environment-freeze.txt') $freeze.Output
     Test-Pytest $stage 1
     if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline Python environment does not pass its smoke test; fix it before spending on VCP turns.' }
@@ -602,7 +689,7 @@ try {
     # --- Profiles ---------------------------------------------------------
     $stage = 'P1-profiles'
     $pythonProcess = New-ProcessProfile -Name 'python' -Executable $python -Ctx $ctx -ExtraPath @((Split-Path -Parent $basePython)) -MaxTimeoutMs 1800000
-    $affected = @('README.md', 'pyproject.toml', 'src', 'tests', 'data')
+    $affected = @('README.md', 'MODEL_CARD.md', 'pyproject.toml', 'src', 'tests', 'data', 'models', 'reports')
     $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($pythonProcess)
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($pythonProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
@@ -661,10 +748,12 @@ try {
                     Assert-That ($null -ne $candidate -and $null -ne $candidate.expected_revision) "candidates: $($discover.Result.data | ConvertTo-Json -Depth 6 -Compress)"; $true })
             if ($candidate) {
                 $revision = [uint64]([string]$candidate.expected_revision)
-                $stale = Invoke-Vcp -Ctx $ctx -Stage 'T5-resume' -Label 'resume-stale-revision' -Config $profileMain -Arguments @('resume', $t5.task, '--expected-revision', [string]($revision + 1000))
+                $staleRevision = if ($revision -eq 0) { '1' } else { '0' }
+                $stale = Invoke-Vcp -Ctx $ctx -Stage 'T5-resume' -Label 'resume-stale-revision' -Config $profileMain -Arguments @('resume', $t5.task, '--expected-revision', $staleRevision)
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'stale-revision-rejected' -Description 'resume with a stale --expected-revision is rejected without continuing' -Test {
-                        Assert-That ($stale.ExitCode -ne 0 -and $stale.ExitCode -ne 8) "exit $($stale.ExitCode)"
-                        Assert-That (@($stale.Frames | Where-Object { $_.type -eq 'event' }).Count -eq 0 -or $stale.ExitCode -eq 2) 'task events emitted for a stale selection'; $true })
+                        $errorText = Get-Content -LiteralPath $stale.StderrPath -Raw
+                        Assert-That ($stale.ExitCode -eq 2 -and $errorText -match '(?i)revision|selection') "exit $($stale.ExitCode): $errorText"
+                        Assert-That (@($stale.Frames | Where-Object { $_.type -eq 'event' }).Count -eq 0) 'task events emitted for a stale selection'; $true })
                 $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task) --expected-revision $revision" `
                     -Arguments @('resume', $t5.task, '--expected-revision', [string]$revision) -Config $profileMain -AcceptExit @(0, 3)
                 if ($resumed) {
@@ -685,7 +774,7 @@ try {
     if ($review -and $review.session) {
         $turns = Get-CompletedTurnIds $review.Run.Frames
         if ($turns.Count) {
-            $before = Get-WorkspaceManifest $ws
+            $before = Get-WorkspaceManifest $ws -IncludeGenerated
             $fork = Invoke-VcpContinuation -Ctx $ctx -Stage 'T7-fork' -Title "sessions fork $($review.session) --through-turn $($turns[-1])" `
                 -Arguments @('sessions', 'fork', $review.session, '--through-turn', $turns[-1]) -Config $profileReview -AcceptExit @(0, 3, 4)
             if ($fork) {
@@ -694,7 +783,7 @@ try {
                         Assert-That ($fork.session -and $fork.session -ne $review.session) "fork session '$($fork.session)' vs source '$($review.session)'"
                         Assert-That ($fork.task -and $fork.task -ne $review.task) 'fork reused the source task'; $true })
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T7-fork' -Id 'immutable' -Description 'forked review left the workspace byte-identical' -Test {
-                        $diff = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $ws)
+                        $diff = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $ws -IncludeGenerated)
                         Assert-That ($diff.Changed -eq 0) ('changed: ' + (($diff.Added + $diff.Modified + $diff.Removed) -join ', ')); $true })
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T7-fork' -Id 'review-consistency' -Description 'forked review cites an overlapping set of files (Jaccard >= 0.3)' -Advisory -Test {
                         $first = Join-Path $ctx.Logs 'T6-review\final-message.md'; $second = Join-Path $ctx.Logs 'T7-fork\final-message.md'
@@ -723,22 +812,32 @@ try {
     Test-ProtectedUnchanged $stage $protected
     $artifacts = Join-Path $ws 'artifacts'
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-    $train = Invoke-Train $stage (Join-Path $ws 'models') 'train-workspace'
-    if ($train.ExitCode -eq 0) {
+    [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'final-artifacts' -Description 'preserve the verified model bytes and generate all final outputs successfully' -Test {
+        Assert-That (-not [string]::IsNullOrWhiteSpace($finalModels)) 'final model training did not succeed'
+        New-Item -ItemType Directory -Force -Path (Join-Path $ws 'models') | Out-Null
+        foreach ($name in 'category.joblib', 'sentiment.joblib', 'metadata.json') {
+            Copy-Item -LiteralPath (Join-Path $finalModels $name) -Destination (Join-Path $ws "models\$name") -Force
+        }
         foreach ($name in 'category.joblib', 'sentiment.joblib', 'metadata.json') { Add-Asset $ctx (Join-Path $ws "models\$name") 'Trained model artifact (seed 13)' }
-        [void](Invoke-Python $stage 'evaluate-final' @('-m', 'textlab', 'evaluate', '--model-dir', 'models', '--data', $holdoutPath, '--output', (Join-Path $artifacts 'holdout-metrics.json')))
+        Copy-Item -LiteralPath (Join-Path $ctx.Logs 'FINAL\holdout-metrics.json') -Destination (Join-Path $artifacts 'holdout-metrics.json') -Force
         Add-Asset $ctx (Join-Path $artifacts 'holdout-metrics.json') 'Hidden holdout metrics of the final models'
         New-Item -ItemType Directory -Force -Path (Join-Path $ws 'reports') | Out-Null
-        [void](Invoke-Python $stage 'report-final' @('-m', 'textlab', 'report', '--model-dir', 'models', '--data', 'data/tickets_dev.csv', '--output', 'reports/report.html'))
+        $reportRun = Invoke-Python $stage 'report-final' @('-m', 'textlab', 'report', '--model-dir', 'models', '--data', 'data/tickets_dev.csv', '--output', 'reports/report.html')
+        Assert-That ($reportRun.ExitCode -eq 0 -and (Test-Path -LiteralPath (Join-Path $ws 'reports\report.html'))) "final report exit $($reportRun.ExitCode): $($reportRun.Errors)"
         Add-Asset $ctx (Join-Path $ws 'reports\report.html') 'Evaluation report on the dev set'
-        [void](Invoke-Python $stage 'keywords-final' @('-m', 'textlab', 'keywords', '--data', 'data/tickets_train.csv', '--top', '10', '--output', (Join-Path $artifacts 'keywords.json')))
+        $keywordsRun = Invoke-Python $stage 'keywords-final' @('-m', 'textlab', 'keywords', '--data', 'data/tickets_train.csv', '--top', '10', '--output', (Join-Path $artifacts 'keywords.json'))
+        Assert-That ($keywordsRun.ExitCode -eq 0 -and (Test-Path -LiteralPath (Join-Path $artifacts 'keywords.json'))) "final keywords exit $($keywordsRun.ExitCode): $($keywordsRun.Errors)"
         Add-Asset $ctx (Join-Path $artifacts 'keywords.json') 'Top keywords per category'
-    }
-    [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'wheel' -Description 'pip wheel builds an installable textlab wheel' -Test {
-            $run = Invoke-Python $stage 'wheel' @('-m', 'pip', 'wheel', '.', '--no-deps', '-w', 'dist') 900
-            $wheel = Get-ChildItem -LiteralPath (Join-Path $ws 'dist') -Filter 'textlab-*.whl' -ErrorAction SilentlyContinue | Select-Object -First 1
+        $true })
+    [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'wheel' -Description 'pip wheel builds a fresh textlab wheel' -Test {
+            $wheelDir = New-GateDir $stage 'wheel'
+            $run = Invoke-Python $stage 'wheel' @('-m', 'pip', 'wheel', '.', '--no-deps', '-w', $wheelDir) 900
+            $wheel = Get-ChildItem -LiteralPath $wheelDir -Filter 'textlab-*.whl' -ErrorAction SilentlyContinue | Select-Object -First 1
             Assert-That ($run.ExitCode -eq 0 -and $wheel) ("exit {0}`n{1}" -f $run.ExitCode, (Get-Tail ($run.Output + $run.Errors)))
-            Add-Asset $ctx $wheel.FullName 'Python wheel'; $true })
+            $dist = Join-Path $ws 'dist'
+            New-Item -ItemType Directory -Force -Path $dist | Out-Null
+            Copy-Item -LiteralPath $wheel.FullName -Destination $dist -Force
+            Add-Asset $ctx (Join-Path $dist $wheel.Name) 'Python wheel'; $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'bytecode' -Description 'python -m compileall compiles the package' -Test {
             $run = Invoke-Python $stage 'compileall' @('-m', 'compileall', '-q', 'src')
             Assert-That ($run.ExitCode -eq 0) "exit $($run.ExitCode): $($run.Output)"

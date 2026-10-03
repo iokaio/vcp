@@ -64,10 +64,11 @@ if ($classworlds -and (Test-Path -LiteralPath $m2conf)) {
     $mavenViaJava = @('-classpath', $classworlds.FullName, "-Dclassworlds.conf=$m2conf", "-Dmaven.home=$mavenHome",
         "-Dmaven.multiModuleProjectDirectory=$ws", 'org.codehaus.plexus.classworlds.launcher.Launcher')
 }
+if (-not $mavenViaJava) { throw "Maven's Java launcher was not found under $mavenHome. Install the Apache Maven binary distribution and put its bin directory on PATH." }
 
 function Invoke-Maven([string]$Stage, [string]$Label, [string[]]$Arguments, [int]$TimeoutSeconds = 1500) {
     $javaHome = Split-Path -Parent (Split-Path -Parent $java)
-    return Invoke-Tool -Ctx $ctx -Stage $Stage -Label $Label -FilePath $mvn -ArgumentList (@('-B', '-ntp') + $Arguments) `
+    return Invoke-Tool -Ctx $ctx -Stage $Stage -Label $Label -FilePath $java -ArgumentList ($mavenViaJava + @('-B', '-ntp') + $Arguments) `
         -TimeoutSeconds $TimeoutSeconds -Environment @{ JAVA_HOME = $javaHome }
 }
 function Invoke-Ledger([string]$Stage, [string]$Label, [string[]]$Arguments) {
@@ -604,16 +605,16 @@ function Test-MavenVerify([string]$Stage, [int]$MinTests, [string[]]$Required = 
             $tests = 0; $failures = 0; $names = @(); $failed = @()
             foreach ($report in $reports) {
                 $suite = ([xml](Get-Content -LiteralPath $report.FullName -Raw)).testsuite
-                $tests += [int]$suite.tests; $failures += [int]$suite.failures + [int]$suite.errors
+                $failures += [int]$suite.failures + [int]$suite.errors
                 foreach ($case in @($suite.testcase)) {
-                    $names += [string]$case.name
-                    if ($case.failure -or $case.error) { $failed += "$($suite.name).$($case.name)" }
+                    if ($case.SelectSingleNode('failure|error')) { $failed += "$($suite.name).$($case.name)" }
+                    elseif (-not $case.SelectSingleNode('skipped')) { $tests++; $names += [string]$case.name }
                 }
             }
             Assert-That ($run.ExitCode -eq 0) ("mvn exit {0}; failed tests: {1}`n{2}" -f $run.ExitCode, ($failed -join ', '), (Get-Tail $run.Output 60))
             Assert-That ($tests -ge $MinTests -and $failures -eq 0) "tests=$tests failures=$failures"
             $missing = @($Required | Where-Object { $names -notcontains $_ })
-            Assert-That ($missing.Count -eq 0) ('required tests missing: ' + ($missing -join ', '))
+            Assert-That ($missing.Count -eq 0) ('required tests not passing: ' + ($missing -join ', '))
             Assert-That (Test-Path -LiteralPath (Join-Path $ws 'target\ledger-cli-1.0.0-all.jar')) 'shaded jar missing'
             $true })
 }
@@ -681,7 +682,7 @@ function Test-Reports([string]$Stage) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'report.empty-month' -Description 'empty month -> zeros and empty byCategory' -Test {
             $run = Invoke-Ledger $Stage 'report-empty' @('report', '--db', $ledger.Db, '--month', '2030-01', '--format', 'json')
             $json = $run.Output | ConvertFrom-Json -Depth 20
-            Assert-That ($run.ExitCode -eq 0 -and $json.income -eq '0.00' -and $json.net -eq '0.00' -and @($json.byCategory).Count -eq 0) "exit $($run.ExitCode) body $($run.Output)"; $true })
+            Assert-That ($run.ExitCode -eq 0 -and $json.month -eq '2030-01' -and $json.income -eq '0.00' -and $json.expenses -eq '0.00' -and $json.net -eq '0.00' -and @($json.byCategory).Count -eq 0) "exit $($run.ExitCode) body $($run.Output)"; $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'report.missing-db' -Description 'missing ledger -> exit 4' -Test {
             $run = Invoke-Ledger $Stage 'report-missing' @('report', '--db', (Join-Path $ctx.Temp 'missing-ledger.json'), '--month', '2026-01', '--format', 'json')
             Assert-That ($run.ExitCode -eq 4) "exit $($run.ExitCode)"; $true })
@@ -723,8 +724,10 @@ function Test-BankExport([string]$Stage) {
             $db = New-TempPath $Stage 'bank-ledger.json'
             $import = Invoke-Ledger $Stage 'import-bank' @('import', '--input', $csv, '--db', $db)
             Assert-That ($import.ExitCode -eq 0 -and $import.Output.Trim() -eq 'Imported 7 transactions (1 duplicates skipped)') "import: $($import.ExitCode) '$($import.Output.Trim())' $($import.Errors)"
-            [void](Invoke-Ledger $Stage 'categorize-bank' @('categorize', '--db', $db, '--rules', (Join-Path $ws 'samples\rules.csv')))
+            $categorized = Invoke-Ledger $Stage 'categorize-bank' @('categorize', '--db', $db, '--rules', (Join-Path $ws 'samples\rules.csv'))
+            Assert-That ($categorized.ExitCode -eq 0) "categorize exit $($categorized.ExitCode): $($categorized.Errors)"
             $run = Invoke-Ledger $Stage 'report-bank' @('report', '--db', $db, '--month', '2026-04', '--format', 'json')
+            Assert-That ($run.ExitCode -eq 0) "report exit $($run.ExitCode): $($run.Errors)"
             Compare-Report ($run.Output | ConvertFrom-Json -Depth 20) $expectedApril '2026-04'; $true })
 }
 
@@ -739,12 +742,13 @@ function Test-ExportAndRange([string]$Stage) {
             $keys = @($items | ForEach-Object { '{0}|{1}' -f $_.date, $_.description })
             $sortedKeys = [string[]]$keys.Clone(); [array]::Sort($sortedKeys, [System.StringComparer]::Ordinal)
             Assert-That (($keys -join "`n") -eq ($sortedKeys -join "`n")) 'not ordered by date then description'
-            Assert-That (@($items | Where-Object { -not $_.category }).Count -eq 0) 'missing categories'; $true })
+            Compare-LedgerExport $items $uniqueRows; $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'export.csv' -Description 'export csv has header plus one line per transaction' -Test {
             $out = New-TempPath $Stage 'export.csv'
             $run = Invoke-Ledger $Stage 'export-csv' @('export', '--db', $ledger.Db, '--format', 'csv', '--output', $out)
             $rows = @(Import-Csv -LiteralPath $out)
-            Assert-That ($run.ExitCode -eq 0 -and $rows.Count -eq $uniqueRows.Count -and ($rows[0].PSObject.Properties.Name -join ',') -eq 'date,description,amount,account,category') "exit $($run.ExitCode) rows $($rows.Count)"; $true })
+            Assert-That ($run.ExitCode -eq 0 -and $rows.Count -eq $uniqueRows.Count -and ($rows[0].PSObject.Properties.Name -join ',') -eq 'date,description,amount,account,category') "exit $($run.ExitCode) rows $($rows.Count)"
+            Compare-LedgerExport $rows $uniqueRows; $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'report.quarter' -Description 'report --from 2026-01-01 --to 2026-03-31 equals quarter totals' -Test {
             $run = Invoke-Ledger $Stage 'report-quarter' @('report', '--db', $ledger.Db, '--from', '2026-01-01', '--to', '2026-03-31', '--format', 'json')
             Assert-That ($run.ExitCode -eq 0) "exit $($run.ExitCode) $($run.Errors)"
@@ -758,6 +762,17 @@ function Test-ExportAndRange([string]$Stage) {
             $run = Invoke-Ledger $Stage 'help' @('--help')
             $missing = @('import', 'categorize', 'report', 'budget', 'export' | Where-Object { $run.Output -notmatch "\b$_\b" })
             Assert-That ($run.ExitCode -eq 0 -and $missing.Count -eq 0) "missing: $($missing -join ', ')"; $true })
+}
+
+function Compare-LedgerExport([object[]]$Actual, [object[]]$Expected) {
+    $actualRows = [string[]]@($Actual | ForEach-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.date, $_.description, $_.amount, $_.account, $_.category })
+    $expectedRows = [string[]]@($Expected | ForEach-Object { '{0}|{1}|{2}|{3}|{4}' -f $_.Date, $_.Description, (Format-Money $_.Amount), $_.Account, (Get-Category $_.Description) })
+    [array]::Sort($actualRows, [System.StringComparer]::Ordinal)
+    [array]::Sort($expectedRows, [System.StringComparer]::Ordinal)
+    Assert-That (($actualRows -join "`n") -ceq ($expectedRows -join "`n")) 'exported transaction fields differ from the fixture'
+    $keys = [string[]]@($Actual | ForEach-Object { '{0}|{1}' -f $_.date, $_.description })
+    $sortedKeys = [string[]]$keys.Clone(); [array]::Sort($sortedKeys, [System.StringComparer]::Ordinal)
+    Assert-That (($keys -join "`n") -ceq ($sortedKeys -join "`n")) 'export is not ordered by date then description'
 }
 
 function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
@@ -783,7 +798,10 @@ try {
     Write-Step $ctx "B0 seed Maven project (JDK $javaMajor), resolve dependencies, baseline verify" 'phase'
     Write-SeedFiles -Root $ws -Files $seed
     $ctx.Notes.Add("Fixture: $($fixtureRows.Count) rows, $($uniqueRows.Count) unique, $duplicateCount duplicates, $uncategorizedCount uncategorized.")
-    if (-not $mavenViaJava) { $ctx.Notes.Add('Maven launcher jar not found; the agent cannot run Maven inside VCP (javac only).') }
+    $mavenVersion = Invoke-Maven $stage 'maven-version' @('--version')
+    if ($mavenVersion.ExitCode -ne 0 -or $mavenVersion.Output -notmatch 'Apache Maven (\d+\.\d+\.\d+)' -or [version]$Matches[1] -lt [version]'3.9.0') {
+        throw "Apache Maven 3.9+ is required: $($mavenVersion.Output) $($mavenVersion.Errors)"
+    }
     Test-MavenVerify $stage 1
     if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline Maven build failed; fix the JDK/Maven setup before spending on VCP turns.' }
     Initialize-GitCheckpoint $ctx
@@ -875,20 +893,27 @@ try {
     $artifacts = Join-Path $ws 'artifacts'
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
     $jar = Join-Path $ws 'target\ledger-cli-1.0.0-all.jar'
-    if (Test-Path -LiteralPath $jar) {
+    [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'final-artifacts' -Description 'built jar generates the complete sample artifact set successfully' -Test {
+        Assert-That (Test-Path -LiteralPath $jar) 'final shaded jar missing'
         Copy-Item -LiteralPath $jar -Destination $artifacts -Force
         Add-Asset $ctx (Join-Path $artifacts 'ledger-cli-1.0.0-all.jar') 'Executable shaded jar (java -jar)'
         Add-Asset $ctx (Join-Path $ws 'target\ledger-cli-1.0.0.jar') 'Thin application jar'
         $db = Join-Path $artifacts 'sample-ledger.json'
         Remove-Item -LiteralPath $db -ErrorAction SilentlyContinue
-        [void](Invoke-Ledger $stage 'sample-import' @('import', '--input', (Join-Path $ws 'samples\transactions-2026Q1.csv'), '--db', $db))
-        [void](Invoke-Ledger $stage 'sample-categorize' @('categorize', '--db', $db, '--rules', (Join-Path $ws 'samples\rules.csv')))
+        $import = Invoke-Ledger $stage 'sample-import' @('import', '--input', (Join-Path $ws 'samples\transactions-2026Q1.csv'), '--db', $db)
+        Assert-That ($import.ExitCode -eq 0) "sample import exit $($import.ExitCode): $($import.Errors)"
+        $categorize = Invoke-Ledger $stage 'sample-categorize' @('categorize', '--db', $db, '--rules', (Join-Path $ws 'samples\rules.csv'))
+        Assert-That ($categorize.ExitCode -eq 0) "sample categorize exit $($categorize.ExitCode): $($categorize.Errors)"
         $report = Invoke-Ledger $stage 'sample-report' @('report', '--db', $db, '--month', '2026-02', '--format', 'json')
+        Assert-That ($report.ExitCode -eq 0) "sample report exit $($report.ExitCode): $($report.Errors)"
+        Compare-Report ($report.Output | ConvertFrom-Json -Depth 20) $expectedMonth['2026-02'] 'sample February'
         Write-Utf8File (Join-Path $artifacts 'report-2026-02.json') $report.Output
-        [void](Invoke-Ledger $stage 'sample-export' @('export', '--db', $db, '--format', 'csv', '--output', (Join-Path $artifacts 'export-2026Q1.csv')))
+        $export = Invoke-Ledger $stage 'sample-export' @('export', '--db', $db, '--format', 'csv', '--output', (Join-Path $artifacts 'export-2026Q1.csv'))
+        Assert-That ($export.ExitCode -eq 0) "sample export exit $($export.ExitCode): $($export.Errors)"
+        Compare-LedgerExport @(Import-Csv -LiteralPath (Join-Path $artifacts 'export-2026Q1.csv')) $uniqueRows
         Write-JsonFile (Join-Path $artifacts 'expected-report-2026-02.json') $expectedMonth['2026-02']
         foreach ($name in 'sample-ledger.json', 'report-2026-02.json', 'export-2026Q1.csv', 'expected-report-2026-02.json') { Add-Asset $ctx (Join-Path $artifacts $name) 'Pipeline output from the built jar' }
-    }
+        $true })
     Save-Checkpoint $ctx 'FINAL: verified state'
 
     Invoke-FinalEvidenceSweep $ctx 'ledger'

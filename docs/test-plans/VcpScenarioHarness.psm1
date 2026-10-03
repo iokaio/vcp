@@ -75,6 +75,13 @@ function Format-Usd {
     return $Value.ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Assert-ScenarioBudgetPrecision {
+    param([decimal]$Value, [string]$Name)
+    if ($Value * 100 -ne [decimal]::Truncate($Value * 100)) {
+        throw "$Name must use at most two decimal places so admission accounting matches the CLI budget exactly."
+    }
+}
+
 function ConvertFrom-JsonLines {
     <# Parses JSONL text. Invalid lines are returned separately; they are evidence, not ignored. #>
     param([AllowEmptyString()][string]$Text)
@@ -125,7 +132,7 @@ function Invoke-NativeLogged {
         [string]$WorkingDirectory = (Get-Location).Path,
         [Parameter(Mandatory)][string]$StdoutPath,
         [Parameter(Mandatory)][string]$StderrPath,
-        [int]$TimeoutSeconds = 600,
+        [ValidateRange(1, 86400)][int]$TimeoutSeconds = 600,
         [hashtable]$Environment = @{},
         [scriptblock]$OnLine,
         [string]$HeartbeatLabel,
@@ -135,15 +142,20 @@ function Invoke-NativeLogged {
     foreach ($argument in $ArgumentList) { $psi.ArgumentList.Add([string]$argument) }
     $psi.WorkingDirectory = $WorkingDirectory
     $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.StandardOutputEncoding = $script:Utf8NoBom
     $psi.StandardErrorEncoding = $script:Utf8NoBom
-    foreach ($key in $Environment.Keys) { $psi.Environment[$key] = [string]$Environment[$key] }
+    foreach ($key in $Environment.Keys) {
+        if ($null -eq $Environment[$key]) { [void]$psi.Environment.Remove($key) }
+        else { $psi.Environment[$key] = [string]$Environment[$key] }
+    }
 
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StdoutPath) | Out-Null
     $started = Get-Date
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
     $process = [System.Diagnostics.Process]::Start($psi)
     $process.StandardInput.Close()
     $stderrTask = $process.StandardError.ReadToEndAsync()
@@ -154,9 +166,25 @@ function Invoke-NativeLogged {
     try {
         $lineTask = $process.StandardOutput.ReadLineAsync()
         while ($true) {
-            if ($lineTask.Wait(1000)) {
+            # Check every iteration, including continuously available output and
+            # a child that closed stdout but is still running.
+            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                $timedOut = $true
+                try { $process.Kill($true) } catch { }
+                break
+            }
+            $now = Get-Date
+            if ($Ctx -and $HeartbeatLabel -and $now -ge $nextHeartbeat) {
+                Write-Step $Ctx ('{0} still running ({1:hh\:mm\:ss}, {2} stdout lines)' -f $HeartbeatLabel, ($now - $started), $lines)
+                $nextHeartbeat = $now.AddSeconds(60)
+            }
+            if ($null -eq $lineTask) {
+                if ($process.WaitForExit(100)) { break }
+                continue
+            }
+            if ($lineTask.Wait(100)) {
                 $line = $lineTask.Result
-                if ($null -eq $line) { break }
+                if ($null -eq $line) { $lineTask = $null; continue }
                 $writer.WriteLine($line)
                 $writer.Flush()
                 $lines++
@@ -164,31 +192,25 @@ function Invoke-NativeLogged {
                 $lineTask = $process.StandardOutput.ReadLineAsync()
                 continue
             }
-            $now = Get-Date
-            if (($now - $started).TotalSeconds -gt $TimeoutSeconds) {
-                $timedOut = $true
-                try { $process.Kill($true) } catch { }
-                break
-            }
-            if ($Ctx -and $HeartbeatLabel -and $now -ge $nextHeartbeat) {
-                Write-Step $Ctx ('{0} still running ({1:hh\:mm\:ss}, {2} stdout lines)' -f $HeartbeatLabel, ($now - $started), $lines)
-                $nextHeartbeat = $now.AddSeconds(60)
-            }
         }
         if (-not $timedOut) { $process.WaitForExit() }
         else { [void]$process.WaitForExit(15000) }
     }
     finally {
         $writer.Dispose()
+        if (-not $process.HasExited) {
+            try { $process.Kill($true); [void]$process.WaitForExit(15000) } catch { }
+        }
     }
     $stderr = ''
     if ($stderrTask.Wait(15000)) { $stderr = $stderrTask.Result }
     Write-Utf8File -Path $StderrPath -Content $stderr
     $exitCode = if ($timedOut) { -1 } else { $process.ExitCode }
+    $process.Dispose()
     return [pscustomobject]@{
         ExitCode        = $exitCode
         TimedOut        = $timedOut
-        DurationSeconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+        DurationSeconds = [math]::Round($clock.Elapsed.TotalSeconds, 1)
         StdoutPath      = $StdoutPath
         StderrPath      = $StderrPath
         StdoutLines     = $lines
@@ -211,6 +233,8 @@ function Invoke-Tool {
         [hashtable]$Environment = @{}
     )
     if (-not $WorkingDirectory) { $WorkingDirectory = $Ctx.Workspace }
+    $Environment = $Environment.Clone()
+    $Environment['OPENROUTER_API_KEY'] = $null
     $safe = ($Label -replace '[^A-Za-z0-9_.-]', '-')
     $directory = Join-Path $Ctx.Logs (Join-Path $Stage 'tools')
     $index = '{0:D2}' -f ((Get-ChildItem -LiteralPath $directory -Filter '*.out.log' -ErrorAction SilentlyContinue | Measure-Object).Count + 1)
@@ -250,10 +274,12 @@ function Start-BackgroundServer {
     foreach ($argument in $ArgumentList) { $psi.ArgumentList.Add([string]$argument) }
     $psi.WorkingDirectory = $WorkingDirectory
     $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.RedirectStandardInput = $true
     foreach ($key in $Environment.Keys) { $psi.Environment[$key] = [string]$Environment[$key] }
+    [void]$psi.Environment.Remove('OPENROUTER_API_KEY')
     $process = [System.Diagnostics.Process]::Start($psi)
     $process.StandardInput.Close()
     # Drain both pipes into files so the server never blocks on a full pipe.
@@ -287,6 +313,7 @@ function Stop-BackgroundServer {
     try { if (-not $Server.Process.HasExited) { $Server.Process.Kill($true); [void]$Server.Process.WaitForExit(15000) } } catch { }
     foreach ($task in $Server.Tasks) { try { [void]$task.Wait(5000) } catch { } }
     foreach ($stream in $Server.Streams) { try { $stream.Dispose() } catch { } }
+    $Server.Process.Dispose()
 }
 
 function Invoke-Http {
@@ -328,7 +355,8 @@ function Assert-SafeRunRoot {
     $full = [System.IO.Path]::GetFullPath($Path)
     foreach ($name in 'OneDrive', 'OneDriveConsumer', 'OneDriveCommercial') {
         $sync = [Environment]::GetEnvironmentVariable($name)
-        if ($sync -and $full.StartsWith([System.IO.Path]::GetFullPath($sync), [StringComparison]::OrdinalIgnoreCase)) {
+        $syncRoot = if ($sync) { [System.IO.Path]::GetFullPath($sync).TrimEnd('\', '/') } else { $null }
+        if ($syncRoot -and ($full -eq $syncRoot -or $full.StartsWith($syncRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) {
             throw "Run root '$full' is inside a OneDrive root ($name). Choose a local, non-synchronized -RunRoot."
         }
     }
@@ -358,18 +386,20 @@ function Initialize-VcpScenario {
         [Parameter(Mandatory)][string]$RunRoot,
         [string]$Vcp,
         [Parameter(Mandatory)][string]$ProviderGeneration,
-        [decimal]$TurnBudgetUsd = 3,
-        [decimal]$MaxScenarioUsd = 30,
-        [int]$MaxRepairTurns = 1,
-        [int]$OutputTokens = 8192,
-        [int]$MaxRequests = 96,
-        [int]$DeadlineSeconds = 1800,
-        [int]$ShortDeadlineSeconds = 150,
+        [ValidateRange(0.01, 1000000)][decimal]$TurnBudgetUsd = 3,
+        [ValidateRange(0.01, 1000000)][decimal]$MaxScenarioUsd = 30,
+        [ValidateRange(0, 100)][int]$MaxRepairTurns = 1,
+        [ValidateRange(1, 2147483647)][int]$OutputTokens = 8192,
+        [ValidateRange(1, 2147483647)][int]$MaxRequests = 96,
+        [ValidateRange(1, 86100)][int]$DeadlineSeconds = 1800,
+        [ValidateRange(1, 86100)][int]$ShortDeadlineSeconds = 150,
         [double]$MinSnapshotHours = 5,
         [switch]$SkipPaidStages
     )
     if (-not $IsWindows) { throw 'The VCP native CLI scenarios require Windows.' }
     if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw 'PowerShell 7.4 or later is required.' }
+    Assert-ScenarioBudgetPrecision $TurnBudgetUsd 'TurnBudgetUsd'
+    Assert-ScenarioBudgetPrecision $MaxScenarioUsd 'MaxScenarioUsd'
     $runId = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), ([guid]::NewGuid().ToString('N').Substring(0, 6))
     $runRootFull = [System.IO.Path]::GetFullPath($RunRoot)
     Assert-SafeRunRoot $runRootFull
@@ -396,6 +426,11 @@ function Initialize-VcpScenario {
         SkipPaidStages       = [bool]$SkipPaidStages
         SpentUsd             = [decimal]0
         CostUnknown          = $false
+        AccountedTaskUsd     = @{}
+        SettledTaskUsd       = @{}
+        UnknownTaskCosts    = @{}
+        TaskBudgetUsd       = @{}
+        UnscopedCostUnknown = $false
         Gates                = [System.Collections.Generic.List[object]]::new()
         Stages               = [System.Collections.Generic.List[object]]::new()
         Notes                = [System.Collections.Generic.List[string]]::new()
@@ -408,11 +443,8 @@ function Initialize-VcpScenario {
     }
     $ctx.ProgressLog = Join-Path $ctx.Logs 'progress.log'
     $ctx.CommandLog = Join-Path $ctx.Logs 'vcp-commands.log'
+    $ctx.CommandAuditLog = Join-Path $ctx.Logs 'vcp-commands.jsonl'
     $ctx.ToolLog = Join-Path $ctx.Logs 'tool-commands.log'
-    Start-Transcript -LiteralPath (Join-Path $ctx.Logs 'console-transcript.log') | Out-Null
-    $ctx.Transcript = $true
-    Write-Step $ctx "Run root: $root" 'phase'
-
     $ctx.Vcp = Resolve-VcpExecutable $Vcp
     $generation = [System.IO.Path]::GetFullPath($ProviderGeneration)
     $ctx.Snapshot = Join-Path $generation 'qualified\snapshot.json'
@@ -443,6 +475,9 @@ function Initialize-VcpScenario {
     if ($env:VCP_DENY_PROVIDER_CREDENTIALS -and -not $SkipPaidStages) {
         throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; paid stages cannot run. Remove it or pass -SkipPaidStages.'
     }
+    Start-Transcript -LiteralPath (Join-Path $ctx.Logs 'console-transcript.log') | Out-Null
+    $ctx.Transcript = $true
+    Write-Step $ctx "Run root: $root" 'phase'
     Write-Step $ctx ("vcp: {0}; model {1} endpoint {2}; snapshot valid until {3}" -f $ctx.Vcp, $ctx.Model, $ctx.Endpoint, $ctx.SnapshotValidUntil)
     return $ctx
 }
@@ -479,7 +514,7 @@ function Invoke-Gate {
     try {
         $value = & $Test
         if ($value -is [array]) { $value = $value[-1] }
-        if ($value -eq $true) { $outcome = 'pass' } else { $detail = "returned '$value'" }
+        if ($value -is [bool] -and $value) { $outcome = 'pass' } else { $detail = "returned '$value'" }
     }
     catch { $detail = $_.Exception.Message }
     if ($detail.Length -gt 4000) { $detail = $detail.Substring(0, 4000) + ' ...' }
@@ -507,21 +542,50 @@ function Get-VcpGlobalArguments {
     return , $arguments
 }
 
+function ConvertTo-PowerShellCommand {
+    <# Single-quoted PowerShell literals preserve spaces, quotes, $, backticks and newlines. #>
+    param([string]$Executable, [string[]]$Arguments)
+    $tokens = @($Executable) + @($Arguments)
+    return '& ' + (($tokens | ForEach-Object { "'" + ([string]$_).Replace("'", "''") + "'" }) -join ' ')
+}
+
+function Write-VcpCommandCompletion {
+    param([string]$LogPath, [string]$AuditPath, [System.Collections.IDictionary]$Record)
+    $Record.completed_at = [datetime]::UtcNow.ToString('o')
+    $Record.stdout_exists = Test-Path -LiteralPath $Record.stdout_path -PathType Leaf
+    $Record.stderr_exists = Test-Path -LiteralPath $Record.stderr_path -PathType Leaf
+    $exitText = if ($null -eq $Record.exit_code) { 'unavailable' } else { [string]$Record.exit_code }
+    $lines = @(
+        ('{0} [{1}/{2}] END {3} id={4} exit={5} timed_out={6} duration_seconds={7}' -f $Record.completed_at, $Record.stage, $Record.label, $Record.status, $Record.id, $exitText, $Record.timed_out, $Record.duration_seconds),
+        ('  task={0} session={1} conditions=[{2}] output_format={3} invalid_jsonl_lines={4} error_type={5}' -f $Record.task, $Record.session, ($Record.conditions -join ','), $Record.output_format, $Record.invalid_jsonl_lines, $Record.error_type),
+        ('  stdout (exists={0}): {1}' -f $Record.stdout_exists, $Record.stdout_path),
+        ('  stderr (exists={0}): {1}' -f $Record.stderr_exists, $Record.stderr_path),
+        ('  workspace: {0}' -f $Record.workspace),
+        ('  results directory: {0}' -f $Record.results_directory),
+        ('  final summary target (written on scenario completion): {0}' -f $Record.summary_path),
+        ('  scorecard target (written on scenario completion): {0}' -f $Record.scorecard_path)
+    )
+    Add-Content -LiteralPath $LogPath -Encoding utf8NoBOM -Value $lines
+    Add-Content -LiteralPath $AuditPath -Encoding utf8NoBOM -Value ($Record | ConvertTo-Json -Depth 12 -Compress)
+}
+
 function Invoke-Vcp {
     <#
     Runs one vcp command in structured mode and records it in
-    logs/vcp-commands.log. Returns exit code, frames, the first accepted frame,
+    logs/vcp-commands.log plus a structured completion record in vcp-commands.jsonl.
+    Returns exit code, frames, the first accepted frame,
     the final result frame and the scope.
     #>
     param(
         [Parameter(Mandatory)]$Ctx,
         [Parameter(Mandatory)][string]$Stage,
         [Parameter(Mandatory)][string]$Label,
-        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments,
         [string]$Config,
         [int]$TimeoutSeconds = 300,
         [switch]$Live,
-        [switch]$NoGlobals
+        [switch]$NoGlobals,
+        [switch]$DenyProviderCredentials
     )
     $directory = Join-Path $Ctx.Logs (Join-Path $Stage 'vcp')
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
@@ -530,6 +594,27 @@ function Invoke-Vcp {
     $stdout = Join-Path $directory "$index-$safe.stdout.jsonl"
     $stderr = Join-Path $directory "$index-$safe.stderr.txt"
     $all = if ($NoGlobals) { $Arguments } else { (Get-VcpGlobalArguments $Ctx $Config) + $Arguments }
+    $commandLog = if ($Ctx.CommandLog) { [IO.Path]::GetFullPath($Ctx.CommandLog) } else { Join-Path ([IO.Path]::GetFullPath($Ctx.Logs)) 'vcp-commands.log' }
+    $auditLog = if ($Ctx.CommandAuditLog) { [IO.Path]::GetFullPath($Ctx.CommandAuditLog) } else { Join-Path (Split-Path -Parent $commandLog) 'vcp-commands.jsonl' }
+    foreach ($path in $commandLog, $auditLog) { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null }
+    $resultsDirectory = if ($Ctx.Results) { [IO.Path]::GetFullPath($Ctx.Results) } else { Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($Ctx.Logs))) 'results' }
+    $record = [ordered]@{
+        schema_version = 1; id = [guid]::NewGuid().ToString('N'); stage = $Stage; label = $Label
+        started_at = [datetime]::UtcNow.ToString('o'); completed_at = $null; status = 'running'
+        executable = [string]$Ctx.Vcp; argv = @($all); command = ConvertTo-PowerShellCommand $Ctx.Vcp $all
+        output_format = if ($NoGlobals) { 'text' } else { 'jsonl' }
+        workspace = [IO.Path]::GetFullPath($Ctx.Workspace); results_directory = $resultsDirectory
+        summary_path = Join-Path $resultsDirectory 'summary.md'; scorecard_path = Join-Path $resultsDirectory 'scorecard.json'
+        stdout_path = [IO.Path]::GetFullPath($stdout); stderr_path = [IO.Path]::GetFullPath($stderr)
+        exit_code = $null; timed_out = $false; duration_seconds = $null
+        accepted = $false; task = $null; session = $null; conditions = @(); invalid_jsonl_lines = $null; error_type = $null
+    }
+    Add-Content -LiteralPath $commandLog -Encoding utf8NoBOM -Value @(
+        ('{0} [{1}/{2}] START id={3}' -f $record.started_at, $Stage, $Label, $record.id),
+        ('  working directory: {0}' -f $record.workspace),
+        ('  command: {0}' -f $record.command)
+    )
+    $invocationClock = [Diagnostics.Stopwatch]::StartNew()
     $counts = @{}
     $onLine = $null
     if ($Live) {
@@ -551,14 +636,30 @@ function Invoke-Vcp {
             }
         }
     }
-    $result = Invoke-NativeLogged -FilePath $Ctx.Vcp -ArgumentList $all -WorkingDirectory $Ctx.Workspace -StdoutPath $stdout `
-        -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -OnLine $onLine -HeartbeatLabel "$Stage/$Label" -Ctx $Ctx
-    $parsed = ConvertFrom-JsonLines ([System.IO.File]::ReadAllText($stdout))
-    $accepted = $parsed.Frames | Where-Object { $_.type -eq 'accepted' } | Select-Object -First 1
-    $final = $parsed.Frames | Where-Object { $_.type -eq 'result' } | Select-Object -Last 1
-    $scope = if ($accepted -and $accepted.scope) { $accepted.scope } elseif ($final -and $final.scope) { $final.scope } else { $null }
-    $printable = ($all | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
-    Add-Content -LiteralPath $Ctx.CommandLog -Encoding utf8NoBOM -Value ('{0:o} [{1}] exit={2} {3}s :: vcp {4}' -f (Get-Date), $Stage, $result.ExitCode, $result.DurationSeconds, $printable)
+    try {
+        $result = Invoke-NativeLogged -FilePath $Ctx.Vcp -ArgumentList $all -WorkingDirectory $Ctx.Workspace -StdoutPath $stdout `
+        -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -OnLine $onLine -HeartbeatLabel "$Stage/$Label" -Ctx $Ctx `
+        -Environment $(if ($DenyProviderCredentials -or $Ctx.SkipPaidStages) { @{ OPENROUTER_API_KEY = $null; VCP_DENY_PROVIDER_CREDENTIALS = '1' } } else { @{} })
+        $record.exit_code = $result.ExitCode; $record.timed_out = $result.TimedOut; $record.duration_seconds = $result.DurationSeconds
+        $parsed = ConvertFrom-JsonLines ([System.IO.File]::ReadAllText($stdout))
+        $accepted = $parsed.Frames | Where-Object { $_.type -eq 'accepted' } | Select-Object -First 1
+        $final = $parsed.Frames | Where-Object { $_.type -eq 'result' } | Select-Object -Last 1
+        $scope = if ($accepted -and $accepted.scope) { $accepted.scope } elseif ($final -and $final.scope) { $final.scope } else { $null }
+        $record.accepted = $null -ne $accepted
+        $record.task = if ($scope) { $scope.task } else { $null }
+        $record.session = if ($scope) { $scope.session } else { $null }
+        $record.conditions = @(Get-VcpConditions $final)
+        $record.invalid_jsonl_lines = if ($record.output_format -eq 'jsonl') { $parsed.Invalid.Count } else { $null }
+        $record.status = if ($result.TimedOut) { 'timed_out' } elseif ($result.ExitCode -eq 0) { 'succeeded' } else { 'nonzero_exit' }
+    }
+    catch {
+        $record.status = 'invocation_failed'
+        $record.error_type = $_.Exception.GetType().FullName
+        if ($null -eq $record.duration_seconds) { $record.duration_seconds = [math]::Round($invocationClock.Elapsed.TotalSeconds, 3) }
+        Write-VcpCommandCompletion $commandLog $auditLog $record
+        throw
+    }
+    Write-VcpCommandCompletion $commandLog $auditLog $record
     return [pscustomobject]@{
         ExitCode        = $result.ExitCode
         TimedOut        = $result.TimedOut
@@ -580,15 +681,20 @@ function Invoke-VcpInspect {
     param($Ctx, [string]$Stage, [string]$Id, [string]$View, [string]$Name)
     $pages = [System.Collections.Generic.List[object]]::new()
     $cursor = $null
+    $complete = $false
     for ($page = 0; $page -lt 64; $page++) {
         $arguments = @('inspect', $Id, '--view', $View, '--limit', '128')
         if ($cursor) { $arguments += @('--cursor', ($cursor | ConvertTo-Json -Depth 50 -Compress)) }
         $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label "inspect-$View" -Arguments $arguments -TimeoutSeconds 120
-        if ($run.ExitCode -ne 0 -or -not $run.Result -or -not $run.Result.data) { break }
+        if ($run.ExitCode -ne 0 -or $run.InvalidLines -ne 0 -or -not $run.Result -or -not $run.Result.data) { break }
         $pages.Add($run.Result.data)
         $cursor = $run.Result.data.next_cursor
-        if (-not $cursor) { break }
+        if (-not $cursor) { $complete = $true; break }
     }
+    if (-not $complete) {
+        $pages.Add([pscustomobject]@{ items = @(); gaps = @(@{ reason = 'harness inspection failed or exceeded 64 pages' }); next_cursor = $cursor })
+    }
+    [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "inspect-$View" -Description "inspect $View returned all pages" -Test { $complete })
     if ($Name) { Write-JsonFile -Path (Join-Path $Ctx.Logs (Join-Path $Stage "inspect-$Name.json")) -Value $pages }
     return , $pages
 }
@@ -605,9 +711,19 @@ function Get-VcpTaskCost {
     $ledgers = @($items | Where-Object { $_.collection -eq 'ledger' })
     $attempts = @($items | Where-Object { $_.collection -eq 'attempt' })
     $gaps = @($CostPages | ForEach-Object { $_.gaps } | Where-Object { $_ })
-    if ($ledgers.Count -lt 1) { return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count } }
+    $incomplete = $gaps.Count -gt 0 -or @($CostPages).Count -eq 0 -or @($CostPages)[-1].next_cursor -or
+        @($items | Where-Object { $_.visibility -and $_.visibility -ne 'available' }).Count -gt 0
+    if ($ledgers.Count -ne 1 -or $incomplete) { return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count } }
     $micros = [decimal]0
-    foreach ($ledger in $ledgers) { $micros += [decimal]::Parse([string]$ledger.record.settled, [System.Globalization.CultureInfo]::InvariantCulture) }
+    foreach ($ledger in $ledgers) {
+        foreach ($field in 'settled', 'active', 'unresolved') {
+            if ([string]$ledger.record.$field -notmatch '^\d+$') { return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count } }
+        }
+        if ([decimal]$ledger.record.active -ne 0 -or [decimal]$ledger.record.unresolved -ne 0) {
+            return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count }
+        }
+        $micros += [decimal]::Parse([string]$ledger.record.settled, [System.Globalization.CultureInfo]::InvariantCulture)
+    }
     return [pscustomobject]@{ Usd = [math]::Round($micros / 1000000, 6); Attempts = $attempts.Count; Gaps = $gaps.Count }
 }
 
@@ -617,23 +733,50 @@ function Get-VcpFinalMessage {
     captured provider response artifact through inspect --view outputs and
     extract output_text from its response.completed SSE event. Best effort.
     #>
-    param($Ctx, [string]$Stage, $OutputPages)
+    param($Ctx, [string]$Stage, $OutputPages, $Frames)
+    $buffer = $null
     try {
         $responses = @(Get-InspectItems $OutputPages | Where-Object { $_.collection -eq 'artifact' -and $_.record.spec.channel -eq 'response' })
         if ($responses.Count -eq 0) { return $null }
-        $item = $responses[-1]
+        # Inspection is ordered by canonical key, not completion time. Use the
+        # ordered event facts to identify the last completed response instead.
+        $responseId = $null
+        foreach ($frame in $Frames) {
+            if ($frame.type -ne 'event') { continue }
+            foreach ($fact in @($frame.event.event.data.facts)) {
+                if ($fact.collection -eq 'artifact' -and $fact.value.spec.channel -eq 'response' -and $fact.value.state -eq 'complete') {
+                    $responseId = [string]$fact.id
+                }
+            }
+        }
+        $item = $responses | Where-Object { $_.id -eq $responseId } | Select-Object -First 1
+        if (-not $item -or $item.record.state -ne 'complete' -or $item.record.sha256 -notmatch '^[0-9a-f]{64}$') { return $null }
+        if (@($item.record.spec.omissions | Where-Object { $_ -notin 'authentication_headers', 'recovery_material' }).Count) { return $null }
         $length = [int64]$item.record.length
         if ($length -le 0 -or $length -gt 4MB) { return $null }
         $buffer = [System.IO.MemoryStream]::new()
         for ($offset = [int64]0; $offset -lt $length; $offset += 65536) {
             $read = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'inspect-response-range' -TimeoutSeconds 120 `
                 -Arguments @('inspect', $item.id, '--view', 'outputs', '--offset', [string]$offset, '--length', '65536')
+            if ($read.ExitCode -ne 0 -or $read.InvalidLines -ne 0 -or @($read.Result.data.items).Count -ne 1) { return $null }
             $row = $read.Result.data.items | Select-Object -First 1
-            if (-not $row -or -not $row.bytes) { return $null }
+            $end = [math]::Min($offset + 65536, $length)
+            if ($row.artifact -ne $item.id -or $row.visibility -ne 'available' -or
+                $row.descriptor.state -ne 'complete' -or $row.descriptor.sha256 -ne $item.record.sha256 -or
+                [int64]$row.descriptor.length -ne $length -or $row.range.start -ne $offset -or $row.range.end -ne $end -or
+                @($row.bytes).Count -ne ($end - $offset)) { return $null }
+            if (($end -lt $length -and $row.next_offset -ne $end) -or ($end -eq $length -and $null -ne $row.next_offset)) { return $null }
+            foreach ($gap in $read.Result.data.gaps) {
+                if ($gap.visibility -notin 'omitted', 'redacted' -or
+                    @($gap.omissions | Where-Object { $_ -notin 'authentication_headers', 'recovery_material' }).Count) { return $null }
+            }
             $bytes = [byte[]]@($row.bytes)
             $buffer.Write($bytes, 0, $bytes.Length)
         }
-        $sse = $script:Utf8NoBom.GetString($buffer.ToArray())
+        $captured = $buffer.ToArray()
+        $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($captured)).ToLowerInvariant()
+        if ($captured.Length -ne $length -or $digest -ne $item.record.sha256) { return $null }
+        $sse = $script:Utf8NoBom.GetString($captured)
         $text = $null
         foreach ($block in ($sse -split "`r?`n`r?`n")) {
             $data = (($block -split "`r?`n") | Where-Object { $_.StartsWith('data:') } | ForEach-Object { $_.Substring(5).TrimStart() }) -join "`n"
@@ -646,6 +789,7 @@ function Get-VcpFinalMessage {
         return $text
     }
     catch { return $null }
+    finally { if ($buffer) { $buffer.Dispose() } }
 }
 
 function Get-CompletedTurnIds {
@@ -663,21 +807,26 @@ function Get-CompletedTurnIds {
 
 function Get-WorkspaceManifest {
     <# SHA-256 manifest of authored files (dependency caches and build outputs excluded). #>
-    param([Parameter(Mandatory)][string]$Path)
+    param([Parameter(Mandatory)][string]$Path, [switch]$IncludeGenerated)
     $root = (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\')
     $manifest = [ordered]@{}
     $pending = [System.Collections.Generic.Stack[string]]::new()
     $pending.Push($root)
     while ($pending.Count) {
         $directory = $pending.Pop()
-        foreach ($entry in Get-ChildItem -LiteralPath $directory -Force -ErrorAction SilentlyContinue) {
+        foreach ($entry in Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop) {
+            $relative = $entry.FullName.Substring($root.Length + 1).Replace('\', '/')
+            if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                # Record links without walking outside the workspace or into cycles.
+                $manifest[$relative] = 'link:' + $entry.LinkTarget
+                continue
+            }
             if ($entry.PSIsContainer) {
-                if ($script:ManifestExclusions -contains $entry.Name -or $entry.Name -like '*.egg-info') { continue }
-                if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+                if (-not $IncludeGenerated -and ($script:ManifestExclusions -contains $entry.Name -or $entry.Name -like '*.egg-info')) { continue }
+                if ($IncludeGenerated) { $manifest[$relative + '/'] = 'directory' }
                 $pending.Push($entry.FullName)
             }
             else {
-                $relative = $entry.FullName.Substring($root.Length + 1).Replace('\', '/')
                 $manifest[$relative] = Get-Sha256 $entry.FullName
             }
         }
@@ -717,6 +866,7 @@ function Invoke-VcpTask {
         [string[]]$Skill = @()
     )
     if ($BudgetUsd -le 0) { $BudgetUsd = $Ctx.TurnBudgetUsd }
+    Assert-ScenarioBudgetPrecision $BudgetUsd 'BudgetUsd'
     $stageRecord = [ordered]@{
         stage = $Stage; title = $Title; kind = 'run'; autonomy = $Autonomy; budget_usd = $BudgetUsd
         exit_code = $null; conditions = @(); accepted_exit = $AcceptExit; task = $null; session = $null
@@ -729,6 +879,8 @@ function Invoke-VcpTask {
         Write-Step $Ctx "Skipping paid stage $Stage ($Title)" 'warn'
         return $null
     }
+    $preflightFailures = @($Ctx.Gates | Where-Object { $_.stage -match '^(P0-|B0-|P1-|G0-)' -and $_.required -and $_.outcome -ne 'pass' })
+    if ($preflightFailures.Count) { throw 'Required preflight, baseline, profile or guardrail checks failed; refusing paid execution.' }
     if (($Ctx.SpentUsd + $BudgetUsd) -gt $Ctx.MaxScenarioUsd) {
         $stageRecord.skipped = ('scenario ceiling {0} USD would be exceeded (spent {1})' -f (Format-Usd $Ctx.MaxScenarioUsd), (Format-Usd $Ctx.SpentUsd))
         $Ctx.Stages.Add([pscustomobject]$stageRecord)
@@ -780,23 +932,24 @@ function Complete-VcpStageEvidence {
         $Record.cost_usd = $cost.Usd
         $Record.attempts = $cost.Attempts
         $Record.tool_items = (Get-InspectItems $tools).Count
-        if ($null -eq $cost.Usd) {
-            $Ctx.CostUnknown = $true
-            $Ctx.Notes.Add("$Stage cost evidence incomplete; budget guard now assumes the full per-turn cap was spent.")
-            $Ctx.SpentUsd += [decimal]$Record.budget_usd
-        }
-        else { $Ctx.SpentUsd += [decimal]$cost.Usd }
-        $message = Get-VcpFinalMessage -Ctx $Ctx -Stage $Stage -OutputPages $outputs
+        Update-ScenarioCost -Ctx $Ctx -Task $task -Cost $cost.Usd -Record $Record
+        [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id 'cost-evidence' -Description 'canonical task cost is complete and settled at this checkpoint' -Advisory -Test { $null -ne $cost.Usd })
+        $message = Get-VcpFinalMessage -Ctx $Ctx -Stage $Stage -OutputPages $outputs -Frames $Run.Frames
         if ($message) {
             Write-Utf8File -Path (Join-Path $Ctx.Logs "$Stage\final-message.md") -Content $message
             $Record.final_message = "logs/$Stage/final-message.md"
         }
     }
     elseif ($Record.budget_usd) {
-        # No accepted task: nothing was dispatched, so no spend is attributed.
-        $Ctx.Notes.Add("$Stage produced no accepted task (exit $($Run.ExitCode)); see logs/$Stage/vcp.")
+        # A missing scope can also mean truncated output or a killed process.
+        # It does not prove that no provider request was dispatched.
+        $Ctx.CostUnknown = $true
+        $Ctx.UnscopedCostUnknown = $true
+        $reservation = if ($Record.Contains('additional_budget_usd')) { [decimal]$Record.additional_budget_usd } else { [decimal]$Record.budget_usd }
+        $Ctx.SpentUsd += $reservation
+        $Ctx.Notes.Add("$Stage produced no task scope (exit $($Run.ExitCode)); reserved the possible additional spend and retained unknown accounting. See logs/$Stage/vcp.")
     }
-    if ($Before) {
+    if ($null -ne $Before) {
         $after = Get-WorkspaceManifest $Ctx.Workspace
         $diff = Compare-WorkspaceManifest $Before $after
         $Record.files_changed = $diff.Changed
@@ -810,6 +963,58 @@ function Complete-VcpStageEvidence {
     $Ctx.Stages.Add($object)
     $object | Add-Member -NotePropertyName Run -NotePropertyValue $Run -Force
     return $object
+}
+
+function Update-ScenarioCost {
+    <# Each inspect ledger is cumulative for its task, including after resume. #>
+    param($Ctx, [string]$Task, $Cost, $Record)
+    if ($null -eq $Ctx.UnknownTaskCosts) { $Ctx.UnknownTaskCosts = @{} }
+    if ($null -eq $Ctx.TaskBudgetUsd) { $Ctx.TaskBudgetUsd = @{} }
+    if (-not $Ctx.TaskBudgetUsd.ContainsKey($Task)) { $Ctx.TaskBudgetUsd[$Task] = [decimal]$Record.budget_usd }
+    $priorAccounted = [decimal]$Ctx.AccountedTaskUsd[$Task]
+    if ($null -eq $Cost) {
+        $Ctx.UnknownTaskCosts[$Task] = $true
+        $accounted = [math]::Max($priorAccounted, [decimal]$Ctx.TaskBudgetUsd[$Task])
+        $Record.cost_usd = $null
+        $Ctx.Notes.Add("$($Record.stage) cost evidence incomplete; budget guard reserves the full task cap.")
+    }
+    else {
+        $accounted = [decimal]$Cost
+        $Record.cost_usd = $accounted - [decimal]$Ctx.SettledTaskUsd[$Task]
+        $Ctx.SettledTaskUsd[$Task] = $accounted
+        [void]$Ctx.UnknownTaskCosts.Remove($Task)
+    }
+    $Record.task_cost_usd = $Cost
+    $Ctx.SpentUsd += $accounted - $priorAccounted
+    $Ctx.AccountedTaskUsd[$Task] = $accounted
+    $Ctx.CostUnknown = [bool]$Ctx.UnscopedCostUnknown -or $Ctx.UnknownTaskCosts.Count -gt 0
+}
+
+function Get-ContinuationBudget {
+    <# Resume shares a durable task cap; fork admits a new task at the selected profile cap. #>
+    param($Ctx, [string[]]$Arguments, [string]$Config)
+    $isFork = $Arguments[0] -eq 'sessions' -and $Arguments[1] -eq 'fork'
+    $prior = @($Ctx.Stages | Where-Object { $_.task -and -not $_.skipped })
+    $source = if ($Arguments[0] -eq 'sessions') {
+        $prior | Where-Object { $_.session -eq $Arguments[2] } | Select-Object -Last 1
+    }
+    elseif ($Arguments[1] -eq '--last') { $prior | Select-Object -Last 1 }
+    else { $prior | Where-Object { $_.task -eq $Arguments[1] } | Select-Object -Last 1 }
+    if (-not $source) { throw 'Continuation has no matching recorded task; its durable budget cannot be bounded safely.' }
+    $cap = [decimal]$source.budget_usd
+    if ($isFork) {
+        # CLI app::execute uses profile.budget_usd for a fork, which may differ
+        # from the source review's smaller run --budget-usd override.
+        if (-not $Config) { throw 'Fork requires a profile with an explicit budget_usd.' }
+        $profile = [IO.File]::ReadAllText($Config) | ConvertFrom-Json -Depth 100
+        $cap = [decimal]::Parse([string]$profile.budget_usd, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    elseif ($Ctx.TaskBudgetUsd -and $Ctx.TaskBudgetUsd.ContainsKey([string]$source.task)) {
+        $cap = [decimal]$Ctx.TaskBudgetUsd[[string]$source.task]
+    }
+    if ($cap -le 0) { throw 'Continuation budget must be positive.' }
+    $alreadyAccounted = if ($isFork) { [decimal]0 } else { [decimal]$Ctx.AccountedTaskUsd[[string]$source.task] }
+    return [pscustomobject]@{ Cap = $cap; Additional = [math]::Max([decimal]0, $cap - $alreadyAccounted) }
 }
 
 function Invoke-VcpContinuation {
@@ -836,15 +1041,15 @@ function Invoke-VcpContinuation {
         $Ctx.Stages.Add([pscustomobject]$record)
         return $null
     }
-    # Resume keeps the original task cap; a fork opens a new root with the persisted
-    # cap. Either way, assume up to one more per-turn cap of spend.
-    if (($Ctx.SpentUsd + $Ctx.TurnBudgetUsd) -gt $Ctx.MaxScenarioUsd) {
+    $budget = Get-ContinuationBudget $Ctx $Arguments $Config
+    $record.budget_usd = $budget.Cap
+    $record.additional_budget_usd = $budget.Additional
+    if (($Ctx.SpentUsd + $budget.Additional) -gt $Ctx.MaxScenarioUsd) {
         $record.skipped = ('scenario ceiling {0} USD would be exceeded (spent {1})' -f (Format-Usd $Ctx.MaxScenarioUsd), (Format-Usd $Ctx.SpentUsd))
         $Ctx.Stages.Add([pscustomobject]$record)
         Write-Step $Ctx "Skipping $Stage; $($record.skipped)" 'warn'
         return $null
     }
-    $record.budget_usd = $Ctx.TurnBudgetUsd
     Write-Step $Ctx "$Stage :: $Title" 'phase'
     $before = Get-WorkspaceManifest $Ctx.Workspace
     $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label ($Arguments[0..1] -join '-') -Config $Config -Arguments $Arguments `
@@ -889,6 +1094,7 @@ $Constraints
 "@
         $result = Invoke-VcpTask -Ctx $Ctx -Stage $repairStage -Title "Repair failures from $current" -Prompt $prompt -Config $Config -AcceptExit @(0, 3)
         if (-not $result) { return $current }
+        Test-StageExit $Ctx $result $repairStage
         & $GateScript $repairStage
         $current = $repairStage
     }
@@ -903,10 +1109,20 @@ function Test-StageExit {
             Assert-That ($StageResult.accepted_exit -contains $StageResult.exit_code) ("exit {0} conditions [{1}]; stderr: {2}" -f $StageResult.exit_code, ($StageResult.conditions -join ','), (Get-TextTail $StageResult.Run.StderrPath 15))
             $true
         })
-    [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "jsonl" -Description 'JSONL stream has accepted and result frames and no invalid lines' -Advisory -Test {
+    [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "jsonl" -Description 'JSONL stream has accepted and result frames and no invalid lines' -Test {
             Assert-That ($null -ne $StageResult.Run.Accepted) 'no accepted frame'
             Assert-That ($null -ne $StageResult.Run.Result) 'no final result frame'
             Assert-That ($StageResult.Run.InvalidLines -eq 0) "$($StageResult.Run.InvalidLines) invalid JSONL lines"
+            $frames = @($StageResult.Run.Frames)
+            Assert-That (@($frames | Where-Object type -eq 'accepted').Count -eq 1 -and
+                @($frames | Where-Object type -eq 'result').Count -eq 1 -and $frames[-1].type -eq 'result') 'expected one accepted frame and one terminal result frame'
+            $accepted = $StageResult.Run.Accepted
+            $result = $StageResult.Run.Result
+            Assert-That ($null -ne $result.exit_code -and $result.exit_code -eq $StageResult.exit_code) 'result exit code differs from process exit'
+            foreach ($field in 'workspace', 'session', 'task') {
+                Assert-That (-not [string]::IsNullOrWhiteSpace($accepted.scope.$field) -and $accepted.scope.$field -eq $result.scope.$field) "missing or inconsistent $field scope"
+            }
+            Assert-That (-not [string]::IsNullOrWhiteSpace($accepted.correlation) -and $accepted.correlation -eq $result.correlation) 'missing or inconsistent command correlation'
             $true
         })
 }
@@ -918,13 +1134,13 @@ function Invoke-PlanModeReview {
     model attempted an effect, and is recorded.
     #>
     param($Ctx, [string]$Stage, [string]$Config, [string]$Prompt)
-    $before = Get-WorkspaceManifest $Ctx.Workspace
+    $before = Get-WorkspaceManifest $Ctx.Workspace -IncludeGenerated
     $review = Invoke-VcpTask -Ctx $Ctx -Stage $Stage -Title 'Plan-mode review (read-only)' -Prompt $Prompt -Config $Config `
         -Autonomy 'plan' -BudgetUsd ([math]::Min($Ctx.TurnBudgetUsd, [decimal]2)) -AcceptExit @(0, 3, 4)
     if (-not $review) { return $null }
     Test-StageExit $Ctx $review $Stage
     [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "immutable" -Description 'plan autonomy left the workspace byte-identical' -Test {
-            $diff = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $Ctx.Workspace)
+            $diff = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $Ctx.Workspace -IncludeGenerated)
             Assert-That ($diff.Changed -eq 0) ("changed: " + (($diff.Added + $diff.Modified + $diff.Removed) -join ', '))
             $true
         })
@@ -1064,7 +1280,7 @@ function Invoke-GuardrailRun {
     exit 2 (invalid configuration). Asserts no task was accepted.
     #>
     param($Ctx, [string]$Stage, [string]$Id, [string]$Description, [string[]]$Arguments, [string]$Config, [string]$ExpectStderr)
-    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label "guardrail-$Id" -Config $Config -Arguments $Arguments -TimeoutSeconds 120
+    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label "guardrail-$Id" -Config $Config -Arguments $Arguments -TimeoutSeconds 120 -DenyProviderCredentials
     [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "guardrail.$Id" -Description $Description -Test {
             Assert-That ($run.ExitCode -eq 2) "expected exit 2, got $($run.ExitCode)"
             Assert-That ($null -eq $run.Accepted) 'a task was accepted; guardrail did not stop before execution'
@@ -1141,6 +1357,16 @@ function Complete-VcpScenario {
     no fatal error occurred, 1 otherwise.
     #>
     param($Ctx)
+    if ($Ctx.AccountedTaskUsd.Count -gt 0 -or $Ctx.UnscopedCostUnknown) {
+        [void](Invoke-Gate -Ctx $Ctx -Stage 'FINAL-accounting' -Id 'cost-evidence' -Description 'latest accounting for every paid task is complete and within budget' -Test {
+                Assert-That (-not $Ctx.CostUnknown) 'Unsettled task accounting or an execution without task scope remains.'
+                Assert-That ($Ctx.SpentUsd -le $Ctx.MaxScenarioUsd) 'Observed scenario spend exceeds the configured ceiling.'
+                foreach ($task in $Ctx.TaskBudgetUsd.Keys) {
+                    Assert-That ([decimal]$Ctx.AccountedTaskUsd[$task] -le [decimal]$Ctx.TaskBudgetUsd[$task]) "Task $task exceeded its admitted cap."
+                }
+                $true
+            })
+    }
     # Latest state: a repair stage's result for the same gate supersedes the
     # original stage's result. First-pass statistics keep the original misses.
     $required = @($Ctx.Gates | Where-Object { $_.required } |
@@ -1149,6 +1375,11 @@ function Complete-VcpScenario {
     $passed = @($required | Where-Object { $_.outcome -eq 'pass' })
     $failed = @($required | Where-Object { $_.outcome -eq 'fail' })
     $advisoryFailed = @($Ctx.Gates | Where-Object { -not $_.required -and $_.outcome -eq 'fail' })
+    $skippedStages = @($Ctx.Stages | Where-Object { $_.skipped })
+    $verdict = if ($Ctx.Fatal -or $failed.Count -gt 0 -or $required.Count -eq 0) { 'fail' }
+        elseif ($Ctx.SkipPaidStages) { 'dry-run-pass' }
+        elseif ($skippedStages.Count -gt 0) { 'incomplete' }
+        else { 'pass' }
     $paid = @($Ctx.Stages | Where-Object { -not $_.skipped })
     $repairs = @($paid | Where-Object { $_.stage -like '*-repair*' })
     $primary = @($paid | Where-Object { $_.stage -notlike '*-repair*' -and $_.kind -eq 'run' -and $_.autonomy -ne 'plan' })
@@ -1171,6 +1402,8 @@ function Complete-VcpScenario {
         spend_usd                = [math]::Round($Ctx.SpentUsd, 6)
         spend_evidence_complete  = -not $Ctx.CostUnknown
         max_scenario_usd         = $Ctx.MaxScenarioUsd
+        dry_run                  = [bool]$Ctx.SkipPaidStages
+        skipped_stages           = $skippedStages.Count
         required_gates           = $required.Count
         required_passed          = $passed.Count
         required_failed          = $failed.Count
@@ -1182,7 +1415,7 @@ function Complete-VcpScenario {
         repair_turns             = $repairs.Count
         exit_code_distribution   = ($paid | Group-Object exit_code | ForEach-Object { [ordered]@{ exit = $_.Name; count = $_.Count } })
         fatal                    = $Ctx.Fatal
-        verdict                  = if (-not $Ctx.Fatal -and $failed.Count -eq 0 -and $required.Count -gt 0) { 'pass' } else { 'fail' }
+        verdict                  = $verdict
         stages                   = @($Ctx.Stages | ForEach-Object { $_ | Select-Object * -ExcludeProperty Run, workspace_diff })
         gates                    = $Ctx.Gates
         assets                   = $Ctx.Assets
@@ -1196,6 +1429,12 @@ function Complete-VcpScenario {
     [void]$md.AppendLine("Run ``$($Ctx.RunId)`` - verdict **$($scorecard.verdict.ToUpperInvariant())** - $($passed.Count)/$($required.Count) required gates - spend $(Format-Usd $Ctx.SpentUsd) USD$(if ($Ctx.CostUnknown) { ' (incomplete cost evidence)' }) - $($scorecard.wall_minutes) min")
     [void]$md.AppendLine()
     [void]$md.AppendLine("VCP ``$($Ctx.VcpVersion)``, model ``$($Ctx.Model)`` endpoint ``$($Ctx.Endpoint)``. First-pass feature turns: $($firstPass.Count)/$($primary.Count); repair turns: $($repairs.Count).")
+    $commandLogPath = if ($Ctx.CommandLog) { $Ctx.CommandLog } else { Join-Path $Ctx.Logs 'vcp-commands.log' }
+    $auditLogPath = if ($Ctx.CommandAuditLog) { $Ctx.CommandAuditLog } else { Join-Path (Split-Path -Parent $commandLogPath) 'vcp-commands.jsonl' }
+    $commandLogLink = [IO.Path]::GetRelativePath($Ctx.Results, $commandLogPath).Replace('\', '/')
+    $auditLogLink = [IO.Path]::GetRelativePath($Ctx.Results, $auditLogPath).Replace('\', '/')
+    [void]$md.AppendLine()
+    [void]$md.AppendLine("Command execution evidence: [literal VCP commands and result summaries](<$commandLogLink>) and [structured argv/results](<$auditLogLink>). Each command entry points to its stdout, stderr, workspace and final result targets.")
     if ($Ctx.Fatal) { [void]$md.AppendLine(); [void]$md.AppendLine("**Fatal:** $($Ctx.Fatal)") }
     [void]$md.AppendLine()
     [void]$md.AppendLine('## Stages')
@@ -1230,9 +1469,9 @@ function Complete-VcpScenario {
         foreach ($note in $Ctx.Notes) { [void]$md.AppendLine("- $note") }
     }
     Write-Utf8File -Path (Join-Path $Ctx.Results 'summary.md') -Content $md.ToString()
-    Write-Step $Ctx ("Scenario {0}: {1} ({2}/{3} required gates, {4} USD). Results: {5}" -f $Ctx.Name, $scorecard.verdict.ToUpperInvariant(), $passed.Count, $required.Count, (Format-Usd $Ctx.SpentUsd), $Ctx.Results) $(if ($scorecard.verdict -eq 'pass') { 'ok' } else { 'fail' })
+    Write-Step $Ctx ("Scenario {0}: {1} ({2}/{3} required gates, {4} USD). Results: {5}" -f $Ctx.Name, $scorecard.verdict.ToUpperInvariant(), $passed.Count, $required.Count, (Format-Usd $Ctx.SpentUsd), $Ctx.Results) $(if ($scorecard.verdict -in 'pass', 'dry-run-pass') { 'ok' } else { 'fail' })
     if ($Ctx.Transcript) { try { Stop-Transcript | Out-Null } catch { } }
-    return $(if ($scorecard.verdict -eq 'pass') { 0 } else { 1 })
+    return $(if ($scorecard.verdict -in 'pass', 'dry-run-pass') { 0 } else { 1 })
 }
 
 #endregion
