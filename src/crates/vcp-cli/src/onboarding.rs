@@ -25,6 +25,8 @@ pub enum Command {
         #[arg(long)]
         directory: PathBuf,
     },
+    /// Refresh public endpoint metadata for retained adapter evidence; no inference.
+    ProviderRefresh(crate::provider_setup::refresh::Refresh),
     /// Create an offline workspace profile from current qualified metadata.
     Profile(Profile),
     /// Validate the selected profile, tools, budgets and expiry without inference.
@@ -45,7 +47,7 @@ pub enum CredentialCommand {
 
 #[derive(Debug, Args)]
 pub struct Profile {
-    /// Snapshot produced by a successful `vcp setup provider` command.
+    /// Snapshot from adapter metadata refresh, account setup or provider qualification.
     #[arg(long)]
     pub snapshot: PathBuf,
     /// Exact captured endpoint catalog matching the snapshot.
@@ -90,6 +92,9 @@ pub async fn execute(
         Command::ProviderComplete { directory } => {
             crate::provider_setup::production::complete(directory, &workspace, interactive).await
         }
+        Command::ProviderRefresh(request) => {
+            crate::provider_setup::refresh::run(request, &workspace).await
+        }
         Command::Profile(request) => create(request, &workspace),
         Command::Check => {
             let path = config.ok_or("setup check requires an explicit --config profile path; use setup profile for first-run creation")?;
@@ -101,7 +106,7 @@ pub async fn execute(
                 .ok_or("profile needs an explicit budget_usd")?;
             crate::args::parse_usd(cap)?;
             let prepared = profile.prepare(vcp_domain::policy::Autonomy::Plan)
-                .map_err(|e| format!("{e}; renew expired provider metadata with vcp setup provider --help and create a new profile; review unavailable process/check configuration"))?;
+                .map_err(|e| format!("{e}; refresh adapter metadata with vcp setup provider-refresh --help and create a new profile (empirical qualification uses setup provider); review unavailable process/check configuration"))?;
             Ok(
                 json!({"status":"ready","workspace":workspace,"profile":path,
                 "valid_until":prepared.profile.provider.valid_until,
@@ -124,7 +129,7 @@ fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
     let catalog = settings::local_path(&request.catalog, workspace)?;
     let snapshot: Snapshot =
         serde_json::from_slice(&settings::read_bounded(&snapshot_path, 256 * 1024)?)
-            .map_err(|_| "invalid qualified snapshot; run vcp setup provider --help")?;
+            .map_err(|_| "invalid provider snapshot; run vcp setup provider-refresh --help")?;
     let output = settings::local_path(&request.output, workspace)?;
     let value = json!({"version":1,"workspace":workspace,"trust_workspace":true,
         "maximum_autonomy":settings::autonomy(request.autonomy),"automatic_effects":["read"],
@@ -138,7 +143,7 @@ fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
     profile
         .prepare(vcp_domain::policy::Autonomy::Plan)
         .map_err(|e| {
-            format!("{e}; require a fresh matching catalog/snapshot from vcp setup provider")
+            format!("{e}; require a fresh matching catalog/snapshot from setup provider-refresh or setup provider")
         })?;
     let parent = output.parent().ok_or("profile output parent required")?;
     let root = settings::registry_root(parent)?;

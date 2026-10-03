@@ -52,6 +52,13 @@ be reported separately when unrun.
 Status: implementation and local verification complete. Delivery is tracked in
 [PR #348](https://github.com/iokaio/vcp/pull/348).
 
+October 3 BETA-03C correction: `setup provider-refresh` exposes the metadata-only
+renewal required by ADR-081, preserving the compiled adapter evidence and exact
+model/endpoint while fetching current capabilities and tariffs. This closes the
+gap where scenario scripts could only invoke the older paid qualification command.
+See [the scenario A failure review](../test-plans/run-review-20261003-092744.md)
+for the captured expiry, implementation rationale and verification limits.
+
 ## Verification evidence
 
 Native Windows MSVC checks used Rust 1.98.0 with locked offline dependencies.

@@ -32,6 +32,7 @@ pub mod connection;
 #[path = "../bin/conformance/native.rs"]
 mod native_probe;
 pub mod production;
+pub mod refresh;
 mod qualify;
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

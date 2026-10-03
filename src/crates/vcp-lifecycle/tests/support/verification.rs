@@ -42,6 +42,14 @@ async fn native_verification_marks_concurrent_edit_stale() {
         verification_case(backend, "during", &node).await;
     }
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_verification_names_replaced_source_even_with_identical_bytes() {
+    let node =
+        std::env::var_os("VCP_TEST_NODE").expect("runner supplies explicit native Node dependency");
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        verification_case(backend, "during_replacement", &node).await;
+    }
+}
 #[cfg(feature = "qualification")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_verification_pause_before_publish_retains_checks_without_completion() {
@@ -102,7 +110,7 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
     } else {
         format!(
                 "const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');\ntest({name:?},async()=>{{fs.writeFileSync({oracle},'started');while({blocked}&&!fs.existsSync({release})){{await new Promise(r=>setTimeout(r,10));}}assert.equal(fs.readFileSync('value.txt','utf8').trim(),'42');fs.appendFileSync({oracle},':passed');}});\n",
-                oracle=serde_json::to_string(&oracle).unwrap(),release=serde_json::to_string(&release).unwrap(),blocked=mode == "during")
+                oracle=serde_json::to_string(&oracle).unwrap(),release=serde_json::to_string(&release).unwrap(),blocked=matches!(mode, "during" | "during_replacement"))
     };
     fs::write(project.join("acceptance.cjs"), script).unwrap();
     let config = config(&temp.path().join("canonical"), &workspace, backend);
@@ -283,18 +291,27 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
             .verify(thread, if analysis { vec![citation] } else { vec![] })
             .await
     });
-    if mode == "during" {
+    if matches!(mode, "during" | "during_replacement") {
         tokio::select! {
             result=&mut verification=>panic!("{backend:?}/{mode}: check ended before the independent barrier: {result:?}"),
             arrived=tokio::time::timeout(Duration::from_secs(60),async {
                 while !oracle.exists() { tokio::time::sleep(Duration::from_millis(10)).await; }
             })=>arrived.expect("bounded native preparation did not reach the check barrier"),
         }
-        fs::write(
-            workspace.join("AGENTS.md"),
-            b"New acceptance guidance during the check.\n",
-        )
-        .unwrap();
+        if mode == "during_replacement" {
+            // Retain the old file until replacement has been created so even a
+            // filesystem which reuses deleted IDs must observe a new identity.
+            let original = workspace.join("value.txt");
+            let retained = temp.path().join("old-value.txt");
+            fs::rename(&original, &retained).unwrap();
+            fs::write(&original, fs::read(&retained).unwrap()).unwrap();
+        } else {
+            fs::write(
+                workspace.join("AGENTS.md"),
+                b"New acceptance guidance during the check.\n",
+            )
+            .unwrap();
+        }
         fs::write(&release, b"continue after observed edit").unwrap();
     }
     let verification = verification.await.unwrap().unwrap();
@@ -365,12 +382,18 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
             CheckOutcome::Passed,
             "{mode}: {verification:?}"
         ),
-        "during" | "pause_publish" => {
+        "during" | "during_replacement" | "pause_publish" => {
             assert_eq!(verification.checks[0].outcome, CheckOutcome::Passed);
             assert!(verification
                 .outstanding_issues
                 .iter()
                 .any(|s| s.contains("stale")));
+            if mode == "during_replacement" {
+                assert!(verification
+                    .outstanding_issues
+                    .iter()
+                    .any(|issue| issue.contains("native identity") && issue.contains("value.txt")));
+            }
         }
         "missing" => {
             assert!(matches!(
@@ -414,7 +437,13 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
     }
     if matches!(
         mode,
-        "pass" | "during" | "later" | "ignored_later" | "wrong" | "uncovered"
+        "pass"
+            | "during"
+            | "during_replacement"
+            | "later"
+            | "ignored_later"
+            | "wrong"
+            | "uncovered"
     ) {
         assert_eq!(fs::read_to_string(&oracle).unwrap(), "started:passed");
     }

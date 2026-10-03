@@ -55,11 +55,24 @@ pub enum Request {
     },
 }
 const LIMIT: u64 = 1024 * 1024;
+// Only the explicit bundled query may return multiple bounded inspector pages.
+const BUNDLE_LIMIT: u64 = crate::inspection_bundle::MAX_BYTES as u64 + 1024;
 pub fn pipe(key: &str) -> String {
     format!(r"\\.\pipe\vcp-owner-{key}")
 }
 
 pub async fn request(name: &str, request: &Request) -> Result<serde_json::Value, String> {
+    let limit = if matches!(
+        request,
+        Request::Query {
+            query: crate::app::Query::InspectBundle { .. },
+            ..
+        }
+    ) {
+        BUNDLE_LIMIT
+    } else {
+        LIMIT
+    };
     let operation = async {
         let mut stream = loop {
             match ClientOptions::new().open(name) {
@@ -81,11 +94,11 @@ pub async fn request(name: &str, request: &Request) -> Result<serde_json::Value,
             .await
             .map_err(|_| "owner control write failed")?;
         let mut frame = Vec::new();
-        BufReader::new((&mut stream).take(LIMIT + 1))
+        BufReader::new((&mut stream).take(limit + 1))
             .read_until(b'\n', &mut frame)
             .await
             .map_err(|_| "owner control read failed")?;
-        if frame.len() > LIMIT as usize || frame.last() != Some(&b'\n') {
+        if frame.len() > limit as usize || frame.last() != Some(&b'\n') {
             return Err("invalid owner response frame".into());
         }
         let value: serde_json::Value =
@@ -134,7 +147,12 @@ pub fn serve(
                 Err(error) => serde_json::json!({"error":error}),
             };
             if let Ok(mut bytes) = serde_json::to_vec(&value) {
-                if bytes.len() <= LIMIT as usize {
+                let limit = if value["result"]["kind"] == "inspection_bundle" {
+                    BUNDLE_LIMIT
+                } else {
+                    LIMIT
+                };
+                if bytes.len() <= limit as usize {
                     bytes.push(b'\n');
                     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
                         server.write_all(&bytes).await?;

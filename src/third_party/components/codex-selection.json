@@ -215,6 +215,10 @@
     {
       "path": "src/third_party/patches/codex/0046-editor-compatible-product-version.patch",
       "sha256": "e09c0d106149b62562e30585825f907e0a2911f7c7d839cb0a20c7665e90845e"
+    },
+    {
+      "path": "src/third_party/patches/codex/0047-scenario-runtime-product-version.patch",
+      "sha256": "551bfda589b5e70df4d90c404fabeb914ffc3ee23c899c0f72b8593139727e3b"
     }
   ],
   "licenses": [

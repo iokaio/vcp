@@ -32,7 +32,7 @@ jobs:
     runs-on:
       group: wingroup
       labels: vcpwin
-    timeout-minutes: 5
+    timeout-minutes: 8
     defaults:
       run:
         shell: pwsh
@@ -59,12 +59,22 @@ jobs:
       - name: Compile and link a real MSVC supervision probe
         timeout-minutes: 2
         run: ./scripts/release/msvc-supervision-smoke.ps1
+      - name: Run offline CLI scenario regressions
+        timeout-minutes: 2
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/cli-scenario-regressions | Out-Null
+          foreach ($test in Get-ChildItem docs/test-plans/tests -Filter '*.Tests.ps1' | Sort-Object Name) {
+            & pwsh -NoProfile -NonInteractive -File $test.FullName 2>&1 | Tee-Object -FilePath (Join-Path artifacts/cli-scenario-regressions ($test.BaseName + '.log'))
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Retain compiler supervision evidence, including failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-supervision-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/msvc-supervision-smoke/
+          path: |
+            artifacts/msvc-supervision-smoke/
+            artifacts/cli-scenario-regressions/
           if-no-files-found: error
           retention-days: 3
   delivery:
