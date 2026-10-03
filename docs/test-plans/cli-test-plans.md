@@ -91,19 +91,28 @@ unexpired; there is no additional five-hour minimum. Expiry affects captured pri
 capabilities, not the saved account credentials. Concurrent scenarios can reuse the same
 current metadata; starting another scenario does not invalidate it.
 
-When only expired, integrity-checked metadata is available, interactive Full mode offers
-renewal for the same model and endpoint. The default is No. Agreeing requires an explicit
-USD cap; `-RefreshBudgetUsd` supplies that authorization for a noninteractive launch.
-The installed CLI's `setup provider` command makes at most two paid qualification requests.
-The launcher reserves the entire refresh cap from `-MaxScenarioUsd` before starting the
-scenario, and requires enough remaining budget for a normal turn. It may call
-`setup provider-complete` once to retrieve delayed receipts without more inference.
+Adapter-contract metadata that has expired, or cannot cover the next task deadline plus
+five minutes, is renewed with `setup provider-refresh`. This command fetches public endpoint
+metadata for the same model and endpoint, validates capabilities and fresh tariffs, and makes
+zero inference calls. It does not renew or extend the compiled adapter compatibility contract.
+This implements ADR-081; the previous paid `setup provider` workaround is superseded and
+`-RefreshBudgetUsd` is removed. Empirical qualification records cannot use this renewal path.
 
 Renewal writes a new directory under this invocation's `setup` folder. It never modifies
 the account's selection, the expired files, or another running scenario's profiles.
-Authorization, budget allocation, command lines, output and failures are retained alongside
-the discovery evidence. DryRun does not renew or make inference requests. No usable
-matching metadata, declined renewal, or invalid evidence stops with an actionable error.
+Command lines, output and failures are retained alongside the discovery evidence. DryRun
+may fetch public metadata but never performs inference. Before each new task or repair,
+the harness checks the remaining validity window and writes a new profile when needed.
+Resume and session fork retain native task-captured selections; they cannot adopt a different
+snapshot through this path. No usable matching metadata or invalid evidence stops with an
+actionable error. An installed CLI without `setup provider-refresh` must be updated; there
+is no paid fallback or expiry bypass.
+
+The harness uses `inspect-bundle <task>` when supported to collect all standard evidence
+views and history in one canonical-store open. Original validation, access control, cursors
+and omission records remain enforced. Older builds use individual inspection commands.
+See [the October 3 A run review](run-review-20261003-092744.md) for the failure evidence
+and reasons for these changes.
 
 `-ProviderGeneration` or `VCP_PROVIDER_GENERATION` is an optional explicit metadata-directory
 override, not a project directory. Normally leave it unset. `-OutputTokens` defaults to 8192
@@ -217,9 +226,11 @@ it does not run provider qualification or prove that a feature turn succeeds.
 
 ### 3.3 Execution profiles
 
-Each scenario composes its own profiles with `New-ScenarioProfile`. The retained provider
-snapshot is spliced in **verbatim** from `snapshot.json` or `qualified\snapshot.json`, so no prices, timestamps
-or hashes are re-encoded. Everything else is explicit owner configuration:
+Each scenario composes its initial profiles with `New-ScenarioProfile`. The retained provider
+snapshot is spliced in **verbatim** from `snapshot.json` or `qualified\snapshot.json`.
+Metadata refresh clones an existing profile with the newly validated snapshot and catalog;
+decimal prices, timestamps and hashes retain their schema-defined string values. Everything
+else is explicit owner configuration:
 
 ```json
 {
@@ -383,16 +394,16 @@ evidence, and an advisory continuation skip is not a successful resume test.
 Budget parameters accept at most two decimal places so the admission guard and rendered
 CLI dollar values agree; sub-cent values are rejected before paid execution.
 
-Launcher-authorized metadata renewal reserves its full cap from `-MaxScenarioUsd`; the
-remaining ceiling is passed to the child scenario. For example, a USD 1 refresh cap with
-a USD 30 total leaves USD 29 for scenario tasks, regardless of the actual probe charge.
-Qualification run manually outside the launcher has its own separately authorized cap.
+Metadata-only renewal spends no inference budget; the scenario ceiling is unchanged.
+Explicit empirical qualification outside the launcher has its own separately authorized cap.
 Settled ledger totals are cumulative per task: a resume contributes only newly observed
 spend. Missing, truncated or unresolved cost evidence causes conservative cap accounting
 until a later complete ledger for the same task reconciles it. Stage snapshots are advisory
 because intentional pauses can leave unsettled liabilities; final accounting requires every
 task's latest evidence to be complete and both task and scenario caps to be respected.
-An execution without task scope leaves unresolved accounting even if another task settles.
+A complete, single unscoped configuration-rejection result with exit 2 and no acceptance
+proves that no new task began, so it adds zero cost. Missing, invalid, interrupted or
+otherwise ambiguous unscoped output retains uncertainty even if another task settles.
 While accounting remains unknown, `spend_evidence_complete` is false and conservative
 estimates must not be presented as measured spend.
 
@@ -833,7 +844,9 @@ These limitations need evidence from actual scenario runs:
 | `tests/BlockedExecution.Tests.ps1` | Stops further paid admission after approval/recovery blockers; preserves same-task deadline resumes and original repair instructions |
 | `tests/ProcessAuthorization.Tests.ps1` | Explicit process consent, default refusal, DryRun behavior and unchanged review/guardrail permissions |
 | `tests/ProviderReuse.Tests.ps1` | Offline configured-provider discovery and metadata reuse |
-| `tests/ProviderRefresh.Tests.ps1` | Same-provider renewal consent, budget reservation, immutable old metadata and failure evidence |
+| `tests/ProviderRefresh.Tests.ps1` | Metadata-only refresh, unchanged budget, immutable old metadata and failure evidence |
+| `tests/StagePreparation.Tests.ps1` | Per-task profile renewal and complete, consistent bundled inspection |
+| `tests/TestRuntimeIsolation.Tests.ps1` | Generated database isolation and cleanup without changing protected assertions |
 | `tests/ProjectContext.Tests.ps1` | Offline project selection, seed preservation and git checkpoint isolation |
 | `tests/ProjectReuseAB.Tests.ps1` / `tests/ProjectReuseCD.Tests.ps1` | Offline scenario scaffold and fixture preservation |
 | `tests/CommandLog.Tests.ps1` | Offline regressions for exact command logging, failure evidence and result-path references |
@@ -855,6 +868,8 @@ pwsh -NoProfile -File docs/test-plans/tests/ProcessAuthorization.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderReuse.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderRefresh.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/StagePreparation.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/TestRuntimeIsolation.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectContext.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectReuseAB.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectReuseCD.Tests.ps1
@@ -870,7 +885,6 @@ to check the installed CLI, configured provider metadata and actual scenario too
 | Parameter | Default | Meaning |
 |---|---|---|
 | `-ProviderGeneration` | installed metadata in launcher | Optional explicit metadata directory; individual scenario scripts require it |
-| `-RefreshBudgetUsd` | 0 (not authorized) | Launcher only: explicitly authorizes up to USD 25 for expired-metadata renewal; reserved from the total scenario ceiling; Full only |
 | `-ProjectPath` | stable scenario folder in launcher | Reuse an existing project or create it when absent |
 | `-AllowProcessPublish` | off; interactive Full asks | Explicitly authorizes publish capability needed by VCP's generic process tool; can authorize actual publishing, not only tests |
 | `-RunRoot` | `%SystemDrive%\vcp-scenarios` | Parent folder for run outputs |

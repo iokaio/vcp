@@ -77,6 +77,13 @@ profiles allow at most two retries; the setup test never retries inference.
 
 The remaining sections document the supported explicit, expert setup commands.
 
+Adapter-contract endpoint metadata can be renewed without inference using
+`vcp setup provider-refresh --snapshot <snapshot.json> --catalog <endpoints.json>
+--output <new-private-directory>`. This fetches public metadata without credentials,
+preserves the exact model/endpoint and adapter evidence, and reparses current tariffs
+and capabilities. It cannot renew empirical qualification or an expired compiled
+adapter contract. Existing snapshots and task selections remain unchanged (ADR-081).
+
 `setup provider` performs paid inference. Its `--budget-usd` explicitly admits
 one fixed probe pair, at most two requests with no inference retries, capped at
 25 USD per invocation. Select a cap within your separately authorized test

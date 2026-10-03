@@ -753,6 +753,31 @@ function Get-InspectItems {
     return @($Pages | ForEach-Object { $_.items } | Where-Object { $_ })
 }
 
+function Get-VcpStageInspection {
+    <# One canonical read owner for every page; a failed bundle never silently
+       falls back to a costly or potentially inconsistent second evidence sweep. #>
+    param($Ctx, [string]$Stage, [string]$Task)
+    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'inspect-bundle' -Arguments @('inspect-bundle', $Task) -TimeoutSeconds 300
+    $bundle = $run.Result.data
+    $valid = $run.ExitCode -eq 0 -and -not $run.TimedOut -and $run.InvalidLines -eq 0 -and
+        $bundle.schema_version -eq 1 -and $bundle.source_watermark -and $bundle.task.scope.task -eq $Task
+    $views = @{}
+    foreach ($view in 'costs', 'verification', 'tools', 'routing', 'policy', 'outputs') {
+        $pages = @($bundle.views.$view | Where-Object { $null -ne $_ })
+        $complete = $valid -and $pages.Count -gt 0 -and -not $pages[-1].next_cursor -and
+            @($pages | Where-Object { $_.source_watermark -ne $bundle.source_watermark -or $_.scope.task -ne $Task -or $_.view -ne $view }).Count -eq 0
+        [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "inspect-$view" -Description "inspect $view returned all pages in one canonical bundle" -Test { $complete })
+        if (-not $complete) { $pages += [pscustomobject]@{ items = @(); gaps = @(@{ reason = 'incomplete or invalid inspection bundle' }); next_cursor = $null } }
+        Write-JsonFile (Join-Path $Ctx.Logs "$Stage/inspect-$view.json") $pages
+        $views[$view] = $pages
+    }
+    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/inspection-bundle.json") $bundle
+    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/tasks-status.json") $bundle.task
+    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/tasks-agents.json") $bundle.agents
+    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/history.json") $bundle.history
+    return $views
+}
+
 function Get-VcpTaskCost {
     <# Settled cost from canonical ledger records (decimal micros strings). Null when evidence is incomplete. #>
     param($CostPages)
@@ -963,6 +988,53 @@ function Test-PaidExecutionAdmission {
     throw "Scenario stopped before $($Record.stage): $($Record.skipped). Results: $($Ctx.Results)"
 }
 
+function Get-FreshScenarioProfile {
+    <# New tasks may use fresh tariffs; an existing task's captured selection is immutable.
+       Retain original profiles and catalogs so every admission remains inspectable. #>
+    param($Ctx, [string]$Stage, [string]$Config)
+    if (-not $Config) { return $Config }
+    $profile = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json -AsHashtable -Depth 100
+    if (-not $profile.provider.valid_until) { throw "Profile has no provider expiry: $Config" }
+    $window = [math]::Max(300, [int]$profile.deadline_seconds + 300)
+    $neededUntil = [DateTimeOffset]::UtcNow.AddSeconds($window)
+    if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$profile.provider.valid_until) -gt $neededUntil) { return $Config }
+    $snapshot = if ($Ctx.SnapshotText) { $Ctx.SnapshotText | ConvertFrom-Json -AsHashtable -Depth 100 } else { $null }
+    $matches = $snapshot -and $snapshot.compatibility.model -eq $profile.provider.compatibility.model -and
+        $snapshot.compatibility.endpoint -eq $profile.provider.compatibility.endpoint
+    if (-not $matches -or [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until) -le $neededUntil) {
+        $generation = Join-Path $Ctx.Root ('provider-refresh-' + [guid]::NewGuid().ToString('N'))
+        $inputSnapshot = Join-Path $Ctx.Profiles ('refresh-input-' + [guid]::NewGuid().ToString('N') + '.json')
+        Write-JsonFile $inputSnapshot $profile.provider
+        Write-Step $Ctx "$Stage provider metadata needs renewal; fetching the same endpoint without inference." 'phase'
+        $refresh = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'provider-refresh' -DenyProviderCredentials -Arguments @(
+            'setup', 'provider-refresh', '--snapshot', $inputSnapshot, '--catalog', $profile.catalog, '--output', $generation)
+        if ($refresh.ExitCode -ne 0 -or $refresh.TimedOut -or $refresh.InvalidLines -ne 0 -or $refresh.Result.data.status -ne 'refreshed' -or $refresh.Result.data.model_calls -ne 0) {
+            throw "Metadata-only refresh failed before $Stage; no task started. Use a VCP build with setup provider-refresh. See $($refresh.StderrPath)."
+        }
+        $newSnapshot = Join-Path $generation 'snapshot.json'
+        $newCatalog = Join-Path $generation 'endpoints.json'
+        $snapshot = Get-Content -LiteralPath $newSnapshot -Raw | ConvertFrom-Json -AsHashtable -Depth 100
+        Assert-That ($snapshot.compatibility.model -eq $profile.provider.compatibility.model -and
+            $snapshot.compatibility.endpoint -eq $profile.provider.compatibility.endpoint) 'Refresh changed the selected model or endpoint'
+        Assert-That ((Get-FileHash -LiteralPath $newCatalog -Algorithm SHA256).Hash -ieq $snapshot.raw_sha256) 'Refreshed catalog hash mismatch'
+        Assert-That ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until) -gt $neededUntil) 'Fresh metadata does not cover the next task deadline'
+        $Ctx.Snapshot = $newSnapshot; $Ctx.Catalog = $newCatalog
+        $Ctx.SnapshotText = Get-Content -LiteralPath $newSnapshot -Raw
+        $Ctx.SnapshotValidUntil = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until).ToString('o')
+    }
+    $profile.provider = $snapshot
+    $profile.catalog = $Ctx.Catalog
+    $freshProfile = Join-Path $Ctx.Profiles ('profile-refreshed-' + [guid]::NewGuid().ToString('N') + '.json')
+    Write-JsonFile $freshProfile $profile
+    $check = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'setup-check-refreshed' -Config $freshProfile -DenyProviderCredentials -Arguments @('setup', 'check')
+    if ($check.ExitCode -ne 0 -or $check.TimedOut -or $check.InvalidLines -ne 0) { throw "Refreshed profile rejected before $Stage; inspect $($check.StderrPath)." }
+    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/provider-refresh.json") @{
+        original_profile = $Config; admitted_profile = $freshProfile; snapshot = $Ctx.Snapshot
+        catalog = $Ctx.Catalog; model_calls = 0; valid_until = $Ctx.SnapshotValidUntil
+    }
+    return $freshProfile
+}
+
 function Invoke-VcpTask {
     <#
     One paid VCP turn: vcp run --file <prompt> with the stage profile, then the
@@ -1003,6 +1075,8 @@ function Invoke-VcpTask {
         Write-Step $Ctx "Skipping $Stage; $($stageRecord.skipped)" 'warn'
         return $null
     }
+    $Config = Get-FreshScenarioProfile $Ctx $Stage $Config
+    $stageRecord.profile = $Config
     Write-Step $Ctx "$Stage :: $Title (autonomy $Autonomy, cap $(Format-Usd $BudgetUsd) USD)" 'phase'
     $stageDir = Join-Path $Ctx.Logs $Stage
     $promptPath = Join-Path $stageDir 'prompt.md'
@@ -1014,6 +1088,21 @@ function Invoke-VcpTask {
         -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
     $evidence = Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $stageRecord
     return $evidence
+}
+
+function Test-VcpPreAdmissionRejection {
+    <# Only a complete, unscoped configuration result proves that execution never started.
+       Missing/truncated output, acceptance, timeouts and other conditions remain uncertain. #>
+    param($Run)
+    $frames = @($Run.Frames)
+    if ($Run.TimedOut -or $Run.ExitCode -ne 2 -or $Run.InvalidLines -ne 0 -or
+        $Run.Accepted -or $Run.Scope -or $frames.Count -ne 1) { return $false }
+    $frame = $frames[0]
+    $conditions = @(Get-VcpConditions $frame)
+    return $frame.type -eq 'result' -and $frame.schema_version -eq 1 -and
+        -not [string]::IsNullOrWhiteSpace($frame.correlation) -and $null -eq $frame.scope -and
+        $null -eq $frame.receipt -and $frame.exit_code -eq 2 -and
+        $conditions.Count -eq 1 -and $conditions[0] -eq 'invalid_configuration'
 }
 
 function Complete-VcpStageEvidence {
@@ -1033,6 +1122,11 @@ function Complete-VcpStageEvidence {
         $Ctx.Notes.Add("$Stage reported $($requiredInput.Count) required input(s); inspect the saved policy and tool evidence for the cause.")
     }
     if ($task) {
+      if ($Ctx.SupportsInspectionBundle) {
+        $views = Get-VcpStageInspection $Ctx $Stage $task
+        $costs = $views.costs; $tools = $views.tools; $outputs = $views.outputs
+      }
+      else {
         $status = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'tasks-status' -Arguments @('tasks', 'status', $task)
         Write-JsonFile -Path (Join-Path $Ctx.Logs "$Stage\tasks-status.json") -Value $status.Result
         $agents = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'tasks-agents' -Arguments @('tasks', 'agents', $task)
@@ -1045,6 +1139,7 @@ function Complete-VcpStageEvidence {
         $outputs = Invoke-VcpInspect -Ctx $Ctx -Stage $Stage -Id $task -View 'outputs' -Name 'outputs'
         $history = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'history-list' -Arguments @('history', 'list', '--task', $task, '--limit', '128')
         Write-JsonFile -Path (Join-Path $Ctx.Logs "$Stage\history.json") -Value $history.Result
+      }
         $cost = Get-VcpTaskCost $costs
         $Record.cost_usd = $cost.Usd
         $Record.attempts = $cost.Attempts
@@ -1056,6 +1151,12 @@ function Complete-VcpStageEvidence {
             Write-Utf8File -Path (Join-Path $Ctx.Logs "$Stage\final-message.md") -Content $message
             $Record.final_message = "logs/$Stage/final-message.md"
         }
+    }
+    elseif (Test-VcpPreAdmissionRejection $Run) {
+        $Record.cost_usd = [decimal]0
+        $Record.attempts = 0
+        $Record.admission = 'rejected before task acceptance'
+        $Ctx.Notes.Add("$Stage was rejected before task acceptance (complete unscoped configuration result); no new task spend or uncertainty reservation. See logs/$Stage/vcp.")
     }
     elseif ($Record.budget_usd) {
         # A missing scope can also mean truncated output or a killed process.
@@ -1168,6 +1269,9 @@ function Invoke-VcpContinuation {
         Write-Step $Ctx "Skipping $Stage; $($record.skipped)" 'warn'
         return $null
     }
+    # Resume and fork load native task-captured models. Supplying a refreshed
+    # profile cannot replace that immutable snapshot; preserve native admission.
+    $record.profile = $Config
     Write-Step $Ctx "$Stage :: $Title" 'phase'
     $before = Get-WorkspaceManifest $Ctx.Workspace
     $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label ($Arguments[0..1] -join '-') -Config $Config -Arguments $Arguments `
@@ -1203,6 +1307,10 @@ function Invoke-RepairLoop {
         if (-not (Test-Path -LiteralPath $originalPromptPath -PathType Leaf)) { throw "Cannot repair $Stage without its original task instructions: $originalPromptPath" }
         if ((Get-Item -LiteralPath $originalPromptPath).Length -gt 65536) { throw "Original task instructions exceed the 64 KiB repair context limit: $originalPromptPath" }
         $originalPrompt = [IO.File]::ReadAllText($originalPromptPath)
+        $observed = $Ctx.Stages | Where-Object stage -eq $current | Select-Object -Last 1
+        $changed = @($observed.workspace_diff.Added) + @($observed.workspace_diff.Modified) + @($observed.workspace_diff.Removed)
+        $changedSummary = (@($changed | Where-Object { $_ } | Select-Object -First 80) -join ', ')
+        if (-not $changedSummary) { $changedSummary = '(none recorded)' }
         $evidence = ($failed | ForEach-Object { "- [$($_.id)] $($_.description)`n  Failure: $($_.detail)" }) -join "`n"
         if ($evidence.Length -gt 12000) { $evidence = $evidence.Substring(0, 12000) + "`n... (truncated)" }
         $prompt = @"
@@ -1219,13 +1327,17 @@ these required checks failed. The checks are authoritative acceptance tests.
 
 $evidence
 
+Authored files changed during the preceding attempt: $changedSummary
+Tool errors or a completion summary do not establish that a file was written.
+Read back the required source files and inspect the actual test counts before claiming completion.
+
 Fix the underlying causes in the project. Do not weaken, skip, or delete tests,
 and do not edit files that the task describes as protected. Keep all previously
 working behavior intact. Run the relevant build and test commands available to
 you before finishing, then reply with a short summary of the root causes and fixes.
 $Constraints
 "@
-        $result = Invoke-VcpTask -Ctx $Ctx -Stage $repairStage -Title "Repair failures from $current" -Prompt $prompt -Config $Config -AcceptExit @(0, 3)
+        $result = Invoke-VcpTask -Ctx $Ctx -Stage $repairStage -Title "Repair failures from $current" -Prompt $prompt -Config $Config -AcceptExit @(0)
         if (-not $result) { return $current }
         Test-StageExit $Ctx $result $repairStage
         & $GateScript $repairStage
@@ -1412,6 +1524,9 @@ function Invoke-CommonPreflight {
     Write-Step $Ctx 'P0 preflight (no inference)' 'phase'
     $version = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'version' -Arguments @('--version') -NoGlobals
     $Ctx.VcpVersion = (Get-Content -LiteralPath $version.StdoutPath -Raw).Trim()
+    $bundleHelp = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'inspect-bundle-help' -Arguments @('inspect-bundle', '--help') -NoGlobals
+    $Ctx.SupportsInspectionBundle = $bundleHelp.ExitCode -eq 0 -and -not $bundleHelp.TimedOut
+    if (-not $Ctx.SupportsInspectionBundle) { $Ctx.Notes.Add('Installed CLI has no inspect-bundle command; using individual evidence commands, which may be slow on retained history.') }
     [void](Invoke-Gate -Ctx $Ctx -Stage $stage -Id 'version' -Description 'vcp --version exits 0' -Test {
             Assert-That ($version.ExitCode -eq 0) "exit $($version.ExitCode)"; $true })
     $doctor = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'doctor' -Arguments @('doctor')

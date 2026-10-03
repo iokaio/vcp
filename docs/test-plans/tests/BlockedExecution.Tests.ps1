@@ -53,6 +53,8 @@ function Assert-Blocked([scriptblock]$Action, [string]$Description) {
 try {
     & $module {
         $script:fixtureCalls = [Collections.Generic.List[string]]::new()
+        # Admission/repair tests isolate profile renewal, covered by StagePreparation.Tests.
+        function script:Get-FreshScenarioProfile { param($Ctx, $Stage, $Config) $Config }
         function script:Invoke-Vcp {
             param($Ctx, $Stage, $Label, $Config, [string[]]$Arguments, $TimeoutSeconds, [switch]$Live)
             $script:fixtureCalls.Add(($Arguments -join ' '))
@@ -124,6 +126,8 @@ try {
     Check ($finished -eq 'T1-repair1') 'Ordinary completed-task repair no longer runs'
     Check ($repairPrompt.Contains($original)) 'Repair lost original environment/tool/protected-file instructions'
     Check ($repairPrompt.Contains('fixture compile error')) 'Repair lost independent failure evidence'
+    Check ($repairPrompt.Contains('Authored files changed during the preceding attempt')) 'Repair lost observed implementation evidence'
+    Check (($ctx.Stages | Where-Object stage -eq 'T1-repair1').accepted_exit -notcontains 3) 'Repair treats incomplete completion evidence as success'
     Write-Host "PASS: $checks offline blocked-execution and repair-context checks"
 }
 finally {

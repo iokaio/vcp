@@ -111,6 +111,11 @@ pub enum Command {
         #[command(subcommand)]
         command: Memory,
     },
+    /// Collect all standard task inspection views and history in one canonical read.
+    InspectBundle {
+        #[arg(value_parser = task_id)]
+        task: TaskId,
+    },
     Inspect {
         #[arg(value_parser = scoped_id)]
         id: String,
@@ -334,6 +339,9 @@ pub enum ValidatedCommand {
     MemoryQuery(crate::memory::Query),
     MemoryInspect(crate::history::MemoryInspect),
     MemoryPrune(crate::history::Preview),
+    InspectBundle {
+        task: TaskId,
+    },
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
@@ -425,6 +433,7 @@ impl Cli {
                         .map_err(|e| e.to_string())?;
                     ValidatedCommand::MemorySearch(search)
                 }
+                Command::InspectBundle { task } => ValidatedCommand::InspectBundle { task },
                 Command::Inspect {
                     id,
                     view,

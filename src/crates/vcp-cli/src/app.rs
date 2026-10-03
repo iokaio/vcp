@@ -35,6 +35,9 @@ pub enum Query {
     Inspect {
         request: vcp_audit::inspection::InspectionQuery,
     },
+    InspectBundle {
+        task: TaskId,
+    },
     MemorySearch {
         request: vcp_memory::retrieval::Request,
     },
@@ -42,6 +45,13 @@ pub enum Query {
 
 pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Value, String> {
     let selected: Vec<Value> = match query {
+        Query::InspectBundle { task } => {
+            return crate::inspection_bundle::collect(
+                state,
+                &inspection_access(state, workspace)?,
+                task,
+            );
+        }
         Query::MemorySearch { .. } => {
             return Err("memory search requires the canonical store query boundary".into())
         }
@@ -160,6 +170,7 @@ fn latest(
 struct DisplayOutput {
     jsonl: bool,
     frame: Vec<u8>,
+    frame_limit: usize,
 }
 impl Write for DisplayOutput {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -176,10 +187,10 @@ impl Write for DisplayOutput {
                     }
                     self.frame.clear();
                 } else {
-                    if self.frame.len() >= 1024 * 1024 {
+                    if self.frame.len() >= self.frame_limit {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
-                            "display frame exceeds 1 MiB",
+                            "display frame exceeds command output limit",
                         ));
                     }
                     self.frame.push(*byte);
@@ -205,6 +216,11 @@ fn command_outcome(format: Format, data: Value, exit_code: u8) -> Result<u8, Str
     Jsonl::new(DisplayOutput {
         jsonl: format == Format::Jsonl,
         frame: Vec::new(),
+        frame_limit: if data["kind"] == "inspection_bundle" {
+            crate::inspection_bundle::MAX_BYTES + 1024
+        } else {
+            1024 * 1024
+        },
     })
     .emit(
         &CommandId::new(),
@@ -734,6 +750,9 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             task: task.clone(),
             offset: *offset,
         }),
+        ValidatedCommand::InspectBundle { task } => {
+            Some(Query::InspectBundle { task: task.clone() })
+        }
         ValidatedCommand::Inspect { request } => Some(Query::Inspect {
             request: request.clone(),
         }),
@@ -937,6 +956,7 @@ mod display_tests {
         let mut output = DisplayOutput {
             jsonl: false,
             frame: Vec::new(),
+            frame_limit: 1024 * 1024,
         };
         output.write_all(b"{\"type\":").unwrap();
         assert!(output.flush().is_err());
@@ -945,5 +965,26 @@ mod display_tests {
             .unwrap();
         output.flush().unwrap();
         assert!(output.frame.is_empty());
+    }
+
+    #[test]
+    fn text_display_accepts_bundle_sized_frames_but_keeps_explicit_bounds() {
+        let bytes = vec![b' '; 1024 * 1024 + 1];
+        let mut normal = DisplayOutput {
+            jsonl: false,
+            frame: Vec::new(),
+            frame_limit: 1024 * 1024,
+        };
+        assert!(normal.write_all(&bytes).is_err());
+        let mut bundle = DisplayOutput {
+            jsonl: false,
+            frame: Vec::new(),
+            frame_limit: crate::inspection_bundle::MAX_BYTES + 1024,
+        };
+        bundle.write_all(&bytes).unwrap();
+        assert_eq!(bundle.frame.len(), bytes.len());
+        // Test the exact boundary without emitting a multi-megabyte stdout line.
+        bundle.frame.resize(bundle.frame_limit, b' ');
+        assert!(bundle.write_all(b" ").is_err());
     }
 }

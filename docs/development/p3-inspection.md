@@ -32,6 +32,38 @@ random access.
 See [CLI examples and wire shape](p3-cli-usage.md). The inspector result payload
 replaces P3-01's provisional capped record list; outer JSONL version 1 is unchanged.
 
+### Task evidence bundles (2026-10-03 correction)
+
+`vcp inspect-bundle TASK` collects the standard costs, verification, tools,
+routing, policy and outputs pages, task status, agent pages and task history
+against one validated canonical state. Its result has `kind: inspection_bundle`,
+`schema_version: 1`, `source_watermark`, `task`, `agents`, `views` and `history`.
+Each view/history entry retains the existing page schema, cursors and gaps;
+artifact bytes still require an explicit bounded `inspect` range request.
+The bundle fails explicitly above 128 total pages or 16 MiB, directing the caller
+to individual paged commands. It does not silently omit remaining evidence.
+It neither acknowledges retention notices nor changes canonical state.
+
+This addresses scenario A invocation `launch-20261003-092744-5a8127ae`, where
+individual inspection commands grew from about 4 seconds after T1 to about
+75 seconds after T2. Each process reopened the store and replayed all retained
+commits, including whole-state validation and retained artifact checks. The
+stopped store contained 2,091 commits, 1,532 records and 2,063 events; a read-only
+SQLite check loaded and JSON-decoded its 6.9 MB of commit payloads in 0.052
+seconds. Repeated validation, rather than simply loading those bytes, was the
+source-level bottleneck. Bundling amortizes that existing validation across the
+requested views; it does not cache unvalidated state, skip historical contracts,
+alter retention/access checks or claim that a single reopen is now constant time.
+Live-owner queries use the same bundle projection on the owner's snapshot; only
+this explicit response has a larger private-pipe frame bound.
+
+Native offline regression verification: the four bundle tests pass (paged
+inspector/history parity, unchanged state, access denial, limits and argument
+parsing). The full CLI library test executable reports 167 passed, zero failed
+and four pre-existing ignored fixtures/environment qualifications, including the
+text-display frame-bound regression. This verifies the source change; it is not
+an installed-candidate performance measurement or a paid scenario A rerun.
+
 ## Qualification
 
 Native Windows, stable Rust, offline dependencies, Visual C++ x64 tool environment.

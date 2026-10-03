@@ -90,6 +90,11 @@ Node's built-in type stripping) and a single-page UI (Vue 3 + Vite + TypeScript)
 
 Server TypeScript must use erasable syntax only (no enums, namespaces or
 parameter properties) and import local modules with explicit `.ts` extensions.
+API tests must create unique data directories with `mkdtemp` under `os.tmpdir()`
+and remove them after awaiting server shutdown. Never rewrite files under the
+workspace during a check: VCP binds verification to source content and native
+file identity, so recreating `tests/tmp/tasks.json` invalidates completion even
+when the final bytes happen to match.
 '@
 $seed['.gitignore'] = @'
 node_modules/
@@ -254,10 +259,14 @@ $seed['tests/health.test.ts'] = @'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AddressInfo } from 'node:net'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createApp } from '../server/app.ts'
 
 test('GET /api/health returns ok', async () => {
-  const server = createApp().listen(0, '127.0.0.1')
+  const directory = await mkdtemp(join(tmpdir(), 'taskboard-health-'))
+  const server = createApp({ dataFile: join(directory, 'tasks.json') }).listen(0, '127.0.0.1')
   await new Promise<void>((resolve) => server.once('listening', () => resolve()))
   try {
     const { port } = server.address() as AddressInfo
@@ -265,7 +274,8 @@ test('GET /api/health returns ok', async () => {
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), { status: 'ok' })
   } finally {
-    server.close()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    await rm(directory, { recursive: true, force: true })
   }
 })
 '@
@@ -274,19 +284,23 @@ $regressionTest = @'
 // PROTECTED FILE - added by the scenario harness as an acceptance test. Do not edit.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
-import type { Server } from 'node:http'
 import { createApp } from '../server/app.ts'
 
-async function start(): Promise<{ server: Server; url: string }> {
-  const dataFile = join(mkdtempSync(join(tmpdir(), 'taskboard-regressions-')), 'tasks.json')
+async function start(): Promise<{ stop: () => Promise<void>; url: string }> {
+  const directory = await mkdtemp(join(tmpdir(), 'taskboard-regressions-'))
+  const dataFile = join(directory, 'tasks.json')
   const server = createApp({ dataFile }).listen(0, '127.0.0.1')
   await new Promise<void>((resolve) => server.once('listening', () => resolve()))
   const { port } = server.address() as AddressInfo
-  return { server, url: `http://127.0.0.1:${port}` }
+  const stop = async () => {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    await rm(directory, { recursive: true, force: true })
+  }
+  return { stop, url: `http://127.0.0.1:${port}` }
 }
 
 async function send(url: string, method: string, body?: unknown): Promise<{ status: number; json: any }> {
@@ -300,37 +314,37 @@ async function send(url: string, method: string, body?: unknown): Promise<{ stat
 }
 
 test('POST /api/tasks trims title whitespace', async () => {
-  const { server, url } = await start()
+  const { stop, url } = await start()
   try {
     const created = await send(`${url}/api/tasks`, 'POST', { title: '   Plan sprint   ' })
     assert.equal(created.status, 201)
     assert.equal(created.json.title, 'Plan sprint')
-  } finally { server.close() }
+  } finally { await stop() }
 })
 
 test('POST /api/tasks rejects whitespace-only title', async () => {
-  const { server, url } = await start()
+  const { stop, url } = await start()
   try {
     const created = await send(`${url}/api/tasks`, 'POST', { title: ' \t ' })
     assert.equal(created.status, 400)
     assert.equal(created.json.error.code, 'VALIDATION_ERROR')
     assert.equal(created.json.error.field, 'title')
-  } finally { server.close() }
+  } finally { await stop() }
 })
 
 test('PATCH /api/tasks/:id rejects unknown fields', async () => {
-  const { server, url } = await start()
+  const { stop, url } = await start()
   try {
     const created = await send(`${url}/api/tasks`, 'POST', { title: 'Patch target' })
     const patched = await send(`${url}/api/tasks/${created.json.id}`, 'PATCH', { colour: 'red' })
     assert.equal(patched.status, 400)
     assert.equal(patched.json.error.code, 'UNKNOWN_FIELD')
     assert.equal(patched.json.error.field, 'colour')
-  } finally { server.close() }
+  } finally { await stop() }
 })
 
 test('PATCH /api/tasks/:id cannot change read-only fields', async () => {
-  const { server, url } = await start()
+  const { stop, url } = await start()
   try {
     const created = await send(`${url}/api/tasks`, 'POST', { title: 'Read only target' })
     const patched = await send(`${url}/api/tasks/${created.json.id}`, 'PATCH', { createdAt: '2001-01-01T00:00:00.000Z' })
@@ -339,7 +353,7 @@ test('PATCH /api/tasks/:id cannot change read-only fields', async () => {
     assert.equal(patched.json.error.field, 'createdAt')
     const fetched = await send(`${url}/api/tasks/${created.json.id}`, 'GET')
     assert.equal(fetched.json.createdAt, created.json.createdAt)
-  } finally { server.close() }
+  } finally { await stop() }
 })
 '@
 
@@ -352,6 +366,12 @@ $environmentBlock = @'
 ## Environment and rules (applies to every task in this project)
 
 - Work only inside the current workspace. Read README.md and the existing code first.
+- The exception for test runtime data is a unique `mkdtemp` directory under `os.tmpdir()`.
+  Pass its `tasks.json` path to `createApp`, await server shutdown, and remove the directory
+  in cleanup. Do not create or recreate test data under `tests/`, `src/` or `server/`:
+  replacing a source-tree file during checks invalidates VCP verification even if the final
+  bytes match. Repair existing API tests that use `tests/tmp/tasks.json` by moving their runtime
+  data to unique OS temporary directories; preserve every assertion and protected test.
 - Process profiles available to `vcp_exec` (no shell; pass literal arguments):
   - `node` runs Node.js {{NODE_VERSION}}. Run npm through it: profile `node`, arguments
     `["{{NPM_CLI}}", "run", "typecheck"]`, `["{{NPM_CLI}}", "test"]`, `["{{NPM_CLI}}", "run", "test:unit"]`,
@@ -359,6 +379,11 @@ $environmentBlock = @'
     `["--test", "tests/tasks.api.test.ts"]`.
 - Dependencies are already installed. Add a dependency only when essential, with
   `["{{NPM_CLI}}", "install", "--save-exact", "<package>@<version>"]`, and explain why.
+- `src/api`, `src/composables`, and `src/components` already exist. The patch tool requires
+  existing parent directories. For another directory, use profile `node` with arguments
+  `["-e", "require('node:fs').mkdirSync('src/another-directory',{recursive:true})"]` first.
+  Do not pass `mkdir` as a Node script filename. An `*** Add File: path` patch contains
+  `+`-prefixed file lines directly; `@@` belongs to update hunks, never Add File sections.
 - Server and test TypeScript must remain runnable by Node type stripping: erasable syntax
   only and explicit `.ts` extensions on relative imports.
 - The `npm test` script must stay in the form `node --test <explicit test files>`; add every
@@ -409,8 +434,10 @@ signature; the file is `options.dataFile`, else environment variable `TASKBOARD_
 reload existing data on start so tasks survive a restart. `server/index.ts` listens on `PORT`
 (default 41731) at 127.0.0.1.
 
-Tests: add `tests/tasks.api.test.ts` using `node:test`, starting the app on port 0 with a temporary
-data file. Use exactly these test names (more tests are welcome):
+Tests: add `tests/tasks.api.test.ts` using `node:test`, starting the app on port 0. Each test uses a
+unique `mkdtemp` directory under `os.tmpdir()` for its data file, awaits server shutdown, then
+removes that directory in cleanup. Never write test data inside the workspace. Use exactly these
+test names (more tests are welcome):
 - `POST /api/tasks creates a task`
 - `POST /api/tasks rejects an empty title`
 - `PATCH /api/tasks/:id updates status`
@@ -769,6 +796,14 @@ try {
         Write-Step $ctx "Reusing TaskBoard project: $ws (existing source and tests retained)." 'ok'
     }
     else { Write-SeedFiles -Root $ws -Files $seed }
+    # vcp_patch deliberately requires existing parents. Supply the requested UI
+    # layout without implementing any behavior or replacing existing files.
+    foreach ($directory in @('src/api', 'src/composables', 'src/components')) {
+        $path = Join-Path $ws $directory
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            New-Item -ItemType Directory -Path $path -ErrorAction Stop | Out-Null
+        }
+    }
     $installCommand = if ($ctx.ReuseProject -and (Test-Path -LiteralPath (Join-Path $ws 'package-lock.json'))) { 'ci' } else { 'install' }
     $install = Invoke-Npm $stage $installCommand @($installCommand, '--no-audit', '--no-fund') 1800
     if ($install.ExitCode -ne 0) { throw "npm install failed:`n$(Get-Tail ($install.Output + $install.Errors))" }

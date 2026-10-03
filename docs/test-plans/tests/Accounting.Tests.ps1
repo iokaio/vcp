@@ -63,6 +63,31 @@ try {
     Check ($ctx.SpentUsd -eq 3) 'Unscoped resume double-counted its already reserved cap'
     Check ($ctx.UnscopedCostUnknown -and $ctx.CostUnknown) 'Unscoped execution did not retain sticky uncertainty'
 
+    # main.rs emits exactly this unscoped result for rejected configuration;
+    # a missing scope alone is insufficient evidence of zero dispatch.
+    foreach ($case in 'rejected', 'timeout', 'invalid-json', 'accepted', 'extra-frame', 'wrong-exit', 'other-condition', 'missing-correlation') {
+        $ctx = New-Context
+        $ctx.SpentUsd = [decimal]0.331439
+        $record = [ordered]@{ stage = 'repair'; budget_usd = [decimal]3; accepted_exit = @(0) }
+        $frame = [pscustomobject]@{ type = 'result'; schema_version = 1; correlation = 'fixture-command'; scope = $null; receipt = $null; exit_code = 2; conditions = [pscustomobject]@{ invalid_configuration = $true } }
+        $run = [pscustomobject]@{ ExitCode = 2; DurationSeconds = 0.2; Scope = $null; Result = $frame; Frames = @($frame); Accepted = $null; EventCounts = @{}; TimedOut = $false; InvalidLines = 0 }
+        switch ($case) {
+            'timeout' { $run.TimedOut = $true }
+            'invalid-json' { $run.InvalidLines = 1 }
+            'accepted' { $run.Accepted = @{ type = 'accepted' } }
+            'extra-frame' { $run.Frames += @{ type = 'event' } }
+            'wrong-exit' { $run.ExitCode = 1 }
+            'other-condition' { $frame.conditions | Add-Member unresolved_effect $true }
+            'missing-correlation' { $frame.correlation = '' }
+        }
+        [void](& $module { param($c, $r, $run) Complete-VcpStageEvidence $c 'repair' $run $null $r } $ctx $record $run)
+        if ($case -eq 'rejected') {
+            Check ($ctx.SpentUsd -eq [decimal]0.331439 -and -not $ctx.CostUnknown -and $record.cost_usd -eq 0) 'Proven pre-admission rejection invented a paid reservation'
+            Check ($ctx.PaidExecutionBlock.reasons -contains 'invalid_configuration') 'Accounting classification cleared the execution failure'
+        }
+        else { Check ($ctx.SpentUsd -eq [decimal]3.331439 -and $ctx.CostUnknown) "$case lost conservative accounting" }
+    }
+
     $ctx = New-Context
     $record = [ordered]@{ stage = 'T6'; task = 'review'; session = 'review-session'; budget_usd = [decimal]2; cost_usd = $null }
     $ctx.Stages.Add([pscustomobject]$record)

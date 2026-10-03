@@ -80,7 +80,13 @@ try {
         foreach ($relative in $fixtures.Keys) {
             Assert-That ((Get-Sha256 (Join-Path $ws $relative)) -eq $before[$relative]) "Reused $scenario baseline modified $relative"
         }
-        if ($scenario -eq 'a') { Assert-That ($calls.Count -eq 1 -and $calls[0] -eq 'ci --no-audit --no-fund') 'Reused TaskBoard must restore from the existing lockfile.' }
+        if ($scenario -eq 'a') {
+            Assert-That ($calls.Count -eq 1 -and $calls[0] -eq 'ci --no-audit --no-fund') 'Reused TaskBoard must restore from the existing lockfile.'
+            foreach ($directory in @('src/api', 'src/composables', 'src/components')) {
+                Assert-That (Test-Path -LiteralPath (Join-Path $ws $directory) -PathType Container) "Required patch parent missing: $directory"
+                Assert-That (@(Get-ChildItem -LiteralPath (Join-Path $ws $directory)).Count -eq 0) 'Scaffolding must not preimplement UI behavior.'
+            }
+        }
         else { Assert-That ($calls.Count -eq 2 -and $calls[0] -eq 'tool restore' -and $calls[1] -eq "restore $(Get-Solution)") 'Reused Inventory must restore rather than recreate templates or add packages.' }
 
         $source = Get-Content -LiteralPath (Join-Path $scenarioRoot $file) -Raw

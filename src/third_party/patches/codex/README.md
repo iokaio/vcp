@@ -211,6 +211,10 @@ already include these changes; normal builds never apply patches.
     package to `0.2.4`, matching the installer, SDK and VSIX candidate with wider
     VS Code compatibility. External dependencies remain unchanged.
 
+47. `0047-scenario-runtime-product-version.patch` advances the local `vcp-cli`
+    package to `0.2.5`, matching the installer, SDK and VSIX candidate containing
+    the scenario runtime fixes. External dependencies remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

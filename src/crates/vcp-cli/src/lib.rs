@@ -28,6 +28,7 @@ pub(crate) mod execution_profile;
 pub mod exit_status;
 pub mod history;
 pub mod input;
+pub mod inspection_bundle;
 #[cfg(windows)]
 pub mod installation;
 pub mod jsonl;

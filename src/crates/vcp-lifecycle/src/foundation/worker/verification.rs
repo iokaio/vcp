@@ -731,6 +731,43 @@ impl Context {
                 "check evidence is stale: source, task or authority changed during verification"
                     .into(),
             );
+            if !current_revisions
+                .as_ref()
+                .is_ok_and(|r| *r == run.revisions)
+            {
+                issues.push(
+                    "task or authority revisions could not be revalidated after checks".into(),
+                );
+            }
+            if let Ok((_, observed)) = &after {
+                // Keep native identities in this comparison: replacing a source
+                // with identical bytes still invalidates the tested file. Name
+                // the inputs so a repair can move generated test data outside
+                // the source tree instead of blindly repeating the same check.
+                let changed_during: std::collections::BTreeSet<_> = run
+                    .before
+                    .manifest
+                    .files
+                    .iter()
+                    .chain(observed.manifest.files.iter())
+                    .filter(|file| {
+                        !run.before.manifest.files.contains(file)
+                            || !observed.manifest.files.contains(file)
+                    })
+                    .map(|file| file.path.as_str())
+                    .collect();
+                if !changed_during.is_empty() {
+                    issues.push(format!(
+                        "source files changed during checks (content or native identity; {} total): {}",
+                        changed_during.len(),
+                        changed_during.iter().take(16).copied().collect::<Vec<_>>().join(", ")
+                    ));
+                } else if observed.manifest != run.before.manifest {
+                    issues.push("repository identity, instructions, exclusions or source scope changed during checks".into());
+                }
+            } else {
+                issues.push("source observation could not be revalidated after checks".into());
+            }
         }
         if !baseline.bounded_scan_complete || !run.before.manifest.bounded_scan_complete {
             issues.push("verification source scope is incomplete".into());
@@ -822,7 +859,9 @@ impl Context {
         let report = self.capture(&binding.scope, Channel::Evidence, &canonical_bytes(&serde_json::json!({
             "before":run.before.manifest,"after":after.as_ref().ok().map(|(_,o)| &o.manifest),
             "observation_error":after.as_ref().err().map(ToString::to_string),"changed_paths":changed,"editing":editing,
-            "accepted_revisions":run.revisions,"cost":cost,"accounting_digest":accounting,"ledger":self.verification_ledger()?,
+            "accepted_revisions":run.revisions,"current_revisions":current_revisions.as_ref().ok(),
+            "revision_error":current_revisions.as_ref().err().map(ToString::to_string),
+            "cost":cost,"accounting_digest":accounting,"ledger":self.verification_ledger()?,
             "scope":"bounded native disk sources; editor buffers are not executed; excluded files and external dynamic dependencies are not qualified",
             "representation":"disk_only", "editor_buffers_unverified":buffers_unverified,
             "editor_buffers_fingerprint":editor_buffers,

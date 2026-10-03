@@ -333,6 +333,7 @@ pub(super) async fn execute(
         DisplayOutput {
             jsonl: cli.format == Format::Jsonl,
             frame: Vec::new(),
+            frame_limit: 1024 * 1024,
         },
         owner,
     )
