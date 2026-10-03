@@ -48,10 +48,6 @@ jobs:
       CARGO_INCREMENTAL: '0'
       # Owner-provisioned Windows 2025 runner: 16 cores, 64 GB RAM, 600 GB SSD.
       CARGO_BUILD_JOBS: '16'
-      # Dedicated homes prevent inherited configuration or credentials from
-      # entering the download caches. Compiled/extracted sources stay uncached.
-      CARGO_HOME: ${{ runner.temp }}/vcp-candidate-cargo
-      npm_config_cache: ${{ runner.temp }}/vcp-candidate-npm
       REVIEWED_COMMIT: ${{ inputs.reviewed_commit }}
       STOP_AFTER: ${{ inputs.stop_after }}
     steps:
@@ -72,6 +68,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.10.0'
+      - name: Initialize isolated download homes
+        run: |
+          # Runner context is available in steps, not job-level env expressions.
+          # Keep inherited configuration and credentials outside both caches.
+          "CARGO_HOME=$(Join-Path $env:RUNNER_TEMP 'vcp-candidate-cargo')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "npm_config_cache=$(Join-Path $env:RUNNER_TEMP 'vcp-candidate-npm')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Cache locked npm downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
