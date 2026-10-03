@@ -10,6 +10,21 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-07 compatibility follow-up: the `0.2.3` VSIX's exact `engines.vscode`
+selector rejected the owner's newer VS Code `1.140.0`. The next synchronized
+native/installer/SDK/VSIX candidate is `0.2.4`, with editor range `^1.138.0`.
+API types stay pinned to `1.138.0`; packaging and public release metadata carry
+the declared range instead of a hard-coded editor version. Historical receipts
+and public downloads retain their original restrictions. Marketplace's
+pre-release-only message is a separate channel choice; this fix does not change
+the release channel or publish replacement artifacts.
+
+Verification: 165 extension tests and 35 release/publication contracts passed;
+native schema/provenance checks and complete 7,940-file upstream reconstruction
+passed. Isolated staged-source activation on official editors `1.138.0` and
+`1.140.0` passed without development overrides, native execution or provider
+calls. See [editor compatibility evidence](../development/editor-connection.md#development-build).
+
 BETA-08/11: the October 2 owner-authorized publication of synchronized `0.2.3`
 completed in [run 37094167354](https://github.com/iokaio/vcp/actions/runs/37094167354).
 [Candidate 37092293430/1](https://github.com/iokaio/vcp/actions/runs/37092293430/attempts/1)

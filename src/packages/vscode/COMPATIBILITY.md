@@ -1,13 +1,15 @@
 # Installation and compatibility
 
-This experimental extension supports the local Windows x64 extension host in
-VS Code **1.138.0**. Remote workspaces, web hosts and other editor versions are
-not qualified. The engine is installed separately; the VSIX contains the SDK
+This experimental extension admits the local Windows x64 extension host in
+VS Code **1.138.0 and newer 1.x releases** (`^1.138.0`), including **1.140.0**.
+The API types remain pinned to the `1.138.0` baseline. Admission to this range
+does not claim full native qualification on every editor release. Remote
+workspaces and web hosts remain excluded. The engine is installed separately; the VSIX contains the SDK
 and protocol schema, but no engine, provider credentials or publisher keys.
 
 Install the candidate with **Extensions: Install from VSIX**, select the supplied
-`vcp-0.2.3-win32-x64.vsix`, and reload when requested. This is the internal beta
-pre-release channel, paired with native 0.2.3 and SDK 0.2.3. For an isolated installation:
+`vcp-0.2.4-win32-x64.vsix`, and reload when requested. This is the internal beta
+pre-release channel, paired with native 0.2.4 and SDK 0.2.4. For an isolated installation:
 
 ```powershell
 Code.exe --user-data-dir <private-profile> --extensions-dir <private-extensions> --install-extension <absolute-vsix-path>

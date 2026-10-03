@@ -39,6 +39,10 @@ function renderDownloadPage(release) {
   // Published beta.1 records predate the explicit extension identity field.
   const extensionId = release.extensionId ?? 'iokaio.vcp-local';
   if (!['iokaio.vcp', 'iokaio.vcp-local'].includes(extensionId)) throw new TypeError('Unsupported Marketplace extension identity');
+  // Earlier published manifests supported only this exact editor version.
+  const vscodeRange = release.vscodeRange ?? '1.138.0';
+  const vscodeRequirement = /^\^1\.\d+\.\d+$/.test(vscodeRange)
+    ? `${vscodeRange.slice(1)} or newer (1.x)` : vscodeRange;
   const signed = release.qualification?.signing === 'signed';
   const artifacts = new Map();
   for (const artifact of release.artifacts) {
@@ -142,7 +146,7 @@ function renderDownloadPage(release) {
       <section class="section getting-started" aria-labelledby="start-title">
         <div>
           <h2 id="start-title">Before your first task</h2>
-          <ul class="requirements"><li>Native Windows x64 · local NTFS paths</li><li>PowerShell 7 · standard Program Files location</li><li>VS Code 1.138.0 · for the extension</li></ul>
+          <ul class="requirements"><li>Native Windows x64 · local NTFS paths</li><li>PowerShell 7 · standard Program Files location</li><li>VS Code ${escape(vscodeRequirement)} · for the extension</li></ul>
         </div>
         <ol class="steps">
           <li><strong>Install and confirm the selected engine.</strong><p>Choose separate program and private data directories. <a href="${link(`${source}/docs/usage/beta-installation.md`)}">Follow the installation guide</a>.</p></li>

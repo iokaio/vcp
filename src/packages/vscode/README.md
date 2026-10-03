@@ -4,13 +4,13 @@
 
 Vibe Code Pro is an AI coding agent for your software projects. Plan tasks,
 review proposed edits and control execution from your workspace. This extension
-connects VS Code **1.138.0** to your separately installed VCP engine on Windows x64.
+connects VS Code **1.138.0 and newer 1.x releases** to your separately installed VCP engine on Windows x64.
 This is an experimental pre-release;
 full release qualification and clean-host support remain incomplete.
 
 ## Install
 
-1. Obtain the matching 0.2.3 native installer from the candidate handoff, or from
+1. Obtain the matching 0.2.4 native installer from the candidate handoff, or from
    [VCP beta downloads](https://downloads.ioka.io/) once published.
    This version requires the signed Ioka LLC native candidate. Check its release
    record and signature. PowerShell 7
@@ -26,7 +26,7 @@ extension first, then install this one and reconnect explicitly. This is a new
 extension identity, not an automatic update. Keep your native installation,
 data directory and User settings; extension-local connection state does not migrate.
 
-The native app, Windows installer, SDK and VSIX all use version 0.2.3;
+The native app, Windows installer, SDK and VSIX all use version 0.2.4;
 candidate qualification remains separate from this synchronized version.
 Use the exact pair and hashes in
 the download record; matching version numbers alone do not identify matching builds.

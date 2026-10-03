@@ -43,6 +43,15 @@ test('download page follows the recorded extension identity and preserves histor
   assert.doesNotMatch(current, /itemName=iokaio\.vcp-local/);
   assert.throws(() => renderDownloadPage({...release, extensionId: 'unrelated.extension'}), /Unsupported Marketplace/);
 });
+test('download page follows the recorded editor range with an exact historical fallback and escapes it', t => {
+  const {release} = fixture(t);
+  assert.match(renderDownloadPage(release), /<li>VS Code 1\.138\.0 · for the extension<\/li>/);
+  assert.match(renderDownloadPage({...release, vscodeRange: '^1.138.0'}), /<li>VS Code 1\.138\.0 or newer \(1\.x\) · for the extension<\/li>/);
+  const untrusted = '<script>alert("version")</script>';
+  const html = renderDownloadPage({...release, vscodeRange: untrusted});
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /VS Code &lt;script&gt;alert\(&quot;version&quot;\)&lt;\/script&gt;/);
+});
 function response(value,status=200) {return new Response(status===204?null:JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});}
 function github(t,f,{existing=false,draft=true,differing=false,failUpload=0,corruptReread=false}={}) {
   const tag = f.release.tag;

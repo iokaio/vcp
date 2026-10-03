@@ -78,7 +78,7 @@ async function main() {
     extension: { id: `${manifest.publisher}.${manifest.name}`, version: manifest.version, pre_release: strict, qualification_successor: !!options['--version'], source },
     ...(verified ? { release: verified.release } : {}),
     engine: { executable_sha256: engineHash, source_commit: native.manifest.source.git_commit, source_dirty: native.manifest.source.dirty, build_status: native.manifest.build.status, build_receipt_sha256: native.manifest.build.receipt_sha256 ?? null, native_archive_sha256: native.archive_sha256, native_manifest_sha256: sha256(nativeBytes) },
-    compatibility: { vscode: '1.138.0', platform: 'win32-x64', status: 'qualification-required' },
+    compatibility: { vscode: manifest.engines.vscode, platform: 'win32-x64', status: 'qualification-required' },
     build: { node: process.version, vsce: '4.0.0', typescript: require('typescript/package.json').version, lock_sha256: sha256(fs.readFileSync(path.join(root, 'package-lock.json'))), ...(compilation ? { compilation } : {}) },
     sdk: { version: sdk.version, schema_sha256: sha256(schema) }, files,
   };

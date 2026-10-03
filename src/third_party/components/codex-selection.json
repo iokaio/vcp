@@ -211,6 +211,10 @@
     {
       "path": "src/third_party/patches/codex/0045-synchronized-product-version.patch",
       "sha256": "21b858e2e77e3fdd9d004c77a6ed8d7bec7183fb999871614cb7b26106d00dc7"
+    },
+    {
+      "path": "src/third_party/patches/codex/0046-editor-compatible-product-version.patch",
+      "sha256": "e09c0d106149b62562e30585825f907e0a2911f7c7d839cb0a20c7665e90845e"
     }
   ],
   "licenses": [

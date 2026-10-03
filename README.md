@@ -6,6 +6,10 @@ VCP is an open-source local coding agent that combines repository-aware coding, 
 
 The published candidate uses **0.2.3** for the native app, Windows installer, SDK and VSIX, available at [downloads.ioka.io](https://downloads.ioka.io/). It remains an internal beta; native artifacts carry verified Ioka LLC code signatures through Azure Artifact Signing. Public asset hashes and versions were verified. Installed qualification and owner acceptance remain incomplete; VS Code Marketplace publication is separate. Earlier releases retain their original identities.
 
+The next candidate, **0.2.4**, widens the VS Code requirement to **1.138.0 and
+newer 1.x releases**, including **1.140.0**. The published `0.2.3` VSIX retains
+its exact `1.138.0` restriction. See [extension compatibility](src/packages/vscode/COMPATIBILITY.md).
+
 ## What VCP does
 
 VCP supports repository analysis, change review and implementation through one engine that owns task history, model accounting, authorization and recovery. The beta qualification matrix checks these integrated behaviors against the final installed artifacts.
