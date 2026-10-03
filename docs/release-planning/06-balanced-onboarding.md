@@ -49,4 +49,36 @@ fallback restrictions and budget enforcement; format/static checks, diff review
 and normal delivery checks. Live paid and final installed-product evidence must
 be reported separately when unrun.
 
-Status: implementation in progress.
+Status: implementation and local verification complete. Delivery is tracked in
+[PR #348](https://github.com/iokaio/vcp/pull/348).
+
+## Verification evidence
+
+Native Windows MSVC checks used Rust 1.98.0 with locked offline dependencies.
+The CLI checks used an isolated account directory and synthetic credentials.
+Local logs and command records are under the ignored
+`artifacts/beta03-onboarding/` directory in the delivery checkout.
+
+| Boundary | Result |
+|---|---|
+| CLI library, credentials, preferences and connection recovery | 158 passed; 4 child-fixture ignores |
+| Native first-contact, cancellation and exact help equivalence | 3 passed |
+| Stable launcher, containment and registered data roots | 3 passed; 2 child-fixture ignores |
+| Model/provider/routing/escalation library and integration tests | 65 passed |
+| Actual retained routing and in-set fallback, both storage backends | 2 regressions passed |
+| Explicit discovery, stale roots and resume selection | 4 passed |
+| Credential-free preflight contracts | 25 passed; 2 existing native-PTY prerequisite skips |
+| Deterministic fast delivery suite | 25/25 cases passed |
+| TypeScript SDK and editor package | 35 and 164 passed |
+| Rustfmt, whitespace, credential-pattern review, indexed upstream integrity | Passed; Codex 7,940 files and Munarium 80 files |
+
+The recovery fixture also verifies that a live canonical owner blocks a second
+reader/writer before simulating a restart. Missing or partial summary files are
+recovered only through retained canonical evidence; unknown cost still prevents
+a repeated connection call. Provider reflection regressions cover escaped and
+ignored JSON fields, complete SSE framing and large split responses.
+
+No paid connection test, comparative model campaign, final installer
+qualification, release or deployment was run. Existing published artifacts
+are unchanged. Public metadata inspection is recorded separately in
+[the model metadata note](../evaluations/beta-balanced-model-metadata.md).
