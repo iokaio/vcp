@@ -29,7 +29,7 @@ function New-ProviderFixture([string]$Path, [int]$Hours) {
 $originalCulture = [Globalization.CultureInfo]::CurrentCulture
 $originalVcpEnv = $env:VCP_EXE
 try {
-    foreach ($name in 'Read-LauncherChoice', 'Assert-LauncherProvider', 'Find-LauncherProvider', 'New-LauncherArguments', 'Restore-LauncherEnvironment') { Import-LauncherFunction $name }
+    foreach ($name in 'Read-LauncherChoice', 'Assert-LauncherProvider', 'Find-LauncherProvider', 'New-LauncherArguments', 'Restore-LauncherEnvironment', 'Get-LauncherProcessAuthorization') { Import-LauncherFunction $name }
     $restoreProbe = 'VCP_LAUNCHER_RESTORE_' + [guid]::NewGuid().ToString('N')
     Restore-LauncherEnvironment $restoreProbe 'fixture'
     Check ([Environment]::GetEnvironmentVariable($restoreProbe) -eq 'fixture') 'Environment value was not restored'
@@ -41,6 +41,15 @@ try {
     Check ((Read-LauncherChoice 'scenario' @('A', 'B', 'C', 'D')) -eq 'B') 'Menu did not retry invalid input or normalize case'
     $script:answers.Enqueue('')
     Check ((Read-LauncherChoice 'mode' @('DryRun', 'Full') 'DryRun') -eq 'DryRun') 'Mode did not default to DryRun'
+    Check (-not (Get-LauncherProcessAuthorization $false $false 'fixture').allowed) 'Noninteractive launch authorized process publish without opt-in'
+    Check ((Get-LauncherProcessAuthorization $true $false 'fixture').source -eq 'explicit -AllowProcessPublish') 'Explicit process authorization lost provenance'
+    $script:answers.Enqueue('')
+    Check (-not (Get-LauncherProcessAuthorization $false $true 'fixture').allowed) 'Empty answer granted publishing capability'
+    $script:answers.Enqueue('No')
+    Check (-not (Get-LauncherProcessAuthorization $false $true 'fixture').allowed) 'No answer granted publishing capability'
+    $script:answers.Enqueue('Yes')
+    $authorized = Get-LauncherProcessAuthorization $false $true 'fixture'
+    Check ($authorized.allowed -and $authorized.source -eq 'interactive explicit Yes' -and $authorized.workspace -eq 'fixture') 'Interactive Yes was not scoped and recorded'
 
     $profiles = Join-Path $temporary 'profiles'
     $generation = Join-Path $profiles 'provider-valid with spaces'

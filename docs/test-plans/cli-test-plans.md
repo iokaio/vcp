@@ -174,6 +174,7 @@ Password-bearing connection strings are rejected before seeding.
     scorecard.json           machine-readable result (schema vcp-practical-scenario/1)
     summary.md               human-readable result
     paid-execution.json     blocking reason, task/approval IDs and evidence links, when blocked
+    process-authorization.json   explicit process consent and effective permissions per profile
 ```
 
 With the launcher, this run folder is nested under `<RunRoot>\launch-<id>`. The project
@@ -239,13 +240,18 @@ Design notes, each based on the current source:
 - **Unattended execution.** Any effect outside the automatic set would stop a non-interactive
   run with exit 4. Feature turns therefore use `--autonomy autonomous` under
   `maximum_autonomy: autonomous`, with `automatic_effects` covering execute, network and
-  install for builds and package restores. `publish` is deliberately excluded. Policy
+  install for builds and package restores. `publish` is excluded without explicit consent. Policy
   evaluation also requires every resource to be inside the workspace roots.
   **Observed limitation in VCP 0.2.4:** generic process preparation includes `publish`
   even for `node --test`; `vcp_verify` uses that same authorization path. These profiles
-  therefore cannot promise unattended process execution. The harness records required
-  input and stops further paid stages rather than granting broader authority. See the
-  [October 3 run review](run-review-20261003-082517.md) for the captured operation and failures.
+  require explicit `-AllowProcessPublish` consent for Full mode. The interactive launcher
+  explains the capability and asks Yes/No (default No) before paid execution. A noninteractive
+  Full launch without the switch stops before inference. This authorizes potentially real
+  publishing through the configured processes; reduced isolation is not a workspace sandbox.
+  The consent and effective profile effects are saved in `process-authorization.json`.
+  Review and guardrail profiles retain their existing permissions. DryRun needs no consent
+  and does not add publish automatically. Other required input still stops further paid stages.
+  See the [latest run review](run-review-20261003-085703.md) for evidence and verification.
 - **Process profiles** are `.exe` only, in `Direct` mode with no shell, and use a filtered
   public environment. `npm`, `mvn` and the `dotnet-ef` tool are reached through `node.exe`,
   `java.exe` and `dotnet.exe`; each task prompt gives the exact argument forms. The
@@ -808,6 +814,7 @@ These limitations need evidence from actual scenario runs:
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
 | `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |
 | `tests/BlockedExecution.Tests.ps1` | Stops further paid admission after approval/recovery blockers; preserves same-task deadline resumes and original repair instructions |
+| `tests/ProcessAuthorization.Tests.ps1` | Explicit process consent, default refusal, DryRun behavior and unchanged review/guardrail permissions |
 | `tests/ProviderReuse.Tests.ps1` | Offline configured-provider discovery and metadata reuse |
 | `tests/ProjectContext.Tests.ps1` | Offline project selection, seed preservation and git checkpoint isolation |
 | `tests/ProjectReuseAB.Tests.ps1` / `tests/ProjectReuseCD.Tests.ps1` | Offline scenario scaffold and fixture preservation |
@@ -826,6 +833,7 @@ pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProfileDeadlines.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/BlockedExecution.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProcessAuthorization.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderReuse.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProjectContext.Tests.ps1
@@ -844,6 +852,7 @@ to check the installed CLI, configured provider metadata and actual scenario too
 |---|---|---|
 | `-ProviderGeneration` | installed metadata in launcher | Optional explicit metadata directory; individual scenario scripts require it |
 | `-ProjectPath` | stable scenario folder in launcher | Reuse an existing project or create it when absent |
+| `-AllowProcessPublish` | off; interactive Full asks | Explicitly authorizes publish capability needed by VCP's generic process tool; can authorize actual publishing, not only tests |
 | `-RunRoot` | `%SystemDrive%\vcp-scenarios` | Parent folder for run outputs |
 | `-Vcp` | installed launcher | Path to `vcp.exe` (or set `VCP_EXE`) |
 | `-TurnBudgetUsd` | 3 | `--budget-usd` per task |
@@ -872,8 +881,11 @@ the child exits. Provider discovery commands and results live under
 
 For a repeatable selection, pass the options explicitly:
 
+The Full example below explicitly grants process publishing capability. Omit the switch
+and use the interactive launcher to review the permission first.
+
 ```powershell
-pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode Full -ProjectPath D:\clitests\A
+pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode Full -ProjectPath D:\clitests\A -AllowProcessPublish
 ```
 
 The individual scenario scripts also remain available for scenario-specific parameters:
@@ -887,8 +899,8 @@ $secret = Read-Host 'OpenRouter API key' -AsSecureString
 $env:OPENROUTER_API_KEY = [pscredential]::new('k', $secret).GetNetworkCredential().Password
 $secret = $null
 
-# 3. the real run
-pwsh -File D:\code\Github\vcp\docs\test-plans\scenario-a-vue-taskboard.ps1 -ProviderGeneration C:\vcp-private\provider-20261002
+# 3. the real run, with explicit process publishing capability consent
+pwsh -File D:\code\Github\vcp\docs\test-plans\scenario-a-vue-taskboard.ps1 -ProviderGeneration C:\vcp-private\provider-20261002 -AllowProcessPublish
 ```
 
 The second window does the same with, for example, `scenario-c-java-ledger-cli.ps1`.

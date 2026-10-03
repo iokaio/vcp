@@ -32,6 +32,7 @@ param(
     [int]$DeadlineSeconds = 1800,
     [int]$ShortDeadlineSeconds = 150,
     [ValidateRange(1, 65535)][int]$ApiPort = 41731,
+    [switch]$AllowProcessPublish,
     [switch]$SkipPaidStages
 )
 $ErrorActionPreference = 'Stop'
@@ -39,7 +40,7 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
 $ctx = Initialize-VcpScenario -Name 'a-vue-taskboard' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
-    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
+    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
 $base = "http://127.0.0.1:$ApiPort"
 
@@ -796,7 +797,7 @@ try {
     $profiles['T5-short'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($nodeProcess) `
         -Checks @(New-NodeCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profiles['review'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
-    $profiles['guardrail'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-guardrail' -AffectedPaths $affected -MaximumAutonomy 'workspace' -AutomaticEffects @('read', 'write')
+    $profiles['guardrail'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-guardrail' -AffectedPaths $affected -MaximumAutonomy 'workspace' -AutomaticEffects @('read', 'write') -Guardrail
     foreach ($key in 'T1', 'T5-short', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
 
     # --- G0: zero-spend guardrail ----------------------------------------

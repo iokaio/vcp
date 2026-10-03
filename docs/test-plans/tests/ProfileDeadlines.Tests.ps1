@@ -21,7 +21,8 @@ try {
     New-Item -ItemType Directory -Path $root | Out-Null
     foreach ($limits in @(@(1800, 150), @(60, 30), @(300, 300), @(900, 600), @(1, 1))) {
         $ctx = @{
-            Workspace = $root; Profiles = $root; Temp = $root; RunId = "$($limits[0])-$($limits[1])"
+            Workspace = $root; Profiles = $root; Temp = $root; Results = $root; RunId = "$($limits[0])-$($limits[1])"
+            AllowProcessPublish = $true
             Catalog = (Join-Path $root 'endpoints.json'); SnapshotText = '{}'
             TurnBudgetUsd = [decimal]3; OutputTokens = 8192; MaxRequests = 96
             DeadlineSeconds = $limits[0]; ShortDeadlineSeconds = $limits[1]

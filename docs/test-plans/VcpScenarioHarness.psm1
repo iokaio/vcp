@@ -427,6 +427,7 @@ function Initialize-VcpScenario {
         [ValidateRange(1, 86100)][int]$DeadlineSeconds = 1800,
         [ValidateRange(1, 86100)][int]$ShortDeadlineSeconds = 150,
         [ValidateRange(0, 12)][double]$MinSnapshotHours = 0,
+        [switch]$AllowProcessPublish,
         [switch]$SkipPaidStages
     )
     if (-not $IsWindows) { throw 'The VCP native CLI scenarios require Windows.' }
@@ -466,6 +467,7 @@ function Initialize-VcpScenario {
         DeadlineSeconds      = $DeadlineSeconds
         ShortDeadlineSeconds = $ShortDeadlineSeconds
         SkipPaidStages       = [bool]$SkipPaidStages
+        AllowProcessPublish  = [bool]$AllowProcessPublish
         SpentUsd             = [decimal]0
         CostUnknown          = $false
         AccountedTaskUsd     = @{}
@@ -484,6 +486,7 @@ function Initialize-VcpScenario {
     foreach ($key in 'Workspace', 'Data', 'Profiles', 'Logs', 'Hidden', 'Results', 'Temp', 'Env') {
         New-Item -ItemType Directory -Force -Path $ctx[$key] | Out-Null
     }
+    Save-ScenarioProcessAuthorization $ctx
     $ctx.ProgressLog = Join-Path $ctx.Logs 'progress.log'
     $ctx.CommandLog = Join-Path $ctx.Logs 'vcp-commands.log'
     $ctx.CommandAuditLog = Join-Path $ctx.Logs 'vcp-commands.jsonl'
@@ -1316,6 +1319,24 @@ function New-ProcessProfile {
     }
 }
 
+function Save-ScenarioProcessAuthorization {
+    param($Ctx, [string]$Profile, [string]$Decision, [string[]]$ProcessNames = @(), [string[]]$Effects = @())
+    if ($null -eq $Ctx.ProcessAuthorization) {
+        $Ctx.ProcessAuthorization = [ordered]@{
+            schema = 'vcp-scenario-process-authorization/1'
+            allow_process_publish = [bool]$Ctx.AllowProcessPublish
+            dry_run = [bool]$Ctx.SkipPaidStages
+            scope = 'Only this scenario run: trusted execution profiles with registered processes and the execute effect. Reviews and guardrail profiles are excluded.'
+            reason = 'The installed generic process tool classifies every process as read, write, execute, network, install, publish and opaque, including local builds/tests. Allowing publish permits effects beyond local validation; process arguments do not narrow that classification.'
+            profiles = [Collections.Generic.List[object]]::new()
+        }
+    }
+    if ($Profile) {
+        $Ctx.ProcessAuthorization.profiles.Add([ordered]@{ profile = $Profile; decision = $Decision; processes = $ProcessNames; automatic_effects = $Effects })
+    }
+    Write-JsonFile (Join-Path $Ctx.Results 'process-authorization.json') $Ctx.ProcessAuthorization
+}
+
 function New-ScenarioProfile {
     <#
     Composes a scenario execution profile. The qualified provider snapshot is
@@ -1332,10 +1353,27 @@ function New-ScenarioProfile {
         [string[]]$AutomaticEffects = @('read', 'write', 'execute', 'network', 'install', 'opaque'),
         [int]$DeadlineSeconds = 0,
         [int]$MaxRequests = 0,
+        [switch]$Guardrail,
         [bool]$TrustWorkspace = $true
     )
     if ($DeadlineSeconds -le 0) { $DeadlineSeconds = $Ctx.DeadlineSeconds }
     if ($MaxRequests -le 0) { $MaxRequests = $Ctx.MaxRequests }
+    $decision = 'unchanged: no execution-process authorization required'
+    if ($Processes.Count -gt 0 -and $AutomaticEffects -contains 'execute' -and $MaximumAutonomy -ne 'plan' -and $TrustWorkspace -and -not $Guardrail) {
+        if ($AutomaticEffects -contains 'publish') { $decision = 'publish already explicitly present in supplied profile effects' }
+        elseif ($Ctx.AllowProcessPublish) {
+            # The native generic process effect set includes publish even for
+            # tests. Only explicit owner consent may expand this run's profiles.
+            $AutomaticEffects = @($AutomaticEffects) + @('publish')
+            $decision = 'publish added by explicit AllowProcessPublish consent for this run'
+        }
+        elseif ($Ctx.SkipPaidStages) { $decision = 'publish not granted; explicit consent required before Full execution' }
+        else {
+            Save-ScenarioProcessAuthorization $Ctx $Name 'refused: explicit AllowProcessPublish consent required' @($Processes | ForEach-Object { $_.name }) $AutomaticEffects
+            throw 'Process execution requires explicit permission: this installed VCP classifies local builds/tests as including publish, network, install and opaque effects. No inference was started. Review the permission in run-cli-scenarios.ps1 or explicitly pass -AllowProcessPublish to authorize these scenario process profiles; DryRun remains available without that permission.'
+        }
+    }
+    Save-ScenarioProcessAuthorization $Ctx $Name $decision @($Processes | ForEach-Object { $_.name }) $AutomaticEffects
     $placeholder = '__VCP_PROVIDER_SNAPSHOT__'
     $profileDocument = [ordered]@{
         version                  = 1

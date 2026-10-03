@@ -36,6 +36,7 @@ param(
     # model-visible and included in checkpoints/publish output; credentials are forbidden.
     [string]$SqlConnectionString,
     [switch]$DropDatabase,
+    [switch]$AllowProcessPublish,
     [switch]$SkipPaidStages
 )
 $ErrorActionPreference = 'Stop'
@@ -43,7 +44,7 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
 $ctx = Initialize-VcpScenario -Name 'b-aspnet-inventory' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
-    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
+    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
 $webProject = 'src/Inventory.Web/Inventory.Web.csproj'
 $testProject = 'tests/Inventory.Tests/Inventory.Tests.csproj'
@@ -695,7 +696,7 @@ listing at most 10 findings ordered by severity.
     $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($dotnetProcess)
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($dotnetProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
-    $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false
+    $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false -Guardrail
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
 
     # --- G0: zero-spend guardrail: untrusted workspace ---------------------

@@ -59,14 +59,14 @@ function Invoke-NativeLogged {
     [IO.File]::WriteAllText((Join-Path $fixture 'VcpScenarioHarness.psm1'), $source)
     @'
 param($ProviderGeneration, $Vcp, $RunRoot, $ProjectPath, $TurnBudgetUsd, $MaxScenarioUsd, $MaxRepairTurns,
-    $OutputTokens, $MaxRequests, $DeadlineSeconds, $ShortDeadlineSeconds, [switch]$SkipPaidStages)
+    $OutputTokens, $MaxRequests, $DeadlineSeconds, $ShortDeadlineSeconds, [switch]$SkipPaidStages, [switch]$AllowProcessPublish)
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath (Join-Path $ProviderGeneration 'snapshot.json'))) { throw 'Missing retained metadata' }
 $root = Join-Path $RunRoot 'a-vue-taskboard/fixture-run'
 foreach ($name in 'results', 'logs', 'vcp-data', 'profiles') { New-Item -ItemType Directory -Path (Join-Path $root $name) -Force | Out-Null }
 @{ generation = $ProviderGeneration; credential_name = $env:VCP_SCENARIO_CREDENTIAL_ENV
     project = $ProjectPath; project_exists = (Test-Path -LiteralPath $ProjectPath -PathType Container)
-    dry_run = [bool]$SkipPaidStages
+    dry_run = [bool]$SkipPaidStages; allow_process_publish = [bool]$AllowProcessPublish
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'arguments.json')
 @{ verdict = 'fixture-only' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'results/scorecard.json')
 Write-Host 'PROVIDER_REUSE_CHILD_STARTED'
@@ -86,11 +86,14 @@ exit 0
     $project = Join-Path $temporary 'existing project'
     New-Item -ItemType Directory -Path $project | Out-Null
     'preserve this file' | Set-Content -LiteralPath (Join-Path $project 'owner.txt')
-    function Invoke-ReuseFixture([string]$Name, [string]$Mode = 'DryRun') {
+    function Invoke-ReuseFixture([string]$Name, [string]$Mode = 'DryRun', [bool]$AuthorizeProcesses = $true) {
         $runRoot = Join-Path $temporary $Name
-        $output = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') `
-            -Scenario A -Mode $Mode -ProjectPath $project -RunRoot $runRoot -Vcp $pwsh 2>&1 | Out-String)
+        $launchArgs = @('-NoProfile', '-NonInteractive', '-File', (Join-Path $fixture 'run-cli-scenarios.ps1'),
+            '-Scenario', 'A', '-Mode', $Mode, '-ProjectPath', $project, '-RunRoot', $runRoot, '-Vcp', $pwsh)
+        if ($Mode -eq 'Full' -and $AuthorizeProcesses) { $launchArgs += '-AllowProcessPublish' }
+        $output = (& $pwsh @launchArgs 2>&1 | Out-String)
         $code = $LASTEXITCODE
+        Check (Test-Path -LiteralPath $runRoot) "Launcher did not create invocation root: $output"
         $roots = @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter 'launch-*')
         Check ($roots.Count -eq 1) "Expected one $Name invocation; output: $output"
         $root = $roots[0].FullName
@@ -106,10 +109,18 @@ exit 0
         return [pscustomobject]@{ Code = $code; Output = $output; Root = $root; Commands = $commands; Literal = $literal }
     }
     $before = [IO.File]::ReadAllBytes((Join-Path $connection 'snapshot.json'))
+    $declined = Invoke-ReuseFixture 'full without permission' 'Full' $false
+    Check ($declined.Code -eq 1 -and -not $declined.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) 'Full mode without process permission started a scenario'
+    Check (@($declined.Commands | Where-Object label -eq 'credential-status').Count -eq 0) 'Permission refusal unnecessarily accessed credentials'
+    $decision = Get-Content -LiteralPath (Join-Path $declined.Root 'setup/results/process-authorization.json') -Raw | ConvertFrom-Json
+    Check (-not $decision.allowed -and $decision.source -eq 'not-authorized') 'Permission refusal was not retained'
     $success = Invoke-ReuseFixture 'reuse full' 'Full'
     Check ($success.Code -eq 0 -and $success.Output.Contains('PROVIDER_REUSE_CHILD_STARTED')) "Configured provider reuse failed: $($success.Output)"
     $received = Get-Content -LiteralPath (Join-Path $success.Root 'a-vue-taskboard/fixture-run/arguments.json') -Raw | ConvertFrom-Json
     Check ($received.generation -eq $connection) 'Did not reuse account setup connection evidence directly'
+    Check ($received.allow_process_publish) 'Explicit process permission was not forwarded to scenario'
+    $decision = Get-Content -LiteralPath (Join-Path $success.Root 'setup/results/process-authorization.json') -Raw | ConvertFrom-Json
+    Check ($decision.allowed -and $decision.source -eq 'explicit -AllowProcessPublish') 'Explicit process permission was not recorded'
     Check ($received.credential_name -eq 'VCP_REUSE_KEY') 'Configured credential alias was not forwarded'
     Check ($received.project -eq $project -and $received.project_exists) 'Existing project was not passed to scenario'
     Check ((Get-Content -LiteralPath (Join-Path $project 'owner.txt') -Raw).Trim() -eq 'preserve this file') 'Existing project content was modified'

@@ -37,6 +37,7 @@ param(
     [ValidateRange(0, 1)][double]$BaselineMacroF1 = 0.80,
     [ValidateRange(0, 1)][double]$TargetMacroF1 = 0.85,
     [ValidateRange(0, 1)][double]$TargetSentimentAccuracy = 0.70,
+    [switch]$AllowProcessPublish,
     [switch]$SkipPaidStages
 )
 $ErrorActionPreference = 'Stop'
@@ -44,7 +45,7 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
 $ctx = Initialize-VcpScenario -Name 'd-python-textlab' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
-    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
+    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
@@ -731,7 +732,7 @@ try {
     $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($pythonProcess)
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($pythonProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
-    $profileBounds = New-ScenarioProfile -Ctx $ctx -Name 'profile-bad-bounds' -AffectedPaths $affected -Processes @($pythonProcess)
+    $profileBounds = New-ScenarioProfile -Ctx $ctx -Name 'profile-bad-bounds' -AffectedPaths $affected -Processes @($pythonProcess) -Guardrail
     Write-Utf8File $profileBounds ([regex]::Replace([System.IO.File]::ReadAllText($profileBounds), '"max_requests":\s*\d+', '"max_requests": 0'))
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
 

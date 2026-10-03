@@ -31,6 +31,7 @@ param(
     [int]$MaxRequests = 96,
     [int]$DeadlineSeconds = 1800,
     [int]$ShortDeadlineSeconds = 150,
+    [switch]$AllowProcessPublish,
     [switch]$SkipPaidStages
 )
 $ErrorActionPreference = 'Stop'
@@ -38,7 +39,7 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
 $ctx = Initialize-VcpScenario -Name 'c-java-ledger-cli' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
-    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
+    -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 

@@ -16,6 +16,7 @@ param(
     [string]$Vcp,
     [string]$RunRoot = (Join-Path $env:SystemDrive 'vcp-scenarios'),
     [string]$ProjectPath,
+    [switch]$AllowProcessPublish,
     [ValidateRange(0.01, 1000000)][decimal]$TurnBudgetUsd = 3,
     [ValidateRange(0.01, 1000000)][decimal]$MaxScenarioUsd = 30,
     [ValidateRange(0, 100)][int]$MaxRepairTurns = 1,
@@ -32,6 +33,23 @@ function Read-LauncherChoice([string]$Prompt, [string[]]$Choices, [string]$Defau
         if (-not $answer -and $Default) { return $Default }
         foreach ($choice in $Choices) { if ($answer -ieq $choice) { return $choice } }
         Write-Host ('Choose ' + ($Choices -join ', ') + '.') -ForegroundColor Yellow
+    }
+}
+
+function Get-LauncherProcessAuthorization([bool]$Allowed, [bool]$Interactive, [string]$Project) {
+    $source = 'not-authorized'
+    if ($Allowed) { $source = 'explicit -AllowProcessPublish' }
+    elseif ($Interactive) {
+        Write-Host 'VCP classifies all process launches, including local builds/tests, as capable of publishing.' -ForegroundColor Yellow
+        Write-Host 'Allowing this adds publish to automatic process permissions in this run. It can also authorize actual publishing from the configured processes.' -ForegroundColor Yellow
+        Write-Host 'Those processes use reduced isolation and can access the network and files outside the project; this is not a workspace sandbox.' -ForegroundColor Yellow
+        $Allowed = (Read-LauncherChoice 'Allow process publishing capability for this scenario run? (Yes/No; Enter = No)' @('Yes', 'No') 'No') -eq 'Yes'
+        $source = if ($Allowed) { 'interactive explicit Yes' } else { 'interactive declined' }
+    }
+    return [ordered]@{
+        allowed = $Allowed; source = $source; workspace = $Project; at = (Get-Date).ToString('o')
+        scope = 'Execution profiles generated for this scenario run; read-only and guardrail profiles unchanged.'
+        reason = 'Installed VCP generic process effects include publish even for local build/test commands.'
     }
 }
 
@@ -291,6 +309,14 @@ try {
         Write-JsonFile (Join-Path $setupCtx.Results 'provider-selection.json') @{ source = 'explicit ProviderGeneration'; generation = $generation; model_calls = 0 }
     }
     if ($Mode -eq 'Full') {
+        $canPrompt = -not $PSBoundParameters.ContainsKey('Scenario') -and
+            -not @([Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^-NonI' }).Count
+        $processAuthorization = Get-LauncherProcessAuthorization ([bool]$AllowProcessPublish) $canPrompt $ProjectPath
+        Write-JsonFile (Join-Path $setupCtx.Results 'process-authorization.json') $processAuthorization
+        if (-not $processAuthorization.allowed) {
+            throw 'Full mode stopped before inference: process permission was not authorized. Review setup/results/process-authorization.json. To explicitly authorize this capability, rerun with -AllowProcessPublish or choose Yes in the interactive launcher.'
+        }
+        $AllowProcessPublish = $true
         if ($null -ne [Environment]::GetEnvironmentVariable('VCP_DENY_PROVIDER_CREDENTIALS', 'Process')) { throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; Full mode cannot access credentials.' }
         $credentialStatus = Invoke-Vcp -Ctx $setupCtx -Stage 'account' -Label 'credential-status' -Arguments @('setup', 'credential', 'status')
         if ($credentialStatus.ExitCode -ne 0) { throw "Cannot inspect installed VCP credential selection; see $($credentialStatus.StderrPath)." }
@@ -315,6 +341,7 @@ try {
         OutputTokens = $OutputTokens; MaxRequests = $MaxRequests; DeadlineSeconds = $DeadlineSeconds; ShortDeadlineSeconds = $ShortDeadlineSeconds
     }
     $arguments = New-LauncherArguments $scenarioScript $parameters ($Mode -eq 'DryRun')
+    if ($AllowProcessPublish) { $arguments += '-AllowProcessPublish' }
     Write-Host "`nRunning scenario $Scenario ($Mode) with $executable"
     Write-Host "Invocation: $invocationRoot"
     Write-Host 'Progress follows in this console. Ctrl+C interrupts execution; an interrupted run may not produce a final scorecard.'
