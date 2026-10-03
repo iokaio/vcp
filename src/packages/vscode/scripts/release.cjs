@@ -166,7 +166,9 @@ function compileRelease(repo, reviewedCommit, output) {
   check(caches.length <= 1, 'Ambiguous release npm cache');
   const cache = caches[0]?.[1];
   if (cache) {
-    check(path.isAbsolute(cache), 'Release npm cache requires an absolute directory');
+    // Root-relative Windows paths can select another drive in npm's child cwd.
+    check(path.isAbsolute(cache) && (process.platform !== 'win32' || path.parse(cache).root.length > 1),
+      'Release npm cache requires an absolute directory');
     for (let current = path.resolve(cache);; current = path.dirname(current)) {
       check(!fs.lstatSync(current).isSymbolicLink(), 'Redirected release npm cache refused');
       if (current === path.dirname(current)) break;

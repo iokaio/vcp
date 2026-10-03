@@ -156,8 +156,10 @@ test('strict Windows compilation uses the isolated cache, installs dev tools und
     process.env.npm_config_cache = unavailable;
     assert.throws(() => compileRelease(root, reviewed, emptyOutput), /Release sdk-ts install failed/);
     assert.match(fs.readFileSync(path.join(emptyOutput, 'sdk-ts-install.log'), 'utf8'), /ENOTCACHED/);
-    process.env.npm_config_cache = 'relative-cache';
-    assert.throws(() => compileRelease(root, reviewed, emptyOutput), /absolute directory/);
+    for (const relative of ['relative-cache', '\\root-relative-cache', '/root-relative-cache']) {
+      process.env.npm_config_cache = relative;
+      assert.throws(() => compileRelease(root, reviewed, emptyOutput), /absolute directory/);
+    }
     const redirected = path.join(output, 'redirected-cache'); fs.symlinkSync(isolatedCache, redirected, 'junction');
     process.env.npm_config_cache = redirected;
     try { assert.throws(() => compileRelease(root, reviewed, emptyOutput), /Redirected release npm cache/); }
