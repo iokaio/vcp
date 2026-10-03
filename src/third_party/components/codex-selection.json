@@ -219,6 +219,10 @@
     {
       "path": "src/third_party/patches/codex/0047-scenario-runtime-product-version.patch",
       "sha256": "551bfda589b5e70df4d90c404fabeb914ffc3ee23c899c0f72b8593139727e3b"
+    },
+    {
+      "path": "src/third_party/patches/codex/0048-cli-tests-product-version.patch",
+      "sha256": "b44703088214423be8469993ed6a80cd2b0570f455680d4bcdcfde9981c2d35f"
     }
   ],
   "licenses": [

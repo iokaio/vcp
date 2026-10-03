@@ -1032,3 +1032,99 @@ fn retries_require_fresh_admission_keep_submitted_liability_and_cancel_on_owner_
         .unwrap();
     assert!(!pre.prior_liability_unresolved);
 }
+
+#[test]
+fn rate_limit_cooldown_honors_server_hint_and_original_deadline() {
+    let attempt = AttemptId::new();
+    let policy = Policy::for_failure(2, Timestamp::new(120_000), Failure::RateLimit);
+    for (count, hint, delay) in [
+        (0, None, 5_000),
+        (1, None, 10_000),
+        (0, Some(30_000), 30_000),
+    ] {
+        let retry = policy
+            .next(
+                attempt.clone(),
+                count,
+                Timestamp::new(100),
+                Failure::RateLimit,
+                true,
+                hint,
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(retry.not_before, Timestamp::new(100 + delay));
+        assert!(retry.prior_liability_unresolved);
+    }
+    for (now, count, hint) in [(115_000, 0, None), (100, 2, None), (100, 0, Some(60_001))] {
+        assert!(policy
+            .next(
+                attempt.clone(),
+                count,
+                Timestamp::new(now),
+                Failure::RateLimit,
+                true,
+                hint,
+                true
+            )
+            .unwrap()
+            .is_none());
+    }
+    let transient = Policy::for_failure(2, Timestamp::new(120_000), Failure::Transient);
+    assert_eq!(transient.base_delay_ms, 100);
+    assert_eq!(transient.max_delay_ms, 5_000);
+}
+
+#[test]
+fn provider_failure_diagnostics_allowlist_metadata_without_treating_errors_as_usage() {
+    let body = json!({"error":{"code":429,"message":"untrusted message", "metadata":{
+        "limit_source":"upstream_provider_shared_pool", "raw":"untrusted raw",
+        "remedy_hint":"untrusted instructions", "provider_name":"untrusted name"}},
+        "user_id":"private-account"});
+    let source = error_limit_source(&serde_json::to_vec(&body).unwrap());
+    assert_eq!(source, Some(LimitSource::UpstreamProviderSharedPool));
+    let failure = ProviderFailure {
+        failure: Failure::RateLimit,
+        http_status: Some(429),
+        limit_source: source,
+        retry_after_ms: None,
+    };
+    assert!(failure
+        .summary()
+        .contains("HTTP 429: upstream provider shared pool"));
+    let encoded = serde_json::to_string(&failure).unwrap();
+    assert!(!encoded.contains("private-account"));
+    assert!(!encoded.contains("untrusted"));
+    for (source, expected) in [
+        (
+            LimitSource::OpenrouterInFlightBudget,
+            "in-flight spending limit",
+        ),
+        (
+            LimitSource::OpenrouterKeyLimit,
+            "API key credit limit exhausted",
+        ),
+        (
+            LimitSource::OpenrouterCredits,
+            "credits cannot cover this request",
+        ),
+    ] {
+        let specific = ProviderFailure {
+            limit_source: Some(source),
+            ..failure.clone()
+        };
+        assert!(
+            specific.summary().contains(expected),
+            "{}",
+            specific.summary()
+        );
+        assert!(!specific.summary().contains("provider rate limit"));
+    }
+    assert_eq!(error_limit_source(b"not json"), None);
+    assert_eq!(error_limit_source(&vec![b' '; 65537]), None);
+    assert_eq!(
+        error_limit_source(br#"{"error":{"metadata":{"limit_source":"invented"}}}"#),
+        None
+    );
+}

@@ -44,8 +44,10 @@ $database = 'VcpInventory_fixture'
 $useLocalDb = $false
 
 try {
-    foreach ($scenario in 'a', 'b') {
-        $ws = Join-Path $testRoot $scenario
+    foreach ($case in 'a', 'b-config-manifest', 'b-root-manifest') {
+        $scenario = if ($case -eq 'a') { 'a' } else { 'b' }
+        $manifest = if ($case -eq 'b-root-manifest') { 'dotnet-tools.json' } else { '.config/dotnet-tools.json' }
+        $ws = Join-Path $testRoot $case
         $ctx = @{ ReuseProject = $true; Name = $scenario; Logs = $testRoot; ProgressLog = (Join-Path $testRoot 'progress.log'); Notes = [Collections.Generic.List[string]]::new() }
         $fixtures = if ($scenario -eq 'a') {
             @{
@@ -62,7 +64,7 @@ try {
             @{
                 $webProject = '<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup><ItemGroup><PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.9" /></ItemGroup></Project>'
                 $testProject = '<Project />'
-                '.config/dotnet-tools.json' = '{}'
+                $manifest = '{"version":1,"isRoot":true,"tools":{"dotnet-ef":{"version":"8.0.9","commands":["dotnet-ef"]}}}'
                 'src/Inventory.Web/appsettings.Development.json' = '{"ConnectionStrings":{"Inventory":"existing configuration"}}'
                 'tests/Inventory.Tests/RegressionTests.cs' = '// existing protected regression tests'
                 'Inventory.sln' = '// existing solution'
@@ -105,6 +107,22 @@ try {
         & ([scriptblock]::Create($source.Substring($start, $end - $start)))
         Assert-That ($protected[$regressionPath] -eq 'original-baseline-hash') 'Regression setup must not replace an existing baseline hash.'
 
+        if ($scenario -eq 'b') {
+            Remove-Item -LiteralPath (Join-Path $ws $manifest)
+            $calls.Clear()
+            $rejected = $false
+            try { & $baseline } catch { $rejected = $_.Exception.Message -like 'Existing project is not *scenario project:*dotnet-tools.json*' }
+            Assert-That $rejected 'Inventory without either manifest must fail before dependency commands.'
+            Assert-That ($calls.Count -eq 0) 'Missing manifest triggered dependency commands.'
+            New-Item -ItemType Directory -Path (Join-Path $ws $manifest) -Force | Out-Null
+            $rejected = $false
+            try { & $baseline } catch { $rejected = $_.Exception.Message -like 'Existing project is not *scenario project:*dotnet-tools.json*' }
+            Assert-That $rejected 'A directory named dotnet-tools.json must not count as a manifest.'
+            Assert-That ($calls.Count -eq 0) 'Invalid manifest path triggered dependency commands.'
+            Remove-Item -LiteralPath (Join-Path $ws $manifest)
+            Write-Utf8File (Join-Path $ws $manifest) $fixtures[$manifest]
+        }
+
         $missing = if ($scenario -eq 'a') { 'server/app.ts' } else { $webProject }
         Remove-Item -LiteralPath (Join-Path $ws $missing)
         $calls.Clear()
@@ -113,7 +131,7 @@ try {
         Assert-That $rejected 'An incompatible project must fail with an actionable error.'
         Assert-That ($calls.Count -eq 0) 'An incompatible project must fail before dependency commands.'
     }
-    Write-Host 'A/B project reuse passed (preserved source/config/tests, locked dependency restore, incompatible project rejection).'
+    Write-Host 'A/B project reuse passed (root and .config tool manifests, preserved source/config/tests, locked dependency restore, missing manifest and incompatible project rejection).'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($testRoot)

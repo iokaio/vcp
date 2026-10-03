@@ -53,12 +53,11 @@ $cargoConfigs = @($configCandidates | Select-Object -Unique | Where-Object { Tes
     if ($configPath -cne $allowedConfig) { throw "Unqualified inherited Cargo configuration: $configPath" }
     @{path=$configPath;sha256=(Get-FileHash -LiteralPath $configPath).Hash.ToLowerInvariant()}
 })
-$identity = Join-Path $repository 'scripts/evals/memory-source-identity.cjs'
 function Capture-Source([string]$Destination) {
     if ($Release) {
         & node $releaseTool source $repository $ReviewedCommit > $Destination
     } else {
-        & node -e "const m=require(process.argv[1]); console.log(JSON.stringify(m.sourceIdentity(process.argv[2],['scripts/build-production.ps1','scripts/release/build-progress.ps1','scripts/package.ps1','scripts/package-install.ps1','scripts/package-inventory.cjs','scripts/package-models.ps1','scripts/skills','src/third_party/upstreams.toml','src/third_party/components','src/skills/builtin','LICENSE','NOTICE','THIRD_PARTY_NOTICES.md'])));" $identity $repository > $Destination
+        & node (Join-Path $PSScriptRoot 'installer/local-candidate.cjs') source $repository > $Destination
     }
     if ($LASTEXITCODE -ne 0) { throw 'Source inventory failed' }
 }

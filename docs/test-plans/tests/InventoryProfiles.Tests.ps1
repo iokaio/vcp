@@ -6,7 +6,7 @@ $scenarioRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $scenarioRoot 'VcpScenarioHarness.psm1') -Force -DisableNameChecking
 $source = Get-Content -LiteralPath (Join-Path $scenarioRoot 'scenario-b-aspnet-inventory.ps1') -Raw
 $start = $source.IndexOf("    `$stage = 'P1-profiles'")
-$end = $source.IndexOf('    foreach ($pair in', $start)
+$end = $source.IndexOf('    foreach ($pair in @(@(''main'', $profileMain)', $start)
 Assert-That ($start -ge 0 -and $end -gt $start) 'Inventory profile block missing'
 $compose = [scriptblock]::Create($source.Substring($start, $end - $start))
 $tokens = $null; $errors = $null
@@ -25,7 +25,7 @@ try {
     foreach ($reuse in @($false, $true)) {
         $ws = Join-Path $root ([string]$reuse)
         $ctx = @{
-            Workspace = $ws; Profiles = $ws; Temp = $ws; Results = $ws; RunId = 'fixture'
+            Workspace = $ws; Profiles = $ws; Temp = $ws; Env = (Join-Path $ws 'env'); Results = $ws; RunId = 'fixture'
             AllowProcessPublish = $true; ReuseProject = $reuse
             Catalog = (Join-Path $ws 'endpoints.json'); SnapshotText = '{}'
             TurnBudgetUsd = [decimal]3; OutputTokens = 8192; MaxRequests = 96
@@ -40,11 +40,16 @@ try {
             Assert-That ($profile.processes.Count -eq 1) 'Inventory lost its process'
             $process = $profile.processes[0]
             # Runtime public-environment contract; scenario-specific settings are not bootstrap values.
-            $allowed = @('SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TERM', 'CI', 'RUST_BACKTRACE', 'CARGO_TARGET_DIR', 'CARGO_HOME', 'LIB', 'INCLUDE', 'LIBPATH')
+            $allowed = @('SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TERM', 'CI', 'RUST_BACKTRACE', 'CARGO_TARGET_DIR', 'CARGO_HOME', 'LIB', 'INCLUDE', 'LIBPATH', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'APPDATA', 'LOCALAPPDATA', 'DOTNET_CLI_HOME')
             foreach ($key in $process.environment.PSObject.Properties.Name) {
                 Assert-That ($allowed -contains $key) "Unsupported process environment: $key"
             }
             Assert-That ($process.executable -eq $dotnet -and $process.max_timeout_ms -eq 1200000) 'Inventory process contract changed'
+            foreach ($key in 'APPDATA', 'LOCALAPPDATA', 'DOTNET_CLI_HOME') {
+                $path = $process.environment.$key
+                Assert-That ($path.StartsWith($ctx.Env + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) "$key inherited account state"
+                Assert-That (Test-Path -LiteralPath $path -PathType Container) "$key bootstrap directory was not created"
+            }
         }
         $review = Get-Content -LiteralPath $profileReview -Raw | ConvertFrom-Json -Depth 100
         Assert-That ($review.processes.Count -eq 0 -and ($review.automatic_effects -join ',') -eq 'read') 'Review gained execution permissions'

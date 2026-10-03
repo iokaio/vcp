@@ -274,12 +274,16 @@ function New-LauncherArguments([string]$Script, [hashtable]$Parameters, [bool]$D
     return $arguments.ToArray()
 }
 
-function Invoke-LauncherChild([string]$Executable, [string[]]$Arguments) {
+function Invoke-LauncherChild([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory) {
     # The call operator keeps the child attached to this console. Do not capture
     # its output: progress and native-tool stdout/stderr must remain live.
     $PSNativeCommandUseErrorActionPreference = $false
-    & $Executable @Arguments
-    $script:launcherChildExitCode = $LASTEXITCODE
+    Push-Location -LiteralPath $WorkingDirectory
+    try {
+        & $Executable @Arguments
+        $script:launcherChildExitCode = $LASTEXITCODE
+    }
+    finally { Pop-Location }
 }
 
 function Write-LauncherResults([string]$InvocationRoot, [string]$ScenarioName, [string]$ProjectPath) {
@@ -352,6 +356,7 @@ try {
         }
     }
     $ProjectPath = [IO.Path]::GetFullPath($ProjectPath)
+    & $harness { param($path) Assert-ScenarioProjectPath $path } $ProjectPath
     if ((Test-Path -LiteralPath $ProjectPath) -and -not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw 'ProjectPath must identify a directory.' }
     $projectPrefix = $ProjectPath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     if ($runRootFull -eq $ProjectPath -or $runRootFull.StartsWith($projectPrefix, [StringComparison]::OrdinalIgnoreCase)) {
@@ -441,7 +446,7 @@ try {
     Write-Host "`nRunning scenario $Scenario ($Mode) with $executable"
     Write-Host "Invocation: $invocationRoot"
     Write-Host 'Progress follows in this console. Ctrl+C interrupts execution; an interrupted run may not produce a final scorecard.'
-    Invoke-LauncherChild $pwsh $arguments
+    Invoke-LauncherChild $pwsh $arguments $ProjectPath
     if ($null -ne $script:launcherChildExitCode) { $exitCode = [int]$script:launcherChildExitCode }
 }
 catch { Write-Host "Launcher failed: $($_.Exception.Message)" -ForegroundColor Red }

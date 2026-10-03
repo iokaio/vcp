@@ -532,6 +532,10 @@ impl HostWorkPermit for ModelPermit {
         let Some(deadline) = self.deadline else {
             return Ok(None);
         };
+        let http_status = match &failure {
+            codex_extension_api::HostModelFailure::Http(status) => Some(*status),
+            _ => None,
+        };
         let failure = match failure {
             codex_extension_api::HostModelFailure::Http(status) => {
                 vcp_models::retry::http_failure(status)
@@ -546,7 +550,15 @@ impl HostWorkPermit for ModelPermit {
         let attempt = self.attempt.clone();
         let count = self.retries;
         let delay = self.worker.run(move |context| {
-            context.schedule_retry(&binding, attempt, count, deadline, failure, retry_after_ms)
+            context.schedule_retry(
+                &binding,
+                attempt,
+                count,
+                deadline,
+                failure,
+                http_status,
+                retry_after_ms,
+            )
         })?;
         if delay.is_some() {
             self.runtime.complete()?;
@@ -600,6 +612,9 @@ impl HostWorkPermit for ModelPermit {
         let worker = self.worker.clone();
         let attempt = self.attempt.clone();
         Some(Arc::new(move |bytes| {
+            // Qualify metadata from the complete bounded HTTP body, never from
+            // artifact chunks that could hide an invalid prefix or suffix.
+            let limit_source = vcp_models::retry::error_limit_source(bytes);
             for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
                 let bytes = chunk.to_vec();
                 let attempt = attempt.clone();
@@ -607,6 +622,10 @@ impl HostWorkPermit for ModelPermit {
                     .run(move |context| context.response_error_chunk(&attempt, &bytes))
                     .inspect_err(|_| worker.fence())?;
             }
+            let attempt = attempt.clone();
+            worker
+                .run(move |context| context.response_http_error_source(&attempt, limit_source))
+                .inspect_err(|_| worker.fence())?;
             Ok(())
         }))
     }

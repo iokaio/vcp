@@ -164,6 +164,7 @@ function Invoke-NativeLogged {
         [Parameter(Mandatory)][string]$StderrPath,
         [ValidateRange(1, 86400)][int]$TimeoutSeconds = 600,
         [hashtable]$Environment = @{},
+        [switch]$ClearEnvironment,
         [scriptblock]$OnLine,
         [string]$HeartbeatLabel,
         $Ctx
@@ -178,6 +179,7 @@ function Invoke-NativeLogged {
     $psi.RedirectStandardError = $true
     $psi.StandardOutputEncoding = $script:Utf8NoBom
     $psi.StandardErrorEncoding = $script:Utf8NoBom
+    if ($ClearEnvironment) { $psi.Environment.Clear() }
     foreach ($key in $Environment.Keys) {
         if ($null -eq $Environment[$key]) { [void]$psi.Environment.Remove($key) }
         else { $psi.Environment[$key] = [string]$Environment[$key] }
@@ -260,7 +262,8 @@ function Invoke-Tool {
         [string[]]$ArgumentList = @(),
         [string]$WorkingDirectory,
         [int]$TimeoutSeconds = 900,
-        [hashtable]$Environment = @{}
+        [hashtable]$Environment = @{},
+        [switch]$ClearEnvironment
     )
     if (-not $WorkingDirectory) { $WorkingDirectory = $Ctx.Workspace }
     $Environment = $Environment.Clone()
@@ -272,7 +275,7 @@ function Invoke-Tool {
     $stdout = Join-Path $directory "$index-$safe.out.log"
     $stderr = Join-Path $directory "$index-$safe.err.log"
     $result = Invoke-NativeLogged -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory `
-        -StdoutPath $stdout -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -Environment $Environment `
+        -StdoutPath $stdout -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -Environment $Environment -ClearEnvironment:$ClearEnvironment `
         -HeartbeatLabel "$Stage/$Label" -Ctx $Ctx
     $line = '{0:o} [{1}] {2} exit={3} {4}s :: {5} {6}' -f (Get-Date), $Stage, $Label, $result.ExitCode, $result.DurationSeconds, $FilePath, ($ArgumentList -join ' ')
     Add-Content -LiteralPath $Ctx.ToolLog -Value $line -Encoding utf8NoBOM
@@ -381,6 +384,39 @@ function Invoke-Http {
 
 #region Scenario lifecycle
 
+function Assert-ScenarioProjectPath {
+    <# Scenario projects must be independent of the checkout containing this harness. #>
+    param([Parameter(Mandatory)][string]$Path)
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    $probe = $full
+    while ($probe) {
+        if ((Test-Path -LiteralPath $probe) -and ((Get-Item -LiteralPath $probe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Scenario project path contains a link or junction ('$probe'). Select the independent project's physical directory."
+        }
+        $parent = Split-Path -Parent $probe
+        if ($parent -eq $probe) { break }
+        $probe = $parent
+    }
+    $sourceRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..')).TrimEnd('\', '/')
+    if (Test-Path -LiteralPath (Join-Path $sourceRoot 'src/crates/vcp-cli/Cargo.toml') -PathType Leaf) {
+        if ($full -eq $sourceRoot -or
+            $full.StartsWith($sourceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+            $sourceRoot.StartsWith($full + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Each scenario requires its own project outside the VCP source checkout. Choose a separate -ProjectPath (for example D:\clitests\A or D:\clitests\B).'
+        }
+    }
+    # A project nested in another repository shares that repository's context.
+    $probe = Split-Path -Parent $full
+    while ($probe) {
+        if (Test-Path -LiteralPath (Join-Path $probe '.git')) {
+            throw "Scenario project '$full' is nested in another git project ('$probe'). Choose an independent -ProjectPath."
+        }
+        $parent = Split-Path -Parent $probe
+        if ($parent -eq $probe) { break }
+        $probe = $parent
+    }
+}
+
 function Assert-SafeRunRoot {
     <# VCP rejects data/profiles inside repositories or OneDrive roots; fail before any spend. #>
     param([Parameter(Mandatory)][string]$Path)
@@ -439,6 +475,7 @@ function Initialize-VcpScenario {
     Assert-SafeRunRoot $runRootFull
     $root = Join-Path $runRootFull (Join-Path $Name $runId)
     $workspace = if ($ProjectPath) { [IO.Path]::GetFullPath($ProjectPath) } else { Join-Path $root 'workspace' }
+    Assert-ScenarioProjectPath $workspace
     $workspacePrefix = $workspace.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     if ($root -eq $workspace -or $root.StartsWith($workspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Run logs, profiles and VCP data must be outside the selected project. Choose a separate -RunRoot.'
@@ -1140,6 +1177,20 @@ function Complete-VcpStageEvidence {
         $history = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'history-list' -Arguments @('history', 'list', '--task', $task, '--limit', '128')
         Write-JsonFile -Path (Join-Path $Ctx.Logs "$Stage\history.json") -Value $history.Result
       }
+        $statusPath = Join-Path $Ctx.Logs "$Stage/tasks-status.json"
+        if ($Ctx.PaidExecutionBlock -and $Ctx.PaidExecutionBlock.task -eq $task -and (Test-Path -LiteralPath $statusPath)) {
+            $taskStatus = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json -Depth 100
+            if ($taskStatus.data) { $taskStatus = $taskStatus.data }
+            if ($taskStatus.reason) {
+                $reason = [regex]::Replace([string]$taskStatus.reason, '[\x00-\x1f\x7f]', ' ')
+                if ($reason.Length -gt 1000) { $reason = $reason.Substring(0, 1000) + ' ...' }
+                $Record.task_reason = $reason
+                $Ctx.PaidExecutionBlock | Add-Member -NotePropertyName task_reason -NotePropertyValue $reason -Force
+                Write-JsonFile (Join-Path $Ctx.Results 'paid-execution.json') $Ctx.PaidExecutionBlock
+                $Ctx.Notes.Add("$Stage VCP task reason: $reason")
+                Write-Step $Ctx "$Stage VCP task reason: $reason" 'warn'
+            }
+        }
         $cost = Get-VcpTaskCost $costs
         $Record.cost_usd = $cost.Usd
         $Record.attempts = $cost.Attempts
@@ -1557,6 +1608,23 @@ function Test-ProfileCheck {
         Assert-That ($check.ExitCode -eq 0) ("exit {0}: {1}" -f $check.ExitCode, $check.Stderr.Trim()); $true }
 }
 
+function Test-ProcessEnvironment {
+    <# Exercise the configured executable/argv/environment before inference; not an isolation proof. #>
+    param($Ctx, [string]$Stage, $Process, [string]$Id, [string[]]$Arguments)
+    $gate = "process-environment.$Id"
+    if ((Get-FailedGates $Ctx $Stage).Count) {
+        return Skip-Gate $Ctx $Stage $gate 'Toolchain works with its explicit process environment' 'Earlier profile or process checks failed.'
+    }
+    return Invoke-Gate -Ctx $Ctx -Stage $Stage -Id $gate -Description 'Toolchain works with its explicit process environment' -Test {
+        $environment = @{}
+        foreach ($key in $Process.environment.Keys) { $environment[$key] = $Process.environment[$key] }
+        $run = Invoke-Tool -Ctx $Ctx -Stage $Stage -Label $gate -FilePath $Process.executable -ArgumentList $Arguments `
+            -Environment $environment -ClearEnvironment -TimeoutSeconds ([int][math]::Ceiling($Process.max_timeout_ms / 1000))
+        Assert-That ($run.ExitCode -eq 0 -and -not $run.TimedOut) ("exit {0}; stdout: {1}; stderr: {2}" -f $run.ExitCode, (Get-TextTail $run.StdoutPath 25), (Get-TextTail $run.StderrPath 25))
+        $true
+    }
+}
+
 function Invoke-GuardrailRun {
     <#
     Zero-spend negative test: a run the CLI must reject before inference with
@@ -1781,6 +1849,6 @@ Export-ModuleMember -Function @(
     'Get-VcpTaskCost', 'Get-VcpFinalMessage', 'Get-CompletedTurnIds', 'Get-WorkspaceManifest',
     'Compare-WorkspaceManifest', 'Invoke-VcpTask', 'Invoke-VcpContinuation', 'Invoke-RepairLoop', 'Test-StageExit',
     'Invoke-PlanModeReview', 'New-ProcessProfile', 'New-ScenarioProfile', 'Invoke-CommonPreflight',
-    'Test-ProfileCheck', 'Invoke-GuardrailRun', 'Invoke-WorkspaceDiscover', 'Invoke-FinalEvidenceSweep',
+    'Test-ProfileCheck', 'Test-ProcessEnvironment', 'Invoke-GuardrailRun', 'Invoke-WorkspaceDiscover', 'Invoke-FinalEvidenceSweep',
     'Initialize-GitCheckpoint', 'Save-Checkpoint', 'Add-Asset', 'Complete-VcpScenario'
 )

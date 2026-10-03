@@ -151,6 +151,51 @@ fn prepare_at(root: &Root, request: Request) -> vcp_tools::Result<Prepared> {
     )
 }
 #[test]
+fn nested_add_prepares_directory_authority_without_creating_anything() {
+    let temp = tempfile::tempdir().unwrap();
+    let r = root(temp.path());
+    fs::create_dir(temp.path().join("src")).unwrap();
+    let patch = "*** Begin Patch\n*** Add File: src/Data/Models/one.cs\n+one\n*** Add File: src/Data/Models/two.cs\n+two\n*** End Patch";
+    let p = prepare_at(
+        &r,
+        Request::Patch {
+            patch: patch.into(),
+        },
+    )
+    .unwrap();
+    assert!(!temp.path().join("src/Data").exists());
+    p.revalidate().unwrap();
+    let resources = &p.authority().operation().resources;
+    for path in [
+        "src/Data",
+        "src/Data/Models",
+        "src/Data/Models/one.cs",
+        "src/Data/Models/two.cs",
+    ] {
+        assert!(resources
+            .iter()
+            .any(|resource| resource.path == path && resource.write));
+    }
+    assert!(resources
+        .iter()
+        .any(|resource| resource.path == "src" && !resource.write));
+    fs::create_dir(temp.path().join("src/Data")).unwrap();
+    assert!(
+        p.revalidate().is_err(),
+        "a newly appeared directory requires fresh preparation"
+    );
+    let overlapping = "*** Begin Patch\n*** Add File: conflict\n+file\n*** Add File: conflict/child\n+child\n*** End Patch";
+    assert!(prepare_at(
+        &r,
+        Request::Patch {
+            patch: overlapping.into()
+        }
+    )
+    .is_err());
+    assert!(!temp.path().join("conflict").exists());
+}
+
+#[test]
 fn multi_file_preparation_preserves_crlf_and_utf16_without_effects() {
     let temp = tempfile::tempdir().unwrap();
     let r = root(temp.path());

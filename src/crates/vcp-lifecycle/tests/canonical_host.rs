@@ -146,6 +146,9 @@ mod portable_vectors;
 #[path = "support/process_broker.rs"]
 mod process_broker;
 #[cfg(windows)]
+#[path = "support/dotnet_bootstrap.rs"]
+mod dotnet_bootstrap;
+#[cfg(windows)]
 #[path = "support/hooks.rs"]
 mod hooks;
 #[cfg(all(windows, feature = "qualification"))]
@@ -322,6 +325,27 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
         assert!(matches!(read.decision, vcp_policy::Decision::Allow { .. }));
         let output = host.dispatch_tool(read).unwrap();
         assert_eq!(output.result["text"], "before\r\n");
+        let nested = host.prepare_tool(id, Request::Patch { patch:
+            "*** Begin Patch\n*** Add File: generated/Data/one.cs\n+one\n*** Add File: GENERATED/data/two.cs\n+two\n*** End Patch".into()
+        }).unwrap();
+        assert!(!workspace.join("generated").exists());
+        let nested = host.dispatch_tool(nested).unwrap();
+        assert_eq!(nested.result["complete"], true, "{}", nested.result);
+        assert_eq!(
+            std::fs::read(workspace.join("generated/Data/one.cs")).unwrap(),
+            b"one\n"
+        );
+        assert_eq!(
+            std::fs::read(workspace.join("generated/Data/two.cs")).unwrap(),
+            b"two\n"
+        );
+        assert_eq!(
+            nested.result["files"][0]["created_directories"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         let patch="*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** Add File: new.txt\n+created\n*** End Patch";
         let prepared = host
             .prepare_tool(
@@ -375,6 +399,18 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
             .unwrap();
         assert!(matches!(denied.decision, vcp_policy::Decision::Deny { .. }));
         assert!(host.dispatch_tool(denied).is_err());
+        let denied_nested = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch:
+                        "*** Begin Patch\n*** Add File: denied/Data/one.cs\n+never\n*** End Patch"
+                            .into(),
+                },
+            )
+            .unwrap();
+        assert!(host.dispatch_tool(denied_nested).is_err());
+        assert!(!workspace.join("denied").exists());
         policy.revision = PolicyRevision::new(2);
         policy.mode = Autonomy::Ask;
         host.command(

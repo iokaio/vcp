@@ -453,7 +453,7 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                 if mode == "deadline" {
                     Duration::from_millis(500)
                 } else if mode == "retry_deadline" {
-                    Duration::from_secs(4)
+                    Duration::from_secs(8)
                 } else {
                     Duration::from_secs(10)
                 },
@@ -514,10 +514,10 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                     let response = ResponseTemplate::new(200).insert_header("content-type", "text/event-stream")
                         .set_body_string(sse(vec![ev_assistant_message("retry-msg", "Retried with separate admission."),
                             serde_json::json!({"type":"response.completed","response":{"id":"retried-response","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})]));
-                    return if mode == "retry_deadline" { response.set_delay(Duration::from_secs(8)) } else { response };
+                    return if mode == "retry_deadline" { response.set_delay(Duration::from_secs(12)) } else { response };
                 }
                 ResponseTemplate::new(if mode == "authentication" { 401 } else if mode == "exhausted" { 503 } else { 429 })
-                    .insert_header("retry-after", if mode == "retry_after" { "6" } else if mode == "unqualified_delay" { "Fri, 01 Jan 2100 00:00:00 GMT" } else if mode == "deadline" { "1" } else { "0" })
+                    .insert_header("retry-after", if mode == "retry_after" { "61" } else if mode == "unqualified_delay" { "Fri, 01 Jan 2100 00:00:00 GMT" } else if mode == "deadline" { "1" } else { "0" })
                     .set_body_json(serde_json::json!({"error":{"message":"scripted bounded failure"}}))
             }).mount(&server).await;
             let started = std::time::Instant::now();
@@ -542,8 +542,14 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
             .unwrap();
             if mode == "retry_deadline" {
                 assert!(
-                    started.elapsed() < Duration::from_secs(7),
+                    started.elapsed() < Duration::from_secs(11),
                     "retry must retain the original absolute deadline"
+                );
+            }
+            if mode == "success" {
+                assert!(
+                    started.elapsed() >= Duration::from_secs(5),
+                    "429 must cool down before retry"
                 );
             }
             let expected = if matches!(mode, "success" | "retry_deadline") {
@@ -580,6 +586,105 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
             owner.close().await.unwrap();
             test.codex.shutdown_and_wait().await.unwrap();
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_retry_exhaustion_exposes_shared_pool_failure_and_retains_unknown_charge() {
+    // Sanitized shape of the A/B scenario failure; no account ID or live call.
+    let body = serde_json::json!({"error":{"message":"Provider returned error","code":429,
+        "metadata":{"raw":"qwen/qwen3-coder is temporarily rate-limited upstream.",
+            "provider_name":"Google", "is_byok":false,
+            "limit_source":"upstream_provider_shared_pool",
+            "remedy_hint":"Untrusted provider prose must not enter the task status."}},
+        "user_id":"private-account-fixture"});
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(30),
+            1000,
+            false,
+            1,
+            None,
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(&body))
+            .mount(&server)
+            .await;
+        let started = std::time::Instant::now();
+        turn(&test).await;
+        assert!(started.elapsed() >= Duration::from_secs(5));
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            2,
+            "a bounded retry cannot become repeated hidden paid calls"
+        );
+        let state = host.snapshot().unwrap();
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(ledger.settled.get(), 0);
+        assert_eq!(ledger.unresolved.get(), 200);
+        assert_eq!(ledger.active.get(), 0);
+        let task: vcp_domain::task::Task = state
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
+        assert!(task
+            .reason
+            .contains("HTTP 429: upstream provider shared pool"));
+        assert!(task.reason.contains("submitted charge remains unresolved"));
+        assert!(!task.reason.contains("private-account"));
+        assert!(!task.reason.contains("Untrusted"));
+        assert!(!state
+            .records
+            .values()
+            .any(|row| matches!(row.collection, Collection::Effect | Collection::Settlement)));
+        let failures: Vec<_> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+            .filter(|artifact| artifact.spec.schema == "provider-failure/1")
+            .map(|artifact| {
+                serde_json::from_slice::<serde_json::Value>(
+                    &host.read_artifact(artifact.spec.id).unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(failures.len(), 2);
+        for failure in failures {
+            assert_eq!(failure["failure"]["http_status"], 429);
+            assert_eq!(
+                failure["failure"]["limit_source"],
+                "upstream_provider_shared_pool"
+            );
+            assert_eq!(failure["liability_unresolved"], true);
+            let attempt = AttemptId::parse(failure["attempt"].as_str().unwrap()).unwrap();
+            assert_eq!(
+                vcp_budget::attempt(&state, &attempt, &binding.scope.workspace)
+                    .unwrap()
+                    .phase,
+                ReservationState::ReconciliationPending
+            );
+            let raw = ArtifactId::parse(failure["raw_response"].as_str().unwrap()).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&host.read_artifact(raw).unwrap())
+                    .unwrap(),
+                body
+            );
+        }
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
     }
 }
 
@@ -699,6 +804,67 @@ async fn provider_retry_timer_is_cancelled_by_pause_owner_loss_or_steering() {
                     .count(),
                 1
             );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_retry_diagnostics_never_parse_individual_raw_capture_chunks() {
+    let metadata = r#"{"error":{"metadata":{"limit_source":"upstream_provider_shared_pool"}}}"#;
+    let prefix = format!("{}{metadata}", " ".repeat(vcp_store::artifact::CHUNK_BYTES));
+    let suffix = format!(
+        "{metadata}{}invalid suffix",
+        " ".repeat(vcp_store::artifact::CHUNK_BYTES - metadata.len())
+    );
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for body in [&prefix, &suffix] {
+            let temp = tempfile::tempdir().unwrap();
+            let (host, owner, binding, test, server) = setup_with_retries(
+                &temp,
+                backend,
+                Duration::from_secs(30),
+                1000,
+                false,
+                0,
+                None,
+            )
+            .await;
+            Mock::given(method("POST"))
+                .and(path("/v1/responses"))
+                .respond_with(ResponseTemplate::new(429).set_body_string(body.clone()))
+                .mount(&server)
+                .await;
+            turn(&test).await;
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            let state = host.snapshot().unwrap();
+            let task: vcp_domain::task::Task = state
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert!(task.reason.contains("HTTP 429: provider rate limit"));
+            assert!(!task.reason.contains("shared pool"));
+            let artifact = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+                .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                .find(|artifact| artifact.spec.schema == "provider-failure/1")
+                .unwrap();
+            let failure: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap()).unwrap();
+            assert!(failure["failure"]["limit_source"].is_null());
+            let raw = ArtifactId::parse(failure["raw_response"].as_str().unwrap()).unwrap();
+            assert_eq!(host.read_artifact(raw).unwrap(), body.as_bytes());
+            let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+            assert_eq!(ledger.unresolved.get(), 100);
+            assert_eq!(ledger.settled.get(), 0);
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
         }
     }
 }

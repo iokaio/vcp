@@ -9,18 +9,11 @@ pub struct Change {
     pub after: Option<Vec<u8>>,
     pub rename_to: Option<String>,
     pub probes: Vec<Probe>,
+    pub parents: Vec<vcp_repository::path::ParentDirectory>,
 }
 fn destination(root: &Root, path: &str) -> Result<Probe> {
     checked_path(path, false)?;
-    let parent = Path::new(path).parent().unwrap();
-    root.hold(
-        if parent.as_os_str().is_empty() {
-            None
-        } else {
-            Some(parent)
-        },
-        true,
-    )?;
+    root.prepare_parents(path)?;
     match root.hold(Some(Path::new(path)), false) {
         Err(vcp_repository::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             Ok(probe(root, path, None))
@@ -155,6 +148,13 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
                     .transpose()?;
                 if let Some(target) = &target {
                     checked_path(target, false)?;
+                    if root
+                        .prepare_parents(target)?
+                        .iter()
+                        .any(|p| p.native_identity.is_none())
+                    {
+                        return Err(Error::Invalid("rename destination parent must exist"));
+                    }
                     if target.eq_ignore_ascii_case(&path) {
                         if target == &path {
                             return Err(Error::Invalid("rename must change the path"));
@@ -192,6 +192,7 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
         if bytes > 4 * 1024 * 1024 {
             return Err(Error::Invalid("patch total bytes"));
         }
+        let parents = root.prepare_parents(&path)?;
         changes.push(Change {
             path,
             before,
@@ -199,7 +200,20 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
             after,
             rename_to,
             probes,
+            parents,
         });
+    }
+    // A file cannot also be a directory required by another change.
+    for change in &changes {
+        if change
+            .parents
+            .iter()
+            .any(|parent| seen.contains(&parent.path.to_lowercase()))
+        {
+            return Err(Error::Invalid(
+                "overlapping file and parent directory paths",
+            ));
+        }
     }
     Ok(changes)
 }

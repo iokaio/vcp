@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Shared project lifecycle regressions: no VCP execution, network, or inference.
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot '../VcpScenarioHarness.psm1') -Force -DisableNameChecking
+$module = Import-Module (Join-Path $PSScriptRoot '../VcpScenarioHarness.psm1') -Force -DisableNameChecking -PassThru
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $testRoot = Join-Path $tempBase ('vcp-project-context-' + [guid]::NewGuid().ToString('N'))
 $checks = 0
@@ -17,8 +17,8 @@ function Check-Rejected([scriptblock]$Action, [string]$Pattern, [string]$Message
     try { & $Action | Out-Null } catch { $caught = $_.Exception.Message }
     Check ($null -ne $caught -and $caught -like $Pattern) "$Message (actual: $caught)"
 }
-function New-Context([string]$Project, [string]$Runs) {
-    $context = Initialize-VcpScenario -Name 'fixture' -RunRoot $Runs -ProjectPath $Project `
+function New-Context([string]$Project, [string]$Runs, [string]$Name = 'fixture') {
+    $context = Initialize-VcpScenario -Name $Name -RunRoot $Runs -ProjectPath $Project `
         -ProviderGeneration $generation -Vcp $pwsh -SkipPaidStages
     $script:ownedTranscript = $true
     try { return $context }
@@ -48,6 +48,24 @@ try {
         'snapshot.json' = ($snapshot | ConvertTo-Json -Depth 5)
         'endpoints.json' = '{}'
     }
+    $contexts = @()
+    foreach ($name in 'a-vue-taskboard', 'b-aspnet-inventory', 'c-java-ledger-cli', 'd-python-textlab') {
+        $separate = New-Context (Join-Path $testRoot "projects/$name") $runs $name
+        $contexts += $separate
+        $arguments = & $module { param($context) Get-VcpGlobalArguments $context } $separate
+        Check ($arguments[([array]::IndexOf($arguments, '--workspace') + 1)] -eq $separate.Workspace) "$name CLI workspace binding changed."
+        Check ($arguments[([array]::IndexOf($arguments, '--data-dir') + 1)] -eq $separate.Data) "$name CLI data binding changed."
+        $profile = New-ScenarioProfile $separate 'independent-review' @('README.md') -MaximumAutonomy 'plan' -AutomaticEffects @('read')
+        $document = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json
+        Check ($document.workspace -eq $separate.Workspace) "$name profile uses another project's workspace."
+        Check (-not $separate.ReuseProject) "$name depends on an earlier scenario's project."
+    }
+    foreach ($key in 'Workspace', 'Data', 'Profiles', 'Logs', 'Results') {
+        Check (@($contexts | ForEach-Object { $_[$key] } | Select-Object -Unique).Count -eq 4) "Scenarios share $key."
+    }
+    $checkout = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
+    Check-Rejected { New-Context $checkout $runs } '*outside the VCP source checkout*' 'VCP checkout must not become a scenario project.'
+    Check-Rejected { New-Context (Join-Path $checkout 'scenario-fixture') $runs } '*outside the VCP source checkout*' 'A child of the VCP checkout must not become a scenario project.'
     Check (-not (Test-Path -LiteralPath $project)) 'Fixture project must initially be absent.'
     $created = New-Context $project $runs
     Check (Test-Path -LiteralPath $project -PathType Container) 'Initialization must create a missing project directory.'
@@ -69,6 +87,8 @@ try {
 
     Write-SeedFiles -Root $project -Files @{ 'sentinel.txt' = 'staged user content'; 'untracked.txt' = 'untracked user content' }
     Invoke-FixtureGit @('init', '-q', '-b', 'main')
+    Check-Rejected { New-Context (Join-Path $project 'nested-scenario') $runs } '*nested in another git project*' 'Scenarios must not share a containing Git project.'
+    Check (-not (Test-Path -LiteralPath (Join-Path $project 'nested-scenario'))) 'Rejected nested project was created.'
     Invoke-FixtureGit @('add', '--', 'sentinel.txt')
     Write-Utf8File (Join-Path $project 'sentinel.txt') 'unstaged user content'
     $indexPath = Join-Path $project '.git/index'
@@ -108,6 +128,9 @@ try {
     New-Item -ItemType Directory -Path $outside | Out-Null
     $junction = Join-Path $project 'linked'
     New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
+    Check-Rejected { New-Context $junction $runs } '*link or junction*' 'A project alias must not bypass project separation.'
+    Check-Rejected { New-Context (Join-Path $junction 'new-project') $runs } '*link or junction*' 'A junction ancestor must not bypass project separation.'
+    Check (-not (Test-Path -LiteralPath (Join-Path $outside 'new-project'))) 'Project validation wrote through a junction.'
     Check-Rejected { Write-SeedFiles -Root $project -Files @{ 'linked/escape.txt' = 'escape' } -MissingOnly } '*link or junction*' 'MissingOnly must reject a junction parent.'
     Check (-not (Test-Path -LiteralPath (Join-Path $outside 'escape.txt'))) 'Junction traversal wrote outside the project.'
     Write-Host "Project context regressions passed ($checks checks; no VCP calls)."

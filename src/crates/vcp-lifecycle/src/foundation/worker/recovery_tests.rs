@@ -246,6 +246,44 @@ fn pending(context: &mut Context, binding: &ThreadBinding, patch: &str) -> ToolR
 }
 
 #[test]
+fn recovery_retains_directory_only_partial_effect_without_replaying_file() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut context, binding) = setup(&temp, backend);
+        let id = pending(
+            &mut context,
+            &binding,
+            "*** Begin Patch\n*** Add File: Data/Models/one.cs\n+one\n*** End Patch",
+        );
+        std::fs::create_dir(temp.path().join("workspace/Data")).unwrap();
+        let config = context.config.clone();
+        context.close().unwrap();
+        let reopened = Context::open(config).unwrap();
+        assert_eq!(effect(&reopened, &id).state, EffectState::Failed);
+        assert!(temp.path().join("workspace/Data").is_dir());
+        assert!(!temp.path().join("workspace/Data/Models").exists());
+        let report: ArtifactDescriptor = reopened
+            .engine
+            .store()
+            .state()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .filter_map(|row| row.decode::<ArtifactDescriptor>().ok())
+            .find(|a| a.spec.schema == "vcp-effect-reconciliation-v1")
+            .unwrap();
+        let report = reopened.recovery_artifact(&report).unwrap();
+        let observations = report["observations"].as_array().unwrap();
+        assert!(observations.iter().any(|o| o["class"] == "directory"
+            && o["path"] == "Data"
+            && o["certainty"] == "present"));
+        assert!(observations.iter().any(|o| o["class"] == "directory"
+            && o["path"] == "Data/Models"
+            && o["certainty"] == "absent"));
+    }
+}
+
+#[test]
 fn recovery_reconciles_applied_unapplied_partial_and_conflicted_files_on_both_stores() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for (first, second, expected) in [

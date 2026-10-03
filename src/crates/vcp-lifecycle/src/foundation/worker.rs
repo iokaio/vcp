@@ -1306,6 +1306,22 @@ impl Context {
         }
         Ok(())
     }
+    pub fn response_http_error_source(
+        &mut self,
+        attempt: &AttemptId,
+        source: Option<vcp_models::retry::LimitSource>,
+    ) -> Result<()> {
+        if !self.streams.contains_key(attempt) {
+            return Ok(());
+        }
+        if let Some(provider) = self.provider.as_mut() {
+            provider.error_sources.remove(attempt);
+            if let Some(source) = source {
+                provider.error_sources.insert(attempt.clone(), source);
+            }
+        }
+        Ok(())
+    }
     pub fn response_error_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
         if !self.streams.contains_key(attempt) && self.response_was_retained_unknown(attempt)? {
             return Ok(());
@@ -1654,28 +1670,52 @@ impl Context {
         }) {
             return self.settle_rejected_provider(binding, attempt);
         }
+        let failure = self.provider.as_mut().and_then(|provider| {
+            provider.error_sources.remove(attempt);
+            provider.failures.remove(attempt)
+        });
         if let Some(provider) = &mut self.provider {
             provider.streams.remove(attempt);
         }
         if let Some(mut writer) = self.streams.remove(attempt) {
             let descriptor = writer.abort()?;
             drop(writer);
+            let raw = descriptor.spec.id.clone();
             self.command(
                 Command::AttachArtifact { descriptor },
                 Some(binding.scope.task.clone()),
                 Revision::ZERO,
             )?;
+            if let Some(failure) = &failure {
+                self.capture(
+                    &binding.scope,
+                    Channel::Evidence,
+                    &canonical_bytes(&serde_json::json!({
+                        "attempt": attempt, "raw_response": raw,
+                        "failure": failure, "liability_unresolved": true,
+                    }))?,
+                    "provider-failure/1",
+                )?;
+            }
         }
+        let reason = failure
+            .as_ref()
+            .map(|failure| format!("{}; submitted charge remains unresolved and requires accounting reconciliation", failure.summary()))
+            .unwrap_or_else(|| reason.to_owned());
         let actor = self.actor();
         self.runtime.block_on(vcp_budget::hold_uncertain(
             self.engine.store_mut(),
             attempt,
             &binding.scope,
             &actor,
-            reason,
+            &reason,
         ))?;
         if pause {
-            self.pause_root("provider outcome requires accounting reconciliation")?;
+            let pause_reason = failure
+                .as_ref()
+                .map(|_| reason.as_str())
+                .unwrap_or("provider outcome requires accounting reconciliation");
+            self.pause_root(pause_reason)?;
         }
         Ok(())
     }

@@ -125,7 +125,7 @@ ASP.NET Core application backed by SQL Server through EF Core.
 
 The connection string named `Inventory` lives in `src/Inventory.Web/appsettings.Development.json`
 (SQL Server LocalDB for local development). The schema is managed with EF Core migrations and the
-local `dotnet-ef` tool (`.config/dotnet-tools.json`):
+local `dotnet-ef` tool (`dotnet-tools.json` or `.config/dotnet-tools.json`):
 
     dotnet tool run dotnet-ef migrations add <Name> --project src/Inventory.Web
     dotnet tool run dotnet-ef database update --project src/Inventory.Web
@@ -513,10 +513,15 @@ try {
     $stage = 'B0-baseline'
     Write-Step $ctx "B0 scaffold ($tfm), restore, LocalDB, baseline build" 'phase'
     if ($ctx.ReuseProject) {
-        foreach ($required in @($webProject, $testProject, '.config/dotnet-tools.json', 'src/Inventory.Web/appsettings.Development.json')) {
+        foreach ($required in @($webProject, $testProject, 'src/Inventory.Web/appsettings.Development.json')) {
             if (-not (Test-Path -LiteralPath (Join-Path $ws $required) -PathType Leaf)) {
                 throw "Existing project is not an Inventory scenario project: missing $required. Select its workspace directory or a new empty project directory."
             }
+        }
+        # dotnet discovers either layout; `new tool-manifest -o $ws` can emit the root file.
+        if (-not ((Test-Path -LiteralPath (Join-Path $ws 'dotnet-tools.json') -PathType Leaf) -or
+                (Test-Path -LiteralPath (Join-Path $ws '.config/dotnet-tools.json') -PathType Leaf))) {
+            throw 'Existing project is not an Inventory scenario project: missing dotnet-tools.json or .config/dotnet-tools.json. Select its workspace directory or a new empty project directory.'
         }
         if (-not (Get-Solution)) { throw 'Existing Inventory project has no solution (.sln or .slnx).' }
         [xml]$existingProject = Get-Content -LiteralPath (Join-Path $ws $webProject) -Raw
@@ -693,12 +698,25 @@ listing at most 10 findings ordered by severity.
     # --- Profiles ------------------------------------------------------------
     $stage = 'P1-profiles'
     $dotnetProcess = New-ProcessProfile -Name 'dotnet' -Executable $dotnet -Ctx $ctx -MaxTimeoutMs 1200000
+    # NuGet requires machine installation paths and writable user-state locations.
+    # Use fresh run-owned state rather than inheriting account NuGet config or credentials.
+    foreach ($pair in @(@('ProgramFiles', 'ProgramFiles'), @('ProgramFiles(x86)', 'ProgramFilesX86'))) {
+        $value = [Environment]::GetFolderPath($pair[1])
+        if ($value) { $dotnetProcess.environment[$pair[0]] = $value }
+    }
+    foreach ($name in @('APPDATA', 'LOCALAPPDATA', 'DOTNET_CLI_HOME')) {
+        $directory = Join-Path $ctx.Env "dotnet/$name"
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $dotnetProcess.environment[$name] = $directory
+    }
     $affected = @('README.md', 'src', 'tests')
     $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($dotnetProcess)
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($dotnetProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false -Guardrail
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    [void](Test-ProcessEnvironment $ctx $stage $dotnetProcess 'dotnet-tool-restore' @('tool', 'restore'))
+    [void](Test-ProcessEnvironment $ctx $stage $dotnetProcess 'dotnet-build' @('build', (Get-Solution), '-nologo'))
 
     # --- G0: zero-spend guardrail: untrusted workspace ---------------------
     $guardPrompt = Join-Path $ctx.Logs 'G0-guardrail\prompt.md'

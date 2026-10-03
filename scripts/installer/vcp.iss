@@ -1,5 +1,14 @@
 ; SPDX-License-Identifier: Apache-2.0
 ; Build only through build-setup.ps1 for a release-bound artifact.
+; build-local-setup.ps1 selects the separate, unsigned local identity contract.
+#ifdef VcpLocalCandidate
+  #ifdef VcpSigned
+    #error Local candidates cannot be signed releases
+  #endif
+  #define CandidateKind "UnsignedLocal"
+#else
+  #define CandidateKind "Release"
+#endif
 #if Ver != 0x06070300
   #error Release setup requires exactly Inno Setup 6.7.3
 #endif
@@ -249,7 +258,7 @@ begin
     PostInstallVerificationFailed := True;
     if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'),
       '-Action Verify -AppRoot ' + Quoted(ExpandConstant('{app}')) + ScopeArguments +
-      ' -ExpectedArchive {#NativeSha256} -CandidateId {#CandidateId}') then
+      ' -ExpectedArchive {#NativeSha256} -CandidateId {#CandidateId} -CandidateKind {#CandidateKind}') then
       RaiseException('The installed selection changed or failed validation. Setup cannot claim this candidate was activated. Preserve the retained engine for recovery.');
     if not RunScript(ExpandConstant('{app}\maintenance\shell.ps1'),
       '-Action AddPath -AppRoot ' + Quoted(ExpandConstant('{app}')) + ScopeArguments) then

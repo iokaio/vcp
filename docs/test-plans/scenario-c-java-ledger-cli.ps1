@@ -860,6 +860,7 @@ try {
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes $javaProcesses -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    [void](Test-ProcessEnvironment $ctx $stage $javaProcesses[0] 'java-tests' ($mavenViaJava + @('-B', '-ntp', 'test')))
 
     # --- G0: zero-spend guardrail: empty task file -------------------------
     $emptyPrompt = Join-Path $ctx.Logs 'G0-guardrail\empty-task.md'

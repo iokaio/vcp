@@ -75,6 +75,7 @@ pub fn prepare(
             after: change.after.clone(),
             rename_to: None,
             probes: vec![change.parent.clone()],
+            parents: root.prepare_parents(&change.path)?,
         });
     }
     let integration_index = plan

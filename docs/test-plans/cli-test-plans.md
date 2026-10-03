@@ -148,6 +148,23 @@ its source and configuration and restores its dependencies. The default launcher
 is `<RunRoot>\projects\<scenario>`, stable across runs. Individual scenario scripts without
 `-ProjectPath` retain their per-run `workspace` default.
 
+Each scenario is independently runnable: A, B, C and D have separate project directories
+and VCP workspace identities; none requires another scenario's output or a prior run.
+The launcher starts the child PowerShell process in that scenario's project, and native
+VCP commands and generated profiles bind to the same workspace. The shared `RunRoot`
+groups separate projects, evidence and provider metadata; it is not a shared VCP project. The VCP source
+checkout, directories nested in another Git project, and project paths through junctions
+or symbolic links are rejected. Select the physical project directory instead.
+
+For example, these can be launched separately, in any order or in separate consoles:
+
+```powershell
+.\run-cli-scenarios.ps1 -Scenario A -ProjectPath D:\clitests\A
+.\run-cli-scenarios.ps1 -Scenario B -ProjectPath D:\clitests\B
+.\run-cli-scenarios.ps1 -Scenario C -ProjectPath D:\clitests\C
+.\run-cli-scenarios.ps1 -Scenario D -ProjectPath D:\clitests\D
+```
+
 Existing projects must match the selected scenario's structure. Incompatible projects or
 conflicting deterministic fixtures are rejected rather than overwritten. Agent tasks still
 intentionally edit the selected project. Harness git initialization, staging and checkpoint
@@ -210,7 +227,7 @@ to `<run>\artifacts` and D writes final deliverables to `<run>\deliverables`.
 |---|---|---|
 | P0-preflight | none | `--version`, `doctor`, `setup credential status`, `setup profile` (real CLI path for this workspace), `skills list`, `models` |
 | B0-baseline | none (VCP) | Seed a realistic starting scaffold, restore dependencies and prove it builds and tests before any spend. A failure here stops the run. |
-| P1-profiles | none | Compose the scenario profiles (3.3) and validate each with `vcp setup check` |
+| P1-profiles | none | Compose profiles, validate each with `vcp setup check`, then run toolchain probes with the exact cleared process environment before inference |
 | G0-guardrail | none | A `vcp run` that must be rejected before execution with exit 2 and no accepted task |
 | T1-T5 | paid | Feature turns, each followed by the evidence sweep (3.4), deterministic gates (3.6) and at most `-MaxRepairTurns` repair turns |
 | T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. |
@@ -280,9 +297,12 @@ Design notes, each based on the current source:
 - **Process profiles** are `.exe` only, in `Direct` mode with no shell, and use a filtered
   public environment. `npm`, `mvn` and the `dotnet-ef` tool are reached through `node.exe`,
   `java.exe` and `dotnet.exe`; each task prompt gives the exact argument forms. The
-  environment allowlist (`SYSTEMROOT`, `PATH`, `TEMP`, ...) has no `USERPROFILE`, `APPDATA`
-  or `JAVA_HOME`. Tools are expected to resolve user folders through Windows APIs, and the
-  first run will confirm this (section 8).
+  environment excludes ambient user configuration and credentials. B explicitly supplies
+  public Windows installation paths and run-local `APPDATA`, `LOCALAPPDATA` and
+  `DOTNET_CLI_HOME` directories: NuGet cannot bootstrap with only `SYSTEMROOT` and `PATH`.
+  Each scenario runs a toolchain probe with its exact cleared profile environment before
+  inference. These probes check bootstrap compatibility; native broker tests check execution
+  authority and isolation. See the [A/B runtime investigation](run-review-20261003-130226.md).
 - **`reduced_isolation: true` with no required isolation** mirrors the repository's own
   execution fixtures. Toolchains need to read SDK, cache and package locations outside the
   workspace. This is an explicit owner choice for a test machine; review it before reusing
@@ -520,6 +540,9 @@ release of the installed SDK's major version, queried from NuGet's flat-containe
 The pinned versions are recorded in the scorecard notes. The harness also writes
 `appsettings.Development.json` with a per-run database
 `VcpInventory_<run>` on `(localdb)\MSSQLLocalDB`, then builds and tests the baseline.
+Reusing a project accepts either `dotnet-tools.json` at the workspace root or
+`.config/dotnet-tools.json`, preserving the manifest and its pinned versions. Tool
+restore and EF commands use the SDK's normal manifest discovery.
 
 **Ports.** `-AppPort` (default 41750) is used for `dotnet run` gates and `-PublishedPort`
 (41751) for the published executable.
@@ -784,11 +807,13 @@ The holdout and edge-case files stay in `hidden\`.
 
 These limitations need evidence from actual scenario runs:
 
-1. **Environment filtering in process profiles.** Profiles allow only `SYSTEMROOT`, `WINDIR`,
-   `PATH`, `PATHEXT`, `TEMP`, `TMP`, `LANG`, `LC_ALL`, `TERM`, `CI` and a few build variables.
-   npm, NuGet, Maven and pip normally find the user profile through Windows APIs, but a
-   failure inside `vcp_exec` is a real finding: the turn shows it in `inspect-tools.json`
-   and the harness gates will still judge the produced code.
+1. **Environment filtering in process profiles.** Only explicitly allowed public variables
+   reach `vcp_exec`. The B bootstrap fix adds public installation paths and isolated .NET
+   user directories; it requires a native build containing the P2-04 runtime fix (the
+   installed 0.2.5 executable rejects these new keys). A's typecheck, B's local-tool restore
+   and build, C's Maven tests and D's pytest now run with the exact profile environment
+   before paid stages. A failed probe blocks inference and retains its command output.
+   This does not prove every later tool invocation will succeed.
 2. **Maven invocation (C).** Both the harness and VCP use `java.exe` with the classworlds
    launcher rather than executing `mvn.cmd` as a native binary. Preflight requires Maven
    3.9+ with the distribution's launcher jar and `bin/m2.conf`; a shim or unsupported layout
@@ -845,6 +870,8 @@ These limitations need evidence from actual scenario runs:
 | `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |
 | `tests/BlockedExecution.Tests.ps1` | Stops further paid admission after approval/recovery blockers; preserves same-task deadline resumes and original repair instructions |
 | `tests/ProcessAuthorization.Tests.ps1` | Explicit process consent, default refusal, DryRun behavior and unchanged review/guardrail permissions |
+| `tests/ProcessEnvironment.Tests.ps1` | Actual cleared-environment subprocess probes, failure/timeout evidence and no ambient environment changes |
+| `tests/InventoryProfiles.Tests.ps1` | Inventory profile allowlist, isolated .NET bootstrap directories and literal EF connection arguments |
 | `tests/ProviderReuse.Tests.ps1` | Offline configured-provider discovery and metadata reuse |
 | `tests/ProviderRefresh.Tests.ps1` | Metadata-only refresh, unchanged budget, immutable old metadata and failure evidence |
 | `tests/StagePreparation.Tests.ps1` | Per-task profile renewal and complete, consistent bundled inspection |
@@ -867,6 +894,8 @@ pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProfileDeadlines.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/BlockedExecution.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProcessAuthorization.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProcessEnvironment.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/InventoryProfiles.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderReuse.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderRefresh.Tests.ps1

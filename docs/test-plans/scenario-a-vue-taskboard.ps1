@@ -834,6 +834,7 @@ try {
     $profiles['review'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profiles['guardrail'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-guardrail' -AffectedPaths $affected -MaximumAutonomy 'workspace' -AutomaticEffects @('read', 'write') -Guardrail
     foreach ($key in 'T1', 'T5-short', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    [void](Test-ProcessEnvironment $ctx $stage $nodeProcess 'node-typecheck' @($npmCli, 'run', 'typecheck'))
 
     # --- G0: zero-spend guardrail ----------------------------------------
     $guardPrompt = Join-Path $ctx.Logs 'G0-guardrail\prompt.md'

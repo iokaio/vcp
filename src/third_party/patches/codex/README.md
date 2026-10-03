@@ -215,6 +215,10 @@ already include these changes; normal builds never apply patches.
     package to `0.2.5`, matching the installer, SDK and VSIX candidate containing
     the scenario runtime fixes. External dependencies remain unchanged.
 
+48. `0048-cli-tests-product-version.patch` advances the local `vcp-cli` package
+    to `0.2.6`, matching the installer, SDK and VSIX candidate containing the
+    independent CLI scenario and runtime fixes. External dependencies remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

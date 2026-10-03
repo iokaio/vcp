@@ -735,6 +735,7 @@ try {
     $profileBounds = New-ScenarioProfile -Ctx $ctx -Name 'profile-bad-bounds' -AffectedPaths $affected -Processes @($pythonProcess) -Guardrail
     Write-Utf8File $profileBounds ([regex]::Replace([System.IO.File]::ReadAllText($profileBounds), '"max_requests":\s*\d+', '"max_requests": 0'))
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    [void](Test-ProcessEnvironment $ctx $stage $pythonProcess 'python-tests' @('-m', 'pytest', '-q'))
 
     # --- G0: zero-spend guardrail: resource bounds -------------------------
     $guardPrompt = Join-Path $ctx.Logs 'G0-guardrail\prompt.md'

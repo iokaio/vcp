@@ -1,6 +1,6 @@
 #Requires -Version 7.4
 # SPDX-License-Identifier: Apache-2.0
-<# Offline launcher tests. The only child scenario is a local fixture; VCP is never executed. #>
+<# Offline launcher tests. All child scenarios are local fixtures; VCP is never executed. #>
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $scenarioRoot = Split-Path -Parent $PSScriptRoot
@@ -72,30 +72,35 @@ try {
     Check (-not (@(New-LauncherArguments 'fixture.ps1' @{} $false) -contains '-SkipPaidStages')) 'Full argument construction unexpectedly added dry-run flag'
     [Globalization.CultureInfo]::CurrentCulture = $originalCulture
 
-    # Copy the launcher next to an inert scenario fixture and the real harness.
+    # Copy the launcher next to inert scenario fixtures and the real harness.
     # This exercises executable resolution, native argv/console output, exit-code
     # propagation and result discovery without launching an installed VCP binary.
     $fixture = Join-Path $temporary 'launcher fixture'
     New-Item -ItemType Directory -Path $fixture | Out-Null
     Copy-Item -LiteralPath $launcher -Destination $fixture
     Copy-Item -LiteralPath (Join-Path $scenarioRoot 'VcpScenarioHarness.psm1') -Destination $fixture
-    @'
+    $childFixture = @'
 param($ProviderGeneration, $Vcp, $RunRoot, $ProjectPath, [decimal]$TurnBudgetUsd, $MaxScenarioUsd, $MaxRepairTurns,
     $OutputTokens, $MaxRequests, $DeadlineSeconds, $ShortDeadlineSeconds, [switch]$SkipPaidStages)
 $ErrorActionPreference = 'Stop'
 if (-not $SkipPaidStages) { throw 'Fixture permits DryRun only.' }
-$root = Join-Path $RunRoot 'a-vue-taskboard/fixture-run'
+$scenarioName = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath) -replace '^scenario-', ''
+$root = Join-Path $RunRoot "$scenarioName/fixture-run"
 foreach ($name in 'results', 'workspace', 'logs', 'vcp-data', 'profiles') {
     New-Item -ItemType Directory -Path (Join-Path $root $name) -Force | Out-Null
 }
 @{ verdict = 'dry-run-fail' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'results/scorecard.json')
 if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw 'Project was not created by launcher.' }
-@{ generation = $ProviderGeneration; budget = $TurnBudgetUsd; project = $ProjectPath } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'arguments.json')
+@{ generation = $ProviderGeneration; budget = $TurnBudgetUsd; project = $ProjectPath; cwd = (Get-Location).Path; invocation = $RunRoot } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'arguments.json')
 Write-Output 'FIXTURE_STDOUT_PROGRESS'
 Write-Host 'FIXTURE_HOST_PROGRESS'
 [Console]::Error.WriteLine('FIXTURE_STDERR_PROGRESS')
 exit 7
-'@ | Set-Content -LiteralPath (Join-Path $fixture 'scenario-a-vue-taskboard.ps1')
+'@
+    $scenarioNames = @('a-vue-taskboard', 'b-aspnet-inventory', 'c-java-ledger-cli', 'd-python-textlab')
+    foreach ($scenarioName in $scenarioNames) {
+        $childFixture | Set-Content -LiteralPath (Join-Path $fixture "scenario-$scenarioName.ps1")
+    }
     $pwsh = (Get-Process -Id $PID).Path
     $runRoot = Join-Path $temporary 'runs with spaces'
     $output = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot -Vcp $pwsh -TurnBudgetUsd 1.25 2>&1 | Out-String)
@@ -109,18 +114,53 @@ exit 7
     $received = Get-Content -LiteralPath (Join-Path $invocations[0].FullName 'a-vue-taskboard/fixture-run/arguments.json') -Raw | ConvertFrom-Json
     Check ($received.generation -eq $generation -and $received.budget -eq 1.25) 'Child received corrupted arguments'
     Check ($received.project -eq (Join-Path $runRoot 'projects/a-vue-taskboard')) 'Launcher did not select a stable project folder'
+    Check ($received.cwd -eq $received.project) 'Scenario A inherited the launcher working directory instead of its project'
     $sentinel = Join-Path $received.project 'existing-work.txt'
     'preserve me' | Set-Content -LiteralPath $sentinel
     $again = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot -Vcp $pwsh -ProjectPath $received.project 2>&1 | Out-String)
     Check ($LASTEXITCODE -eq 7 -and $again.Contains($received.project)) 'Existing project was not passed to the child or displayed'
     Check ((Get-Content -LiteralPath $sentinel -Raw).Trim() -eq 'preserve me') 'Launcher changed existing project contents'
 
+    # Reusing one evidence root must not share a project or child working directory
+    # across scenarios. Preserve existing work in every project and in the caller.
+    $callerSentinel = Join-Path $fixture 'caller-work.txt'
+    'preserve caller' | Set-Content -LiteralPath $callerSentinel
+    $projects = @($received.project)
+    $scenarioInvocations = @($received.invocation)
+    foreach ($scenarioName in $scenarioNames[1..3]) {
+        $project = Join-Path $runRoot "projects/$scenarioName"
+        New-Item -ItemType Directory -Path $project -Force | Out-Null
+        $projectSentinel = Join-Path $project 'existing-work.txt'
+        $scenarioName | Set-Content -LiteralPath $projectSentinel
+        $previousInvocations = @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter 'launch-*' | ForEach-Object FullName)
+        Push-Location $fixture
+        try {
+            $scenarioOutput = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario $scenarioName.Substring(0, 1).ToUpperInvariant() -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot -Vcp $pwsh 2>&1 | Out-String)
+            $scenarioCode = $LASTEXITCODE
+        }
+        finally { Pop-Location }
+        Check ($scenarioCode -eq 7) "$scenarioName child failed: $scenarioOutput"
+        $newInvocations = @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter 'launch-*' | Where-Object FullName -NotIn $previousInvocations)
+        Check ($newInvocations.Count -eq 1) "$scenarioName reused another invocation's evidence folder"
+        $child = Get-Content -LiteralPath (Join-Path $newInvocations[0].FullName "$scenarioName/fixture-run/arguments.json") -Raw | ConvertFrom-Json
+        Check ($child.project -eq $project) "$scenarioName did not receive its own default project"
+        Check ($child.cwd -eq $project) "$scenarioName inherited the caller working directory instead of its project"
+        Check ($scenarioOutput.Contains($project)) "$scenarioName output did not identify its project"
+        Check ((Get-Content -LiteralPath $projectSentinel -Raw).Trim() -eq $scenarioName) "$scenarioName changed existing project contents"
+        $projects += $child.project
+        $scenarioInvocations += $child.invocation
+    }
+    Check (@($projects | Sort-Object -Unique).Count -eq 4) 'A/B/C/D shared a project'
+    Check (@($scenarioInvocations | Sort-Object -Unique).Count -eq 4) 'A/B/C/D shared invocation evidence'
+    Check ((Get-Content -LiteralPath $sentinel -Raw).Trim() -eq 'preserve me') 'Another scenario changed scenario A project contents'
+    Check ((Get-Content -LiteralPath $callerSentinel -Raw).Trim() -eq 'preserve caller') 'A scenario changed caller project contents'
+
     $badOutput = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot -Vcp (Join-Path $temporary 'missing-vcp.exe') 2>&1 | Out-String)
     Check ($LASTEXITCODE -eq 1 -and $badOutput.Contains('Requested VCP executable does not exist')) 'Invalid explicit VCP path silently fell back to another executable'
     $env:VCP_EXE = Join-Path $temporary 'missing-env-vcp.exe'
     $badOutput = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot 2>&1 | Out-String)
     Check ($LASTEXITCODE -eq 1 -and $badOutput.Contains('VCP_EXE does not exist')) 'Invalid VCP_EXE silently fell back to another executable'
-    Check (@(Get-ChildItem -LiteralPath $runRoot -Directory -Filter 'launch-*').Count -eq 2) 'Validation failure started a scenario'
+    Check (@(Get-ChildItem -LiteralPath $runRoot -Directory -Filter 'launch-*').Count -eq 5) 'Validation failure started a scenario'
     Write-Host "Launcher regressions passed: $checks checks; no VCP or paid scenario executed."
 }
 finally {

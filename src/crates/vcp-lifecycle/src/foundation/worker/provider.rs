@@ -11,6 +11,8 @@ pub(super) struct Provider {
     pub timeout: Duration,
     active: HashMap<TaskId, Ready>,
     pub(super) retries: HashMap<TaskId, PendingRetry>,
+    pub(super) error_sources: HashMap<AttemptId, vcp_models::retry::LimitSource>,
+    pub(super) failures: HashMap<AttemptId, vcp_models::retry::ProviderFailure>,
 }
 pub(super) struct PendingRetry {
     pub predecessor: AttemptId,
@@ -126,6 +128,8 @@ impl Context {
             timeout,
             active: HashMap::new(),
             retries: HashMap::new(),
+            error_sources: HashMap::new(),
+            failures: HashMap::new(),
         });
         self.provider_required = true;
         Ok(())
@@ -632,8 +636,23 @@ impl Context {
         count: u32,
         deadline: std::time::Instant,
         failure: vcp_models::retry::Failure,
+        http_status: Option<u16>,
         retry_after_ms: Option<u64>,
     ) -> Result<Option<Duration>> {
+        // Retain the failure even when no retry is allowed. The final permit
+        // drop must explain why the task paused, not just report unknown cost.
+        if let Some(provider) = self.provider.as_mut() {
+            let limit_source = provider.error_sources.remove(&attempt);
+            provider.failures.insert(
+                attempt.clone(),
+                vcp_models::retry::ProviderFailure {
+                    failure,
+                    http_status,
+                    limit_source,
+                    retry_after_ms,
+                },
+            );
+        }
         self.can_start(binding)?;
         let Some(provider) = self.provider.as_ref() else {
             return Ok(None);
@@ -692,12 +711,11 @@ impl Context {
             return Ok(None);
         };
         let now = now();
-        let policy = vcp_models::retry::Policy {
-            max_retries: self.config.max_transport_retries,
-            base_delay_ms: 100,
-            max_delay_ms: 5_000,
-            deadline: Timestamp::new(now.get().saturating_add(remaining.as_millis() as u64)),
-        };
+        let policy = vcp_models::retry::Policy::for_failure(
+            self.config.max_transport_retries,
+            Timestamp::new(now.get().saturating_add(remaining.as_millis() as u64)),
+            failure,
+        );
         let Some(retry) = policy.next(
             attempt.clone(),
             count,

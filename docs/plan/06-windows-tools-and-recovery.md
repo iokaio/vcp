@@ -83,6 +83,17 @@ before writing anything. Validate the entire plan first, then recheck each
 path/identity/version near its actual write; a long plan cannot rely only on its
 initial validation.
 
+New-file patches include missing parent directories in the immutable plan and
+write-resource authorization. Preparation creates nothing. Dispatch pins the
+observed existing ancestors, records the file intent, then creates each planned
+directory component with a parent-relative native `NtCreateFile(FILE_CREATE)`
+that returns its deny-delete handle atomically, without following links. A later file in the same patch may
+reuse only the native directory identities observed by that dispatch. Receipts
+include created directories even when a subsequent directory or file write
+fails; recovery reports their current state without removing them or replaying
+the operation. A fresh retry prepares the actual remaining state. Rename
+destinations continue to require an existing parent directory.
+
 | Effect stage | Durable or observable record |
 |---|---|
 | Prepared | Immutable invocation and complete proposed diff |

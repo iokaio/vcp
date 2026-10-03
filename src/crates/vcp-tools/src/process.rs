@@ -66,6 +66,15 @@ impl Profile {
             "PATHEXT",
             "TEMP",
             "TMP",
+            // .NET/NuGet resolves machine configuration from Program Files and
+            // user settings/cache from these explicit bootstrap directories.
+            // Hosts should supply dedicated application-data/CLI-home paths,
+            // not copy the account's ambient credential-bearing configuration.
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "DOTNET_CLI_HOME",
             "LANG",
             "LC_ALL",
             "TERM",

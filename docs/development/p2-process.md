@@ -72,6 +72,23 @@ settings such as SystemRoot, PATH, TEMP and CI, rejecting duplicate names and
 credential variable names. The trusted host must never put credentials in these
 public values. Provider authentication stays in the engine.
 
+The public bootstrap allowlist also accepts `PROGRAMFILES`, `PROGRAMFILES(X86)`,
+`APPDATA`, `LOCALAPPDATA` and `DOTNET_CLI_HOME`. NuGet needs the Program Files and
+application-data locations even for ordinary SDK restore/build operations on
+Windows. Trusted hosts should assign dedicated application-data and CLI-home
+directories instead of importing the account's existing NuGet configuration or
+credentials. These explicit values remain bound into profile and operation
+authority; model requests cannot supply them. Credential variables, NuGet plugin
+overrides and .NET startup hooks remain rejected.
+
+The opt-in native `dotnet_bootstrap::` regression requires `VCP_TEST_DOTNET` to name
+an absolute .NET 10 SDK executable and the native fixture's standard
+`RUST_MIN_STACK=16777216`. It builds and runs a package-free fixture through
+the canonical process broker using private temporary bootstrap directories and
+an empty NuGet source list; it makes no inference or package-network requests.
+Run it explicitly with `cargo test -p vcp-lifecycle --features qualification --test canonical_host
+dotnet_bootstrap:: -- --ignored`; it is marked ignored in the ordinary native suite.
+
 Profiles default to 32 simultaneous processes, including the root. A trusted
 host can set `with_process_count(1..=128)`; the value is included in the profile
 and approval digest and cannot be raised through model arguments. Both pipe and
