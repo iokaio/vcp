@@ -1,7 +1,7 @@
 # Internal beta scope, known limitations and support
 
 This is an experimental Windows x64 beta. The native app, Windows installer,
-SDK and VSIX source versions are synchronized at `0.2.3`. Its channel requires timestamped
+SDK and VSIX source versions are synchronized at `0.2.4`. Its channel requires timestamped
 Ioka LLC signatures on the native engine, launcher, setup and uninstaller.
 The source version bump does not publish a new candidate or complete qualification.
 Earlier published candidates retain their original versions and evidence.
@@ -10,7 +10,9 @@ and observed environment. GitHub downloads and the Marketplace listing are live;
 availability and code signing do not establish completed owner acceptance or
 SmartScreen reputation.
 
-The qualification target is local NTFS workspaces and VS Code 1.138.0. ARM64/x86,
+The qualification baseline is local NTFS workspaces and VS Code 1.138.0. Starting
+with `0.2.4`, the extension accepts newer 1.x editors, including `1.140.0`;
+the wider install range does not qualify every native/editor combination. ARM64/x86,
 non-Windows, remote/WSL/container workspaces, native auto-update,
 arbitrary downgrades and cross-format migration are excluded. No hardware minimum,
 general Windows version range or power-loss durability guarantee is advertised.

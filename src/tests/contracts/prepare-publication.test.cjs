@@ -141,6 +141,29 @@ test('publication rejects self-consistent numeric version drift and malformed pa
   }
 });
 
+test('publication carries the verified VSIX editor requirement and preserves missing historical metadata', t => {
+  for (const vscode of [undefined, '1.138.0', '^1.138.0']) {
+    const f = fixture(t);
+    if (vscode !== undefined) f.vsix.compatibility = { vscode, platform: 'win32-x64', status: 'qualification-required' };
+    f.options.expectedPair = f.rebind().pair_id;
+    const result = preparePublication(f.options);
+    assert.equal(result.vscodeRange, vscode);
+    const published = JSON.parse(fs.readFileSync(path.join(f.options.output, 'assets/release.json'), 'utf8'));
+    assert.equal(published.vscodeRange, vscode);
+    assert.equal(Object.hasOwn(published, 'vscodeRange'), vscode !== undefined);
+  }
+});
+
+test('publication refuses malformed editor requirements before writing public output', t => {
+  for (const vscode of [null, 138, '', '*', '^01.138.0', '^1.138.0\n', '<script>private</script>']) {
+    const f = fixture(t);
+    f.vsix.compatibility = { vscode };
+    f.options.expectedPair = f.rebind().pair_id;
+    assert.throws(() => preparePublication(f.options), /Invalid VSIX editor compatibility/);
+    absent(f);
+  }
+});
+
 test('publication copies only exact assets and deterministic sanitized metadata; CLI agrees', t => {
   const f = fixture(t), result = preparePublication(f.options), assets = path.join(f.options.output, 'assets');
   assert.equal(result.tag, `v0.2.0-beta.1-${f.pair.pair_id.slice(0, 12)}`);

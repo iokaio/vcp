@@ -67,9 +67,26 @@ unavailable. Folder changes still invalidate the complete map.
 
 The private extension package is `src/packages/vscode`. Its locked development
 inputs are TypeScript 5.9.3, Node type definitions 24.10.1 and VS Code type
-definitions 1.138.0. The selected editor engine selector is `1.138.0`, with actual
-runtime qualification against 1.138.0. Runtime code uses the existing SDK and
+definitions 1.138.0. Starting with product `0.2.4`, the editor engine selector is
+`^1.138.0`, admitting newer 1.x releases while retaining the API baseline.
+The historical full runtime qualification below used 1.138.0. Runtime code uses the existing SDK and
 generated protocol package, without another provider or transport implementation.
+
+The BETA-07 compatibility follow-up for `0.2.4` passed staged-source host smoke
+checks on the official Windows x64 editors `1.138.0` and `1.140.0`. Both used
+ordinary installed-extension scanning with private user/extension/shared-data
+directories and no development overrides. Activation, SDK/schema loading, all
+16 command registrations, three view focus commands, the setup guide, missing
+engine handling and disconnect passed. No native engine or provider ran; this
+does not replace final VSIX/native qualification or visual inspection.
+Evidence is retained under `artifacts/editor-compatibility-1.138.0-beta024-1/`
+and `artifacts/editor-compatibility-1.140.0-beta024-1/`.
+
+After building, repeat the focused check with an explicit official editor:
+
+```powershell
+pwsh -NoProfile -File src/packages/vscode/scripts/compatibility-smoke.ps1 -Code <absolute-Code.exe-path>
+```
 
 From the repository root:
 

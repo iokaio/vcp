@@ -6,6 +6,22 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { inventory, sha256 } = require('../scripts/inventory.cjs');
 const { verifyNativeArchive } = require('../scripts/release.cjs');
+// Use the semver implementation already locked for the official VSCE packager.
+const semver = require('semver');
+
+test('editor range admits the API baseline and newer 1.x editors, including 1.140.0', () => {
+  const manifest = require('../package.json');
+  const lock = require('../package-lock.json');
+  const range = manifest.engines.vscode;
+  assert.equal(lock.packages[''].engines.vscode, range);
+  assert.equal(semver.minVersion(range).version, manifest.devDependencies['@types/vscode']);
+  for (const version of ['1.138.0', '1.138.1', '1.139.0', '1.140.0', '1.150.0']) {
+    assert.ok(semver.satisfies(version, range), `${version} must be installable`);
+  }
+  for (const version of ['1.137.9', '2.0.0']) {
+    assert.equal(semver.satisfies(version, range), false, `${version} is outside the supported API range`);
+  }
+});
 
 test('staged extension contains a standalone SDK and schema without runtime file links', () => {
   const packageRoot = path.resolve(__dirname, '..');
@@ -22,6 +38,7 @@ test('staged extension contains a standalone SDK and schema without runtime file
     assert.equal(manifest.icon, 'media/marketplace.png');
     assert.deepEqual(fs.readFileSync(path.join(output, manifest.icon)), fs.readFileSync(path.join(packageRoot, manifest.icon)));
     assert.equal(manifest.main, './dist/extension.js');
+    assert.equal(manifest.engines.vscode, require('../package.json').engines.vscode);
     assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
     const sdk = JSON.parse(fs.readFileSync(path.resolve(packageRoot, '../sdk-ts/package.json')));
     const protocol = JSON.parse(fs.readFileSync(path.resolve(packageRoot, '../protocol-ts/package.json')));
@@ -68,6 +85,7 @@ test('official VSIX preserves exact standalone inventory and requires matching e
     const manifest = JSON.parse(fs.readFileSync(path.join(output, 'manifest.json')));
     const archive = path.join(output, manifest.archive.file);
     assert.equal(manifest.extension.id, 'iokaio.vcp');
+    assert.equal(manifest.compatibility.vscode, require('../package.json').engines.vscode);
     assert.equal(manifest.archive.file, `vcp-${manifest.extension.version}.vsix`);
     assert.equal(manifest.engine.executable_sha256, sha256(engineBytes));
     assert.equal(manifest.engine.build_status, 'caller-supplied-unverified');

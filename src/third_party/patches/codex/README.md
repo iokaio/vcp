@@ -207,6 +207,10 @@ already include these changes; normal builds never apply patches.
     package to `0.2.3`, matching the Windows installer, SDK and VSIX. External
     dependencies and retained upstream implementation remain unchanged.
 
+46. `0046-editor-compatible-product-version.patch` advances the local `vcp-cli`
+    package to `0.2.4`, matching the installer, SDK and VSIX candidate with wider
+    VS Code compatibility. External dependencies remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

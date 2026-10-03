@@ -1,13 +1,17 @@
 # Set up VCP Coding Agent for the internal beta
 
 Use the matching Windows x64 installer supplied with this candidate
-and the `iokaio.vcp` pre-release extension (`vcp-0.2.3-win32-x64.vsix`
+and the `iokaio.vcp` pre-release extension (`vcp-0.2.4-win32-x64.vsix`
 for manual installation)
-with VS Code **1.138.0**. This version requires the signed Ioka LLC native candidate.
+with VS Code **1.138.0 or a newer 1.x release**, including **1.140.0**. This version requires the signed Ioka LLC native candidate.
 Published candidates are listed at [VCP beta downloads](https://downloads.ioka.io/);
 a source version bump does not publish a new build. The candidate record
-identifies the native `0.2.3`, SDK `0.2.3`, exact artifact hashes, signature checks and
+identifies the native `0.2.4`, SDK `0.2.4`, exact artifact hashes, signature checks and
 remaining qualification limits. Installing the extension does not install the engine.
+
+If Marketplace offers only a pre-release, choose **Install Pre-Release**. That
+channel choice is separate from editor compatibility. Version `0.2.3` and earlier
+were restricted to exactly VS Code `1.138.0`; the wider range starts with `0.2.4`.
 
 If replacing the earlier `iokaio.vcp-local` or `vcp.vcp-local` extension, disconnect and uninstall it
 first, then install `iokaio.vcp`. Retain the native installation, data

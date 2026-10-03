@@ -140,6 +140,12 @@ function preparePublication(options) {
     signing.payloadHashes(build, transformation).executable_sha256 === vsix.engine.executable_sha256 && same(build.release, release),
   'Production build/receipt binding mismatch');
   validateReleaseVersions(release, true);
+  // This metadata is covered by the verified VSIX receipt above. Older packets
+  // may omit it; their public pages retain the original exact editor requirement.
+  const vscodeRange = vsix.compatibility?.vscode;
+  check(vscodeRange === undefined || (typeof vscodeRange === 'string' &&
+    vscodeRange === vscodeRange.trim() && /^\^?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(vscodeRange)),
+  'Invalid VSIX editor compatibility requirement');
   const tag = `v${release.native_version}-${pair.pair_id.slice(0, 12)}`;
   const href = name => `${repository}/releases/download/${tag}/${encodeURIComponent(name)}`;
   const artifacts = [
@@ -156,6 +162,7 @@ function preparePublication(options) {
   });
   const result = {
     version: release.native_version, vsixVersion: release.vsix_version, extensionId: vsix.extension.id, pairId: pair.pair_id,
+    ...(vscodeRange === undefined ? {} : { vscodeRange }),
     commit: expectedCommit, tag, candidateRunId: runId, candidateAttempt: attempt,
     runUrl: `${repository}/actions/runs/${runId}/attempts/${attempt}`,
     candidateAt: new Date(paired.ended_at).toISOString(), manifestHref: href('release.json'), checksumHref: href('SHA256SUMS'),
