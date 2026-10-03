@@ -11,8 +11,12 @@ const cacheSteps = steps.filter(step => step.includes('uses: actions/cache@'));
 
 test('candidate caches only isolated download stores with pinned actions and exact platform/tool/lock keys', () => {
   assert.equal(cacheSteps.length, 2);
-  assert.match(workflow, /CARGO_HOME: \$\{\{ runner.temp \}\}\/vcp-candidate-cargo/);
-  assert.match(workflow, /npm_config_cache: \$\{\{ runner.temp \}\}\/vcp-candidate-npm/);
+  const initialize = steps.findIndex(step => step.startsWith('name: Initialize isolated download homes'));
+  assert(initialize >= 0 && initialize < steps.indexOf(cacheSteps[0]) && initialize < steps.indexOf(cacheSteps[1]));
+  assert.match(steps[initialize], /CARGO_HOME=\$\(Join-Path \$env:RUNNER_TEMP 'vcp-candidate-cargo'\)/);
+  assert.match(steps[initialize], /npm_config_cache=\$\(Join-Path \$env:RUNNER_TEMP 'vcp-candidate-npm'\)/);
+  assert.match(steps[initialize], /\$env:GITHUB_ENV/);
+  assert.doesNotMatch(workflow.split(/^    steps:/m)[0], /\$\{\{\s*runner\./, 'runner context is unavailable in job env');
   const paths = cacheSteps.map(step => {
     assert.match(step, /uses: actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/);
     assert.match(step, /key: beta-(?:npm|cargo)-downloads-v1-\$\{\{ runner.os \}\}-\$\{\{ runner.arch \}\}-/);
