@@ -11,6 +11,20 @@ function temporary(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-release-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true })); return root;
 }
+test('current release channel requires one numeric native, SDK and VSIX version', t => {
+  const root = temporary(t), file = path.join(root, 'release/internal-beta.json');
+  fs.mkdirSync(path.dirname(file));
+  const selected = { schema: 'vcp-beta-channel/1', channel: 'internal-beta', target: 'x86_64-pc-windows-msvc',
+    signing: { status: 'unsigned' }, native_version: '0.2.3', sdk_version: '0.2.3', vsix_version: '0.2.3' };
+  fs.writeFileSync(file, JSON.stringify(selected));
+  assert.equal(p.channel(root).native_version, '0.2.3');
+  for (const field of ['native_version', 'sdk_version', 'vsix_version']) {
+    for (const version of ['0.2.2', '0.2.0-beta.2', 'v0.2.3', '0.2', '00.2.3', '0.2.3\n', 3, null]) {
+      fs.writeFileSync(file, JSON.stringify({ ...selected, [field]: version }));
+      assert.throws(() => p.channel(root), /Invalid release versions|versions must match/, `${field}: ${version}`);
+    }
+  }
+});
 function fixture() {
   const selected = { channel: 'internal-beta', native_version: '0.2.0-beta.1', sdk_version: '0.2.1', vsix_version: '0.2.1',
     target: 'x86_64-pc-windows-msvc', signing: { status: 'unsigned' }, config_sha256: hash };

@@ -42,13 +42,24 @@ function captureSource(root, reviewedCommit) {
     !git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']), 'Source changed during inventory');
   return { schema: 'vcp-release-source/1', commit, dirty: false, files, content_sha256: hash(JSON.stringify(files)) };
 }
+function validateReleaseVersions(value, historical = false) {
+  const numeric = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+  const legacy = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.(0|[1-9]\d*)$/;
+  const valid = (version, pattern) => typeof version === 'string' && version === version.trim() && pattern.test(version);
+  const legacyNative = historical && valid(value.native_version, legacy);
+  check((valid(value.native_version, numeric) || legacyNative) &&
+    valid(value.sdk_version, numeric) && valid(value.vsix_version, numeric), 'Invalid release versions');
+  // Retained beta.N packets used separate native and extension versions. New
+  // numeric releases use one version for the engine, installer, SDK and VSIX.
+  check(legacyNative || (value.native_version === value.sdk_version && value.native_version === value.vsix_version),
+    'Native, SDK and VSIX release versions must match');
+}
 function channel(root) {
   const filename = path.join(root, 'release/internal-beta.json'), value = json(filename);
   check(value.schema === 'vcp-beta-channel/1' && value.channel === 'internal-beta' &&
     value.target === 'x86_64-pc-windows-msvc', 'Unsupported release channel or target');
   require('./signing.cjs').policy(value.signing);
-  check(/^\d+\.\d+\.\d+-beta\.\d+$/.test(value.native_version) &&
-    /^\d+\.\d+\.\d+$/.test(value.sdk_version) && /^\d+\.\d+\.\d+$/.test(value.vsix_version), 'Invalid release versions');
+  validateReleaseVersions(value);
   return { ...value, config_sha256: fileHash(filename) };
 }
 function verifyVersions(root, selected) {
@@ -253,5 +264,5 @@ if (require.main === module) {
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) { console.error('Release provenance failed: ' + error.message); process.exitCode = 1; }
 }
-module.exports = { hash, fileHash, json, channel, captureSource, verifyVersions, peArchitecture, verifyExecutable,
+module.exports = { hash, fileHash, json, channel, captureSource, validateReleaseVersions, verifyVersions, peArchitecture, verifyExecutable,
   releaseIdentity, validateReceipt, verifyBuild, verifyPayloadSources, pairIdentity };

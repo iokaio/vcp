@@ -9,7 +9,7 @@ const { preparePublication } = require('../../../scripts/release/prepare-publica
 const privateText = 'PRIVATE-PACKET-CANARY C:\\private-build\\credentials-not-public';
 const commit = 'a'.repeat(40), digest = p.hash('source');
 
-function fixture(t) {
+function fixture(t, versions = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vcp-publication-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const packet = path.join(root, 'packet'); fs.mkdirSync(packet);
@@ -24,7 +24,7 @@ function fixture(t) {
   }
   const selected = { channel: 'internal-beta', native_version: '0.2.0-beta.1',
     sdk_version: '0.2.1', vsix_version: '0.2.1', target: 'x86_64-pc-windows-msvc', signing: { status: 'unsigned' },
-    config_sha256: digest };
+    config_sha256: digest, ...versions };
   const release = p.releaseIdentity(selected, { commit, content_sha256: digest }, digest);
   write('artifacts/native.zip', 'original ZIP'); write('artifacts/setup.exe', 'original installer'); write('artifacts/editor.vsix', 'original VSIX');
   const build = { schema: 'vcp-local-build/1', exit_code: 0, cargo_exit_code: 0, source_commit: commit,
@@ -38,7 +38,7 @@ function fixture(t) {
   write('receipts/native.json', native);
   const vsix = { schema: 'vcp-vsix-package/1', release,
     archive: { file: 'editor.vsix', sha256: p.fileHash(path.join(packet, 'artifacts/editor.vsix')) },
-    extension: { id: 'iokaio.vcp', version: '0.2.1', source: { git_commit: commit, dirty: false } }, sdk: { version: '0.2.1' },
+    extension: { id: 'iokaio.vcp', version: selected.vsix_version, source: { git_commit: commit, dirty: false } }, sdk: { version: selected.sdk_version },
     engine: { native_archive_sha256: native.archive_sha256, executable_sha256: digest, build_receipt_sha256: buildHash,
       source_commit: commit, source_dirty: false, native_manifest_sha256: p.fileHash(path.join(packet, 'receipts/native.json')) } };
   const setup = { schema: 'vcp-setup-result/1', candidate_id: release.candidate_id, native_archive_sha256: native.archive_sha256,
@@ -75,8 +75,8 @@ function fixture(t) {
 function absent(f) { assert.equal(fs.existsSync(f.options.output), false, 'Refusal must precede publication output creation'); }
 function changeJson(f, name, value) { f.write(name, value); f.sums(); }
 
-function signedFixture(t) {
-  const f=fixture(t), policy={status:'signed',provider:'azure-artifact-signing',account:'ioka-llc-signing',profile:'WritingForgePro',
+function signedFixture(t, versions = { native_version: '0.2.0-beta.2', sdk_version: '0.2.2', vsix_version: '0.2.2' }) {
+  const f=fixture(t, versions), policy={status:'signed',provider:'azure-artifact-signing',account:'ioka-llc-signing',profile:'WritingForgePro',
     endpoint:'https://wus2.codesigning.azure.net/',publisher:'CN=Ioka LLC, O=Ioka LLC, L=Mapleton, S=Utah, C=US',
     identity_eku:'1.3.6.1.4.1.311.97.88309284.513035131.587831003.613935669'};
   const original=Buffer.alloc(512);original.writeUInt16LE(0x5a4d);original.writeUInt32LE(64,60);original.writeUInt32LE(0x4550,64);
@@ -118,6 +118,26 @@ test('signed publication binds native/setup transformations and rejects altered 
   for(const mutate of [g=>g.write('signed/vcp.exe',Buffer.alloc(528)),g=>g.write('signing/uninstaller/unsigned.exe',Buffer.alloc(512)),
     g=>g.write('receipts/native-signing.json',{}),g=>{g.evidence.log_transformations[0].original_sha256='0'.repeat(64);g.write('evidence.json',g.evidence)}]) {
     const changed=signedFixture(t);mutate(changed);changed.sums();assert.throws(()=>preparePublication(changed.options));absent(changed);
+  }
+});
+
+test('publication accepts synchronized 0.2.3 packets with and without signing', t => {
+  const versions = { native_version: '0.2.3', sdk_version: '0.2.3', vsix_version: '0.2.3' };
+  for (const create of [fixture, signedFixture]) {
+    const f = create(t, versions), result = preparePublication(f.options);
+    assert.equal(result.version, '0.2.3'); assert.equal(result.vsixVersion, '0.2.3');
+    assert.equal(result.tag, `v0.2.3-${f.options.expectedPair.slice(0, 12)}`);
+  }
+});
+
+test('publication rejects self-consistent numeric version drift and malformed packet versions', t => {
+  const versions = { native_version: '0.2.3', sdk_version: '0.2.3', vsix_version: '0.2.3' };
+  for (const field of Object.keys(versions)) {
+    for (const version of ['0.2.2', '0.2.3-rc.1', '00.2.3', '0.2.3\n', null]) {
+      const f = fixture(t, { ...versions, [field]: version });
+      assert.throws(() => preparePublication(f.options), /Invalid release versions|versions must match/);
+      absent(f);
+    }
   }
 });
 
@@ -239,6 +259,6 @@ test('self-consistent receipt rewrites cannot bypass production build and candid
   ]) {
     const f = fixture(t); mutate(f);
     const rewritten = f.rebind(); f.options.expectedPair = rewritten.pair_id;
-    assert.throws(() => preparePublication(f.options), /identity mismatch|Production build|Invalid beta/); absent(f);
+    assert.throws(() => preparePublication(f.options), /identity mismatch|Production build|versions must match/); absent(f);
   }
 });

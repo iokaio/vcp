@@ -4,6 +4,7 @@ const fs = require('node:fs'), path = require('node:path');
 const { hash, fileHash, json } = require('./provenance.cjs');
 const repository = 'iokaio/vcp';
 const check = (condition, message) => { if (!condition) throw Error(message); };
+const releaseTag = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-beta\.(0|[1-9]\d*))?-[a-f0-9]{12}$/;
 async function api(route, method = 'GET', body) {
   check(process.env.GH_TOKEN, 'GitHub workflow token required');
   const response = await fetch(`https://api.github.com/repos/${repository}/${route}`, {
@@ -68,7 +69,7 @@ async function upload(release, file, expected) {
 async function publish(directory) {
   check(process.env.GITHUB_REPOSITORY === repository && process.env.GITHUB_REF === 'refs/heads/main', 'Publication runs only on this repository main');
   const release = json(path.join(directory, 'assets/release.json'));
-  check(/^v\d+\.\d+\.\d+-beta\.\d+-[a-f0-9]{12}$/.test(release.tag) &&
+  check(releaseTag.test(release.tag) &&
     /^[a-f0-9]{40}$/.test(release.commit) && /^[a-f0-9]{64}$/.test(release.pairId) &&
     release.commit === process.env.EXPECTED_COMMIT && release.pairId === process.env.EXPECTED_PAIR_ID &&
     release.tag === `v${release.version}-${release.pairId.slice(0, 12)}`, 'Invalid staged release identity');
@@ -105,7 +106,7 @@ async function publish(directory) {
   check(sumNames.size === 4, 'All public binaries and metadata must be checksum-bound');
   let remote = releases.find(row => row.tag_name === release.tag);
   for (const prior of releases.filter(row => !row.draft && row.prerelease && row.tag_name !== release.tag &&
-    /^v\d+\.\d+\.\d+-beta\.\d+-[a-f0-9]{12}$/.test(row.tag_name))) {
+    releaseTag.test(row.tag_name))) {
     // Tags are exact source commits: an older source may be republished only without promoting it.
     const comparison = await api(`compare/${prior.tag_name}...${release.commit}`);
     check(['ahead', 'identical'].includes(comparison?.status), 'A newer beta source is already published; refusing to move latest backwards');

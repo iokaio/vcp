@@ -6,8 +6,8 @@ not qualified. The engine is installed separately; the VSIX contains the SDK
 and protocol schema, but no engine, provider credentials or publisher keys.
 
 Install the candidate with **Extensions: Install from VSIX**, select the supplied
-`vcp-0.2.2-win32-x64.vsix`, and reload when requested. This is the internal beta
-pre-release channel, paired with native 0.2.0-beta.2 and SDK 0.2.2. For an isolated installation:
+`vcp-0.2.3-win32-x64.vsix`, and reload when requested. This is the internal beta
+pre-release channel, paired with native 0.2.3 and SDK 0.2.3. For an isolated installation:
 
 ```powershell
 Code.exe --user-data-dir <private-profile> --extensions-dir <private-extensions> --install-extension <absolute-vsix-path>

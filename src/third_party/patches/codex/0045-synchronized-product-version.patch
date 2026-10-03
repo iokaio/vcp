@@ -1,0 +1,13 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index 269c24e1..a9586cab 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -17491,7 +17491,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "vcp-cli"
+-version = "0.2.0-beta.2"
++version = "0.2.3"
+ dependencies = [
+  "base64 0.22.1",
+  "clap",

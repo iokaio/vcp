@@ -16,12 +16,13 @@ function environment(t, values = {}) {
   t.after(() => {for (const [key,value] of Object.entries(before)) {if (value === undefined) delete process.env[key]; else process.env[key] = value;}});
   t.mock.method(console,'log',()=>{});
 }
-function fixture(t) {
+function fixture(t, version = '0.2.0-beta.1') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(),'vcp-github-publication-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const assets = path.join(root,'assets');fs.mkdirSync(assets);
+  const tag = `v${version}-${pairId.slice(0,12)}`;
   const base = `https://github.com/iokaio/vcp/releases/download/${tag}/`;
-  const release = {version:'0.2.0-beta.1',vsixVersion:'0.2.1',pairId,commit,tag,candidateAt:'2026-10-01T15:00:00.000Z',
+  const release = {version,vsixVersion:version.includes('-beta.')?'0.2.1':version,pairId,commit,tag,candidateAt:'2026-10-01T15:00:00.000Z',
     runUrl:'https://github.com/iokaio/vcp/actions/runs/123',manifestHref:base+'release.json',checksumHref:base+'SHA256SUMS',artifacts:[]};
   for (const [kind,name] of [['setup','vcp-setup.exe'],['zip','vcp.zip'],['vsix','vcp.vsix']]) {
     const bytes=Buffer.from(`synthetic ${kind} bytes; never executable`);fs.writeFileSync(path.join(assets,name),bytes);
@@ -44,6 +45,7 @@ test('download page follows the recorded extension identity and preserves histor
 });
 function response(value,status=200) {return new Response(status===204?null:JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});}
 function github(t,f,{existing=false,draft=true,differing=false,failUpload=0,corruptReread=false}={}) {
+  const tag = f.release.tag;
   const calls=[],state={ref:existing,uploads:0,remote:existing?{
     id:7,tag_name:tag,draft,prerelease:true,html_url:`https://github.com/iokaio/vcp/releases/tag/${tag}`,
     upload_url:'https://uploads.github.com/repos/iokaio/vcp/releases/7/assets{?name,label}',
@@ -99,6 +101,39 @@ test('GitHub publishes only after all five draft uploads have matching remote di
   assert.deepEqual(fs.readFileSync(path.join(f.root,'site/latest.json')),fs.readFileSync(path.join(f.assets,'release.json')));
   assert.equal(fs.readFileSync(path.join(f.root,'site/.nojekyll'),'utf8'),'');
   assert.equal(fs.readFileSync(path.join(f.root,'site/index.html'),'utf8'),renderDownloadPage(f.release));
+});
+
+test('GitHub publication accepts the synchronized numeric release tag', async t => {
+  environment(t); const f = fixture(t, '0.2.3'), server = github(t, f);
+  await publication.publish(f.root);
+  assert.equal(server.state.remote.tag_name, `v0.2.3-${pairId.slice(0, 12)}`);
+  assert.equal(server.state.uploads, 5); assert.equal(server.state.remote.draft, false);
+  assert.match(fs.readFileSync(path.join(f.root, 'site/index.html'), 'utf8'), /Native 0\.2\.3/);
+});
+
+test('numeric and historical release tags both prevent publication from moving backwards', async t => {
+  environment(t);
+  for (const version of ['0.2.0-beta.2', '0.2.3']) {
+    const f = fixture(t, '0.2.3'), priorTag = `v${version}-${'c'.repeat(12)}`, calls = [];
+    t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+      const route = String(input).slice(apiRoot.length); calls.push(route);
+      assert.equal(options.method, 'GET', 'A newer retained release must refuse every publication write');
+      if (route === 'releases?per_page=100&page=1') return response([{ tag_name: priorTag, draft: false, prerelease: true }]);
+      if (route === `compare/${priorTag}...${commit}`) return response({ status: 'behind' });
+      throw Error('Unexpected mocked GitHub operation: ' + route);
+    });
+    await assert.rejects(publication.publish(f.root), /newer beta source is already published/);
+    assert.equal(calls.length, 2); assert.equal(fs.existsSync(path.join(f.root, 'site')), false);
+  }
+});
+
+test('GitHub refuses malformed numeric release tags before network access', async t => {
+  environment(t);
+  t.mock.method(globalThis, 'fetch', () => { assert.fail('Malformed tags cannot reach GitHub'); });
+  for (const version of ['00.2.3', '0.2.3-rc.1', '0.2', 'v0.2.3']) {
+    const f = fixture(t, version);
+    await assert.rejects(publication.publish(f.root), /Invalid staged release identity/);
+  }
 });
 test('an interrupted upload preserves an unpublished draft without generating a download page',async t=>{
   environment(t);const f=fixture(t),server=github(t,f,{failUpload:2});

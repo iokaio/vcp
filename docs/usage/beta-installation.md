@@ -1,8 +1,8 @@
 # Install the internal beta candidate
 
-These instructions target Windows x64 native `0.2.0-beta.2` with SDK/VSIX `0.2.2`.
-This candidate requires Ioka LLC code signatures; its build and qualification
-are in progress. The previously published `0.2.0-beta.1` remains unsigned. Check
+These instructions target Windows x64 native, installer and SDK/VSIX `0.2.3`.
+This candidate remains an internal beta and requires Ioka LLC code signatures.
+Use the matching candidate handoff; a source version bump does not publish it. Check
 the accompanying scorecard before manual testing: building an installer does not
 mean its installed-product gates passed. Do not distribute it until the recorded
 owner decision authorizes distribution. See [known issues](beta-known-issues.md).
@@ -24,10 +24,10 @@ Obtain the setup EXE, portable ZIP, VSIX and release-pair/checksum records toget
 from the approved internal handoff. Compare each local SHA-256 to that record:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.0-beta.2-windows-x64-signed-setup.exe'
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.0-beta.2-windows-x64-signed.zip'
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.2-win32-x64.vsix'
-Get-AuthenticodeSignature -LiteralPath '.\vcp-0.2.0-beta.2-windows-x64-signed-setup.exe' |
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.3-windows-x64-signed-setup.exe'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.3-windows-x64-signed.zip'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.3-win32-x64.vsix'
+Get-AuthenticodeSignature -LiteralPath '.\vcp-0.2.3-windows-x64-signed-setup.exe' |
   Select-Object Status, StatusMessage, SignerCertificate, TimeStamperCertificate
 ```
 
