@@ -10,6 +10,19 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
+BETA-08/11: the October 2 owner-authorized publication of synchronized `0.2.3`
+completed in [run 37094167354](https://github.com/iokaio/vcp/actions/runs/37094167354).
+[Candidate 37092293430/1](https://github.com/iokaio/vcp/actions/runs/37092293430/attempts/1)
+passed through `pair` on source `0866686492cd5e1df3378f6c208fd49b610d990e`.
+Pair `f736a0d2c3394d4bda5c43c970c3a20a1aa40e3266979b1ebde484bee78a3a32`
+is [public](https://github.com/iokaio/vcp/releases/tag/v0.2.3-f736a0d2c339)
+and selected by [downloads.ioka.io](https://downloads.ioka.io/). All five public
+asset hashes and sizes, page HTML, latest metadata and HTTPS were verified.
+The engine, launcher, setup and uninstaller signatures passed; actual native,
+installer, VSIX and bundled SDK versions match `0.2.3`. Installed/native and
+clean-host qualification remain unrun for this pair. Marketplace publication
+has not been performed for `0.2.3`. See the [publication record](../development/beta-publication.md).
+
 BETA-04/06/07: the October 2 owner direction synchronizes the native app,
 Windows installer, SDK and VSIX at numeric version `0.2.3`. Current source
 admission requires matching numeric versions; the installer consumes the native
@@ -26,12 +39,12 @@ defaults. The scoped contract and verification status are in
 [ADR-082](../adr/082-account-setup-and-model-selections.md). Source changes do not
 update the previously published installer or grant installed-product acceptance.
 
-BETA-07/08/11 update: the renamed signed candidate and limited publication are
+Earlier BETA-07/08/11 update: the renamed signed candidate and limited publication are
 complete. [Candidate 36938973679/1](https://github.com/iokaio/vcp/actions/runs/36938973679/attempts/1)
 passed through `pair` on source `a4a5b93b0077eb8f6a63f005379c09ce0ff4773e`.
 Pair `e9e8ba52684a67b726787911082ec683ed8fba33c507e2c496bf9765ff626984`
 is [public](https://github.com/iokaio/vcp/releases/tag/v0.2.0-beta.2-e9e8ba52684a)
-and selected by [downloads.ioka.io](https://downloads.ioka.io/) after the owner's
+and was selected by [downloads.ioka.io](https://downloads.ioka.io/) after the owner's
 explicit publication instruction. All five downloaded assets matched their
 prepared hashes; page HTML, latest metadata and HTTPS verified. See the
 [publication record](../development/beta-publication.md). Native signatures passed

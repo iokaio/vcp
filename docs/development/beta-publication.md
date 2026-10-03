@@ -2,6 +2,35 @@
 
 ## Current signed beta publication
 
+On October 2, 2026 the owner authorized publishing the verified `0.2.3` artifacts
+to downloads.ioka.io. BETA-11's limited-beta publication completed in
+[run 37094167354](https://github.com/iokaio/vcp/actions/runs/37094167354), with both
+Release and Pages jobs passing. The existing candidate bytes were published
+without rebuilding or re-signing.
+
+- [Published prerelease](https://github.com/iokaio/vcp/releases/tag/v0.2.3-f736a0d2c339):
+  native, Windows installer, SDK and VSIX all `0.2.3`; extension ID `iokaio.vcp`.
+- Source: `0866686492cd5e1df3378f6c208fd49b610d990e`.
+- Pair: `f736a0d2c3394d4bda5c43c970c3a20a1aa40e3266979b1ebde484bee78a3a32`.
+- Candidate: [37092293430, attempt 1](https://github.com/iokaio/vcp/actions/runs/37092293430/attempts/1),
+  successful `pair` checkpoint. Later installed/native and clean-host qualification
+  remain unrun for this exact pair; publication does not complete those gates.
+- The engine, launcher, setup and uninstaller passed Windows signature validation
+  for Ioka LLC, including the pinned identity EKU and timestamps. Actual native,
+  installer, VSIX manifest and bundled SDK versions were verified as `0.2.3`.
+
+[downloads.ioka.io](https://downloads.ioka.io/) serves this release over HTTPS
+with normal certificate validation. All five public assets were downloaded and
+matched the prepared SHA-256 hashes and sizes. The public HTML exactly matched
+the release renderer, and `latest.json` matched the published manifest.
+Earlier release assets were retained. Marketplace publication is separate and
+has not been performed for `0.2.3`.
+
+Local evidence: `artifacts/beta-delivery/public-verification-37094167354/` and
+`artifacts/local-candidate/signed-0.2.3-37092293430/local-verification.json`.
+
+## Historical signed beta.2 publication
+
 On October 1, 2026 the owner authorized publishing the matching signed artifacts
 while manually uploading the renamed Marketplace VSIX. BETA-11's limited-beta
 publication completed in [run 36943259079](https://github.com/iokaio/vcp/actions/runs/36943259079),
@@ -17,7 +46,7 @@ with both Release and Pages jobs passing.
 - The engine, launcher, setup and uninstaller passed Windows signature validation
   for Ioka LLC, including the pinned identity EKU and timestamps.
 
-[downloads.ioka.io](https://downloads.ioka.io/) now serves this release. All five
+[downloads.ioka.io](https://downloads.ioka.io/) then served this release. All five
 public assets were downloaded and matched the prepared SHA-256 hashes and sizes.
 The public HTML exactly matched the release renderer; `latest.json` matched the
 published manifest. HTTPS returned 200 with normal certificate validation and
