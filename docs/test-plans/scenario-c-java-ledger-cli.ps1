@@ -22,6 +22,7 @@ pwsh -File .\scenario-c-java-ledger-cli.ps1 -ProviderGeneration C:\vcp-private\p
 param(
     [Parameter(Mandatory)][string]$ProviderGeneration,
     [string]$RunRoot = (Join-Path $env:SystemDrive 'vcp-scenarios'),
+    [string]$ProjectPath,
     [string]$Vcp,
     [decimal]$TurnBudgetUsd = 3,
     [decimal]$MaxScenarioUsd = 30,
@@ -35,7 +36,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
-$ctx = Initialize-VcpScenario -Name 'c-java-ledger-cli' -RunRoot $RunRoot -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
+$ctx = Initialize-VcpScenario -Name 'c-java-ledger-cli' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
@@ -504,7 +505,12 @@ $environmentBlock = @'
   short summary of changed files and command results.
 '@
 $environmentBlock = $environmentBlock.Replace('{{JAVA}}', [string]$javaMajor).Replace('{{MAVEN}}', $mavenLine)
-function New-Prompt([string]$Body, [string]$Protected = '') { return $Body + $environmentBlock.Replace('{{PROTECTED}}', $Protected) }
+function New-Prompt([string]$Body, [string]$Protected = '') {
+    if ($ctx.ReuseProject -and (Test-Path -LiteralPath (Join-Path $ws 'src/test/java/io/vcp/ledger/RegressionTest.java')) -and $Protected -notlike '*RegressionTest.java*') {
+        $Protected += ', `src/test/java/io/vcp/ledger/RegressionTest.java`'
+    }
+    return $Body + $environmentBlock.Replace('{{PROTECTED}}', $Protected)
+}
 
 $promptT1 = New-Prompt @'
 # Task T1 - Import bank CSV exports into a JSON ledger
@@ -775,6 +781,35 @@ function Compare-LedgerExport([object[]]$Actual, [object[]]$Expected) {
     Assert-That (($keys -join "`n") -ceq ($sortedKeys -join "`n")) 'export is not ordered by date then description'
 }
 
+function Assert-LedgerFixture([string]$RelativePath, [string]$Expected) {
+    $path = Join-Path $ws $RelativePath
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Incompatible existing ledger project: $RelativePath is not a file; nothing will be replaced." }
+    $actual = [IO.File]::ReadAllText($path).Replace("`r`n", "`n").TrimEnd("`n")
+    if ($actual -cne $Expected.Replace("`r`n", "`n").TrimEnd("`n")) {
+        throw "Incompatible existing ledger project: $RelativePath differs from the scenario's protected fixture; nothing will be replaced. Use a fresh project directory for this fixture."
+    }
+}
+
+function Initialize-LedgerProject {
+    if ($ctx.ReuseProject) {
+        foreach ($relative in 'pom.xml', 'src/main/java/io/vcp/ledger/LedgerApp.java') {
+            if (-not (Test-Path -LiteralPath (Join-Path $ws $relative) -PathType Leaf)) {
+                throw "Incompatible existing ledger project: missing $relative; choose an existing Scenario C project or an empty directory."
+            }
+        }
+        foreach ($relative in 'samples/transactions-2026Q1.csv', 'samples/rules.csv') { Assert-LedgerFixture $relative $seed[$relative] }
+        Assert-LedgerFixture 'src/test/java/io/vcp/ledger/RegressionTest.java' $regressionTest
+    }
+    Write-SeedFiles -Root $ws -Files $seed -MissingOnly:$ctx.ReuseProject
+}
+
+function Add-LedgerRegressionTests {
+    $relative = 'src/test/java/io/vcp/ledger/RegressionTest.java'
+    if ($ctx.ReuseProject) { Assert-LedgerFixture $relative $regressionTest }
+    Write-SeedFiles -Root $ws -Files @{ $relative = $regressionTest } -MissingOnly:$ctx.ReuseProject
+}
+
 function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'protected-files' -Description 'protected files are byte-identical' -Test {
             foreach ($path in $Hashes.Keys) {
@@ -796,7 +831,7 @@ try {
     # --- B0 ---------------------------------------------------------------
     $stage = 'B0-baseline'
     Write-Step $ctx "B0 seed Maven project (JDK $javaMajor), resolve dependencies, baseline verify" 'phase'
-    Write-SeedFiles -Root $ws -Files $seed
+    Initialize-LedgerProject
     $ctx.Notes.Add("Fixture: $($fixtureRows.Count) rows, $($uniqueRows.Count) unique, $duplicateCount duplicates, $uncategorizedCount uncategorized.")
     $mavenVersion = Invoke-Maven $stage 'maven-version' @('--version')
     if ($mavenVersion.ExitCode -ne 0 -or $mavenVersion.Output -notmatch 'Apache Maven (\d+\.\d+\.\d+)' -or [version]$Matches[1] -lt [version]'3.9.0') {
@@ -808,6 +843,10 @@ try {
     $protected = @{
         'samples/transactions-2026Q1.csv' = (Get-Sha256 (Join-Path $ws 'samples\transactions-2026Q1.csv'))
         'samples/rules.csv'               = (Get-Sha256 (Join-Path $ws 'samples\rules.csv'))
+    }
+    $existingRegression = 'src/test/java/io/vcp/ledger/RegressionTest.java'
+    if (Test-Path -LiteralPath (Join-Path $ws $existingRegression) -PathType Leaf) {
+        $protected[$existingRegression] = Get-Sha256 (Join-Path $ws $existingRegression)
     }
 
     # --- Profiles ---------------------------------------------------------
@@ -850,7 +889,7 @@ try {
     Save-Checkpoint $ctx 'T3: table, budgets, exit codes'
 
     # --- T4: protected regression tests -------------------------------------
-    Write-Utf8File (Join-Path $ws 'src\test\java\io\vcp\ledger\RegressionTest.java') $regressionTest
+    Add-LedgerRegressionTests
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
     $protected['src/test/java/io/vcp/ledger/RegressionTest.java'] = Get-Sha256 (Join-Path $ws 'src\test\java\io\vcp\ledger\RegressionTest.java')
     $gatesT4 = { param($s) Test-MavenVerify $s 15 $regressionNames; Test-BankExport $s; Test-Reports $s; Test-ProtectedUnchanged $s $protected }
@@ -890,7 +929,7 @@ try {
     Test-BankExport $stage
     Test-ExportAndRange $stage
     Test-ProtectedUnchanged $stage $protected
-    $artifacts = Join-Path $ws 'artifacts'
+    $artifacts = Join-Path $(if ($ctx.ReuseProject) { $ctx.Root } else { $ws }) 'artifacts'
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
     $jar = Join-Path $ws 'target\ledger-cli-1.0.0-all.jar'
     [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'final-artifacts' -Description 'built jar generates the complete sample artifact set successfully' -Test {

@@ -40,9 +40,38 @@ function Write-JsonFile {
 
 function Write-SeedFiles {
     <# Writes a hashtable of relative path => content below Root. #>
-    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][System.Collections.IDictionary]$Files)
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][System.Collections.IDictionary]$Files, [switch]$MissingOnly)
     foreach ($relative in $Files.Keys) {
-        Write-Utf8File -Path (Join-Path $Root $relative) -Content $Files[$relative]
+        $path = Join-Path $Root $relative
+        if ($MissingOnly) {
+            $base = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/')
+            $path = [IO.Path]::GetFullPath($path)
+            if (-not $path.StartsWith($base + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Seed file must stay inside the selected project.' }
+            if (Test-Path -LiteralPath $path) { continue }
+            $parent = Split-Path -Parent $path
+            $probe = $parent
+            while ($probe) {
+                if ((Test-Path -LiteralPath $probe) -and ((Get-Item -LiteralPath $probe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    throw "Refusing to seed through a link or junction: $probe"
+                }
+                if ($probe -eq $base) { break }
+                $probe = Split-Path -Parent $probe
+            }
+            [IO.Directory]::CreateDirectory($parent) | Out-Null
+            $stream = $null
+            try {
+                $stream = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+                $bytes = $script:Utf8NoBom.GetBytes([string]$Files[$relative])
+                $stream.Write($bytes, 0, $bytes.Length)
+            }
+            catch [IO.IOException] {
+                if ($stream -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { throw }
+                # A file created concurrently belongs to its creator, not the seed.
+            }
+            finally { if ($stream) { $stream.Dispose() } }
+            continue
+        }
+        Write-Utf8File -Path $path -Content $Files[$relative]
     }
 }
 
@@ -387,6 +416,7 @@ function Initialize-VcpScenario {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$RunRoot,
+        [string]$ProjectPath,
         [string]$Vcp,
         [Parameter(Mandatory)][string]$ProviderGeneration,
         [ValidateRange(0.01, 1000000)][decimal]$TurnBudgetUsd = 3,
@@ -396,7 +426,7 @@ function Initialize-VcpScenario {
         [ValidateRange(1, 2147483647)][int]$MaxRequests = 96,
         [ValidateRange(1, 86100)][int]$DeadlineSeconds = 1800,
         [ValidateRange(1, 86100)][int]$ShortDeadlineSeconds = 150,
-        [double]$MinSnapshotHours = 5,
+        [ValidateRange(0, 12)][double]$MinSnapshotHours = 0,
         [switch]$SkipPaidStages
     )
     if (-not $IsWindows) { throw 'The VCP native CLI scenarios require Windows.' }
@@ -407,11 +437,20 @@ function Initialize-VcpScenario {
     $runRootFull = [System.IO.Path]::GetFullPath($RunRoot)
     Assert-SafeRunRoot $runRootFull
     $root = Join-Path $runRootFull (Join-Path $Name $runId)
+    $workspace = if ($ProjectPath) { [IO.Path]::GetFullPath($ProjectPath) } else { Join-Path $root 'workspace' }
+    $workspacePrefix = $workspace.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if ($root -eq $workspace -or $root.StartsWith($workspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Run logs, profiles and VCP data must be outside the selected project. Choose a separate -RunRoot.'
+    }
+    if ((Test-Path -LiteralPath $workspace) -and -not (Test-Path -LiteralPath $workspace -PathType Container)) { throw 'ProjectPath must identify a directory.' }
+    $reuseProject = (Test-Path -LiteralPath $workspace -PathType Container) -and
+        @(Get-ChildItem -LiteralPath $workspace -Force -ErrorAction Stop | Select-Object -First 1).Count -gt 0
     $ctx = @{
         Name                 = $Name
         RunId                = $runId
         Root                 = $root
-        Workspace            = Join-Path $root 'workspace'
+        Workspace            = $workspace
+        ReuseProject         = [bool]$reuseProject
         Data                 = Join-Path $root 'vcp-data'
         Profiles             = Join-Path $root 'profiles'
         Logs                 = Join-Path $root 'logs'
@@ -434,6 +473,7 @@ function Initialize-VcpScenario {
         UnknownTaskCosts    = @{}
         TaskBudgetUsd       = @{}
         UnscopedCostUnknown = $false
+        PaidExecutionBlock   = $null
         Gates                = [System.Collections.Generic.List[object]]::new()
         Stages               = [System.Collections.Generic.List[object]]::new()
         Notes                = [System.Collections.Generic.List[string]]::new()
@@ -451,10 +491,11 @@ function Initialize-VcpScenario {
     $ctx.Vcp = Resolve-VcpExecutable $Vcp
     $generation = [System.IO.Path]::GetFullPath($ProviderGeneration)
     $ctx.Snapshot = Join-Path $generation 'qualified\snapshot.json'
+    if (-not (Test-Path -LiteralPath $ctx.Snapshot -PathType Leaf)) { $ctx.Snapshot = Join-Path $generation 'snapshot.json' }
     $ctx.Catalog = Join-Path $generation 'endpoints.json'
     foreach ($required in $ctx.Snapshot, $ctx.Catalog) {
         if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
-            throw "Provider generation file missing: $required. Run 'vcp setup provider' once (plan section 2.2)."
+            throw "Configured provider metadata file missing: $required. Select an existing configured provider with run-cli-scenarios.ps1."
         }
     }
     $ctx.SnapshotText = [System.IO.File]::ReadAllText($ctx.Snapshot)
@@ -469,12 +510,12 @@ function Initialize-VcpScenario {
         $ctx.Notes.Add("Output tokens clamped from $($ctx.OutputTokens) to endpoint max_output $maxOutput.")
         $ctx.OutputTokens = [int]$maxOutput
     }
-    if ($hoursLeft -lt $MinSnapshotHours) {
-        throw ('Provider snapshot expires {0} ({1:N1}h left); renew with vcp setup provider into a new directory before a long run.' -f $ctx.SnapshotValidUntil, $hoursLeft)
+    if ($hoursLeft -le 0 -or $hoursLeft -lt $MinSnapshotHours) {
+        throw ('Configured provider metadata expires {0} ({1:N1}h left) and cannot be used; provider setup was not changed.' -f $ctx.SnapshotValidUntil, $hoursLeft)
     }
     $credentialName = if ($env:VCP_SCENARIO_CREDENTIAL_ENV) { $env:VCP_SCENARIO_CREDENTIAL_ENV } else { 'OPENROUTER_API_KEY' }
     if (-not $SkipPaidStages -and [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($credentialName, 'Process'))) {
-        throw "$credentialName is not set in this console. Use run-cli-scenarios.ps1 for guided credential and provider preparation."
+        throw "$credentialName is not set in this console. Use run-cli-scenarios.ps1 for the masked credential prompt."
     }
     if ($null -ne [Environment]::GetEnvironmentVariable('VCP_DENY_PROVIDER_CREDENTIALS', 'Process') -and -not $SkipPaidStages) {
         throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; paid stages cannot run. Remove it or pass -SkipPaidStages.'
@@ -482,6 +523,7 @@ function Initialize-VcpScenario {
     Start-Transcript -LiteralPath (Join-Path $ctx.Logs 'console-transcript.log') | Out-Null
     $ctx.Transcript = $true
     Write-Step $ctx "Run root: $root" 'phase'
+    Write-Step $ctx ("Project: {0} ({1})" -f $workspace, $(if ($reuseProject) { 'reusing existing files' } else { 'creating scenario scaffold' })) 'phase'
     Write-Step $ctx ("vcp: {0}; model {1} endpoint {2}; snapshot valid until {3}" -f $ctx.Vcp, $ctx.Model, $ctx.Endpoint, $ctx.SnapshotValidUntil)
     return $ctx
 }
@@ -852,6 +894,72 @@ function Get-VcpConditions {
     return @($Result.conditions.PSObject.Properties | Where-Object { $_.Value -eq $true } | ForEach-Object { $_.Name })
 }
 
+function Update-PaidExecutionBlock {
+    # Record the observed stopping condition before collecting read-only evidence.
+    # A killed/missing result is an interruption, not proof of durable cancellation.
+    param($Ctx, [string]$Stage, $Run)
+    $conditions = @(Get-VcpConditions $Run.Result)
+    $reasons = [Collections.Generic.List[string]]::new()
+    foreach ($condition in 'required_input', 'unresolved_effect', 'internal_failure', 'cancelled', 'invalid_configuration', 'budget_exhausted') {
+        if ($conditions -contains $condition) { $reasons.Add($condition) }
+    }
+    $exitReason = switch ($Run.ExitCode) { 1 { 'internal_failure' }; 2 { 'invalid_configuration' }; 4 { 'required_input' }; 5 { 'budget_exhausted' }; 6 { 'cancelled' }; 7 { 'unresolved_effect' } }
+    if ($exitReason -and -not $reasons.Contains($exitReason)) { $reasons.Add($exitReason) }
+    if ($Run.TimedOut) { $reasons.Add('harness_timeout') }
+    if (-not $Run.Result) { $reasons.Add('missing_terminal_result') }
+    if ($Run.ExitCode -notin 0, 1, 2, 3, 4, 5, 6, 7, 8) { $reasons.Add('interrupted_or_unknown_exit') }
+    $approvals = @($Run.Frames | Where-Object type -eq 'required_input' | ForEach-Object { $_.approval } | Where-Object { $_ } | Select-Object -Unique)
+    if ($approvals.Count -and -not $Run.Result -and -not $reasons.Contains('required_input')) { $reasons.Add('required_input') }
+    $task = if ($Run.Scope) { [string]$Run.Scope.task } else { $null }
+    $paused = ($conditions -contains 'durably_paused') -or $Run.ExitCode -eq 8
+    $resumable = $paused -and $reasons.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($task)
+    if ($reasons.Count -eq 0 -and -not $paused) {
+        if ($Ctx.PaidExecutionBlock -and $Ctx.PaidExecutionBlock.resume_same_task -and $Ctx.PaidExecutionBlock.task -eq $task) {
+            $Ctx.PaidExecutionBlock = $null
+            Write-JsonFile (Join-Path $Ctx.Results 'paid-execution.json') @{ status = 'resumed'; stage = $Stage; task = $task; blocked = $false }
+        }
+        return
+    }
+    if ($paused -and $reasons.Count -eq 0) { $reasons.Add('durably_paused') }
+    $block = [ordered]@{
+        stage = $Stage; task = $task; session = $(if ($Run.Scope) { [string]$Run.Scope.session } else { $null })
+        reasons = @($reasons); approval_ids = $approvals; exit_code = $Run.ExitCode; resume_same_task = [bool]$resumable
+        stdout = $Run.StdoutPath; stderr = $Run.StderrPath; inspection = (Join-Path $Ctx.Logs $Stage)
+        policy = (Join-Path $Ctx.Logs "$Stage/inspect-policy.json"); tools = (Join-Path $Ctx.Logs "$Stage/inspect-tools.json")
+        commands = $(if ($Ctx.CommandLog) { $Ctx.CommandLog } else { Join-Path $Ctx.Logs 'vcp-commands.log' })
+    }
+    $Ctx.PaidExecutionBlock = [pscustomobject]$block
+    Write-JsonFile (Join-Path $Ctx.Results 'paid-execution.json') $block
+    $next = if ($resumable) { 'Only a resume of this same task may continue.' } else { 'No further paid tasks, repairs, reviews, forks or resumes will start in this run.' }
+    $note = "$Stage stopped paid execution: $($reasons -join ', '); task $task. $next Evidence: $($block.inspection); approvals: $($approvals -join ', ')."
+    $Ctx.Notes.Add($note)
+    Write-Step $Ctx $note 'warn'
+}
+
+function Test-PaidExecutionAdmission {
+    param($Ctx, $Record, [string[]]$Arguments = @())
+    $block = $Ctx.PaidExecutionBlock
+    if (-not $block) { return $true }
+    if ($block.resume_same_task -and $Arguments.Count -ge 2) {
+        $source = $null
+        $prior = @($Ctx.Stages | Where-Object { $_.task -and -not $_.skipped })
+        if ($Arguments[0] -eq 'resume') {
+            $source = if ($Arguments[1] -eq '--last') { $prior | Select-Object -Last 1 }
+                else { $prior | Where-Object task -eq $Arguments[1] | Select-Object -Last 1 }
+        }
+        elseif ($Arguments.Count -ge 3 -and $Arguments[0] -eq 'sessions' -and $Arguments[1] -eq 'resume') {
+            $source = $prior | Where-Object session -eq $Arguments[2] | Select-Object -Last 1
+        }
+        if ($source -and $source.task -eq $block.task) { return $true }
+    }
+    $Record.skipped = "paid execution stopped by $($block.stage): $($block.reasons -join ', '); task $($block.task); inspect $($block.inspection)"
+    $Ctx.Stages.Add([pscustomobject]$Record)
+    Write-Step $Ctx "Skipping $($Record.stage); $($Record.skipped)" 'warn'
+    # Let each scenario's catch/finally finalize its evidence now. Returning null
+    # here would still run later fixture mutations and unrelated assessments.
+    throw "Scenario stopped before $($Record.stage): $($Record.skipped). Results: $($Ctx.Results)"
+}
+
 function Invoke-VcpTask {
     <#
     One paid VCP turn: vcp run --file <prompt> with the stage profile, then the
@@ -883,6 +991,7 @@ function Invoke-VcpTask {
         Write-Step $Ctx "Skipping paid stage $Stage ($Title)" 'warn'
         return $null
     }
+    if (-not (Test-PaidExecutionAdmission $Ctx $stageRecord)) { return $null }
     $preflightFailures = @($Ctx.Gates | Where-Object { $_.stage -match '^(P0-|B0-|P1-|G0-)' -and $_.required -and $_.outcome -ne 'pass' })
     if ($preflightFailures.Count) { throw 'Required preflight, baseline, profile or guardrail checks failed; refusing paid execution.' }
     if (($Ctx.SpentUsd + $BudgetUsd) -gt $Ctx.MaxScenarioUsd) {
@@ -911,13 +1020,14 @@ function Complete-VcpStageEvidence {
     $Record.duration_seconds = $Run.DurationSeconds
     $Record.conditions = Get-VcpConditions $Run.Result
     $Record.event_counts = $Run.EventCounts
+    Update-PaidExecutionBlock $Ctx $Stage $Run
     if ($Run.TimedOut) { $Ctx.Notes.Add("$Stage exceeded the harness timeout and was killed; inspect for unresolved effects.") }
     $task = if ($Run.Scope) { [string]$Run.Scope.task } else { $null }
     $Record.task = $task
     $Record.session = if ($Run.Scope) { [string]$Run.Scope.session } else { $null }
     $requiredInput = @($Run.Frames | Where-Object { $_.type -eq 'required_input' })
     if ($requiredInput.Count) {
-        $Ctx.Notes.Add("$Stage stopped on $($requiredInput.Count) required input(s); the profile or autonomy did not cover a requested effect.")
+        $Ctx.Notes.Add("$Stage reported $($requiredInput.Count) required input(s); inspect the saved policy and tool evidence for the cause.")
     }
     if ($task) {
         $status = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'tasks-status' -Arguments @('tasks', 'status', $task)
@@ -1045,6 +1155,7 @@ function Invoke-VcpContinuation {
         $Ctx.Stages.Add([pscustomobject]$record)
         return $null
     }
+    if (-not (Test-PaidExecutionAdmission $Ctx $record $Arguments)) { return $null }
     $budget = Get-ContinuationBudget $Ctx $Arguments $Config
     $record.budget_usd = $budget.Cap
     $record.additional_budget_usd = $budget.Additional
@@ -1079,11 +1190,26 @@ function Invoke-RepairLoop {
         $failed = Get-FailedGates $Ctx $current
         if ($failed.Count -eq 0) { return $current }
         if ($Ctx.SkipPaidStages) { return $current }
+        $repairStage = "$Stage-repair$attempt"
+        if ($Ctx.PaidExecutionBlock) {
+            $skippedRepair = [ordered]@{ stage = $repairStage; title = "Repair failures from $current"; kind = 'run'; skipped = $null }
+            [void](Test-PaidExecutionAdmission $Ctx $skippedRepair)
+            return $current
+        }
+        $originalPromptPath = Join-Path $Ctx.Logs "$Stage/prompt.md"
+        if (-not (Test-Path -LiteralPath $originalPromptPath -PathType Leaf)) { throw "Cannot repair $Stage without its original task instructions: $originalPromptPath" }
+        if ((Get-Item -LiteralPath $originalPromptPath).Length -gt 65536) { throw "Original task instructions exceed the 64 KiB repair context limit: $originalPromptPath" }
+        $originalPrompt = [IO.File]::ReadAllText($originalPromptPath)
         $evidence = ($failed | ForEach-Object { "- [$($_.id)] $($_.description)`n  Failure: $($_.detail)" }) -join "`n"
         if ($evidence.Length -gt 12000) { $evidence = $evidence.Substring(0, 12000) + "`n... (truncated)" }
-        $repairStage = "$Stage-repair$attempt"
         $prompt = @"
 # Repair request ($repairStage)
+
+## Original task, environment and protected-file constraints
+
+$originalPrompt
+
+## Independent verification failures
 
 An independent verification harness checked the work from stage $current and
 these required checks failed. The checks are authoritative acceptance tests.
@@ -1328,6 +1454,11 @@ function Invoke-FinalEvidenceSweep {
 function Initialize-GitCheckpoint {
     <# Optional: a local git history in the workspace gives reviewers one commit per stage. #>
     param($Ctx)
+    if ($Ctx.ReuseProject) {
+        $Ctx.Git = $null
+        $Ctx.Notes.Add('Existing project: automatic git initialization, staging and checkpoint commits disabled to preserve user work.')
+        return
+    }
     $Ctx.Git = Find-Executable -Name 'git'
     if (-not $Ctx.Git) { $Ctx.Notes.Add('git not found; per-stage checkpoint commits disabled.'); return }
     [void](Invoke-Tool -Ctx $Ctx -Stage 'git' -Label 'init' -FilePath $Ctx.Git -ArgumentList @('init', '-q', '-b', 'main'))
@@ -1336,7 +1467,7 @@ function Initialize-GitCheckpoint {
 
 function Save-Checkpoint {
     param($Ctx, [string]$Message)
-    if (-not $Ctx.Git) { return }
+    if ($Ctx.ReuseProject -or -not $Ctx.Git) { return }
     [void](Invoke-Tool -Ctx $Ctx -Stage 'git' -Label 'add' -FilePath $Ctx.Git -ArgumentList @('add', '-A'))
     [void](Invoke-Tool -Ctx $Ctx -Stage 'git' -Label 'commit' -FilePath $Ctx.Git -ArgumentList @(
             '-c', 'user.name=vcp-scenario-harness', '-c', 'user.email=harness@localhost', '-c', 'commit.gpgsign=false',
@@ -1361,6 +1492,10 @@ function Complete-VcpScenario {
     no fatal error occurred, 1 otherwise.
     #>
     param($Ctx)
+    if ($Ctx.PaidExecutionBlock) {
+        [void](Add-GateResult $Ctx 'FINAL-execution' 'paid-execution-stopped' 'paid execution has no unresolved stopping condition' 'fail' `
+            ("$($Ctx.PaidExecutionBlock.reasons -join ', '); task $($Ctx.PaidExecutionBlock.task); inspect $($Ctx.PaidExecutionBlock.inspection)") $true)
+    }
     if ($Ctx.AccountedTaskUsd.Count -gt 0 -or $Ctx.UnscopedCostUnknown) {
         [void](Invoke-Gate -Ctx $Ctx -Stage 'FINAL-accounting' -Id 'cost-evidence' -Description 'latest accounting for every paid task is complete and within budget' -Test {
                 Assert-That (-not $Ctx.CostUnknown) 'Unsettled task accounting or an execution without task scope remains.'
@@ -1400,6 +1535,8 @@ function Complete-VcpScenario {
         wall_minutes             = [math]::Round(((Get-Date) - $Ctx.Started).TotalMinutes, 1)
         vcp                      = $Ctx.Vcp
         vcp_version              = $Ctx.VcpVersion
+        workspace                = $Ctx.Workspace
+        reused_project           = [bool]$Ctx.ReuseProject
         model                    = $Ctx.Model
         endpoint                 = $Ctx.Endpoint
         snapshot_valid_until     = $Ctx.SnapshotValidUntil
@@ -1408,6 +1545,7 @@ function Complete-VcpScenario {
         max_scenario_usd         = $Ctx.MaxScenarioUsd
         dry_run                  = [bool]$Ctx.SkipPaidStages
         skipped_stages           = $skippedStages.Count
+        paid_execution_block     = $Ctx.PaidExecutionBlock
         required_gates           = $required.Count
         required_passed          = $passed.Count
         required_failed          = $failed.Count
@@ -1429,6 +1567,8 @@ function Complete-VcpScenario {
 
     $md = [System.Text.StringBuilder]::new()
     [void]$md.AppendLine("# VCP practical scenario: $($Ctx.Name)")
+    [void]$md.AppendLine()
+    [void]$md.AppendLine("Project: ``$($Ctx.Workspace)`` (existing files reused: $([bool]$Ctx.ReuseProject)).")
     [void]$md.AppendLine()
     [void]$md.AppendLine("Run ``$($Ctx.RunId)`` - verdict **$($scorecard.verdict.ToUpperInvariant())** - $($passed.Count)/$($required.Count) required gates - spend $(Format-Usd $Ctx.SpentUsd) USD$(if ($Ctx.CostUnknown) { ' (incomplete cost evidence)' }) - $($scorecard.wall_minutes) min")
     [void]$md.AppendLine()

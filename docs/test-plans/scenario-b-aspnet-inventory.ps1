@@ -21,6 +21,7 @@ pwsh -File .\scenario-b-aspnet-inventory.ps1 -ProviderGeneration C:\vcp-private\
 param(
     [Parameter(Mandatory)][string]$ProviderGeneration,
     [string]$RunRoot = (Join-Path $env:SystemDrive 'vcp-scenarios'),
+    [string]$ProjectPath,
     [string]$Vcp,
     [decimal]$TurnBudgetUsd = 3,
     [decimal]$MaxScenarioUsd = 30,
@@ -40,7 +41,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
-$ctx = Initialize-VcpScenario -Name 'b-aspnet-inventory' -RunRoot $RunRoot -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
+$ctx = Initialize-VcpScenario -Name 'b-aspnet-inventory' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
@@ -259,8 +260,8 @@ $environmentBlock = @'
   .NET {{MAJOR}} SDK. Examples: `["build", "{{SOLUTION}}"]`, `["test", "{{SOLUTION}}"]`,
   `["tool", "run", "dotnet-ef", "migrations", "add", "<Name>", "--project", "src/Inventory.Web",
   "--output-dir", "Data/Migrations", "--", "--environment", "Development"]`.
-  Environment variables cannot be set for processes; pass `-- --environment Development` to
-  dotnet-ef so it reads the Development connection string.
+  The process profile sets Development and `ConnectionStrings__Inventory` to this run's
+  isolated test database; preserve that override and never target an existing application's database.
 - Target framework {{TFM}}; EF Core and ASP.NET Core packages {{EFVERSION}} are already referenced.
   Add a package only if essential, pinned to an exact version, and explain why.
 - Keep `appsettings.Development.json` and its `Inventory` connection string unchanged.
@@ -274,6 +275,9 @@ $environmentBlock = @'
 '@
 
 function New-Prompt([string]$Body, [string]$Protected = '') {
+    if ($ctx.ReuseProject -and (Test-Path -LiteralPath (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs'))) {
+        $Protected = '`, `tests/Inventory.Tests/RegressionTests.cs`'
+    }
     $block = $environmentBlock.Replace('{{MAJOR}}', [string]$major).Replace('{{TFM}}', $tfm).Replace('{{EFVERSION}}', $efVersion).Replace('{{SOLUTION}}', (Split-Path -Leaf (Get-Solution)))
     return $Body + $block.Replace('{{PROTECTED}}', $Protected)
 }
@@ -504,45 +508,76 @@ try {
     # --- B0: scaffold with the real dotnet templates ---------------------
     $stage = 'B0-baseline'
     Write-Step $ctx "B0 scaffold ($tfm), restore, LocalDB, baseline build" 'phase'
-    $efVersion = Get-LatestNuGetVersion 'Microsoft.EntityFrameworkCore.SqlServer' $major
-    $testingVersion = Get-LatestNuGetVersion 'Microsoft.AspNetCore.Mvc.Testing' $major
-    $efToolVersion = Get-LatestNuGetVersion 'dotnet-ef' $major
-    $ctx.Notes.Add("Pinned EF Core $efVersion, Mvc.Testing $testingVersion, dotnet-ef $efToolVersion for $tfm.")
+    if ($ctx.ReuseProject) {
+        foreach ($required in @($webProject, $testProject, '.config/dotnet-tools.json', 'src/Inventory.Web/appsettings.Development.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $ws $required) -PathType Leaf)) {
+                throw "Existing project is not an Inventory scenario project: missing $required. Select its workspace directory or a new empty project directory."
+            }
+        }
+        if (-not (Get-Solution)) { throw 'Existing Inventory project has no solution (.sln or .slnx).' }
+        [xml]$existingProject = Get-Content -LiteralPath (Join-Path $ws $webProject) -Raw
+        $frameworkNode = $existingProject.SelectSingleNode('//TargetFramework')
+        if (-not $frameworkNode -or $frameworkNode.InnerText -notmatch '^net(\d+)\.0$') { throw 'Existing Inventory project requires a single net8.0 or later target framework.' }
+        $tfm = $frameworkNode.InnerText
+        $targetMajor = [int]$Matches[1]
+        if ($targetMajor -lt 8 -or $targetMajor -gt $major) { throw "Existing target $tfm is not supported by installed SDK $major." }
+        $efPackage = $existingProject.SelectSingleNode('//PackageReference[@Include="Microsoft.EntityFrameworkCore.SqlServer"]')
+        $efVersion = if ($efPackage -and $efPackage.GetAttribute('Version')) { $efPackage.GetAttribute('Version') } else { '(existing project versions)' }
+        Write-Step $ctx "Reusing Inventory project: $ws (existing source, configuration, and dependency versions retained)." 'ok'
+        $ctx.Notes.Add("Existing project configuration is preserved. Harness database commands and HTTP tests use isolated database '$database' via ConnectionStrings__Inventory.")
+    }
+    else {
+        $efVersion = Get-LatestNuGetVersion 'Microsoft.EntityFrameworkCore.SqlServer' $major
+        $testingVersion = Get-LatestNuGetVersion 'Microsoft.AspNetCore.Mvc.Testing' $major
+        $efToolVersion = Get-LatestNuGetVersion 'dotnet-ef' $major
+        $ctx.Notes.Add("Pinned EF Core $efVersion, Mvc.Testing $testingVersion, dotnet-ef $efToolVersion for $tfm.")
+    }
     if ($useLocalDb) {
         $info = Invoke-Tool -Ctx $ctx -Stage $stage -Label 'localdb-info' -FilePath $sqlLocalDb -ArgumentList @('info', 'MSSQLLocalDB')
         if ($info.ExitCode -ne 0) { [void](Invoke-Tool -Ctx $ctx -Stage $stage -Label 'localdb-create' -FilePath $sqlLocalDb -ArgumentList @('create', 'MSSQLLocalDB')) }
         $start = Invoke-Tool -Ctx $ctx -Stage $stage -Label 'localdb-start' -FilePath $sqlLocalDb -ArgumentList @('start', 'MSSQLLocalDB')
         if ($start.ExitCode -ne 0) { throw "LocalDB failed to start: $($start.Errors)" }
     }
-    $steps = @(
-        @('new-sln', @('new', 'sln', '-n', 'Inventory', '-o', $ws)),
-        @('new-webapp', @('new', 'webapp', '-n', 'Inventory.Web', '-o', (Join-Path $ws 'src\Inventory.Web'), '-f', $tfm)),
-        @('new-xunit', @('new', 'xunit', '-n', 'Inventory.Tests', '-o', (Join-Path $ws 'tests\Inventory.Tests'), '-f', $tfm)),
-        @('new-gitignore', @('new', 'gitignore', '-o', $ws)),
-        @('new-tool-manifest', @('new', 'tool-manifest', '-o', $ws)))
-    foreach ($step in $steps) {
-        $run = Invoke-Dotnet $stage $step[0] $step[1]
-        if ($run.ExitCode -ne 0) { throw "dotnet $($step[0]) failed:`n$(Get-Tail ($run.Output + $run.Errors))" }
+    if (-not $ctx.ReuseProject) {
+        $steps = @(
+            @('new-sln', @('new', 'sln', '-n', 'Inventory', '-o', $ws)),
+            @('new-webapp', @('new', 'webapp', '-n', 'Inventory.Web', '-o', (Join-Path $ws 'src\Inventory.Web'), '-f', $tfm)),
+            @('new-xunit', @('new', 'xunit', '-n', 'Inventory.Tests', '-o', (Join-Path $ws 'tests\Inventory.Tests'), '-f', $tfm)),
+            @('new-gitignore', @('new', 'gitignore', '-o', $ws)),
+            @('new-tool-manifest', @('new', 'tool-manifest', '-o', $ws)))
+        foreach ($step in $steps) {
+            $run = Invoke-Dotnet $stage $step[0] $step[1]
+            if ($run.ExitCode -ne 0) { throw "dotnet $($step[0]) failed:`n$(Get-Tail ($run.Output + $run.Errors))" }
+        }
+        foreach ($step in @(
+                @('sln-add', @('sln', (Get-Solution), 'add', (Join-Path $ws $webProject), (Join-Path $ws $testProject))),
+                @('add-reference', @('add', (Join-Path $ws $testProject), 'reference', (Join-Path $ws $webProject))),
+                @('add-ef-sqlserver', @('add', (Join-Path $ws $webProject), 'package', 'Microsoft.EntityFrameworkCore.SqlServer', '--version', $efVersion)),
+                @('add-ef-design', @('add', (Join-Path $ws $webProject), 'package', 'Microsoft.EntityFrameworkCore.Design', '--version', $efVersion)),
+                @('add-mvc-testing', @('add', (Join-Path $ws $testProject), 'package', 'Microsoft.AspNetCore.Mvc.Testing', '--version', $testingVersion)),
+                @('add-ef-inmemory', @('add', (Join-Path $ws $testProject), 'package', 'Microsoft.EntityFrameworkCore.InMemory', '--version', $efVersion)),
+                @('tool-install-ef', @('tool', 'install', 'dotnet-ef', '--version', $efToolVersion)))) {
+            $run = Invoke-Dotnet $stage $step[0] $step[1]
+            if ($run.ExitCode -ne 0) { throw "dotnet $($step[0]) failed:`n$(Get-Tail ($run.Output + $run.Errors))" }
+        }
+        Write-Utf8File (Join-Path $ws 'README.md') $readme
+        Write-Utf8File (Join-Path $ws 'src\Inventory.Web\appsettings.Development.json') $appsettingsDevelopment
+        Add-Content -LiteralPath (Join-Path $ws '.gitignore') -Value "`nartifacts/`n" -Encoding utf8NoBOM
     }
-    foreach ($step in @(
-            @('sln-add', @('sln', (Get-Solution), 'add', (Join-Path $ws $webProject), (Join-Path $ws $testProject))),
-            @('add-reference', @('add', (Join-Path $ws $testProject), 'reference', (Join-Path $ws $webProject))),
-            @('add-ef-sqlserver', @('add', (Join-Path $ws $webProject), 'package', 'Microsoft.EntityFrameworkCore.SqlServer', '--version', $efVersion)),
-            @('add-ef-design', @('add', (Join-Path $ws $webProject), 'package', 'Microsoft.EntityFrameworkCore.Design', '--version', $efVersion)),
-            @('add-mvc-testing', @('add', (Join-Path $ws $testProject), 'package', 'Microsoft.AspNetCore.Mvc.Testing', '--version', $testingVersion)),
-            @('add-ef-inmemory', @('add', (Join-Path $ws $testProject), 'package', 'Microsoft.EntityFrameworkCore.InMemory', '--version', $efVersion)),
-            @('tool-install-ef', @('tool', 'install', 'dotnet-ef', '--version', $efToolVersion)))) {
-        $run = Invoke-Dotnet $stage $step[0] $step[1]
-        if ($run.ExitCode -ne 0) { throw "dotnet $($step[0]) failed:`n$(Get-Tail ($run.Output + $run.Errors))" }
+    else {
+        foreach ($restore in @(@('tool-restore', @('tool', 'restore')), @('restore', @('restore', (Get-Solution))))) {
+            $run = Invoke-Dotnet $stage $restore[0] $restore[1]
+            if ($run.ExitCode -ne 0) { throw "dotnet $($restore[0]) failed:`n$(Get-Tail ($run.Output + $run.Errors))" }
+        }
     }
-    Write-Utf8File (Join-Path $ws 'README.md') $readme
-    Write-Utf8File (Join-Path $ws 'src\Inventory.Web\appsettings.Development.json') $appsettingsDevelopment
-    Add-Content -LiteralPath (Join-Path $ws '.gitignore') -Value "`nartifacts/`n" -Encoding utf8NoBOM
     Test-Build $stage
     Test-Tests $stage 1
     if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline solution does not build/test; fix the .NET toolchain before spending on VCP turns.' }
     Initialize-GitCheckpoint $ctx
     $protected = @{ 'src/Inventory.Web/appsettings.Development.json' = (Get-Sha256 (Join-Path $ws 'src\Inventory.Web\appsettings.Development.json')) }
+    if (Test-Path -LiteralPath (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')) {
+        $protected['tests/Inventory.Tests/RegressionTests.cs'] = Get-Sha256 (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')
+    }
 
     # --- Prompts that depend on the scaffold ----------------------------
     $promptT1 = New-Prompt @'
@@ -654,6 +689,8 @@ listing at most 10 findings ordered by severity.
     # --- Profiles ------------------------------------------------------------
     $stage = 'P1-profiles'
     $dotnetProcess = New-ProcessProfile -Name 'dotnet' -Executable $dotnet -Ctx $ctx -MaxTimeoutMs 1200000
+    $dotnetProcess.environment['ASPNETCORE_ENVIRONMENT'] = 'Development'
+    $dotnetProcess.environment['ConnectionStrings__Inventory'] = $connection
     $affected = @('README.md', 'src', 'tests')
     $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($dotnetProcess)
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($dotnetProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
@@ -692,9 +729,11 @@ listing at most 10 findings ordered by severity.
     Save-Checkpoint $ctx 'T3: Razor Pages UI'
 
     # --- T4: protected regression tests -----------------------------------
-    Write-Utf8File (Join-Path $ws 'tests\Inventory.Tests\RegressionTests.cs') $regressionTests
+    Write-SeedFiles -Root $ws -Files @{ 'tests/Inventory.Tests/RegressionTests.cs' = $regressionTests } -MissingOnly
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
-    $protected['tests/Inventory.Tests/RegressionTests.cs'] = Get-Sha256 (Join-Path $ws 'tests\Inventory.Tests\RegressionTests.cs')
+    if (-not $protected.ContainsKey('tests/Inventory.Tests/RegressionTests.cs')) {
+        $protected['tests/Inventory.Tests/RegressionTests.cs'] = Get-Sha256 (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')
+    }
     $regressionNames = @('Sku_is_trimmed_and_uppercased_on_create', 'Sale_exceeding_stock_returns_insufficient_stock_problem', 'Whitespace_only_product_name_is_rejected', 'Supplier_email_must_be_valid')
     $gatesT4 = { param($s) Test-Build $s; Test-Tests $s 19 $regressionNames; Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p; Test-RazorPages $s $p } }
     $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profileMain

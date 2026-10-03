@@ -35,6 +35,62 @@ $ws = Join-Path $testRoot 'workspace'
 $node = 'fixture-node.exe'
 
 try {
+    # Execute the actual create gate without starting a server or running paid turns.
+    $tokens = $null; $errors = $null
+    $vueAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $scenarioRoot 'scenario-a-vue-taskboard.ps1'), [ref]$tokens, [ref]$errors)
+    Assert-That ($errors.Count -eq 0) 'Vue scenario parse errors'
+    $createCommand = $vueAst.Find({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -eq 'Invoke-Gate' -and
+        "'api.create'" -in $node.CommandElements.Extent.Text
+    }, $true)
+    Assert-That ($null -ne $createCommand) 'Missing api.create gate'
+    $createTestAst = @($createCommand.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.ScriptBlockExpressionAst] })[0]
+    $createTest = $createTestAst.ScriptBlock.GetScriptBlock()
+    $base = 'http://fixture.invalid'
+    $script:createdTask = @{
+        id = '750e7c3f-c840-498a-8980-d5d657882513'; status = 'todo'; priority = 'high'
+        description = ''; dueDate = $null; createdAt = '2026-10-03T14:30:00Z'
+    }
+    function Invoke-Http { @{ Status = 201; Json = $script:createdTask; Content = '{}' } }
+    $state = @{}
+    Assert-That ((& $createTest) -eq $true) 'Valid task ID failed the create gate'
+    Assert-That ($state.task.id -eq $script:createdTask.id) 'Create gate did not retain the task for later API gates'
+    foreach ($invalidId in @($null, '', '   ')) {
+        $script:createdTask.id = $invalidId
+        $state = @{}
+        $createError = $null
+        try { & $createTest | Out-Null } catch { $createError = $_.Exception.Message }
+        Assert-That ($null -ne $createError -and $createError -match 'missing id') 'Missing ID did not produce the intended assertion'
+        Assert-That (-not $state.ContainsKey('task')) 'Rejected create response retained a task'
+    }
+
+    Import-ScenarioFunction 'scenario-a-vue-taskboard.ps1' 'Test-ApiContract'
+    function New-DataFile { 'fixture-data.json' }
+    function Start-Api { @{ Fixture = $true } }
+    function Stop-BackgroundServer { }
+    $script:httpRequests = [System.Collections.Generic.List[object]]::new()
+    function Invoke-Http {
+        param($Method, $Uri, $Body)
+        $script:httpRequests.Add(@{ Method = $Method; Uri = $Uri })
+        if ($Uri -like '*/health') { return @{ Status = 200; Json = @{ status = 'ok' }; Content = '{}' } }
+        if ($Uri -like '*/does-not-exist') { return @{ Status = 404; Json = @{ error = @{ code = 'NOT_FOUND' } }; Content = '{}' } }
+        if ($Body -is [string]) { return @{ Status = 400; Json = @{ error = @{ code = 'INVALID_JSON' } }; Content = '{}' } }
+        if ($Body.title -eq 'Write release notes') { return @{ Status = 201; Json = $script:createdTask; Content = '{}' } }
+        $field = if ($Body.ContainsKey('status')) { 'status' } elseif ($Body.ContainsKey('dueDate')) { 'dueDate' } else { 'title' }
+        return @{ Status = 400; Json = @{ error = @{ code = 'VALIDATION_ERROR'; field = $field } }; Content = '{}' }
+    }
+    Test-ApiContract 'vue-create-dependency'
+    Assert-Gate 'vue-create-dependency' 'api.create' 'fail'
+    Assert-Gate 'vue-create-dependency' 'api.not-found' 'pass'
+    foreach ($id in 'api.list', 'api.patch', 'api.filter', 'api.restart', 'api.persistence', 'api.delete') {
+        Assert-Gate 'vue-create-dependency' $id 'skip'
+        $blocked = @($ctx.Gates | Where-Object { $_.stage -eq 'vue-create-dependency' -and $_.id -eq $id })[-1]
+        Assert-That ($blocked.required -and $blocked.detail -match 'api.create') "$id lost its required dependency result"
+    }
+    Assert-That (@($script:httpRequests | Where-Object { $_.Method -in @('PATCH', 'DELETE') -or $_.Uri -match '/tasks/$' }).Count -eq 0) 'Failed create caused malformed dependent requests'
+
     Import-ScenarioFunction 'scenario-b-aspnet-inventory.ps1' 'New-InventoryConnection'
     $connection = New-InventoryConnection 'Server=fixture;Initial Catalog=KeepMe;Database=KeepMeToo;Integrated Security=SSPI;Application Name="quoted ""name"""' 'VcpInventory_fixture'
     $builder = [System.Data.Common.DbConnectionStringBuilder]::new()
@@ -166,7 +222,7 @@ try {
     Test-MavenVerify 'maven' 1 @('required')
     Assert-Gate 'maven' 'mvn-verify' 'fail'
 
-    Write-Host 'Scenario gate regressions passed (SQL safety, fresh reports, skipped tests, ledger exports, independent ML scoring).'
+    Write-Host 'Scenario gate regressions passed (API create IDs, SQL safety, fresh reports, skipped tests, ledger exports, independent ML scoring).'
 }
 finally {
     $resolved = [System.IO.Path]::GetFullPath($testRoot)

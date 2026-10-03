@@ -22,6 +22,7 @@ pwsh -File .\scenario-a-vue-taskboard.ps1 -ProviderGeneration C:\vcp-private\pro
 param(
     [Parameter(Mandatory)][string]$ProviderGeneration,
     [string]$RunRoot = (Join-Path $env:SystemDrive 'vcp-scenarios'),
+    [string]$ProjectPath,
     [string]$Vcp,
     [decimal]$TurnBudgetUsd = 3,
     [decimal]$MaxScenarioUsd = 30,
@@ -36,7 +37,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
-$ctx = Initialize-VcpScenario -Name 'a-vue-taskboard' -RunRoot $RunRoot -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
+$ctx = Initialize-VcpScenario -Name 'a-vue-taskboard' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
@@ -368,6 +369,9 @@ $environmentBlock = @'
 $environmentBlock = $environmentBlock.Replace('{{NODE_VERSION}}', [string]$nodeVersion).Replace('{{NPM_CLI}}', $npmCli.Replace('\', '\\'))
 
 function New-Prompt([string]$Body, [string]$Protected = '') {
+    if ($ctx.ReuseProject -and (Test-Path -LiteralPath (Join-Path $ws 'tests/regressions.test.ts'))) {
+        $Protected = '`, `tests/regressions.test.ts`'
+    }
     return $Body + $environmentBlock.Replace('{{PROTECTED}}', $Protected)
 }
 
@@ -456,8 +460,8 @@ Extend the API and the UI together:
 $promptT4 = New-Prompt @'
 # Task T4 - Make the protected regression tests pass
 
-A teammate added `tests/regressions.test.ts` and listed it in the `npm test` script. It describes
-required API behavior that currently fails. Make every test in it pass by changing the
+A teammate added `tests/regressions.test.ts`. Ensure it is listed in the `npm test` script,
+preserving every existing test entry. It describes required API behavior. Make every test in it pass by changing the
 implementation only; the test file is protected. Keep all other tests and behavior passing, and
 keep validation messages consistent with the existing error format.
 '@ '`, `tests/regressions.test.ts`'
@@ -582,7 +586,7 @@ function Test-ApiContract([string]$Stage) {
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.create' -Description 'POST /api/tasks -> 201 with defaults' -Test {
                 $r = Invoke-Http POST "$base/api/tasks" @{ title = 'Write release notes'; priority = 'high' }
                 Assert-That ($r.Status -eq 201) "status $($r.Status) body $($r.Content)"
-                Assert-That ([string]$r.Json.id) 'missing id'
+                Assert-That (-not [string]::IsNullOrWhiteSpace([string]$r.Json.id)) 'missing id'
                 Assert-That ($r.Json.status -eq 'todo' -and $r.Json.priority -eq 'high' -and $r.Json.description -eq '' -and $null -eq $r.Json.dueDate) "defaults wrong: $($r.Content)"
                 [void](ConvertTo-Instant $r.Json.createdAt)
                 $state.task = $r.Json; $true })
@@ -598,6 +602,16 @@ function Test-ApiContract([string]$Stage) {
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.invalid-json' -Description 'malformed JSON -> 400 INVALID_JSON' -Test {
                 $r = Invoke-Http POST "$base/api/tasks" '{"title": '
                 Assert-That ($r.Status -eq 400 -and $r.Json.error.code -eq 'INVALID_JSON') "status $($r.Status) body $($r.Content)"; $true })
+        [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.not-found' -Description 'unknown id -> 404 NOT_FOUND' -Test {
+                $r = Invoke-Http GET "$base/api/tasks/does-not-exist"
+                Assert-That ($r.Status -eq 404 -and $r.Json.error.code -eq 'NOT_FOUND') "status $($r.Status) body $($r.Content)"; $true })
+        if (-not $state.ContainsKey('task')) {
+            # Keep these required checks visible without issuing requests with an empty ID.
+            foreach ($id in 'api.list', 'api.patch', 'api.filter', 'api.restart', 'api.persistence', 'api.delete') {
+                [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id $id -Description 'Created-task contract check' -Outcome 'skip' -Required $true -Detail 'Blocked by failed api.create; no valid task was captured.')
+            }
+            return
+        }
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.list' -Description 'GET /api/tasks -> {items,total} with the created task only' -Test {
                 $r = Invoke-Http GET "$base/api/tasks"
                 Assert-That ($r.Status -eq 200 -and [int]$r.Json.total -eq 1 -and @($r.Json.items).Count -eq 1 -and $r.Json.items[0].id -eq $state.task.id) "body $($r.Content)"; $true })
@@ -612,9 +626,6 @@ function Test-ApiContract([string]$Stage) {
                 $done = Invoke-Http GET "$base/api/tasks?status=done"
                 $query = Invoke-Http GET "$base/api/tasks?q=RELEASE"
                 Assert-That ($doing.Status -eq 200 -and $done.Status -eq 200 -and $query.Status -eq 200 -and [int]$doing.Json.total -eq 1 -and [int]$done.Json.total -eq 0 -and [int]$query.Json.total -eq 1) "doing=$($doing.Json.total) done=$($done.Json.total) q=$($query.Json.total)"; $true })
-        [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'api.not-found' -Description 'unknown id -> 404 NOT_FOUND' -Test {
-                $r = Invoke-Http GET "$base/api/tasks/does-not-exist"
-                Assert-That ($r.Status -eq 404 -and $r.Json.error.code -eq 'NOT_FOUND') "status $($r.Status) body $($r.Content)"; $true })
         Stop-BackgroundServer $server
         $server = $null
         try {
@@ -748,8 +759,17 @@ try {
     # --- B0: seed and baseline (no VCP) ---------------------------------
     $stage = 'B0-baseline'
     Write-Step $ctx 'B0 seed scaffold, npm install, baseline build' 'phase'
-    Write-SeedFiles -Root $ws -Files $seed
-    $install = Invoke-Npm $stage 'install' @('install', '--no-audit', '--no-fund') 1800
+    if ($ctx.ReuseProject) {
+        foreach ($required in @('package.json', 'server/app.ts', 'server/index.ts', 'src/App.vue', 'tests/health.test.ts')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $ws $required) -PathType Leaf)) {
+                throw "Existing project is not a TaskBoard scenario project: missing $required. Select its workspace directory or a new empty project directory."
+            }
+        }
+        Write-Step $ctx "Reusing TaskBoard project: $ws (existing source and tests retained)." 'ok'
+    }
+    else { Write-SeedFiles -Root $ws -Files $seed }
+    $installCommand = if ($ctx.ReuseProject -and (Test-Path -LiteralPath (Join-Path $ws 'package-lock.json'))) { 'ci' } else { 'install' }
+    $install = Invoke-Npm $stage $installCommand @($installCommand, '--no-audit', '--no-fund') 1800
     if ($install.ExitCode -ne 0) { throw "npm install failed:`n$(Get-Tail ($install.Output + $install.Errors))" }
     Test-Typecheck $stage
     Test-NodeTests $stage @('GET /api/health returns ok')
@@ -757,21 +777,24 @@ try {
     if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline scaffold does not build; fix the toolchain before spending on VCP turns.' }
     Initialize-GitCheckpoint $ctx
     $protected = @{ 'tests/health.test.ts' = (Get-Sha256 (Join-Path $ws 'tests\health.test.ts')) }
+    if (Test-Path -LiteralPath (Join-Path $ws 'tests/regressions.test.ts')) {
+        $protected['tests/regressions.test.ts'] = Get-Sha256 (Join-Path $ws 'tests/regressions.test.ts')
+    }
 
     # --- Profiles ---------------------------------------------------------
     $stage = 'P1-profiles'
     $nodeProcess = New-ProcessProfile -Name 'node' -Executable $node -Ctx $ctx -MaxTimeoutMs 900000
     $affected = @('README.md', 'package.json', 'server', 'src', 'tests', 'vite.config.ts')
-    function New-NodeCheck([string[]]$Names) {
-        return [ordered]@{ manifest = 'package.json'; runner = 'node'; profile = 'node'; timeout_ms = 300000
+    function New-NodeCheck([string[]]$Names, [int]$DeadlineSeconds) {
+        return [ordered]@{ manifest = 'package.json'; runner = 'node'; profile = 'node'; timeout_ms = [math]::Min(300000, [long]$DeadlineSeconds * 1000)
             expected_tests = $Names; rationale = 'Owner acceptance: named TaskBoard API tests must pass under node --test.' }
     }
     $profiles = @{}
     foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT1), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
-        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($nodeProcess) -Checks @(New-NodeCheck $pair[1])
+        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($nodeProcess) -Checks @(New-NodeCheck $pair[1] $ctx.DeadlineSeconds)
     }
     $profiles['T5-short'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($nodeProcess) `
-        -Checks @(New-NodeCheck $namesT5) -DeadlineSeconds ([math]::Max(121, $ctx.ShortDeadlineSeconds))
+        -Checks @(New-NodeCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profiles['review'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profiles['guardrail'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-guardrail' -AffectedPaths $affected -MaximumAutonomy 'workspace' -AutomaticEffects @('read', 'write')
     foreach ($key in 'T1', 'T5-short', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
@@ -807,15 +830,17 @@ try {
     Save-Checkpoint $ctx 'T3: labels and sorting'
 
     # --- T4: protected regression tests ------------------------------------
-    Write-Utf8File (Join-Path $ws 'tests\regressions.test.ts') $regressionTest
+    Write-SeedFiles -Root $ws -Files @{ 'tests/regressions.test.ts' = $regressionTest } -MissingOnly
     $packagePath = Join-Path $ws 'package.json'
     $packageText = [System.IO.File]::ReadAllText($packagePath)
-    if ($packageText -notmatch 'tests/regressions\.test\.ts') {
+    if (-not $ctx.ReuseProject -and $packageText -notmatch 'tests/regressions\.test\.ts') {
         $packageText = [regex]::Replace($packageText, '("test"\s*:\s*"node --test)', '$1 tests/regressions.test.ts', 1)
         Write-Utf8File $packagePath $packageText
     }
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
-    $protected['tests/regressions.test.ts'] = Get-Sha256 (Join-Path $ws 'tests\regressions.test.ts')
+    if (-not $protected.ContainsKey('tests/regressions.test.ts')) {
+        $protected['tests/regressions.test.ts'] = Get-Sha256 (Join-Path $ws 'tests/regressions.test.ts')
+    }
     $gatesT4 = { param($s) Test-Typecheck $s; Test-UnitAndBuild $s ($uiIds + @('label-chip', 'sort-select')) 5; Test-NodeTests $s $namesT4; Test-ProtectedUnchanged $s $protected; Test-ApiContract $s; Test-LabelsAndSort $s }
     $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profiles['T4']
     if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }

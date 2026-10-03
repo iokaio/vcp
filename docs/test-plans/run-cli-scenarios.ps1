@@ -13,12 +13,9 @@ param(
     [ValidateSet('A', 'B', 'C', 'D')][string]$Scenario,
     [ValidateSet('DryRun', 'Full')][string]$Mode,
     [string]$ProviderGeneration = $env:VCP_PROVIDER_GENERATION,
-    [string]$Model,
-    [string]$Endpoint,
-    [ValidateRange(0, 25)][decimal]$SetupBudgetUsd = 0,
-    [ValidateRange(0, 25)][decimal]$RequestPriceLimitUsd = 0.001,
     [string]$Vcp,
     [string]$RunRoot = (Join-Path $env:SystemDrive 'vcp-scenarios'),
+    [string]$ProjectPath,
     [ValidateRange(0.01, 1000000)][decimal]$TurnBudgetUsd = 3,
     [ValidateRange(0.01, 1000000)][decimal]$MaxScenarioUsd = 30,
     [ValidateRange(0, 100)][int]$MaxRepairTurns = 1,
@@ -39,19 +36,23 @@ function Read-LauncherChoice([string]$Prompt, [string[]]$Choices, [string]$Defau
 }
 
 function Assert-LauncherProvider([string]$Generation) {
-    if ([string]::IsNullOrWhiteSpace($Generation)) { throw 'A provider generation directory is required.' }
+    if ([string]::IsNullOrWhiteSpace($Generation)) { throw 'An existing provider metadata directory is required.' }
     $full = [IO.Path]::GetFullPath($Generation)
-    foreach ($file in 'qualified/snapshot.json', 'endpoints.json') {
+    $snapshotFile = if (Test-Path -LiteralPath (Join-Path $full 'qualified/snapshot.json') -PathType Leaf) { 'qualified/snapshot.json' } else { 'snapshot.json' }
+    foreach ($file in $snapshotFile, 'endpoints.json') {
         if (-not (Test-Path -LiteralPath (Join-Path $full $file) -PathType Leaf)) {
             throw "Missing provider generation file: $(Join-Path $full $file)."
         }
     }
-    $snapshot = Get-Content -LiteralPath (Join-Path $full 'qualified/snapshot.json') -Raw | ConvertFrom-Json -Depth 100
+    $snapshot = Get-Content -LiteralPath (Join-Path $full $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
     [void](Get-Content -LiteralPath (Join-Path $full 'endpoints.json') -Raw | ConvertFrom-Json -Depth 100)
     if (-not $snapshot.valid_until) { throw 'The provider snapshot has no valid_until timestamp.' }
     $expires = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until)
-    if (($expires - [DateTimeOffset]::UtcNow).TotalHours -lt 5) {
-        throw "Provider snapshot expires $($expires.ToString('o')); scenarios require at least five hours remaining."
+    if ($expires -le [DateTimeOffset]::UtcNow) {
+        throw "Provider snapshot expired $($expires.ToString('o')); expired metadata cannot authorize scenario execution."
+    }
+    if ($snapshot.raw_sha256 -and (Get-FileHash -LiteralPath (Join-Path $full 'endpoints.json') -Algorithm SHA256).Hash -ine $snapshot.raw_sha256) {
+        throw 'The provider catalog does not match its retained snapshot hash.'
     }
     return $full
 }
@@ -62,7 +63,8 @@ function Find-LauncherProvider([string]$ProfilesRoot, [string]$Model, [string]$E
         try {
             $valid = Assert-LauncherProvider $candidate.FullName
             if ($Model -or $Endpoint) {
-                $snapshot = Get-Content -LiteralPath (Join-Path $valid 'qualified/snapshot.json') -Raw | ConvertFrom-Json -Depth 100
+                $snapshotFile = if (Test-Path -LiteralPath (Join-Path $valid 'qualified/snapshot.json')) { 'qualified/snapshot.json' } else { 'snapshot.json' }
+                $snapshot = Get-Content -LiteralPath (Join-Path $valid $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
                 if (($Model -and $snapshot.compatibility.model -ne $Model) -or ($Endpoint -and $snapshot.compatibility.endpoint -ne $Endpoint)) { continue }
             }
             return $valid
@@ -72,11 +74,11 @@ function Find-LauncherProvider([string]$ProfilesRoot, [string]$Model, [string]$E
     return $null
 }
 
-function New-LauncherSetupContext([string]$InvocationRoot, [string]$Executable) {
+function New-LauncherSetupContext([string]$InvocationRoot, [string]$Executable, [string]$ProjectPath) {
     $root = Join-Path $InvocationRoot 'setup'
     $context = @{ Name = 'setup'; Root = $root; Vcp = $Executable; SkipPaidStages = $false }
     foreach ($pair in @(@('Workspace', 'workspace'), @('Data', 'vcp-data'), @('Logs', 'logs'), @('Results', 'results'))) {
-        $context[$pair[0]] = Join-Path $root $pair[1]
+        $context[$pair[0]] = if ($pair[0] -eq 'Workspace' -and $ProjectPath) { $ProjectPath } else { Join-Path $root $pair[1] }
         New-Item -ItemType Directory -Force -Path $context[$pair[0]] | Out-Null
     }
     $context.ProgressLog = Join-Path $context.Logs 'progress.log'
@@ -90,39 +92,86 @@ function Restore-LauncherEnvironment([string]$Name, $Value) {
     else { [Environment]::SetEnvironmentVariable($Name, [string]$Value, 'Process') }
 }
 
-function Invoke-LauncherQualification($Ctx, [string]$Model, [string]$Endpoint, [decimal]$Budget, [decimal]$RequestPrice) {
-    if ($Budget -le 0 -or $Budget -gt 25 -or $RequestPrice -gt $Budget) { throw 'Setup budget must be positive, at most 25 USD, and cover the request-price ceiling.' }
-    if ([decimal]::Round($Budget, 6) -ne $Budget -or [decimal]::Round($RequestPrice, 6) -ne $RequestPrice) { throw 'Provider setup amounts support at most six decimal places.' }
-    foreach ($value in $Model, $Endpoint) {
-        if ($value.Length -gt 256 -or $value -notmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or @($value.Split('/') | Where-Object { $_ -in '.', '..' }).Count) {
-            throw 'An exact model ID and endpoint tag are required for provider setup.'
+function Resolve-LauncherInstalledProvider($Ctx, [string]$AccountRoot, [string]$RunRoot) {
+    # Query the installed CLI in the selected project so project overrides win.
+    # These are metadata reads; this launcher never changes provider selection.
+    $preferences = Invoke-Vcp -Ctx $Ctx -Stage 'account' -Label 'models' -Arguments @('models')
+    if ($preferences.ExitCode -ne 0) { throw "Cannot inspect installed provider selection; see $($preferences.StderrPath)." }
+    $models = @($preferences.Result.data.effective.set.roles.main)
+    if (-not $models.Count -or -not $models[0]) { throw 'Installed VCP did not report an effective main model selection.' }
+    $candidates = [Collections.Generic.List[object]]::new()
+    $rejected = [Collections.Generic.List[string]]::new()
+    # Registered profiles are owner data outside the project; never discover a
+    # trusted profile by scanning arbitrary files inside the agent workspace.
+    foreach ($registration in @(Get-ChildItem -LiteralPath $AccountRoot -Filter 'project-profile-*.json' -File -ErrorAction SilentlyContinue)) {
+        try {
+            $record = Get-Content -LiteralPath $registration.FullName -Raw | ConvertFrom-Json -Depth 100
+            $registeredWorkspace = [IO.Path]::GetFullPath([string]$record.workspace).Replace('\\?\', '').TrimEnd('\', '/')
+            $requestedWorkspace = [IO.Path]::GetFullPath($Ctx.Workspace).Replace('\\?\', '').TrimEnd('\', '/')
+            if ($registeredWorkspace -ine $requestedWorkspace) { continue }
+            $profilePath = [IO.Path]::GetFullPath([string]$record.profile)
+            if ((Split-Path -Parent $profilePath).Replace('\\?\', '').TrimEnd('\') -ine [IO.Path]::GetFullPath($AccountRoot).Replace('\\?\', '').TrimEnd('\')) { throw 'Registered profile lies outside the account directory.' }
+            $document = [System.Text.Json.JsonDocument]::Parse([IO.File]::ReadAllText($profilePath))
+            try {
+                $snapshotText = $document.RootElement.GetProperty('provider').GetRawText()
+                $catalogPath = $document.RootElement.GetProperty('catalog').GetString()
+                if (-not [IO.Path]::IsPathFullyQualified($catalogPath)) { throw 'Registered profile catalog must use an absolute path.' }
+                $snapshot = $snapshotText | ConvertFrom-Json -Depth 100
+                $candidates.Add(@{ Model = $snapshot.compatibility.model; Profile = $profilePath; SnapshotText = $snapshotText; Catalog = $catalogPath; Source = $registration.FullName })
+            }
+            finally { $document.Dispose() }
+        }
+        catch { $rejected.Add("$($registration.FullName): $($_.Exception.Message)") }
+    }
+    $completionPath = Join-Path $AccountRoot 'setup-complete.json'
+    if (Test-Path -LiteralPath $completionPath -PathType Leaf) {
+        try {
+            $completion = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json -Depth 100
+            if ($completion.version -eq 1 -and $completion.connection.status -eq 'connected' -and $completion.connection.evidence) {
+                $candidates.Add(@{ Model = $completion.connection.model; Directory = [string]$completion.connection.evidence; Source = $completionPath })
+            }
+        }
+        catch { $rejected.Add("${completionPath}: $($_.Exception.Message)") }
+    }
+    foreach ($model in $models) {
+        foreach ($candidate in @($candidates | Where-Object Model -eq $model)) {
+            try {
+                $directory = $candidate.Directory
+                if ($candidate.Profile) {
+                    # Retain the embedded JSON tokens and captured catalog bytes;
+                    # no qualification claims or expiry timestamps are invented.
+                    $directory = Join-Path $Ctx.Root ('provider-input-' + [guid]::NewGuid().ToString('N'))
+                    New-Item -ItemType Directory -Path $directory | Out-Null
+                    Write-Utf8File (Join-Path $directory 'snapshot.json') $candidate.SnapshotText
+                    Copy-Item -LiteralPath $candidate.Catalog -Destination (Join-Path $directory 'endpoints.json')
+                }
+                $valid = Assert-LauncherProvider $directory
+                $snapshotFile = if (Test-Path -LiteralPath (Join-Path $valid 'qualified/snapshot.json')) { 'qualified/snapshot.json' } else { 'snapshot.json' }
+                $snapshot = Get-Content -LiteralPath (Join-Path $valid $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
+                if ($snapshot.compatibility.model -ne $model) { throw 'Retained metadata differs from the configured model.' }
+                Write-JsonFile (Join-Path $Ctx.Results 'provider-selection.json') ([ordered]@{
+                    source = $candidate.Source; profile = $candidate.Profile; generation = $valid; model = $model
+                    endpoint = $snapshot.compatibility.endpoint; valid_until = $snapshot.valid_until; model_calls = 0
+                    note = 'Reused installed provider metadata; no provider setup or qualification performed.'
+                })
+                return $valid
+            }
+            catch { $rejected.Add("$($candidate.Source): $($_.Exception.Message)") }
+        }
+        $cached = Find-LauncherProvider (Join-Path (Split-Path -Parent $AccountRoot) 'profiles') $model
+        if (-not $cached) {
+            foreach ($previous in @(Get-ChildItem -LiteralPath $RunRoot -Directory -Filter 'launch-*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)) {
+                $cached = Find-LauncherProvider (Join-Path $previous.FullName 'setup') $model
+                if ($cached) { break }
+            }
+        }
+        if ($cached) {
+            Write-JsonFile (Join-Path $Ctx.Results 'provider-selection.json') @{ source = $cached; generation = $cached; model = $model; model_calls = 0 }
+            return $cached
         }
     }
-    $generation = Join-Path $Ctx.Root ('provider-' + [guid]::NewGuid().ToString('N'))
-    $format = [Globalization.CultureInfo]::InvariantCulture
-    Write-Step $Ctx "Qualifying $Model at $Endpoint (up to $Budget USD; at most two requests)." 'phase'
-    $run = Invoke-Vcp -Ctx $Ctx -Stage 'provider' -Label 'setup-provider' -TimeoutSeconds 1800 -Live -Arguments @(
-        'setup', 'provider', '--model', $Model, '--endpoint', $Endpoint,
-        '--request-price-limit', $RequestPrice.ToString('0.######', $format), '--budget-usd', $Budget.ToString('0.######', $format), '--output', $generation)
-    # Delayed generation receipts can be completed without repeating inference.
-    $report = Join-Path $generation 'result.json'
-    if ($run.ExitCode -ne 0 -and (Test-Path -LiteralPath $report -PathType Leaf)) {
-        $observed = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json -Depth 100
-        if ($observed.status -eq 'observed') {
-            Write-Step $Ctx 'Retrieving qualification receipts (no additional inference).' 'phase'
-            $run = Invoke-Vcp -Ctx $Ctx -Stage 'provider' -Label 'setup-provider-complete' -TimeoutSeconds 300 -Live `
-                -Arguments @('setup', 'provider-complete', '--directory', $generation)
-        }
-    }
-    Write-JsonFile (Join-Path $Ctx.Results 'setup.json') ([ordered]@{
-        exit_code = $run.ExitCode; budget_usd = $Budget; model = $Model; endpoint = $Endpoint
-        generation = $generation; result = $run.Result; stdout = $run.StdoutPath; stderr = $run.StderrPath
-    })
-    Write-Utf8File (Join-Path $Ctx.Results 'summary.md') ("# Provider preparation`n`nExit: $($run.ExitCode)`n`nGeneration: $generation`n`nSetup budget: $Budget USD (separate from scenario budget).`n`nCommand log: $($Ctx.CommandLog)`n`nResult details: setup.json`n")
-    if ($run.ExitCode -ne 0 -or $run.Result.data.status -ne 'qualified') {
-        throw "Provider preparation failed (exit $($run.ExitCode)). No scenario was started. Inspect $($Ctx.Results) and $($run.StderrPath)."
-    }
-    return Assert-LauncherProvider $generation
+    Write-JsonFile (Join-Path $Ctx.Results 'provider-selection.json') @{ status = 'unavailable'; configured_models = $models; rejected = @($rejected); model_calls = 0 }
+    throw "No current retained metadata was found for the installed model selection ($($models -join ', ')). Provider setup was not changed. Details: $(Join-Path $Ctx.Results 'provider-selection.json')."
 }
 
 function New-LauncherArguments([string]$Script, [hashtable]$Parameters, [bool]$DryRun) {
@@ -146,13 +195,14 @@ function Invoke-LauncherChild([string]$Executable, [string[]]$Arguments) {
     $script:launcherChildExitCode = $LASTEXITCODE
 }
 
-function Write-LauncherResults([string]$InvocationRoot, [string]$ScenarioName) {
+function Write-LauncherResults([string]$InvocationRoot, [string]$ScenarioName, [string]$ProjectPath) {
     Write-Host "`nInvocation: $InvocationRoot"
+    if ($ProjectPath) { Write-Host "Workspace: $ProjectPath" }
     $setup = Join-Path $InvocationRoot 'setup'
     if (Test-Path -LiteralPath $setup) {
-        Write-Host "Provider preparation: $setup"
-        Write-Host "Setup commands: $(Join-Path $setup 'logs/vcp-commands.log')"
-        Write-Host "Setup results: $(Join-Path $setup 'results')"
+        Write-Host "Provider selection: $setup"
+        Write-Host "Selection commands: $(Join-Path $setup 'logs/vcp-commands.log')"
+        Write-Host "Selection results: $(Join-Path $setup 'results')"
     }
     $scenarioPath = Join-Path $InvocationRoot $ScenarioName
     $runs = @(Get-ChildItem -LiteralPath $scenarioPath -Directory -ErrorAction SilentlyContinue)
@@ -163,6 +213,7 @@ function Write-LauncherResults([string]$InvocationRoot, [string]$ScenarioName) {
     $root = $runs[0].FullName
     Write-Host "Run folder: $root"
     foreach ($entry in @(@('Workspace', 'workspace'), @('Results', 'results'), @('Logs', 'logs'), @('VCP data', 'vcp-data'), @('Profiles', 'profiles'))) {
+        if ($ProjectPath -and $entry[0] -eq 'Workspace') { continue }
         Write-Host ('{0}: {1}' -f $entry[0], (Join-Path $root $entry[1]))
     }
     Write-Host "VCP commands: $(Join-Path $root 'logs/vcp-commands.log')"
@@ -195,12 +246,8 @@ try {
     Write-Host 'A: Vue/Node TaskBoard   B: ASP.NET/SQL inventory   C: Java ledger   D: Python TextLab'
     if (-not $Scenario) { $Scenario = Read-LauncherChoice 'Scenario (A/B/C/D)' @('A', 'B', 'C', 'D') }
     if (-not $Mode) {
-        Write-Host 'DryRun skips scenario inference. Full runs paid tasks and assessment. Missing provider qualification needs a separate setup budget in either mode.'
+        Write-Host 'DryRun skips provider inference. Full runs paid tasks and assessment with your configured provider.'
         $Mode = Read-LauncherChoice 'Mode (DryRun/Full; Enter = DryRun)' @('DryRun', 'Full') 'DryRun'
-    }
-    if (-not $PSBoundParameters.ContainsKey('RunRoot') -and -not $PSBoundParameters.ContainsKey('Scenario')) {
-        $chosenRoot = (Read-Host "Test output folder (Enter = $RunRoot)").Trim().Trim('"')
-        if ($chosenRoot) { $RunRoot = $chosenRoot }
     }
     $runRootFull = [IO.Path]::GetFullPath($RunRoot)
     & $harness { param($path) Assert-SafeRunRoot $path } $runRootFull
@@ -210,34 +257,41 @@ try {
     $scenarioName = switch ($Scenario) {
         'A' { 'a-vue-taskboard' }; 'B' { 'b-aspnet-inventory' }; 'C' { 'c-java-ledger-cli' }; 'D' { 'd-python-textlab' }
     }
+    if (-not $ProjectPath) {
+        $ProjectPath = Join-Path $runRootFull "projects/$scenarioName"
+        if (-not $PSBoundParameters.ContainsKey('Scenario')) {
+            $chosenProject = (Read-Host "Project folder (reuse or create; Enter = $ProjectPath)").Trim().Trim('"')
+            if ($chosenProject) { $ProjectPath = $chosenProject }
+        }
+    }
+    $ProjectPath = [IO.Path]::GetFullPath($ProjectPath)
+    if ((Test-Path -LiteralPath $ProjectPath) -and -not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw 'ProjectPath must identify a directory.' }
+    $projectPrefix = $ProjectPath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if ($runRootFull -eq $ProjectPath -or $runRootFull.StartsWith($projectPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'RunRoot must be outside the project so VCP logs, data and profiles remain separate.'
+    }
     $scenarioScript = Join-Path $PSScriptRoot "scenario-$scenarioName.ps1"
     if (-not (Test-Path -LiteralPath $scenarioScript -PathType Leaf)) { throw "Scenario script missing: $scenarioScript" }
     $pwsh = Join-Path $PSHOME 'pwsh.exe'
     if (-not (Test-Path -LiteralPath $pwsh -PathType Leaf)) { throw "PowerShell executable missing: $pwsh" }
     & $harness { param($turn, $total) Assert-ScenarioBudgetPrecision $turn 'TurnBudgetUsd'; Assert-ScenarioBudgetPrecision $total 'MaxScenarioUsd' } $TurnBudgetUsd $MaxScenarioUsd
+    $projectExisted = Test-Path -LiteralPath $ProjectPath -PathType Container
+    if (-not $projectExisted) { New-Item -ItemType Directory -Path $ProjectPath -Force | Out-Null }
+    Write-Host ("Project: {0} ({1})" -f $ProjectPath, $(if ($projectExisted) { 'using existing directory' } else { 'created' }))
     $generation = $null
     if ($ProviderGeneration) {
-        try { $generation = Assert-LauncherProvider $ProviderGeneration }
-        catch { Write-Host "The supplied provider generation cannot be reused: $($_.Exception.Message) A fresh one will be prepared." -ForegroundColor Yellow }
-    }
-    else {
-        $generation = Find-LauncherProvider (Join-Path $env:LOCALAPPDATA 'VCP/profiles') $Model $Endpoint
-        if (-not $generation) {
-            foreach ($previous in @(Get-ChildItem -LiteralPath $runRootFull -Directory -Filter 'launch-*' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)) {
-                $generation = Find-LauncherProvider (Join-Path $previous.FullName 'setup') $Model $Endpoint
-                if ($generation) { break }
-            }
-        }
-    }
-    if ($generation -and ($Model -or $Endpoint)) {
-        $selected = Get-Content -LiteralPath (Join-Path $generation 'qualified/snapshot.json') -Raw | ConvertFrom-Json -Depth 100
-        if (($Model -and $selected.compatibility.model -ne $Model) -or ($Endpoint -and $selected.compatibility.endpoint -ne $Endpoint)) { $generation = $null }
+        $generation = Assert-LauncherProvider $ProviderGeneration
     }
     $invocationRoot = Join-Path $runRootFull ('launch-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Path $invocationRoot | Out-Null
-    if ($Mode -eq 'Full' -or -not $generation) {
-        if ($null -ne [Environment]::GetEnvironmentVariable('VCP_DENY_PROVIDER_CREDENTIALS', 'Process')) { throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; provider preparation and Full mode cannot access credentials.' }
-        $setupCtx = New-LauncherSetupContext $invocationRoot $executable
+    $setupCtx = $null
+    if ($Mode -eq 'Full' -or -not $generation) { $setupCtx = New-LauncherSetupContext $invocationRoot $executable $ProjectPath }
+    if (-not $generation) { $generation = Resolve-LauncherInstalledProvider $setupCtx (Join-Path $env:LOCALAPPDATA 'VCP/account') $runRootFull }
+    elseif ($setupCtx) {
+        Write-JsonFile (Join-Path $setupCtx.Results 'provider-selection.json') @{ source = 'explicit ProviderGeneration'; generation = $generation; model_calls = 0 }
+    }
+    if ($Mode -eq 'Full') {
+        if ($null -ne [Environment]::GetEnvironmentVariable('VCP_DENY_PROVIDER_CREDENTIALS', 'Process')) { throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; Full mode cannot access credentials.' }
         $credentialStatus = Invoke-Vcp -Ctx $setupCtx -Stage 'account' -Label 'credential-status' -Arguments @('setup', 'credential', 'status')
         if ($credentialStatus.ExitCode -ne 0) { throw "Cannot inspect installed VCP credential selection; see $($credentialStatus.StderrPath)." }
         if ($credentialStatus.Result.data.environment) { $credentialName = [string]$credentialStatus.Result.data.environment }
@@ -252,30 +306,11 @@ try {
         }
         $env:VCP_SCENARIO_CREDENTIAL_ENV = $credentialName
     }
-    if (-not $generation) {
-        $preferences = Invoke-Vcp -Ctx $setupCtx -Stage 'account' -Label 'models' -Arguments @('models')
-        if (-not $Model -and $preferences.ExitCode -eq 0) { $Model = @($preferences.Result.data.account.set.roles.main)[0] }
-        $completionPath = Join-Path $env:LOCALAPPDATA 'VCP/account/setup-complete.json'
-        if (Test-Path -LiteralPath $completionPath -PathType Leaf) {
-            $completion = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json -Depth 100
-            if (-not $Model) { $Model = $completion.connection.model }
-            if (-not $Endpoint -and $completion.connection.model -eq $Model) { $Endpoint = $completion.connection.endpoint }
-        }
-        if (-not $Model) { $Model = (Read-Host 'Provider model ID (organization/model)').Trim() }
-        if (-not $Endpoint) { $Endpoint = (Read-Host "Exact provider endpoint tag for $Model").Trim() }
-        Write-Host "Provider preparation: $Model at $Endpoint; request-price ceiling $RequestPriceLimitUsd USD."
-        if ($SetupBudgetUsd -eq 0) {
-            Write-Host 'A fresh provider qualification makes up to two paid requests. This setup cap is separate from the scenario cap, even in DryRun mode.' -ForegroundColor Yellow
-            $cap = Read-Host 'Maximum setup USD (Enter authorizes 3.00; Ctrl+C cancels)'
-            if (-not $cap) { $cap = '3.00' }
-            $SetupBudgetUsd = [decimal]::Parse($cap, [Globalization.CultureInfo]::InvariantCulture)
-        }
-        $generation = Invoke-LauncherQualification $setupCtx $Model $Endpoint $SetupBudgetUsd $RequestPriceLimitUsd
-    }
-    Write-Host "Using provider generation: $generation"
-    if ($Mode -eq 'Full') { Write-Host "Scenario budget: $TurnBudgetUsd USD per turn; $MaxScenarioUsd USD scenario ceiling (provider preparation accounted separately)." }
+    Write-Host "Reusing configured provider metadata: $generation"
+    if ($setupCtx) { Write-Utf8File (Join-Path $setupCtx.Results 'summary.md') ("# Installed provider selection`n`nReused metadata: $generation`n`nNo provider setup or qualification performed.`n`nCommands: $($setupCtx.CommandLog)`n`nSelection evidence: provider-selection.json`n") }
+    if ($Mode -eq 'Full') { Write-Host "Scenario budget: $TurnBudgetUsd USD per turn; $MaxScenarioUsd USD scenario ceiling." }
     $parameters = @{
-        ProviderGeneration = $generation; Vcp = $executable; RunRoot = $invocationRoot
+        ProviderGeneration = $generation; Vcp = $executable; RunRoot = $invocationRoot; ProjectPath = $ProjectPath
         TurnBudgetUsd = $TurnBudgetUsd; MaxScenarioUsd = $MaxScenarioUsd; MaxRepairTurns = $MaxRepairTurns
         OutputTokens = $OutputTokens; MaxRequests = $MaxRequests; DeadlineSeconds = $DeadlineSeconds; ShortDeadlineSeconds = $ShortDeadlineSeconds
     }
@@ -290,7 +325,7 @@ catch { Write-Host "Launcher failed: $($_.Exception.Message)" -ForegroundColor R
 finally {
     if ($keyChanged) { Restore-LauncherEnvironment $credentialName $originalKey }
     Restore-LauncherEnvironment 'VCP_SCENARIO_CREDENTIAL_ENV' $originalCredentialName
-    if ($invocationRoot) { Write-LauncherResults $invocationRoot $scenarioName }
+    if ($invocationRoot) { Write-LauncherResults $invocationRoot $scenarioName $ProjectPath }
     Write-Host "Exit code: $exitCode"
 }
 exit $exitCode

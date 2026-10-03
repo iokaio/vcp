@@ -46,7 +46,7 @@ try {
     $generation = Join-Path $profiles 'provider-valid with spaces'
     New-ProviderFixture $generation 12
     $stale = Join-Path $profiles 'provider-expiring'
-    New-ProviderFixture $stale 1
+    New-ProviderFixture $stale -1
     Check ((Assert-LauncherProvider $generation) -eq $generation) 'Valid generation rejected'
     Check ((Find-LauncherProvider $profiles) -eq $generation) 'Discovery did not skip a newer expiring generation'
     $rejected = $false
@@ -71,7 +71,7 @@ try {
     Copy-Item -LiteralPath $launcher -Destination $fixture
     Copy-Item -LiteralPath (Join-Path $scenarioRoot 'VcpScenarioHarness.psm1') -Destination $fixture
     @'
-param($ProviderGeneration, $Vcp, $RunRoot, [decimal]$TurnBudgetUsd, $MaxScenarioUsd, $MaxRepairTurns,
+param($ProviderGeneration, $Vcp, $RunRoot, $ProjectPath, [decimal]$TurnBudgetUsd, $MaxScenarioUsd, $MaxRepairTurns,
     $OutputTokens, $MaxRequests, $DeadlineSeconds, $ShortDeadlineSeconds, [switch]$SkipPaidStages)
 $ErrorActionPreference = 'Stop'
 if (-not $SkipPaidStages) { throw 'Fixture permits DryRun only.' }
@@ -80,7 +80,8 @@ foreach ($name in 'results', 'workspace', 'logs', 'vcp-data', 'profiles') {
     New-Item -ItemType Directory -Path (Join-Path $root $name) -Force | Out-Null
 }
 @{ verdict = 'dry-run-fail' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'results/scorecard.json')
-@{ generation = $ProviderGeneration; budget = $TurnBudgetUsd } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'arguments.json')
+if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw 'Project was not created by launcher.' }
+@{ generation = $ProviderGeneration; budget = $TurnBudgetUsd; project = $ProjectPath } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'arguments.json')
 Write-Output 'FIXTURE_STDOUT_PROGRESS'
 Write-Host 'FIXTURE_HOST_PROGRESS'
 [Console]::Error.WriteLine('FIXTURE_STDERR_PROGRESS')
@@ -98,13 +99,19 @@ exit 7
     Check ($invocations.Count -eq 1) 'Launcher did not isolate its run in one invocation folder'
     $received = Get-Content -LiteralPath (Join-Path $invocations[0].FullName 'a-vue-taskboard/fixture-run/arguments.json') -Raw | ConvertFrom-Json
     Check ($received.generation -eq $generation -and $received.budget -eq 1.25) 'Child received corrupted arguments'
+    Check ($received.project -eq (Join-Path $runRoot 'projects/a-vue-taskboard')) 'Launcher did not select a stable project folder'
+    $sentinel = Join-Path $received.project 'existing-work.txt'
+    'preserve me' | Set-Content -LiteralPath $sentinel
+    $again = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot -Vcp $pwsh -ProjectPath $received.project 2>&1 | Out-String)
+    Check ($LASTEXITCODE -eq 7 -and $again.Contains($received.project)) 'Existing project was not passed to the child or displayed'
+    Check ((Get-Content -LiteralPath $sentinel -Raw).Trim() -eq 'preserve me') 'Launcher changed existing project contents'
 
     $badOutput = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot -Vcp (Join-Path $temporary 'missing-vcp.exe') 2>&1 | Out-String)
     Check ($LASTEXITCODE -eq 1 -and $badOutput.Contains('Requested VCP executable does not exist')) 'Invalid explicit VCP path silently fell back to another executable'
     $env:VCP_EXE = Join-Path $temporary 'missing-env-vcp.exe'
     $badOutput = (& $pwsh -NoProfile -NonInteractive -File (Join-Path $fixture 'run-cli-scenarios.ps1') -Scenario A -Mode DryRun -ProviderGeneration $generation -RunRoot $runRoot 2>&1 | Out-String)
     Check ($LASTEXITCODE -eq 1 -and $badOutput.Contains('VCP_EXE does not exist')) 'Invalid VCP_EXE silently fell back to another executable'
-    Check (@(Get-ChildItem -LiteralPath $runRoot -Directory).Count -eq 1) 'Validation failure started a scenario'
+    Check (@(Get-ChildItem -LiteralPath $runRoot -Directory -Filter 'launch-*').Count -eq 2) 'Validation failure started a scenario'
     Write-Host "Launcher regressions passed: $checks checks; no VCP or paid scenario executed."
 }
 finally {

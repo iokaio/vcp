@@ -25,6 +25,7 @@ pwsh -File .\scenario-d-python-textlab.ps1 -ProviderGeneration C:\vcp-private\pr
 param(
     [Parameter(Mandatory)][string]$ProviderGeneration,
     [string]$RunRoot = (Join-Path $env:SystemDrive 'vcp-scenarios'),
+    [string]$ProjectPath,
     [string]$Vcp,
     [decimal]$TurnBudgetUsd = 3,
     [decimal]$MaxScenarioUsd = 30,
@@ -41,7 +42,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 
-$ctx = Initialize-VcpScenario -Name 'd-python-textlab' -RunRoot $RunRoot -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
+$ctx = Initialize-VcpScenario -Name 'd-python-textlab' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -SkipPaidStages:$SkipPaidStages
 $ws = $ctx.Workspace
@@ -314,7 +315,12 @@ $environmentBlock = @'
   Finish with a short summary of changed files, dev metrics and command results.
 '@
 $environmentBlock = $environmentBlock.Replace('{{PY}}', [string]$pyVersion)
-function New-Prompt([string]$Body, [string]$Protected = '') { return $Body + $environmentBlock.Replace('{{PROTECTED}}', $Protected) }
+function New-Prompt([string]$Body, [string]$Protected = '') {
+    if ($ctx.ReuseProject -and (Test-Path -LiteralPath (Join-Path $ws 'tests/test_regressions.py')) -and $Protected -notlike '*test_regressions.py*') {
+        $Protected += ', `tests/test_regressions.py`'
+    }
+    return $Body + $environmentBlock.Replace('{{PROTECTED}}', $Protected)
+}
 
 $promptT1 = New-Prompt @'
 # Task T1 - Data loading, preprocessing and a category classifier
@@ -642,6 +648,37 @@ function Test-Report([string]$Stage, [string]$Models) {
             Assert-That ($missing.Count -eq 0) "missing: $($missing -join ', ')"; $true })
 }
 
+function Assert-TextlabFixture([string]$RelativePath, [string]$Expected) {
+    $path = Join-Path $ws $RelativePath
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Incompatible existing textlab project: $RelativePath is not a file; nothing will be replaced." }
+    $actual = [IO.File]::ReadAllText($path).Replace("`r`n", "`n").TrimEnd("`n")
+    if ($actual -cne $Expected.Replace("`r`n", "`n").TrimEnd("`n")) {
+        throw "Incompatible existing textlab project: $RelativePath differs from the scenario's protected fixture; nothing will be replaced. Use a fresh project directory for this fixture."
+    }
+}
+
+function Initialize-TextlabProject {
+    $seed['data/tickets_train.csv'] = (($trainRows | ConvertTo-Csv -NoTypeInformation -UseQuotes AsNeeded) -join "`n") + "`n"
+    $seed['data/tickets_dev.csv'] = (($devRows | ConvertTo-Csv -NoTypeInformation -UseQuotes AsNeeded) -join "`n") + "`n"
+    if ($ctx.ReuseProject) {
+        foreach ($relative in 'pyproject.toml', 'src/textlab/__main__.py') {
+            if (-not (Test-Path -LiteralPath (Join-Path $ws $relative) -PathType Leaf)) {
+                throw "Incompatible existing textlab project: missing $relative; choose an existing Scenario D project or an empty directory."
+            }
+        }
+        foreach ($relative in 'data/tickets_train.csv', 'data/tickets_dev.csv') { Assert-TextlabFixture $relative $seed[$relative] }
+        Assert-TextlabFixture 'tests/test_regressions.py' $regressionTests
+    }
+    Write-SeedFiles -Root $ws -Files $seed -MissingOnly:$ctx.ReuseProject
+}
+
+function Add-TextlabRegressionTests {
+    $relative = 'tests/test_regressions.py'
+    if ($ctx.ReuseProject) { Assert-TextlabFixture $relative $regressionTests }
+    Write-SeedFiles -Root $ws -Files @{ $relative = $regressionTests } -MissingOnly:$ctx.ReuseProject
+}
+
 function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'protected-files' -Description 'protected files are byte-identical' -Test {
             foreach ($path in $Hashes.Keys) {
@@ -663,10 +700,7 @@ try {
     # --- B0 ---------------------------------------------------------------
     $stage = 'B0-baseline'
     Write-Step $ctx "B0 seed package, data and venv (Python $pyVersion)" 'phase'
-    Write-SeedFiles -Root $ws -Files $seed
-    New-Item -ItemType Directory -Force -Path (Join-Path $ws 'data') | Out-Null
-    $trainRows | Export-Csv -LiteralPath (Join-Path $ws 'data\tickets_train.csv') -NoTypeInformation -UseQuotes AsNeeded -Encoding utf8NoBOM
-    $devRows | Export-Csv -LiteralPath (Join-Path $ws 'data\tickets_dev.csv') -NoTypeInformation -UseQuotes AsNeeded -Encoding utf8NoBOM
+    Initialize-TextlabProject
     $holdoutRows | Export-Csv -LiteralPath $holdoutPath -NoTypeInformation -UseQuotes AsNeeded -Encoding utf8NoBOM
     $edge = "id,text`r`ne1,`r`ne2,`"   `"`r`ne3,🙂🙂🙂`r`ne4,Mi paquete no ha llegado y el seguimiento no muestra nada`r`ne5,$(('please refund my invoice ' * 800).Trim())`r`ne6,`"Line one`r`nline two about my invoice`"`r`n"
     [System.IO.File]::WriteAllText($edgePath, $edge, [System.Text.UTF8Encoding]::new($true))
@@ -684,6 +718,10 @@ try {
     $protected = @{
         'data/tickets_train.csv' = (Get-Sha256 (Join-Path $ws 'data\tickets_train.csv'))
         'data/tickets_dev.csv'   = (Get-Sha256 (Join-Path $ws 'data\tickets_dev.csv'))
+    }
+    $existingRegression = 'tests/test_regressions.py'
+    if (Test-Path -LiteralPath (Join-Path $ws $existingRegression) -PathType Leaf) {
+        $protected[$existingRegression] = Get-Sha256 (Join-Path $ws $existingRegression)
     }
 
     # --- Profiles ---------------------------------------------------------
@@ -728,7 +766,7 @@ try {
     Save-Checkpoint $ctx 'T3: robustness'
 
     # --- T4: protected regression tests --------------------------------------
-    Write-Utf8File (Join-Path $ws 'tests\test_regressions.py') $regressionTests
+    Add-TextlabRegressionTests
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
     $protected['tests/test_regressions.py'] = Get-Sha256 (Join-Path $ws 'tests\test_regressions.py')
     $gatesT4 = { param($s) Test-Pytest $s 19 $regressionNames; $m = Test-Model $s $TargetMacroF1 -Sentiment; Test-Robustness $s $m; Test-ProtectedUnchanged $s $protected }
@@ -810,21 +848,24 @@ try {
     Test-Keywords $stage
     Test-Report $stage $finalModels
     Test-ProtectedUnchanged $stage $protected
-    $artifacts = Join-Path $ws 'artifacts'
+    $deliveryRoot = if ($ctx.ReuseProject) { Join-Path $ctx.Root 'deliverables' } else { $ws }
+    $artifacts = Join-Path $deliveryRoot 'artifacts'
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
     [void](Invoke-Gate -Ctx $ctx -Stage $stage -Id 'final-artifacts' -Description 'preserve the verified model bytes and generate all final outputs successfully' -Test {
         Assert-That (-not [string]::IsNullOrWhiteSpace($finalModels)) 'final model training did not succeed'
-        New-Item -ItemType Directory -Force -Path (Join-Path $ws 'models') | Out-Null
+        $deliveredModels = Join-Path $deliveryRoot 'models'
+        New-Item -ItemType Directory -Force -Path $deliveredModels | Out-Null
         foreach ($name in 'category.joblib', 'sentiment.joblib', 'metadata.json') {
-            Copy-Item -LiteralPath (Join-Path $finalModels $name) -Destination (Join-Path $ws "models\$name") -Force
+            Copy-Item -LiteralPath (Join-Path $finalModels $name) -Destination (Join-Path $deliveredModels $name) -Force
         }
-        foreach ($name in 'category.joblib', 'sentiment.joblib', 'metadata.json') { Add-Asset $ctx (Join-Path $ws "models\$name") 'Trained model artifact (seed 13)' }
+        foreach ($name in 'category.joblib', 'sentiment.joblib', 'metadata.json') { Add-Asset $ctx (Join-Path $deliveredModels $name) 'Trained model artifact (seed 13)' }
         Copy-Item -LiteralPath (Join-Path $ctx.Logs 'FINAL\holdout-metrics.json') -Destination (Join-Path $artifacts 'holdout-metrics.json') -Force
         Add-Asset $ctx (Join-Path $artifacts 'holdout-metrics.json') 'Hidden holdout metrics of the final models'
-        New-Item -ItemType Directory -Force -Path (Join-Path $ws 'reports') | Out-Null
-        $reportRun = Invoke-Python $stage 'report-final' @('-m', 'textlab', 'report', '--model-dir', 'models', '--data', 'data/tickets_dev.csv', '--output', 'reports/report.html')
-        Assert-That ($reportRun.ExitCode -eq 0 -and (Test-Path -LiteralPath (Join-Path $ws 'reports\report.html'))) "final report exit $($reportRun.ExitCode): $($reportRun.Errors)"
-        Add-Asset $ctx (Join-Path $ws 'reports\report.html') 'Evaluation report on the dev set'
+        New-Item -ItemType Directory -Force -Path (Join-Path $deliveryRoot 'reports') | Out-Null
+        $deliveredReport = Join-Path $deliveryRoot 'reports/report.html'
+        $reportRun = Invoke-Python $stage 'report-final' @('-m', 'textlab', 'report', '--model-dir', $deliveredModels, '--data', 'data/tickets_dev.csv', '--output', $deliveredReport)
+        Assert-That ($reportRun.ExitCode -eq 0 -and (Test-Path -LiteralPath $deliveredReport)) "final report exit $($reportRun.ExitCode): $($reportRun.Errors)"
+        Add-Asset $ctx $deliveredReport 'Evaluation report on the dev set'
         $keywordsRun = Invoke-Python $stage 'keywords-final' @('-m', 'textlab', 'keywords', '--data', 'data/tickets_train.csv', '--top', '10', '--output', (Join-Path $artifacts 'keywords.json'))
         Assert-That ($keywordsRun.ExitCode -eq 0 -and (Test-Path -LiteralPath (Join-Path $artifacts 'keywords.json'))) "final keywords exit $($keywordsRun.ExitCode): $($keywordsRun.Errors)"
         Add-Asset $ctx (Join-Path $artifacts 'keywords.json') 'Top keywords per category'
@@ -834,7 +875,7 @@ try {
             $run = Invoke-Python $stage 'wheel' @('-m', 'pip', 'wheel', '.', '--no-deps', '-w', $wheelDir) 900
             $wheel = Get-ChildItem -LiteralPath $wheelDir -Filter 'textlab-*.whl' -ErrorAction SilentlyContinue | Select-Object -First 1
             Assert-That ($run.ExitCode -eq 0 -and $wheel) ("exit {0}`n{1}" -f $run.ExitCode, (Get-Tail ($run.Output + $run.Errors)))
-            $dist = Join-Path $ws 'dist'
+            $dist = Join-Path $deliveryRoot 'dist'
             New-Item -ItemType Directory -Force -Path $dist | Out-Null
             Copy-Item -LiteralPath $wheel.FullName -Destination $dist -Force
             Add-Asset $ctx (Join-Path $dist $wheel.Name) 'Python wheel'; $true })

@@ -6,10 +6,10 @@ dependencies, parameter values, scorecard and command logs for each actual run; 
 runs, calibration runs and measured runs distinct.
 
 This plan defines four long-running, realistic scenarios. Each one drives the `vcp` CLI
-through several turns of real development work on a fresh project. A PowerShell harness
+through several turns of real development work on a new or reused scenario project. A PowerShell harness
 then assesses every turn deterministically from logs, VCP's canonical evidence and
-independent builds and tests. Each scenario leaves a project folder with its source,
-per-turn git history, compiled assets and a scorecard.
+independent builds and tests. Each scenario leaves the project source and a separate run
+folder containing per-turn file-change evidence, asset locations and a scorecard.
 
 | Scenario | Project | Stack | Script |
 |---|---|---|---|
@@ -74,41 +74,26 @@ tickets. Continuation of a single task is exercised separately:
 | `sqlcmd` (optional, enables one advisory database gate) | | opt | | |
 | JDK 21+ (`JAVA_HOME` or PATH) and Apache Maven 3.9+ (`mvn.cmd` on PATH) | | | yes | |
 | Python 3.11+ (py launcher or python.exe, not the Store alias) | | | | yes |
-| git (optional; enables one checkpoint commit per stage) | opt | opt | opt | opt |
+| git (optional; enables checkpoint commits for new projects) | opt | opt | opt | opt |
 | Internet access to npm, NuGet, Maven Central and PyPI (seeding, package restores, `npm ci`) | yes | yes | yes | yes |
 
-### 2.2 Automatic provider preparation
+### 2.2 Reuse the configured provider
 
 Start `run-cli-scenarios.ps1`; no manual VCP commands or project scaffolding are needed.
-The launcher reuses a valid provider generation when available. Otherwise it runs
-`vcp setup provider` itself, using the installed account's primary model and matching
-endpoint from completed account setup where available. Missing model/endpoint choices
-are requested inside the launcher. The scenario then creates its project, restores
-dependencies, creates execution profiles and runs the checks.
+The launcher reads the installed CLI's effective model selection in the chosen project
+and reuses matching metadata from a registered project profile or completed account setup.
+It also recognizes existing provider generation directories. It does not run
+`setup provider`, repeat qualification, or change your configured provider.
 
-Qualification makes up to two paid requests. The launcher asks for a **separate setup
-budget** (Enter authorizes 3 USD), or accepts `-SetupBudgetUsd` up to 25 USD. This is
-additional to `-MaxScenarioUsd`, including when preparing a new generation for DryRun.
-An existing valid generation requires no qualification spend. The request-price ceiling
-defaults to 0.001 USD and can be set with `-RequestPriceLimitUsd`.
+Both account metadata (`snapshot.json` plus `endpoints.json`) and qualified generations
+(`qualified\snapshot.json` plus `endpoints.json`) are supported. Metadata must still be
+unexpired; there is no additional five-hour minimum. If no usable matching metadata exists,
+the launcher stops with the reason and retains its discovery logs. It cannot renew expired
+metadata offline or silently authorize paid qualification.
 
-The resulting directory contains `qualified\snapshot.json` and `endpoints.json`.
-**Snapshots are valid for 12 hours**; scenarios require five hours remaining. Missing or
-expired supplied generations are preserved and replaced with a new generation under
-the invocation's `setup` directory. If only generation receipts are delayed, the launcher
-tries `setup provider-complete` once without repeating inference. Other failures stop
-before the scenario and retain their logs. See [beta onboarding](../usage/beta-onboarding.md)
-for the underlying CLI contracts.
-
-For advanced use, the equivalent manual command remains:
-
-```powershell
-& $vcp --workspace C:\vcp-scenarios setup provider --model <org/model> --endpoint <tag> `
-  --request-price-limit <usd> --budget-usd <probe-cap> --output C:\vcp-private\provider-20261002
-```
-
-Choose an endpoint that supports tools and has an output limit large enough for code
-generation. `-OutputTokens` defaults to 8192 and is clamped to the endpoint's `max_output`.
+`-ProviderGeneration` or `VCP_PROVIDER_GENERATION` is an optional explicit metadata-directory
+override, not a project directory. Normally leave it unset. `-OutputTokens` defaults to 8192
+and is clamped to the endpoint's `max_output`.
 
 ### 2.3 Credential (per console)
 
@@ -128,16 +113,33 @@ $secret = $null
 The harness never prints, logs or writes the key. Remove it afterwards with
 `Remove-Item Env:\OPENROUTER_API_KEY`.
 
-### 2.4 Run root
+### 2.4 Project and run folders
 
 The default run root is `%SystemDrive%\vcp-scenarios`. Change it with `-RunRoot`. The harness
 refuses any run root inside a git repository, a OneDrive root or a network path, because VCP
 rejects data directories and profiles in those locations.
 
+Select a project folder in the launcher or pass `-ProjectPath D:\clitests\A`. A missing
+folder is created and scaffolded. An existing project is reused; the harness preserves
+its source and configuration and restores its dependencies. The default launcher project
+is `<RunRoot>\projects\<scenario>`, stable across runs. Individual scenario scripts without
+`-ProjectPath` retain their per-run `workspace` default.
+
+Existing projects must match the selected scenario's structure. Incompatible projects or
+conflicting deterministic fixtures are rejected rather than overwritten. Agent tasks still
+intentionally edit the selected project. Harness git initialization, staging and checkpoint
+commits are disabled for reused projects, preserving the existing index and history.
+Use a separate project folder for simultaneous runs of the same scenario.
+
+Each invocation gets separate logs, profiles, VCP data and results outside the project.
+`-RunRoot` must not be inside `-ProjectPath`. The launcher prints the actual project and
+results paths; `scorecard.json` also records `workspace` and `reused_project`.
+
 Scenario B's optional `-SqlConnectionString` must use integrated authentication and no
 embedded password. The script creates a distinct database name for the run; connection
-settings are written into the generated project, exposed to VCP, checkpointed and included
-in published assets. Password-bearing connection strings are rejected before seeding.
+settings are written into newly generated projects. Reused project configuration is preserved;
+the per-run database override is passed to both harness and agent processes.
+Password-bearing connection strings are rejected before seeding.
 
 ---
 
@@ -147,7 +149,7 @@ in published assets. Password-bearing connection strings are rejected before see
 
 ```
 <RunRoot>\<scenario>\<yyyyMMdd-HHmmss-xxxxxx>\
-  workspace\     the produced project; git history has one commit per stage; artifacts\ holds compiled assets
+  workspace\     project only when invoking a scenario without -ProjectPath
   vcp-data\      VCP --data-dir for this run only (canonical store, task model selections)
   profiles\      base profile from 'vcp setup profile' plus the composed scenario profiles
   hidden\        fixtures deliberately kept outside the workspace (D: holdout, edge cases)
@@ -171,7 +173,12 @@ in published assets. Password-bearing connection strings are rejected before see
   results\
     scorecard.json           machine-readable result (schema vcp-practical-scenario/1)
     summary.md               human-readable result
+    paid-execution.json     blocking reason, task/approval IDs and evidence links, when blocked
 ```
+
+With the launcher, this run folder is nested under `<RunRoot>\launch-<id>`. The project
+is the separately selected `ProjectPath`. For reused projects, C writes final artifacts
+to `<run>\artifacts` and D writes final deliverables to `<run>\deliverables`.
 
 ### 3.2 Stage sequence (identical shape in every scenario)
 
@@ -190,13 +197,13 @@ in published assets. Password-bearing connection strings are rejected before see
 
 `-SkipPaidStages` performs a **zero-spend dry run**: P0, B0, P1 and G0 only. It needs no
 credential. Run it first on every machine to validate toolchains, seeding, profiles and the
-guardrail. It still requires a valid qualified generation and may download dependencies;
+guardrail. It still requires valid provider metadata and may download dependencies;
 it does not run provider qualification or prove that a feature turn succeeds.
 
 ### 3.3 Execution profiles
 
-Each scenario composes its own profiles with `New-ScenarioProfile`. The qualified provider
-snapshot is spliced in **verbatim** from `qualified\snapshot.json`, so no prices, timestamps
+Each scenario composes its own profiles with `New-ScenarioProfile`. The retained provider
+snapshot is spliced in **verbatim** from `snapshot.json` or `qualified\snapshot.json`, so no prices, timestamps
 or hashes are re-encoded. Everything else is explicit owner configuration:
 
 ```json
@@ -208,7 +215,7 @@ or hashes are re-encoded. Everything else is explicit owner configuration:
   "maximum_autonomy": "autonomous",
   "automatic_effects": ["read", "write", "execute", "network", "install", "opaque"],
   "budget_usd": "3.00",
-  "provider": { "...": "verbatim qualified snapshot" },
+  "provider": { "...": "verbatim retained snapshot" },
   "catalog": "<generation>\\endpoints.json",
   "affected_paths": ["README.md", "src", "tests", "..."],
   "canonical_tools": ["vcp_read", "vcp_list", "vcp_search", "vcp_patch", "vcp_exec", "vcp_verify"],
@@ -234,6 +241,11 @@ Design notes, each based on the current source:
   `maximum_autonomy: autonomous`, with `automatic_effects` covering execute, network and
   install for builds and package restores. `publish` is deliberately excluded. Policy
   evaluation also requires every resource to be inside the workspace roots.
+  **Observed limitation in VCP 0.2.4:** generic process preparation includes `publish`
+  even for `node --test`; `vcp_verify` uses that same authorization path. These profiles
+  therefore cannot promise unattended process execution. The harness records required
+  input and stops further paid stages rather than granting broader authority. See the
+  [October 3 run review](run-review-20261003-082517.md) for the captured operation and failures.
 - **Process profiles** are `.exe` only, in `Direct` mode with no shell, and use a filtered
   public environment. `npm`, `mvn` and the `dotnet-ef` tool are reached through `node.exe`,
   `java.exe` and `dotnet.exe`; each task prompt gives the exact argument forms. The
@@ -253,6 +265,9 @@ Design notes, each based on the current source:
 ### 3.4 Commands run by every paid stage
 
 `$G` below means `--format jsonl --non-interactive --workspace <ws> --data-dir <data>`.
+In the examples, `<ws>` is the selected project path. Snapshot examples show the qualified
+generation layout; account metadata uses `<gen>\snapshot.json` instead. The literal
+`vcp-commands.log` records the actual resolved paths for each invocation.
 Every stage that starts or continues a task (run, repair, resume, fork) is followed by this
 **evidence sweep**. The sweep makes no inference calls:
 
@@ -445,7 +460,7 @@ vcp $G memory search tasks --limit 8
 ### 4.4 Left behind
 
 `workspace\` holds the full TaskBoard project, with `dist\client` (the production bundle),
-`package-lock.json`, one git commit per stage, and
+`package-lock.json`, checkpoint commits for new projects, and
 `artifacts\taskboard-client-<run>.zip`. Run it with `npm start` (port 41731) after
 `npm run build`.
 
@@ -535,7 +550,7 @@ vcp $G memory search products --limit 8
 ### 5.4 Left behind
 
 `workspace\` holds the solution (`Inventory.sln`/`.slnx`, `src\Inventory.Web`,
-`tests\Inventory.Tests`, migrations) with git history. It also holds
+`tests\Inventory.Tests`, migrations) with checkpoints for new projects. It also holds
 `artifacts\publish\Inventory.Web.exe` (the Release publish), a zipped copy and
 `artifacts\migrations.sql` (an idempotent deployment script). The LocalDB database
 `VcpInventory_<run>` is kept for inspection unless `-DropDatabase` is passed.
@@ -620,7 +635,7 @@ vcp $G memory search ledger --limit 8
 
 ### 6.4 Left behind
 
-`workspace\` holds the Maven project with git history. `artifacts\` contains
+`workspace\` holds the Maven project with checkpoints for new projects. `artifacts\` contains
 `ledger-cli-1.0.0-all.jar` (run it with `java -jar`), a sample ledger,
 `report-2026-02.json` with `expected-report-2026-02.json` beside it for comparison, and
 `export-2026Q1.csv`. The thin jar is in `target\`.
@@ -720,7 +735,7 @@ vcp $G memory search holdout --limit 8
 
 ### 7.4 Left behind
 
-`workspace\` holds the package with git history, plus:
+`workspace\` holds the package with checkpoints for new projects, plus:
 
 - `models\` (`category.joblib`, `sentiment.joblib`, `metadata.json`);
 - `reports\report.html` and `MODEL_CARD.md`;
@@ -791,7 +806,11 @@ These limitations need evidence from actual scenario runs:
 | `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
 | `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
-| `tests/Bootstrap.Tests.ps1` | Offline automatic preparation, renewal, receipt recovery, failure preservation and generation reuse |
+| `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |
+| `tests/BlockedExecution.Tests.ps1` | Stops further paid admission after approval/recovery blockers; preserves same-task deadline resumes and original repair instructions |
+| `tests/ProviderReuse.Tests.ps1` | Offline configured-provider discovery and metadata reuse |
+| `tests/ProjectContext.Tests.ps1` | Offline project selection, seed preservation and git checkpoint isolation |
+| `tests/ProjectReuseAB.Tests.ps1` / `tests/ProjectReuseCD.Tests.ps1` | Offline scenario scaffold and fixture preservation |
 | `tests/CommandLog.Tests.ps1` | Offline regressions for exact command logging, failure evidence and result-path references |
 
 Each scenario script is self-contained apart from the module. Seeds, protected tests and
@@ -805,30 +824,33 @@ pwsh -NoProfile -File docs/test-plans/tests/Harness.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ScenarioGates.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProfileDeadlines.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/BlockedExecution.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
-pwsh -NoProfile -File docs/test-plans/tests/Bootstrap.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProviderReuse.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProjectContext.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProjectReuseAB.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProjectReuseCD.Tests.ps1
 ```
 
 These checks use local fixtures and subprocess probes; they need no VCP installation,
 provider generation, provider credential or network access. They validate the harness,
 not the generated applications or paid provider workflows. Run `-SkipPaidStages` next
-to check the installed CLI, qualified generation and actual scenario toolchains.
+to check the installed CLI, configured provider metadata and actual scenario toolchains.
 
 ### 9.2 Common parameters
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `-ProviderGeneration` | optional in launcher | Reuse an existing qualified directory; individual scenario scripts require it |
-| `-Model` / `-Endpoint` | installed selection when available | Launcher provider selection; prompts when missing |
-| `-SetupBudgetUsd` | prompt (3 USD offered) | Launcher qualification cap, separate from scenario spend, at most 25 USD |
-| `-RequestPriceLimitUsd` | 0.001 | Maximum provider request fee during qualification |
+| `-ProviderGeneration` | installed metadata in launcher | Optional explicit metadata directory; individual scenario scripts require it |
+| `-ProjectPath` | stable scenario folder in launcher | Reuse an existing project or create it when absent |
 | `-RunRoot` | `%SystemDrive%\vcp-scenarios` | Parent folder for run outputs |
 | `-Vcp` | installed launcher | Path to `vcp.exe` (or set `VCP_EXE`) |
 | `-TurnBudgetUsd` | 3 | `--budget-usd` per task |
 | `-MaxScenarioUsd` | 30 | Harness spend ceiling for the scenario |
 | `-MaxRepairTurns` | 1 | Repair turns per failed stage |
 | `-OutputTokens` / `-MaxRequests` / `-DeadlineSeconds` | 8192 / 96 / 1800 | Profile limits per task |
-| `-ShortDeadlineSeconds` | 150 | Deadline for the T5 continuation test (at least 121 in A because of its check) |
+| `-ShortDeadlineSeconds` | 150 | Deadline for the T5 continuation test; A caps its Node check timeout at the smaller of 300 seconds and the task deadline |
 | `-SkipPaidStages` | off | Zero-spend dry run (P0, B0, P1, G0) |
 
 Scenario-specific: A `-ApiPort`; B `-AppPort`, `-PublishedPort`, `-SqlConnectionString`,
@@ -842,19 +864,16 @@ Open one PowerShell 7 window per scenario. In each window:
 pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1
 ```
 
-Choose A, B, C or D, then dry run or full run and an output folder. Dry run is the default.
-The launcher discovers a valid generation under `%LOCALAPPDATA%\VCP\profiles` or a
-previous launch's `setup` directory beneath the chosen output folder, or
-prepares one automatically as described in section 2.2. `-ProviderGeneration` and
-`VCP_PROVIDER_GENERATION` optionally select an existing generation; neither is required.
-The launcher streams progress in that console and prints the preparation, workspace,
-result and command-log locations when the child exits. Preparation commands and results
-live under `<invocation>\setup\logs` and `<invocation>\setup\results`, including failures.
+Choose A, B, C or D, then dry run or full run and a project folder. Dry run is the default.
+The launcher reuses your configured provider as described in section 2.2. It streams
+progress in that console and prints the project, results and command-log locations when
+the child exits. Provider discovery commands and results live under
+`<invocation>\setup\logs` and `<invocation>\setup\results`, including failures.
 
 For a repeatable selection, pass the options explicitly:
 
 ```powershell
-pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode Full -RunRoot D:\clitests\A
+pwsh -NoProfile -File D:\code\Github\vcp\docs\test-plans\run-cli-scenarios.ps1 -Scenario A -Mode Full -ProjectPath D:\clitests\A
 ```
 
 The individual scenario scripts also remain available for scenario-specific parameters:
@@ -878,7 +897,7 @@ Concurrent runs are isolated by design:
 - each run has its own timestamped run root, `--data-dir` (and therefore its own canonical
   store and owner pipe), profiles and TEMP;
 - ports differ per scenario (A 41731; B 41750/41751; C and D use none). Two copies of the
-  **same** scenario need different ports;
+  **same** scenario need different ports and separate `-ProjectPath` folders;
 - LocalDB is shared, but each B run creates its own database. npm, NuGet, Maven and pip
   caches are safe to share;
 - spend ceilings are per process (section 3.7). The shared provider key may hit rate limits.
@@ -896,14 +915,20 @@ starting another run. An interrupted script may not write its final scorecard.
 
 1. Open `results\summary.md` for the verdict, the stage table, failed and skipped gates
    (including those later repaired), the produced assets and notes.
+   If execution stopped for approval, interruption or recovery, inspect
+   `results\paid-execution.json` for the task, reason, approval IDs and evidence paths.
+   The harness refuses new paid tasks after such a block; an ordinary deadline pause
+   permits only a continuation of the same recorded task. Repair prompts retain the
+   original task's environment and protected-file instructions.
 2. For a failing gate, read its detail in `scorecard.json`, the tool log it names under
    `logs\<stage>\tools\`, and the stage's `prompt.md`, `final-message.md` and
    `workspace-diff.json`.
 3. To see what VCP actually did, use `inspect-tools.json`, `inspect-verification.json` and
    `inspect-policy.json` for the stage. Re-run read-only commands at any time:
    `vcp --format jsonl --non-interactive --workspace <ws> --data-dir <run>\vcp-data inspect <task> --view chain`.
-4. To review code changes per turn, run `git -C <run>\workspace log --stat`. Each stage,
-   including harness-inserted protected tests, is a separate commit.
+4. For a newly created project with git available, run `git -C <project> log --stat`
+   for stage checkpoints. Reused projects receive no harness commits; use the saved
+   `workspace-diff.json` files and inspect the actual project path from the scorecard.
 5. To compare runs or models, put several `scorecard.json` files side by side; they share
    the schema `vcp-practical-scenario/1`.
 
