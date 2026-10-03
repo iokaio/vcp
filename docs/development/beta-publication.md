@@ -2,6 +2,51 @@
 
 ## Current signed beta publication
 
+The owner authorized building, signing and publishing synchronized `0.2.4`
+artifacts, including the VS Code compatibility correction. The
+[candidate run 37096239569](https://github.com/iokaio/vcp/actions/runs/37096239569/attempts/1)
+completed successfully through `pair`.
+[Publication run 37097991085](https://github.com/iokaio/vcp/actions/runs/37097991085)
+completed successfully with both Release and Pages passing. The unchanged
+candidate bytes were published without rebuilding or re-signing.
+
+- [Published prerelease](https://github.com/iokaio/vcp/releases/tag/v0.2.4-1e791436ab85):
+  synchronized native, installer, SDK and VSIX `0.2.4`.
+- Source: `53e4d16667eed318208037b63f0f77db804c57b5`.
+- Pair: `1e791436ab850192fba5e4c58f0c294db584d1a3f16d6630d80709a2618ffe55`.
+- Actual engine, launcher, installer ProductVersion, VSIX manifest and bundled
+  SDK versions all verified as `0.2.4`; extension ID `iokaio.vcp`, target
+  `win32-x64`, VS Code engine range `^1.138.0`.
+- Engine, launcher, setup and uninstaller passed Ioka LLC Authenticode
+  verification, including the pinned identity EKU and timestamps.
+- Full candidate-packet admission and isolated offline CLI smoke checks passed.
+  The exact VSIX installed through the official CLI and activated on VS Code
+  `1.138.0` and `1.140.0`; all 59 installed payload files matched the package.
+  Installed `package.json` was compared after removing editor-added `__metadata`;
+  the other payload files matched by hash.
+
+The candidate remains a limited internal beta requiring qualification. These
+editor checks do not complete the later native-boundaries, installed-native or
+installed-editor pipeline gates, establish clean-host support, or prove a live
+provider task. Successful Marketplace publication and exact public package
+verification are recorded separately
+in [Marketplace publication](marketplace-publication.md).
+
+[downloads.ioka.io](https://downloads.ioka.io/) serves this release over HTTPS
+with normal certificate validation. All five public assets matched the prepared
+SHA-256 hashes and sizes; public HTML matched the renderer exactly, and
+`latest.json` matched the release manifest. Prior releases remain unchanged.
+Public evidence: `artifacts/beta-delivery/public-verification-37097991085/verification.json`
+and `artifacts/beta-delivery/public-verification-37097991085/asset-verification.json`.
+
+Local verification: `artifacts/local-candidate/signed-0.2.4-37096239569/local-verification/local-verification.json`.
+The admitted packet and prepared public assets are retained in that candidate's
+`packet/` and `verified/` sibling directories. Editor evidence is retained in
+`artifacts/local-candidate/editor024-final-1.138.0-retry1/verification.json` and
+`artifacts/local-candidate/editor024-final-1.140.0/verification.json`.
+
+## Historical signed 0.2.3 publication
+
 On October 2, 2026 the owner authorized publishing the verified `0.2.3` artifacts
 to downloads.ioka.io. BETA-11's limited-beta publication completed in
 [run 37094167354](https://github.com/iokaio/vcp/actions/runs/37094167354), with both
@@ -19,7 +64,7 @@ without rebuilding or re-signing.
   for Ioka LLC, including the pinned identity EKU and timestamps. Actual native,
   installer, VSIX manifest and bundled SDK versions were verified as `0.2.3`.
 
-[downloads.ioka.io](https://downloads.ioka.io/) serves this release over HTTPS
+[downloads.ioka.io](https://downloads.ioka.io/) served this release over HTTPS
 with normal certificate validation. All five public assets were downloaded and
 matched the prepared SHA-256 hashes and sizes. The public HTML exactly matched
 the release renderer, and `latest.json` matched the published manifest.
