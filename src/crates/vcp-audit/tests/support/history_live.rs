@@ -29,6 +29,23 @@ impl CanonicalStore for Paged {
         }
         Ok(self.events.get(ordinal as usize).cloned())
     }
+    async fn history_event(&self, id: &EventId) -> vcp_store::Result<Option<EventEnvelope>> {
+        self.reads.set(self.reads.get() + 1);
+        if self.mode == 1 {
+            return Err(vcp_store::Error::Corruption(
+                "injected exact origin failure",
+            ));
+        }
+        if self.mode == 3 {
+            return Ok(None);
+        }
+        if self.mode == 5 {
+            let mut event = self.events[0].clone();
+            event.event.id = EventId::new();
+            return Ok(Some(event));
+        }
+        Ok(self.events.iter().find(|e| &e.event.id == id).cloned())
+    }
     async fn history_events(
         &self,
         after: Option<u64>,
@@ -61,6 +78,195 @@ impl CanonicalStore for Paged {
     }
     async fn transact(&mut self, _: Transaction) -> vcp_store::Result<Receipt> {
         panic!("audit must not mutate")
+    }
+}
+
+#[tokio::test]
+async fn inspection_ingestion_findings_require_exact_retained_origin() {
+    use vcp_audit::inspection::{self, InspectionQuery, View};
+    use vcp_domain::ingestion::*;
+    let temporary = tempfile::tempdir().unwrap();
+    let fixture = fixture(temporary.path(), BackendKind::Files).await;
+    let mut state = fixture.engine.store().state().clone();
+    let event = state
+        .events
+        .iter()
+        .find(|e| e.event.task.as_ref() == Some(&fixture.root))
+        .unwrap();
+    let mut job = Job {
+        document_type: DocumentType::Job,
+        schema_version: 1,
+        id: CommandId::new(),
+        scope: Scope {
+            workspace: access().workspace,
+            session: event.event.session.clone(),
+            task: fixture.root.clone(),
+        },
+        root: fixture.root.clone(),
+        revision: Revision::ZERO,
+        cursor: CommandId::new(),
+        extractor: ExtractorSpec {
+            name: "fixture".into(),
+            version: 1,
+            event_kinds: vec!["task_created".into()],
+        },
+        origin: event.event.id.clone(),
+        origin_watermark: event.watermark,
+        state: JobState::Completed,
+        attempts: Units::new(1),
+        max_attempts: Units::new(1),
+        lease: None,
+        not_before: Timestamp::ZERO,
+        last_failure: None,
+        results: Vec::new(),
+        finding: Some("observed-finding".into()),
+    };
+    job.id = CommandId::parse(vcp_protocol::digest_bytes(
+        &vcp_protocol::canonical_bytes(&("ingestion-job/1", &job.cursor, &job.origin)).unwrap(),
+    ))
+    .unwrap();
+    job.validate().unwrap();
+    let row = Record::typed(
+        Collection::Claim,
+        job.id.as_str(),
+        access().workspace,
+        Revision::ZERO,
+        &job,
+    )
+    .unwrap();
+    state
+        .records
+        .insert(key(Collection::Claim, job.id.as_str()), row.clone());
+    let mut current = fixture.engine.store().current_state();
+    Arc::make_mut(&mut current)
+        .records
+        .insert(key(Collection::Claim, job.id.as_str()), row);
+    let mut reader = Paged {
+        current,
+        events: state.events.to_vec(),
+        reads: Cell::new(0),
+        mode: 0,
+    };
+    let request = InspectionQuery {
+        id: fixture.root.to_string(),
+        view: View::Memory,
+        limit: 128,
+        cursor: None,
+        range: None,
+    };
+    let expected = inspection::records(&state, &access(), &request).unwrap();
+    assert_eq!(
+        inspection::records_store(&reader, &access(), &request)
+            .await
+            .unwrap(),
+        expected
+    );
+    assert!(serde_json::to_string(&expected)
+        .unwrap()
+        .contains("observed-finding"));
+    reader.mode = 3;
+    let missing = inspection::records_store(&reader, &access(), &request)
+        .await
+        .unwrap();
+    assert!(!serde_json::to_string(&missing)
+        .unwrap()
+        .contains("observed-finding"));
+    for mode in [1, 5] {
+        reader.mode = mode;
+        assert!(inspection::records_store(&reader, &access(), &request)
+            .await
+            .is_err());
+    }
+}
+
+#[tokio::test]
+async fn live_inspection_matches_archive_cursor_scope_and_short_pages() {
+    use vcp_audit::inspection::{self, InspectionQuery, View};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let fixture = fixture(temporary.path(), backend).await;
+        let state = fixture.engine.store().state();
+        let mut reader = Paged {
+            current: fixture.engine.store().current_state(),
+            events: state.events.to_vec(),
+            reads: Cell::new(0),
+            mode: 0,
+        };
+        let mut access = access();
+        access.tasks = Some([fixture.root.clone()].into());
+        for view in [
+            View::Chain,
+            View::Context,
+            View::Prompts,
+            View::Outputs,
+            View::Routing,
+            View::Policy,
+            View::Tools,
+            View::Costs,
+            View::Verification,
+            View::Memory,
+        ] {
+            let mut request = InspectionQuery {
+                id: fixture.root.to_string(),
+                view,
+                limit: 2,
+                cursor: None,
+                range: None,
+            };
+            loop {
+                let expected = inspection::records(state, &access, &request).unwrap();
+                let actual = inspection::records_store(&reader, &access, &request)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    serde_json::to_value(&actual).unwrap(),
+                    serde_json::to_value(&expected).unwrap()
+                );
+                request.cursor = actual.next_cursor;
+                if request.cursor.is_none() {
+                    break;
+                }
+            }
+        }
+        // Begin after all current records, forcing actual global ordinal reads.
+        let mut request = InspectionQuery {
+            id: fixture.root.to_string(),
+            view: View::Chain,
+            limit: 128,
+            cursor: None,
+            range: None,
+        };
+        let initial = inspection::records_store(&reader, &access, &request)
+            .await
+            .unwrap();
+        assert!(initial
+            .items
+            .iter()
+            .any(|item| item["reference"].as_str().unwrap().starts_with("z:event:")));
+        for mode in [1, 2, 4] {
+            reader.mode = mode;
+            assert!(inspection::records_store(&reader, &access, &request)
+                .await
+                .is_err());
+        }
+        reader.mode = 0;
+        request.limit = 1;
+        request.cursor = inspection::records_store(&reader, &access, &request)
+            .await
+            .unwrap()
+            .next_cursor;
+        request.cursor.as_mut().unwrap().watermark = Watermark::ZERO;
+        assert!(matches!(
+            inspection::records_store(&reader, &access, &request).await,
+            Err(Error::Restart(_))
+        ));
+        access.read = false;
+        reader.reads.set(0);
+        assert!(matches!(
+            inspection::records_store(&reader, &access, &request).await,
+            Err(Error::Access)
+        ));
+        assert_eq!(reader.reads.get(), 0);
     }
 }
 fn query() -> Query {

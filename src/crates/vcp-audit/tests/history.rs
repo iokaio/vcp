@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #[path = "support/history_live.rs"]
 mod history_live;
+#[path = "support/projection_live.rs"]
+mod projection_live;
 use vcp_audit::{history::*, projection, Error};
 use vcp_domain::{
     accounting::*, artifact::*, effect::*, ids::*, revision::*, task::*, verification::*,
@@ -1012,8 +1014,9 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             length: 12,
         }),
     };
-    let removed =
-        vcp_audit::inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    let removed = vcp_audit::inspection::inspect(fixture.engine.store(), &access(), &query)
+        .await
+        .unwrap();
     assert!(removed.items.is_empty());
     assert_eq!(removed.gaps[0]["visibility"], "pruned");
     assert_eq!(removed.gaps[0]["source"], fixture.request.spec.source);
@@ -1228,19 +1231,23 @@ async fn inspection_chain_pages_preserve_all_events_from_one_transaction() {
             cursor: None,
             range: None,
         };
-        let first = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let first = inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .unwrap();
         let mut obsolete = first.next_cursor.clone().unwrap();
         assert_eq!(obsolete.version, 2);
         obsolete.version = 1;
         query.cursor = Some(obsolete);
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &access(), &query),
+            inspection::inspect(fixture.engine.store(), &access(), &query).await,
             Err(Error::Restart(_))
         ));
         query.cursor = None;
         let mut observed = Vec::new();
         loop {
-            let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+            let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+                .await
+                .unwrap();
             for row in page.items {
                 if let Some(id) = row
                     .pointer("/event/event/id")
@@ -1275,12 +1282,16 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
             cursor: None,
             range: None,
         };
-        let first = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let first = inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .unwrap();
         assert_eq!(first.scope.task, fixture.root);
         assert!(first.next_cursor.is_some());
         let mut items = Vec::new();
         loop {
-            let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+            let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+                .await
+                .unwrap();
             assert_eq!(page.source_watermark, first.source_watermark);
             assert!(page.items.len() <= 2);
             items.extend(page.items);
@@ -1317,7 +1328,7 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
         let mut wrong = query.clone();
         wrong.view = View::Costs;
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &access(), &wrong),
+            inspection::inspect(fixture.engine.store(), &access(), &wrong).await,
             Err(Error::Restart(_))
         ));
         let restricted = Access {
@@ -1325,7 +1336,7 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
             ..access()
         };
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &restricted, &query),
+            inspection::inspect(fixture.engine.store(), &restricted, &query).await,
             Err(Error::Access)
         ));
         let mut state = fixture.engine.store().state().clone();
@@ -1335,12 +1346,14 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
             .retain(|_, r| r.collection != Collection::Projection);
         assert_eq!(
             inspection::records(&state, &access(), &query).unwrap(),
-            inspection::inspect(fixture.engine.store(), &access(), &query).unwrap()
+            inspection::inspect(fixture.engine.store(), &access(), &query)
+                .await
+                .unwrap()
         );
         // A canonical change cannot silently mix pages.
         capture(&mut fixture.engine, &fixture.root, b"new evidence").await;
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &access(), &query),
+            inspection::inspect(fixture.engine.store(), &access(), &query).await,
             Err(Error::Restart(_))
         ));
     }
@@ -1411,7 +1424,9 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
             cursor: None,
             range: None,
         };
-        let memory = inspection::inspect(fixture.engine.store(), &restricted, &query).unwrap();
+        let memory = inspection::inspect(fixture.engine.store(), &restricted, &query)
+            .await
+            .unwrap();
         assert!(!serde_json::to_string(&memory).unwrap().contains(marker));
         assert!(memory.items.iter().any(
             |item| item["id"] == id.as_str() && item["visibility"] == "governed_query_required"
@@ -1422,7 +1437,9 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
         };
         let mut found = false;
         loop {
-            let page = inspection::inspect(fixture.engine.store(), &restricted, &chain).unwrap();
+            let page = inspection::inspect(fixture.engine.store(), &restricted, &chain)
+                .await
+                .unwrap();
             assert!(!serde_json::to_string(&page).unwrap().contains(marker));
             found |= page.items.iter().any(|item| {
                 item.pointer("/event/event/data/proposal") == Some(&serde_json::json!(proposal))
@@ -1488,7 +1505,9 @@ async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
     };
     let mut recovered = Vec::new();
     loop {
-        let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .unwrap();
         let item = &page.items[0];
         let chunk: Vec<u8> = serde_json::from_value(item["bytes"].clone()).unwrap();
         assert!(chunk.len() <= MAX_RANGE as usize);
@@ -1504,25 +1523,27 @@ async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
         ..access()
     };
     assert!(matches!(
-        inspection::inspect(fixture.engine.store(), &denied, &query),
+        inspection::inspect(fixture.engine.store(), &denied, &query).await,
         Err(Error::Access)
     ));
     let other = Access {
         workspace: WorkspaceId::new(),
         ..access()
     };
-    assert!(inspection::inspect(fixture.engine.store(), &other, &query).is_err());
+    assert!(inspection::inspect(fixture.engine.store(), &other, &query)
+        .await
+        .is_err());
     let stale = Access {
         authority: AuthorityRevision::new(99),
         ..access()
     };
     assert!(matches!(
-        inspection::inspect(fixture.engine.store(), &stale, &query),
+        inspection::inspect(fixture.engine.store(), &stale, &query).await,
         Err(Error::Access)
     ));
     query.range.as_mut().unwrap().length = MAX_RANGE + 1;
     assert!(matches!(
-        inspection::inspect(fixture.engine.store(), &access(), &query),
+        inspection::inspect(fixture.engine.store(), &access(), &query).await,
         Err(Error::Limit)
     ));
     query.range = Some(RangeRequest {
@@ -1538,7 +1559,11 @@ async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
         .join("seal.json");
     // Removing metadata is not an empty output; corruption stays a hard error.
     std::fs::rename(&spool_file, spool_file.with_extension("missing")).unwrap();
-    assert!(inspection::inspect(fixture.engine.store(), &access(), &query).is_err());
+    assert!(
+        inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -1573,7 +1598,9 @@ async fn inspection_marks_missing_and_incomplete_content_without_reconstruction(
             length: 100,
         }),
     };
-    let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+        .await
+        .unwrap();
     assert_eq!(page.items[0]["text"], "partial\x1b[31m");
     assert_eq!(page.items[0]["representation"], "captured_bytes");
     assert_eq!(page.gaps[0]["capture_state"], "aborted");
@@ -1591,7 +1618,9 @@ async fn inspection_marks_missing_and_incomplete_content_without_reconstruction(
         .join(artifact.spec.id.as_str())
         .join("spec.json");
     std::fs::rename(&spec_file, spec_file.with_extension("missing")).unwrap();
-    let missing = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    let missing = inspection::inspect(fixture.engine.store(), &access(), &query)
+        .await
+        .unwrap();
     assert!(missing.items.is_empty());
     assert_eq!(missing.gaps[0]["visibility"], "missing");
     assert_eq!(missing.gaps[0]["source"], artifact.spec.source);

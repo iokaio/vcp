@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 use vcp_domain::{artifact::*, revision::*, workspace::Scope};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_store::{
-    contract::{Collection, Record, State},
-    Store,
+    contract::{CanonicalStore, Collection, Record, State},
+    CurrentStateView, Store,
 };
 
 pub const MAX_RANGE: u32 = 64 * 1024;
@@ -80,7 +80,11 @@ fn task(record: &Record) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn target<'a>(state: &'a State, access: &Access, id: &str) -> Result<(&'a Record, Scope)> {
+fn target<'a>(
+    state: CurrentStateView<'a>,
+    access: &Access,
+    id: &str,
+) -> Result<(&'a Record, Scope)> {
     history::authorize(state, access)?;
     let mut candidates = state
         .records
@@ -163,78 +167,196 @@ fn selected(record: &Record, view: View) -> bool {
 
 /// Stable canonical-key ordering; a changed snapshot explicitly requires restart.
 pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Result<InspectionPage> {
-    let workspace = history::authorize(state, access)?;
-    let (_, scope) = target(state, access, &query.id)?;
-    if query.limit == 0 || query.limit > 128 || query.range.is_some() {
-        return Err(Error::Limit);
-    }
-    let query_digest = digest_bytes(&canonical_bytes(&(
-        &access.workspace,
-        &query.id,
-        query.view,
-        query.limit,
-    ))?);
-    let access_digest = digest_bytes(&canonical_bytes(&access.tasks)?);
-    let expected = Cursor {
-        // Chain v1 cursors used only a transaction watermark and could skip
-        // another event in the same transaction. Require a fresh chain walk.
-        version: if query.view == View::Chain { 2 } else { 1 },
-        watermark: state.watermark,
-        query_digest,
-        access_digest,
-        authority: workspace.authority,
-        deletion: workspace.deletion,
-        after: String::new(),
-    };
-    if let Some(cursor) = &query.cursor {
-        let mut checked = expected.clone();
-        checked.after = cursor.after.clone();
-        if cursor != &checked {
-            return Err(Error::Restart("inspection source, query or access changed"));
-        }
-    }
-    let masks = history::masks(state, &access.workspace)?;
-    if masks.iter().any(|m| m.deletion > workspace.deletion) {
-        return Err(Error::Integrity("retention epoch"));
-    }
-    let mut page = InspectionPage {
-        schema_version: 1,
-        scope,
-        source_watermark: state.watermark,
-        view: query.view,
-        items: vec![],
-        gaps: vec![],
-        next_cursor: None,
-    };
-    if query.view == View::Memory {
-        page.gaps.push(json!({"visibility":"unavailable","reason":"memory search and evidence navigation are not ready; P5-06"}));
-    }
-    if query.view == View::Routing
-        && !state.records.values().any(|record| {
-            record.workspace == access.workspace
-                && task(record) == Some(page.scope.task.as_str())
-                && record.value["document_type"] == "vcp_routing_decision_v1"
-        })
-    {
-        page.gaps.push(json!({"visibility":"unavailable","reason":"no automatic routing decision retained for this task; fixed provider or no admitted routed request", "requested_model":"attempt.quote.price.model", "served_model":"captured response bytes when observed; never inferred from requested model"}));
-    }
-    let after = query.cursor.as_ref().map_or("", |c| c.after.as_str());
-    let mut bytes = 0;
-    let mut last = String::new();
+    let mut projection = Projection::new(state.into(), access, query)?;
     for (key, record) in &state.records {
-        if key.as_str() <= after || record.workspace != access.workspace {
+        if !projection.wants(key, record) {
             continue;
         }
-        let scoped = task(record) == Some(page.scope.task.as_str());
+        let origin = projection.origin(record)?;
+        let origin = origin.and_then(|id| state.events.iter().find(|event| event.event.id == id));
+        if !projection.record(key, record, origin)? {
+            break;
+        }
+    }
+    if query.view == View::Chain && projection.page.next_cursor.is_none() {
+        for (position, event) in state.events.iter().enumerate() {
+            if !projection.event(position as u64, event)? {
+                break;
+            }
+        }
+    }
+    Ok(projection.page)
+}
+
+/// Bounded live history under the same serialized owner and current source cut.
+pub async fn records_store<S: CanonicalStore>(
+    store: &S,
+    access: &Access,
+    query: &InspectionQuery,
+) -> Result<InspectionPage> {
+    let state = store.current();
+    let mut projection = Projection::new(state, access, query)?;
+    for (key, record) in state.records {
+        if !projection.wants(key, record) {
+            continue;
+        }
+        let origin = match projection.origin(record)? {
+            Some(id) => {
+                let event = store.history_event(&id).await?;
+                if event
+                    .as_ref()
+                    .is_some_and(|event| event.event.id != id || event.watermark > state.watermark)
+                {
+                    return Err(Error::Integrity(
+                        "inspection origin outside requested identity or owner",
+                    ));
+                }
+                event
+            }
+            None => None,
+        };
+        if !projection.record(key, record, origin.as_ref())? {
+            break;
+        }
+    }
+    if query.view == View::Chain && projection.page.next_cursor.is_none() {
+        let count = store.history_event_count().await?;
+        let mut next = 0;
+        'pages: while next < count {
+            let rows = crate::history_query::read_page(store, next, count).await?;
+            for event in &rows {
+                if !projection.event(next, event)? {
+                    break 'pages;
+                }
+                next += 1;
+            }
+        }
+    }
+    if store.current().watermark != state.watermark {
+        return Err(Error::Restart("inspection owner changed during read"));
+    }
+    Ok(projection.page)
+}
+
+struct Projection<'a> {
+    access: &'a Access,
+    query: &'a InspectionQuery,
+    expected: Cursor,
+    masks: Vec<history::RetentionMask>,
+    page: InspectionPage,
+    bytes: usize,
+    last: String,
+    after: &'a str,
+}
+impl<'a> Projection<'a> {
+    fn new(
+        state: CurrentStateView<'_>,
+        access: &'a Access,
+        query: &'a InspectionQuery,
+    ) -> Result<Self> {
+        let workspace = history::authorize(state, access)?;
+        let (_, scope) = target(state, access, &query.id)?;
+        if query.limit == 0 || query.limit > 128 || query.range.is_some() {
+            return Err(Error::Limit);
+        }
+        let query_digest = digest_bytes(&canonical_bytes(&(
+            &access.workspace,
+            &query.id,
+            query.view,
+            query.limit,
+        ))?);
+        let access_digest = digest_bytes(&canonical_bytes(&access.tasks)?);
+        let expected = Cursor {
+            // Chain v1 cursors used only a transaction watermark and could skip
+            // another event in the same transaction. Require a fresh chain walk.
+            version: if query.view == View::Chain { 2 } else { 1 },
+            watermark: state.watermark,
+            query_digest,
+            access_digest,
+            authority: workspace.authority,
+            deletion: workspace.deletion,
+            after: String::new(),
+        };
+        if let Some(cursor) = &query.cursor {
+            let mut checked = expected.clone();
+            checked.after = cursor.after.clone();
+            if cursor != &checked {
+                return Err(Error::Restart("inspection source, query or access changed"));
+            }
+        }
+        let masks = history::masks(state, &access.workspace)?;
+        if masks.iter().any(|m| m.deletion > workspace.deletion) {
+            return Err(Error::Integrity("retention epoch"));
+        }
+        let mut page = InspectionPage {
+            schema_version: 1,
+            scope,
+            source_watermark: state.watermark,
+            view: query.view,
+            items: vec![],
+            gaps: vec![],
+            next_cursor: None,
+        };
+        if query.view == View::Memory {
+            page.gaps.push(json!({"visibility":"unavailable","reason":"memory search and evidence navigation are not ready; P5-06"}));
+        }
+        if query.view == View::Routing
+            && !state.records.values().any(|record| {
+                record.workspace == access.workspace
+                    && task(record) == Some(page.scope.task.as_str())
+                    && record.value["document_type"] == "vcp_routing_decision_v1"
+            })
+        {
+            page.gaps.push(json!({"visibility":"unavailable","reason":"no automatic routing decision retained for this task; fixed provider or no admitted routed request", "requested_model":"attempt.quote.price.model", "served_model":"captured response bytes when observed; never inferred from requested model"}));
+        }
+        let after = query.cursor.as_ref().map_or("", |c| c.after.as_str());
+        let bytes = 0;
+        let last = String::new();
+        Ok(Self {
+            access,
+            query,
+            expected,
+            masks,
+            page,
+            bytes,
+            last,
+            after,
+        })
+    }
+    fn wants(&self, key: &str, record: &Record) -> bool {
+        if key <= self.after || record.workspace != self.access.workspace {
+            return false;
+        }
+        let scoped = task(record) == Some(self.page.scope.task.as_str());
         let shared = matches!(
             record.collection,
             Collection::Workspace | Collection::Access
         ) && task(record).is_none()
-            && access.tasks.is_none();
-        if !(scoped || shared) || !selected(record, query.view) {
-            continue;
+            && self.access.tasks.is_none();
+        (scoped || shared) && selected(record, self.query.view)
+    }
+    fn origin(&self, record: &Record) -> Result<Option<vcp_domain::ids::EventId>> {
+        if record.collection == Collection::Claim
+            && record.value["document_type"] == "vcp_ingestion_job_v1"
+            && !self
+                .masks
+                .iter()
+                .any(|m| m.artifacts.iter().any(|id| id.as_str() == record.id))
+        {
+            let job: vcp_domain::ingestion::Job = record.decode()?;
+            job.validate()?;
+            return Ok(Some(job.origin));
         }
-        let removed = masks
+        Ok(None)
+    }
+    fn record(
+        &mut self,
+        key: &str,
+        record: &Record,
+        origin: Option<&vcp_protocol::event::EventEnvelope>,
+    ) -> Result<bool> {
+        let removed = self
+            .masks
             .iter()
             .find(|m| m.artifacts.iter().any(|id| id.as_str() == record.id));
         let mut item = if let Some(mask) = removed {
@@ -244,17 +366,13 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
         {
             let job: vcp_domain::ingestion::Job = record.decode()?;
             job.validate()?;
-            let source_pruned = state
-                .events
-                .iter()
-                .find(|event| event.event.id == job.origin)
-                .is_none_or(|event| {
-                    masks.iter().any(|mask| {
-                        mask.session == event.event.session
-                            && event.sequence >= mask.first
-                            && event.sequence <= mask.last
-                    })
-                });
+            let source_pruned = origin.is_none_or(|event| {
+                self.masks.iter().any(|mask| {
+                    mask.session == event.event.session
+                        && event.sequence >= mask.first
+                        && event.sequence <= mask.last
+                })
+            });
             json!({"reference":key,"id":job.id,"visibility":"available","state":job.state,
                 "origin_watermark":job.origin_watermark,"attempts":job.attempts,"max_attempts":job.max_attempts,
                 "not_before":job.not_before,"lease":job.lease,"results":job.results,
@@ -290,79 +408,82 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
             item = json!({"reference":key,"visibility":"truncated","reason":"record exceeds inspection page capacity","serialized_bytes":size});
             size = canonical_bytes(&item)?.len();
         }
-        if page.items.len() == query.limit as usize || bytes + size > PAGE_BYTES {
-            let mut next = expected.clone();
-            next.after = last.clone();
-            page.next_cursor = Some(next);
-            break;
+        if self.page.items.len() == self.query.limit as usize || self.bytes + size > PAGE_BYTES {
+            let mut next = self.expected.clone();
+            next.after = self.last.clone();
+            self.page.next_cursor = Some(next);
+            return Ok(false);
         }
-        bytes += size;
-        last = key.clone();
-        page.items.push(item);
+        self.bytes += size;
+        self.last = key.to_owned();
+        self.page.items.push(item);
+        Ok(true)
     }
-    if query.view == View::Chain && page.next_cursor.is_none() {
-        for (position, event) in state.events.iter().enumerate() {
-            // Position is stable within this watermark-fenced snapshot and
-            // preserves canonical order across sessions in one transaction.
-            let key = format!("z:event:{:020}:{position:020}", event.watermark.get());
-            if key.as_str() <= after
-                || event.event.workspace != access.workspace
-                || event.event.task.as_ref() != Some(&page.scope.task)
-            {
-                continue;
-            }
-            let removed = masks.iter().find(|m| {
-                m.session == event.event.session
-                    && event.sequence >= m.first
-                    && event.sequence <= m.last
-            });
-            let mut item = if let Some(mask) = removed {
-                json!({"reference":key,"visibility":"pruned","reason":mask.reason})
-            } else {
-                json!({"reference":key,"visibility":"available","event":history::public_event(event)})
-            };
-            let mut size = canonical_bytes(&item)?.len();
-            if size > PAGE_BYTES {
-                item = json!({"reference":key,"visibility":"truncated","reason":"event exceeds inspection page capacity","serialized_bytes":size});
-                size = canonical_bytes(&item)?.len();
-            }
-            if page.items.len() == query.limit as usize || bytes + size > PAGE_BYTES {
-                let mut next = expected.clone();
-                next.after = last.clone();
-                page.next_cursor = Some(next);
-                break;
-            }
-            bytes += size;
-            last = key;
-            page.items.push(item);
+    fn event(&mut self, position: u64, event: &vcp_protocol::event::EventEnvelope) -> Result<bool> {
+        // Position is stable within this watermark-fenced snapshot and
+        // preserves canonical order across sessions in one transaction.
+        let key = format!("z:event:{:020}:{position:020}", event.watermark.get());
+        if key.as_str() <= self.after
+            || event.event.workspace != self.access.workspace
+            || event.event.task.as_ref() != Some(&self.page.scope.task)
+        {
+            return Ok(true);
         }
+        let removed = self.masks.iter().find(|m| {
+            m.session == event.event.session
+                && event.sequence >= m.first
+                && event.sequence <= m.last
+        });
+        let mut item = if let Some(mask) = removed {
+            json!({"reference":key,"visibility":"pruned","reason":mask.reason})
+        } else {
+            json!({"reference":key,"visibility":"available","event":history::public_event(event)})
+        };
+        let mut size = canonical_bytes(&item)?.len();
+        if size > PAGE_BYTES {
+            item = json!({"reference":key,"visibility":"truncated","reason":"event exceeds inspection page capacity","serialized_bytes":size});
+            size = canonical_bytes(&item)?.len();
+        }
+        if self.page.items.len() == self.query.limit as usize || self.bytes + size > PAGE_BYTES {
+            let mut next = self.expected.clone();
+            next.after = self.last.clone();
+            self.page.next_cursor = Some(next);
+            return Ok(false);
+        }
+        self.bytes += size;
+        self.last = key;
+        self.page.items.push(item);
+        Ok(true)
     }
-    Ok(page)
 }
 
 /// Run under the canonical owner's serialization so current access/retention
 /// cannot change between the check and the returned range.
-pub fn inspect(store: &Store, access: &Access, query: &InspectionQuery) -> Result<InspectionPage> {
+pub async fn inspect(
+    store: &Store,
+    access: &Access,
+    query: &InspectionQuery,
+) -> Result<InspectionPage> {
     let Some(range) = &query.range else {
-        return records(store.state(), access, query);
+        return records_store(store, access, query).await;
     };
     if range.length == 0 || range.length > MAX_RANGE || query.cursor.is_some() {
         return Err(Error::Limit);
     }
-    let workspace = history::authorize(store.state(), access)?;
-    let (record, scope) = target(store.state(), access, &query.id)?;
+    let workspace = history::authorize(store.current(), access)?;
+    let (record, scope) = target(store.current(), access, &query.id)?;
     if record.collection != Collection::Artifact {
         return Err(Error::Integrity("range target must be an artifact"));
     }
     let descriptor: ArtifactDescriptor = record.decode()?;
-    let masks = history::masks(store.state(), &access.workspace)?;
+    let masks = history::masks(store.current(), &access.workspace)?;
     if masks.iter().any(|m| m.deletion > workspace.deletion) {
         return Err(Error::Integrity("retention epoch"));
     }
     let mut page = InspectionPage {
         schema_version: 1,
         scope,
-        source_watermark: store.state().watermark,
+        source_watermark: store.current().watermark,
         view: query.view,
         items: vec![],
         gaps: vec![],
@@ -382,6 +503,17 @@ pub fn inspect(store: &Store, access: &Access, query: &InspectionQuery) -> Resul
         .offset
         .saturating_add(range.length as u64)
         .min(descriptor.length.get());
+    // Derived captures retain their transitive source authorization at every reader.
+    if descriptor.spec.schema == "vcp-optimization-forecast-v1" {
+        return Err(Error::Access);
+    }
+    vcp_store::export_contract::validate_read_store(
+        store,
+        access.authority,
+        access.tasks.as_ref(),
+        &descriptor,
+    )
+    .await?;
     // The spool verifies the full digest while retaining only this bounded range.
     // Its immutable chunk format has no authenticated random-access index yet.
     let mut sink = RangeSink {

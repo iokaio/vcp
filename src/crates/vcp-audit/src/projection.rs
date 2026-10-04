@@ -13,6 +13,7 @@ use vcp_domain::{
 };
 use vcp_protocol::{canonical_bytes, digest_bytes, event::*};
 use vcp_store::contract::*;
+use vcp_store::CurrentStateView;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -166,7 +167,11 @@ fn view_id(workspace: &WorkspaceId, version: u32) -> String {
 fn active_id(workspace: &WorkspaceId) -> String {
     format!("history-active-{workspace}")
 }
-pub fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<View>> {
+pub fn active<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<Option<View>> {
+    let state = state.into();
     let Some(pointer) = state
         .records
         .get(&key(Collection::Projection, &active_id(workspace)))
@@ -197,7 +202,7 @@ pub fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<View>> {
     Ok(Some(view))
 }
 fn mutation(
-    state: &State,
+    state: CurrentStateView<'_>,
     workspace: &WorkspaceId,
     id: String,
     value: &impl Serialize,
@@ -255,6 +260,15 @@ pub fn prepare_activation(
             ));
         }
     }
+    activation(state.into(), workspace, version, view)
+}
+
+fn activation(
+    state: CurrentStateView<'_>,
+    workspace: &WorkspaceId,
+    version: u32,
+    view: View,
+) -> Result<(Transaction, View)> {
     let pointer = serde_json::json!({"schema_version":1,"projector_version":version,"watermark":view.watermark,"semantic_digest":view.semantic_digest()?});
     let mutations = vec![
         mutation(state, workspace, view_id(workspace, version), &view)?,
@@ -276,16 +290,96 @@ pub async fn publish<S: CanonicalStore>(
     workspace: &WorkspaceId,
     version: u32,
 ) -> Result<View> {
-    if let Some(current) = active(store.state(), workspace)? {
-        if current.projector_version == version
-            && !store.state().events.iter().any(|event| {
+    let watermark = store.current().watermark;
+    let current = active(store.current(), workspace)?;
+    if !current
+        .as_ref()
+        .is_some_and(|v| v.projector_version == version)
+    {
+        store
+            .current()
+            .record(Collection::Workspace, workspace.as_str(), workspace)?;
+    }
+    let count = store.history_event_count().await?;
+    if let Some(current) = current.as_ref().filter(|v| v.projector_version == version) {
+        let mut next = 0;
+        let mut changed = false;
+        while next < count {
+            let rows = crate::history_query::read_page(store, next, count).await?;
+            next += rows.len() as u64;
+            if rows.iter().any(|event| {
                 event.event.workspace == *workspace && event.watermark > current.watermark
-            })
-        {
-            return Ok(current);
+            }) {
+                changed = true;
+                break;
+            }
+        }
+        check_cut(store, watermark)?;
+        if !changed {
+            return Ok(current.clone());
         }
     }
-    let (transaction, view) = prepare_activation(store.state(), workspace, version)?;
+    store
+        .current()
+        .record(Collection::Workspace, workspace.as_str(), workspace)?;
+    let seed = current
+        .as_ref()
+        .filter(|v| v.projector_version == version)
+        .cloned();
+    let view = fold_store(store, workspace, version, watermark, count, seed).await?;
+    if let Some(old) = current {
+        let comparable = fold_store(
+            store,
+            workspace,
+            old.projector_version,
+            watermark,
+            count,
+            None,
+        )
+        .await?;
+        if comparable.semantic_digest()? != view.semantic_digest()? {
+            return Err(Error::Integrity(
+                "new projector disagrees at the same watermark",
+            ));
+        }
+    }
+    check_cut(store, watermark)?;
+    let (transaction, view) = activation(store.current(), workspace, version, view)?;
     store.transact(transaction).await?;
+    Ok(view)
+}
+
+fn check_cut<S: CanonicalStore>(store: &S, watermark: Watermark) -> Result<()> {
+    if store.current().watermark != watermark {
+        return Err(Error::Restart("projection owner changed during read"));
+    }
+    Ok(())
+}
+
+async fn fold_store<S: CanonicalStore>(
+    store: &S,
+    workspace: &WorkspaceId,
+    version: u32,
+    watermark: Watermark,
+    count: u64,
+    seed: Option<View>,
+) -> Result<View> {
+    let after = seed.as_ref().map(|v| v.watermark);
+    let mut view = match seed {
+        Some(view) => view,
+        None => View::new(workspace.clone(), version)?,
+    };
+    let mut next = 0;
+    while next < count {
+        let rows = crate::history_query::read_page(store, next, count).await?;
+        next += rows.len() as u64;
+        for event in rows.iter().filter(|event| {
+            event.event.workspace == *workspace && after.is_none_or(|cut| event.watermark > cut)
+        }) {
+            view.apply(event)?;
+        }
+    }
+    check_cut(store, watermark)?;
+    view.watermark = watermark;
     Ok(view)
 }

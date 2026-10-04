@@ -472,11 +472,11 @@ impl CanonicalHost {
         query: vcp_audit::inspection::InspectionQuery,
     ) -> Result<vcp_audit::inspection::InspectionPage, String> {
         self.worker.run_cleanup(move |context| {
-            Ok(vcp_audit::inspection::inspect(
+            Ok(context.runtime.block_on(vcp_audit::inspection::inspect(
                 context.engine.store(),
                 &context.history_access(),
                 &query,
-            )?)
+            ))?)
         })
     }
     pub fn read_artifact(&self, id: ArtifactId) -> Result<Vec<u8>, String> {

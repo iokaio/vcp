@@ -385,6 +385,28 @@ async fn aggregate_reads_recheck_every_task_and_deny_stale_payload_and_manifest(
         let mut narrow = reader();
         narrow.tasks = Some([root.clone()].into());
         for id in [&outcome.view.artifact, &outcome.view.visibility_manifest] {
+            let range = vcp_audit::inspection::InspectionQuery {
+                id: id.as_str().into(),
+                view: vcp_audit::inspection::View::Outputs,
+                limit: 1,
+                cursor: None,
+                range: Some(vcp_audit::inspection::RangeRequest {
+                    offset: 0,
+                    length: 1024,
+                }),
+            };
+            assert!(
+                vcp_audit::inspection::inspect(engine.store(), &narrow, &range)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                !vcp_audit::inspection::inspect(engine.store(), &reader(), &range)
+                    .await
+                    .unwrap()
+                    .items
+                    .is_empty()
+            );
             assert!(history::History::read_artifact(
                 engine.store(),
                 &narrow,
@@ -411,6 +433,21 @@ async fn aggregate_reads_recheck_every_task_and_deny_stale_payload_and_manifest(
         )
         .await;
         for id in [&outcome.view.artifact, &outcome.view.visibility_manifest] {
+            let range = vcp_audit::inspection::InspectionQuery {
+                id: id.as_str().into(),
+                view: vcp_audit::inspection::View::Outputs,
+                limit: 1,
+                cursor: None,
+                range: Some(vcp_audit::inspection::RangeRequest {
+                    offset: 0,
+                    length: 1024,
+                }),
+            };
+            assert!(
+                vcp_audit::inspection::inspect(engine.store(), &reader(), &range)
+                    .await
+                    .is_err()
+            );
             assert!(history::History::read_artifact(
                 engine.store(),
                 &reader(),

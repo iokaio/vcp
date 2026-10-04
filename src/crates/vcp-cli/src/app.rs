@@ -16,7 +16,7 @@ use std::{
 use vcp_domain::{ids::*, task::Task};
 use vcp_protocol::{command::CommandEnvelope, digest_bytes};
 use vcp_store::{
-    contract::{Collection, State},
+    contract::{CanonicalStore, Collection, State},
     Store,
 };
 
@@ -130,11 +130,12 @@ fn bounded_records(
         json!({"watermark":watermark,"workspace":workspace,"truncated":records.len()<selected.len(),"records":records}),
     )
 }
-fn inspection_access(
-    state: &State,
+fn inspection_access<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     workspace: &WorkspaceId,
 ) -> Result<vcp_audit::history::Access, String> {
     let current: vcp_domain::workspace::Workspace = state
+        .into()
         .record(Collection::Workspace, workspace.as_str(), workspace)
         .and_then(|r| r.decode())
         .map_err(|e| e.to_string())?;
@@ -175,9 +176,10 @@ pub async fn query_store(
         return serde_json::to_value(
             vcp_audit::inspection::inspect(
                 store,
-                &inspection_access(store.state(), workspace)?,
+                &inspection_access(store.current(), workspace)?,
                 request,
             )
+            .await
             .map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string());

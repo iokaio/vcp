@@ -212,7 +212,7 @@ async fn query_store_scoped<S: CanonicalStore>(
     check()?;
     projection.finish(newer)
 }
-async fn read_page<S: CanonicalStore>(
+pub(crate) async fn read_page<S: CanonicalStore>(
     store: &S,
     next: u64,
     end: u64,
