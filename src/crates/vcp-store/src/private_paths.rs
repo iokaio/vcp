@@ -31,17 +31,15 @@ pub(crate) struct Directory {
 #[path = "canonical_child_tests.rs"]
 mod canonical_child_tests;
 impl Directory {
-    /// Pin the admitted physical root for a read-only snapshot. This does not
-    /// grant writes to arbitrary descendants or bypass child-path restrictions.
-    #[cfg(test)]
-    pub(crate) fn canonical_root(store: &crate::Store) -> Result<Self> {
-        let root = Self::hold(store.root(), false)?;
-        store.validate_canonical_owner()?;
+    pub(crate) fn locked_root(owner: &crate::canonical_lock::CanonicalLock) -> Result<Self> {
+        let root = Self::hold(owner.root(), false)?;
+        owner.verify()?;
         Ok(root)
     }
-    /// Derive a fixed child from an actual locked Store, not from an arbitrary
-    /// trusted path. Archive/cloud directory admission rules remain unchanged.
-    pub(crate) fn canonical_child(store: &crate::Store, name: &str) -> Result<Self> {
+    pub(crate) fn locked_child(
+        owner: &crate::canonical_lock::CanonicalLock,
+        name: &str,
+    ) -> Result<Self> {
         if name.is_empty()
             || name.len() > 64
             || !name
@@ -50,19 +48,30 @@ impl Directory {
         {
             return Err(Error::Access);
         }
-        // Pin the admitted root and every native ancestor before checking and
-        // creating a child, closing path-replacement races during derivation.
-        let parent = Self::hold(store.root(), false)?;
+        let parent = Self::locked_root(owner)?;
         let path = parent.path.join(name);
-        store.validate_canonical_child(&path)?;
+        owner.verify_child(&path)?;
         match fs::create_dir(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
         let child = Self::hold(&path, false)?;
-        store.validate_canonical_child(&child.path)?;
+        owner.verify_child(&child.path)?;
         Ok(child)
+    }
+    /// Pin the admitted physical root for a read-only snapshot. This does not
+    /// grant writes to arbitrary descendants or bypass child-path restrictions.
+    #[cfg(test)]
+    pub(crate) fn canonical_root(store: &crate::Store) -> Result<Self> {
+        store.validate_canonical_owner()?;
+        Self::locked_root(store.canonical_lock())
+    }
+    /// Derive a fixed child from an actual locked Store, not from an arbitrary
+    /// trusted path. Archive/cloud directory admission rules remain unchanged.
+    pub(crate) fn canonical_child(store: &crate::Store, name: &str) -> Result<Self> {
+        store.validate_canonical_owner()?;
+        Self::locked_child(store.canonical_lock(), name)
     }
     pub(crate) fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Self::open_policy(path, forbidden, false)

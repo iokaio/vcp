@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     fs::{self, File, OpenOptions},
-    io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
     time::Instant,
@@ -19,11 +18,11 @@ use std::{
 use vcp_domain::{artifact::ArtifactDescriptor, *};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 #[cfg(test)]
-#[path = "disk_exhaustion_tests.rs"]
-mod disk_exhaustion_tests;
-#[cfg(test)]
 #[path = "store_current_migration.rs"]
 pub(crate) mod current_migration;
+#[cfg(test)]
+#[path = "disk_exhaustion_tests.rs"]
+mod disk_exhaustion_tests;
 #[path = "snapshot_pin.rs"]
 pub(crate) mod snapshot_pin;
 
@@ -44,7 +43,7 @@ pub struct Store {
     base: State,
     prefixes: Vec<crate::replay_base::PrefixCommitment>,
     anchor: PathBuf,
-    anchors: Vec<File>,
+    anchors: Vec<crate::canonical_lock::CanonicalLock>,
     root: PathBuf,
     forbidden_roots: Vec<PathBuf>,
     kind: BackendKind,
@@ -54,7 +53,7 @@ pub struct Store {
     diagnostics: crate::StoreDiagnostics,
     #[cfg(feature = "qualification")]
     observer: Option<crate::backend::Observer>,
-    _owner: File,
+    _owner: crate::canonical_lock::CanonicalLock,
 }
 pub struct Snapshot {
     state: State,
@@ -154,41 +153,8 @@ impl Store {
         if artifact_limit == 0 || artifact_limit > DEFAULT_ARTIFACT_LIMIT {
             return Err(Error::Limit("artifact capacity"));
         }
-        // Check the enclosing location before creating plaintext canonical bytes.
-        let absolute = std::path::absolute(root)?;
-        let ancestor = absolute
-            .ancestors()
-            .find(|p| p.exists())
-            .ok_or(Error::Access)?
-            .canonicalize()?;
-        for forbidden in forbidden_roots {
-            if ancestor.starts_with(forbidden.canonicalize()?) {
-                return Err(Error::Access);
-            }
-        }
-        fs::create_dir_all(root)?;
-        reject_link(root)?;
-        let root = root.canonicalize()?;
-        let owner_path = root.join("owner.lock");
-        if owner_path.exists() {
-            reject_link(&owner_path)?;
-        }
-        let mut owner = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&owner_path)?;
-        owner
-            .try_lock()
-            .map_err(|_| Error::Conflict("canonical root already has an owner"))?;
-        let diagnostic = canonical_bytes(
-            &serde_json::json!({"pid":std::process::id(),"nonce":ControllerId::new(),"format":1}),
-        )?;
-        owner.seek(SeekFrom::Start(0))?;
-        owner.write_all(&diagnostic)?;
-        owner.set_len(diagnostic.len() as u64)?;
-        owner.sync_all()?;
+        let owner = crate::canonical_lock::CanonicalLock::acquire(root, forbidden_roots)?;
+        let root = owner.root().to_path_buf();
         if let Some((destination, activation)) = crate::rewrite::resolve(&root)? {
             if activation.backend != kind {
                 return Err(Error::Incompatible);
@@ -312,10 +278,7 @@ impl Store {
             anchor: root.clone(),
             anchors: Vec::new(),
             root,
-            forbidden_roots: forbidden_roots
-                .iter()
-                .map(|root| root.canonicalize())
-                .collect::<std::io::Result<Vec<_>>>()?,
+            forbidden_roots: owner.forbidden().to_vec(),
             kind,
             spool,
             artifact_limit,
@@ -332,39 +295,19 @@ impl Store {
     /// Only a live admitted Store can derive a canonical child capability.
     /// Recheck the held native owner identity rather than trusting a pathname.
     pub(crate) fn validate_canonical_child(&self, child: &Path) -> Result<()> {
-        if self.poisoned || child.parent() != Some(self.root.as_path()) {
+        if self.poisoned {
             return Err(Error::Access);
         }
-        if self
-            .forbidden_roots
-            .iter()
-            .any(|root| child.starts_with(root) || root.starts_with(child))
-        {
-            return Err(Error::Access);
-        }
-        self.validate_canonical_owner()
+        self._owner.verify_child(child)
     }
     pub(crate) fn validate_canonical_owner(&self) -> Result<()> {
         if self.poisoned {
             return Err(Error::Access);
         }
-        let path = self.root.join("owner.lock");
-        reject_link(&path)?;
-        let mut options = OpenOptions::new();
-        options.read(true);
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            options.custom_flags(0x0020_0000).share_mode(1 | 2);
-        }
-        let owner = options.open(path)?;
-        if !crate::private_paths::allowed_handle(&owner, false)?
-            || crate::vault_publish::native_identity(&owner)?
-                != crate::vault_publish::native_identity(&self._owner)?
-        {
-            return Err(Error::Corruption("canonical owner identity changed"));
-        }
-        Ok(())
+        self._owner.verify()
+    }
+    pub(crate) fn canonical_lock(&self) -> &crate::canonical_lock::CanonicalLock {
+        &self._owner
     }
     pub fn kind(&self) -> BackendKind {
         self.kind

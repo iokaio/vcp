@@ -6,6 +6,7 @@ mod accounting_contract;
 mod admitted_history;
 pub mod artifact;
 mod backend;
+mod canonical_lock;
 #[cfg(test)]
 mod journal_frame;
 #[cfg(test)]
