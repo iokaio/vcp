@@ -176,7 +176,9 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
     ))?);
     let access_digest = digest_bytes(&canonical_bytes(&access.tasks)?);
     let expected = Cursor {
-        version: 1,
+        // Chain v1 cursors used only a transaction watermark and could skip
+        // another event in the same transaction. Require a fresh chain walk.
+        version: if query.view == View::Chain { 2 } else { 1 },
         watermark: state.watermark,
         query_digest,
         access_digest,
@@ -299,8 +301,10 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
         page.items.push(item);
     }
     if query.view == View::Chain && page.next_cursor.is_none() {
-        for event in &state.events {
-            let key = format!("z:event:{:020}", event.watermark.get());
+        for (position, event) in state.events.iter().enumerate() {
+            // Position is stable within this watermark-fenced snapshot and
+            // preserves canonical order across sessions in one transaction.
+            let key = format!("z:event:{:020}:{position:020}", event.watermark.get());
             if key.as_str() <= after
                 || event.event.workspace != access.workspace
                 || event.event.task.as_ref() != Some(&page.scope.task)

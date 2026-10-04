@@ -1171,6 +1171,87 @@ async fn killed_projection_activation_keeps_view_and_watermark_atomic() {
 }
 
 #[tokio::test]
+async fn inspection_chain_pages_preserve_all_events_from_one_transaction() {
+    use vcp_audit::inspection::{self, InspectionQuery, View};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut fixture = fixture(temporary.path(), backend).await;
+        let events = (0..5)
+            .map(|index| EventInput {
+                id: EventId::new(),
+                workspace: access().workspace,
+                session: engine_access().session,
+                task: Some(fixture.root.clone()),
+                actor: engine_access().actor,
+                correlation: CommandId::new(),
+                causation: None,
+                timestamp: Timestamp::ZERO,
+                kind: EventKind::Diagnostic,
+                artifacts: vec![],
+                data: serde_json::json!({"schema_version":1,"fixture_index":index}),
+                metadata: None,
+            })
+            .collect();
+        let expected_watermark = fixture.engine.store().state().watermark;
+        fixture
+            .engine
+            .store_mut()
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark,
+                mutations: vec![],
+                events,
+                command: None,
+            })
+            .await
+            .unwrap();
+        let expected: Vec<_> = fixture
+            .engine
+            .store()
+            .state()
+            .events
+            .iter()
+            .filter(|event| event.event.task.as_ref() == Some(&fixture.root))
+            .map(|event| event.event.id.to_string())
+            .collect();
+        let mut query = InspectionQuery {
+            id: fixture.root.to_string(),
+            view: View::Chain,
+            limit: 1,
+            cursor: None,
+            range: None,
+        };
+        let first = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let mut obsolete = first.next_cursor.clone().unwrap();
+        assert_eq!(obsolete.version, 2);
+        obsolete.version = 1;
+        query.cursor = Some(obsolete);
+        assert!(matches!(
+            inspection::inspect(fixture.engine.store(), &access(), &query),
+            Err(Error::Restart(_))
+        ));
+        query.cursor = None;
+        let mut observed = Vec::new();
+        loop {
+            let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+            for row in page.items {
+                if let Some(id) = row
+                    .pointer("/event/event/id")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    observed.push(id.to_owned());
+                }
+            }
+            query.cursor = page.next_cursor;
+            if query.cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(observed, expected);
+    }
+}
+
+#[tokio::test]
 async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_rebuild() {
     use vcp_audit::inspection::{self, InspectionQuery, View};
     for kind in [BackendKind::Files, BackendKind::Sqlite] {
