@@ -197,6 +197,10 @@ try {
         Set-Content -LiteralPath (Join-Path $path 'second.trx') -Value "<TestRun><Results><UnitTestResult testName=`"$script:trxTestName`" outcome=`"$script:trxOutcome`"/></Results></TestRun>"
         @{ ExitCode = 0; Output = ''; Errors = '' }
     }
+    # TRX parsing fixtures represent assessments whose current build passed.
+    # Failed/missing build admission is exercised in Campaign.Tests.ps1.
+    [void](Add-GateResult $ctx 'dotnet' 'build' 'current build fixture' 'pass' '' $true)
+    [void](Add-GateResult $ctx 'dotnet-suffix' 'build' 'current build fixture' 'pass' '' $true)
     Test-Tests 'dotnet' 2 @('Required')
     Assert-Gate 'dotnet' 'dotnet-test' 'pass'
     $script:trxTestName = 'Suite.NotRequired'

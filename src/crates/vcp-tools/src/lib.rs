@@ -326,7 +326,21 @@ pub fn prepare_cancellable(
         integration_child: None,
     })
 }
+/// Validate a tool's workspace-relative directory before instruction selection.
+/// The empty string selects the registered root; invalid input is never normalized.
+pub fn validate_directory_path(path: &str) -> Result<()> {
+    checked_path(path, true)
+}
+
 pub(crate) fn checked_path(path: &str, empty: bool) -> Result<()> {
+    if empty
+        && (matches!(path, "." | "/" | "\\")
+            || (path.contains('"') && path.bytes().all(|byte| matches!(byte, b'"' | b'\\'))))
+    {
+        return Err(Error::Invalid(
+            "workspace root requires an empty JSON string (zero characters): use \"directory\":\"\" for vcp_exec or \"path\":\"\" for vcp_list; do not put quote or backslash characters inside the value",
+        ));
+    }
     if !vcp_policy::relative(path) || (!empty && path.is_empty()) {
         return Err(Error::Invalid("relative path"));
     }

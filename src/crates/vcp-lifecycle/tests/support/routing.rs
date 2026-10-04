@@ -150,6 +150,7 @@ pub(super) fn routing_configuration(profile: Profile, forbidden: bool) -> Config
     }).collect();
     Configuration {
         owner_assignments: vec![],
+        rotation: None,
         escalation: None,
         catalog: CatalogRevision::create(None, observed, None, entries).unwrap(),
         policy,

@@ -381,6 +381,7 @@ impl Supervisor {
                 &self.config,
                 prepared,
                 http,
+                &credential,
                 |name| self.configuration.credentials.get(name).cloned().ok_or(()),
             )?;
             let startup = connection.authorize_resume_startup(&mut ticket, current)?;
@@ -498,6 +499,8 @@ fn pump(
                         match result {
                             Ok(crate::execution::LifecycleResult::Submitted(id)) => turn=Some(id),
                             Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(_))) | Err(_) => {
+                                #[cfg(feature = "qualification")]
+                                if let Err(error) = &result { eprintln!("qualification lifecycle error: {error}"); }
                                 if selected(&host,&scope).is_ok_and(|task|task.state==TaskState::Running) {pause(&host,&scope);}
                                 break;
                             },

@@ -156,6 +156,8 @@ mod hooks;
 mod observers;
 #[path = "support/provider_retries.rs"]
 mod provider_retries;
+#[path = "support/provider_reconciliation.rs"]
+mod provider_reconciliation;
 #[path = "support/public_connection.rs"]
 mod public_connection;
 #[path = "support/public_controller.rs"]

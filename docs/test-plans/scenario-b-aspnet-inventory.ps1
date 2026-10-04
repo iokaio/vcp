@@ -265,6 +265,11 @@ $environmentBlock = @'
 ## Environment and rules (applies to every task in this project)
 
 - Work only inside the current workspace. Read README.md and the existing code first.
+- Work in small, complete steps: read the relevant component, implement its change, and
+  run a focused check before moving on. Avoid repeatedly rereading the whole application.
+  After a patch mismatch, reread the exact affected lines and use a smaller literal hunk.
+  Call `vcp_verify` early enough to use its outstanding issues as a completion checklist;
+  reserve requests for fixing failures and verifying again after the final edit.
 - Process profile available to `vcp_exec` (no shell; literal arguments): `dotnet` runs the
   .NET {{MAJOR}} SDK. Examples: `["build", "{{SOLUTION}}"]`, `["test", "{{SOLUTION}}"]`,
   `["tool", "run", "dotnet-ef", "migrations", "add", "<Name>", "--project", "src/Inventory.Web",
@@ -281,8 +286,15 @@ $environmentBlock = @'
 - Startup must not require a connection string or database in the `Testing` environment; tests
   replace the DbContext registration with EF Core InMemory via `WebApplicationFactory<Program>`.
 - Protected files (never edit, rename or delete): `src/Inventory.Web/appsettings.Development.json`{{PROTECTED}}.
-- Before finishing, build the solution and run all tests, and fix any failure. Finish with a short
-  summary of changed files, migrations added and command results.
+- Before finishing, build the solution and run all tests, and fix any failure. Then call `vcp_verify`
+  and require an empty `verification.outstanding_issues` list before claiming completion. It runs the
+  configured stage checks itself; `complete:false` is expected because the host finalizes the task.
+  If it returns `executed:false` after an instruction-scope refresh, review the refreshed context
+  and call `vcp_verify` again. That response has not run verification; require a result containing
+  `verification` with an empty `outstanding_issues` list.
+  For unchanged analysis, provide relevant same-task artifact IDs from the `evidence` field of
+  successful read/list/search results in `citations`; use artifact IDs, not paths or check selectors.
+  Finish with a short summary of changed files, migrations added and command results.
 '@
 
 function New-Prompt([string]$Body, [string]$Protected = '') {
@@ -307,6 +319,8 @@ function Test-Build([string]$Stage) {
 
 function Test-Tests([string]$Stage, [int]$MinTests, [string[]]$Required = @()) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'dotnet-test' -Description "dotnet test passes with >= $MinTests tests$(if ($Required) { ' incl. ' + ($Required -join ', ') })" -Test {
+            $build = @($ctx.Gates | Where-Object { $_.stage -eq $Stage -and $_.id -eq 'build' })
+            Assert-That ($build.Count -gt 0 -and $build[-1].outcome -eq 'pass') 'A successful build in this assessment is required before --no-build tests can supply current evidence.'
             $results = Join-Path $ctx.Logs "$Stage\testresults-$([guid]::NewGuid().ToString('N'))"
             $run = Invoke-Dotnet $Stage 'test' @('test', (Get-Solution), '--no-build', '--logger', 'trx', '--results-directory', $results)
             $trx = @(Get-ChildItem -LiteralPath $results -Filter '*.trx' -Recurse -ErrorAction SilentlyContinue)
@@ -430,6 +444,66 @@ function Test-ApiContract([string]$Stage, [int]$Port) {
             Assert-That ($conflict.Status -eq 409 -and $deleted.Status -eq 204 -and $gone.Status -eq 404) "conflict $($conflict.Status), delete $($deleted.Status), get $($gone.Status)"; $true })
 }
 
+function Assert-RazorFieldError([string]$Html, [string]$Field) {
+    $found = $false
+    foreach ($match in [regex]::Matches($Html, '(?is)<(?<tag>span|div)\b(?=[^>]*\bdata-valmsg-for\s*=)(?<attrs>[^>]*)>(?<body>.*?)</\k<tag>\s*>')) {
+        $attrs = $match.Groups['attrs'].Value
+        if ($attrs -match ('(?i)\bdata-valmsg-for\s*=\s*["'']' + [regex]::Escape($Field) + '["'']') -and
+            $attrs -match '(?i)\bclass\s*=\s*["''][^"'']*\bfield-validation-error\b') {
+            $message = [Net.WebUtility]::HtmlDecode(($match.Groups['body'].Value -replace '<[^>]+>', '')).Trim()
+            if ($message.Length -gt 0) { $found = $true }
+        }
+    }
+    Assert-That $found "Missing nonempty field validation error for $Field"
+}
+
+function Test-RazorInputCase([string]$Base, $Session, [string]$Sku, [string]$Name, [string]$SupplierId, [string]$ErrorField) {
+    $form = Invoke-Http GET "$Base/Products/Create" -Session $Session
+    $token = [regex]::Match($form.Content, 'name="__RequestVerificationToken"[^>]*value="(?<t>[^"]+)"').Groups['t'].Value
+    Assert-That ($form.Status -eq 200 -and $token) 'create page or antiforgery token missing'
+    $before = Invoke-Http GET "$Base/api/products?pageSize=1"
+    Assert-That ($before.Status -eq 200 -and $null -ne $before.Json.totalCount) 'Cannot establish product count before form submission'
+    $fields = @{ 'Input.Sku' = $Sku; 'Input.Name' = $Name; 'Input.UnitPrice' = '0'; 'Input.ReorderLevel' = '0'
+        'Input.SupplierId' = $SupplierId; '__RequestVerificationToken' = $token }
+    $post = Invoke-Http POST "$Base/Products/Create" $fields -Session $Session -ContentType 'application/x-www-form-urlencoded'
+    Assert-That ($post.Status -eq 200) "form status $($post.Status)"
+    $after = Invoke-Http GET "$Base/api/products?pageSize=1"
+    $found = Invoke-Http GET "$Base/api/products?search=$([Uri]::EscapeDataString($Sku))&pageSize=100"
+    Assert-That ($after.Status -eq 200 -and $null -ne $after.Json.totalCount -and $found.Status -eq 200) 'Cannot inspect products after form submission'
+    $matches = @($found.Json.items | Where-Object sku -eq $Sku)
+    if ($ErrorField) {
+        Assert-RazorFieldError $post.Content $ErrorField
+        Assert-That ([int]$after.Json.totalCount -eq [int]$before.Json.totalCount -and $matches.Count -eq 0) 'Invalid form inserted a product'
+    } else {
+        Assert-That ([int]$after.Json.totalCount -eq ([int]$before.Json.totalCount + 1) -and $matches.Count -eq 1) 'Valid zero-valued form did not insert exactly one product'
+        Assert-That ($null -ne $matches[0].unitPrice -and [decimal]$matches[0].unitPrice -eq 0 -and
+            $null -ne $matches[0].reorderLevel -and [int]$matches[0].reorderLevel -eq 0 -and $matches[0].name -eq $Name) 'Created product did not preserve zero values and name'
+    }
+    $true
+}
+
+function Assert-RazorLowStockTable([string]$Html, [string[]]$ExpectedSkus) {
+    $tables = @([regex]::Matches($Html, '(?is)<table\b[^>]*>(?<body>.*?)</table\s*>'))
+    $reports = @()
+    foreach ($table in $tables) {
+        $headers = @([regex]::Matches($table.Groups['body'].Value, '(?is)<th\b[^>]*>(?<text>.*?)</th\s*>') | ForEach-Object {
+            [Net.WebUtility]::HtmlDecode(($_.Groups['text'].Value -replace '<[^>]+>', '')).Trim()
+        })
+        $skuColumns = @(for ($i = 0; $i -lt $headers.Count; $i++) { if ($headers[$i] -ieq 'SKU') { $i } })
+        if ($skuColumns.Count -ne 1) { continue }
+        $skus = @()
+        foreach ($row in [regex]::Matches($table.Groups['body'].Value, '(?is)<tr\b[^>]*>(?<body>.*?)</tr\s*>')) {
+            $cells = @([regex]::Matches($row.Groups['body'].Value, '(?is)<td\b[^>]*>(?<text>.*?)</td\s*>'))
+            if ($cells.Count -eq 0) { continue }
+            Assert-That ($cells.Count -gt $skuColumns[0]) 'Report row is missing its SKU cell'
+            $skus += [Net.WebUtility]::HtmlDecode(($cells[$skuColumns[0]].Groups['text'].Value -replace '<[^>]+>', '')).Trim()
+        }
+        $reports += ,$skus
+    }
+    Assert-That ($reports.Count -eq 1) 'Expected one low-stock table with a SKU column'
+    Assert-That (($reports[0] -join '|') -ceq ($ExpectedSkus -join '|')) "Rendered low-stock SKUs differ from API: $($reports[0] -join ',')"
+}
+
 function Test-RazorPages([string]$Stage, [int]$Port) {
     $base = "http://127.0.0.1:$Port"
     $tag = [guid]::NewGuid().ToString('N').Substring(0, 16).ToUpperInvariant()
@@ -463,9 +537,39 @@ function Test-RazorPages([string]$Stage, [int]$Port) {
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'ui.details' -Description 'Details page shows the product and a Record movement form' -Test {
             $r = Invoke-Http GET "$base/Products/Details/$($state.id)" -Session $session
             Assert-That ($r.Status -eq 200 -and $r.Content.Contains("UI-$tag") -and $r.Content -match 'Record movement') "status $($r.Status)"; $true })
+    foreach ($case in @(
+            @{ Id = 'zero-values'; Sku = "UZ-$tag"; Name = 'Zero-valued form product'; ErrorField = '' },
+            @{ Id = 'invalid-sku'; Sku = "BAD@$tag"; Name = 'Invalid SKU form product'; ErrorField = 'Input.Sku' },
+            @{ Id = 'long-name'; Sku = "UN-$tag"; Name = ('N' * 121); ErrorField = 'Input.Name' },
+            @{ Id = 'unknown-supplier'; Sku = "US-$tag"; Name = 'Unknown supplier form product'; ErrorField = 'Input.SupplierId' })) {
+        [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id "ui.form-$($case.Id)" -Description "isolated form rule: $($case.Id), with persisted-product evidence" -Test {
+                $suppliers = Invoke-Http GET "$base/api/suppliers"
+                Assert-That ($suppliers.Status -eq 200 -and @($suppliers.Json).Count -gt 0) 'No valid supplier for form fixture'
+                $supplierId = if ($case.Id -eq 'unknown-supplier') { '999999' } else { [string]$suppliers.Json[0].id }
+                Test-RazorInputCase $base $session $case.Sku $case.Name $supplierId $case.ErrorField
+            })
+    }
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'ui.low-stock' -Description 'GET /Reports/LowStock renders seeded low-stock SKUs' -Test {
             $r = Invoke-Http GET "$base/Reports/LowStock" -Session $session
             Assert-That ($r.Status -eq 200 -and $r.Content.Contains('SSD-NVME-1TB')) "status $($r.Status)"; $true })
+    [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'ui.low-stock-parity' -Description 'low-stock table includes equality, excludes above threshold, and matches API SKU order' -Test {
+            $suppliers = Invoke-Http GET "$base/api/suppliers"
+            Assert-That ($suppliers.Status -eq 200 -and @($suppliers.Json).Count -gt 0) 'No supplier for low-stock fixtures'
+            $equalSku = "LA-$tag"; $aboveSku = "LM-$tag"; $lowSku = "LZ-$tag"
+            foreach ($fixture in @(@{ Sku = $equalSku; Name = 'Z equality'; Quantity = 2 }, @{ Sku = $aboveSku; Name = 'M above'; Quantity = 3 }, @{ Sku = $lowSku; Name = 'A below'; Quantity = 1 })) {
+                $created = Invoke-Http POST "$base/api/products" @{ sku = $fixture.Sku; name = $fixture.Name; unitPrice = 1; reorderLevel = 2; supplierId = $suppliers.Json[0].id }
+                Assert-That ($created.Status -eq 201 -and [int]$created.Json.id -gt 0) 'Could not create low-stock fixture'
+                $movement = Invoke-Http POST "$base/api/products/$($created.Json.id)/movements" @{ quantity = $fixture.Quantity; reason = 'Receipt' }
+                Assert-That ($movement.Status -eq 201) 'Could not establish low-stock fixture balance'
+            }
+            $apiReport = Invoke-Http GET "$base/api/reports/low-stock"
+            $skus = @($apiReport.Json | ForEach-Object sku)
+            Assert-That ($apiReport.Status -eq 200 -and $skus -contains $equalSku -and $skus -contains $lowSku -and $skus -notcontains $aboveSku) 'API low-stock threshold fixture mismatch'
+            Assert-That (($skus -join '|') -ceq (($skus | Sort-Object) -join '|')) 'API low-stock report is not in SKU order'
+            $page = Invoke-Http GET "$base/Reports/LowStock" -Session $session
+            Assert-That ($page.Status -eq 200) "low-stock page status $($page.Status)"
+            Assert-RazorLowStockTable $page.Content $skus
+            $true })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'ui.antiforgery' -Description 'form POST without antiforgery token is rejected (400)' -Test {
             $r = Invoke-Http POST "$base/Products/Create" @{ 'Input.Sku' = "UI-$tag-C"; 'Input.Name' = 'No token' } -ContentType 'application/x-www-form-urlencoded'
             Assert-That ($r.Status -eq 400) "status $($r.Status)"; $true })
@@ -626,7 +730,9 @@ In `src/Inventory.Web`, add the data layer for Contoso Inventory.
   7 KB-MECH-TKL "Mechanical Keyboard TKL" 89.00 5 1; 8 MS-WL-ERGO "Wireless Ergonomic Mouse" 54.50 5 1;
   9 HUB-USB-C-7 "USB-C Hub 7-in-1" 44.99 7 1; 10 SSD-NVME-1TB "NVMe SSD 1TB" 79.99 4 1.
 - Create the migration `InitialCreate` in `Data/Migrations` with the local dotnet-ef tool.
-- Add unit tests in `tests/Inventory.Tests` for model validation rules (at least 3 tests).
+- Add parameterless xUnit `[Fact]` tests in namespace `Inventory.Tests`, class
+  `DomainValidationTests`: `Supplier_requires_valid_email`, `Product_rejects_invalid_sku`,
+  and `StockMovement_requires_nonzero_quantity`. Each must exercise the real model validation.
 '@
     $promptT2 = New-Prompt @'
 # Task T2 - RESTful JSON API
@@ -634,6 +740,12 @@ In `src/Inventory.Web`, add the data layer for Contoso Inventory.
 Add the REST API (controllers with `[ApiController]` or minimal APIs - your choice, consistently)
 under `/api`. JSON uses camelCase and enums as strings. Errors use RFC 7807 problem details;
 validation failures are 400 validation problem details whose `errors` keys name the fields.
+Apply the T1 domain validation rules at the API boundary even when using separate DTOs:
+SKU is required, 3-32 characters matching `^[A-Z0-9-]+$`; product name is required and
+at most 120 characters; unitPrice and reorderLevel are non-negative. Supplier name is
+required and at most 100 characters, and email is required, valid, and at most 200.
+Successful-request test fixtures must satisfy these rules; preserve assertions when
+correcting an invalid fixture. Domain attributes alone do not validate unrelated DTOs.
 
 - `GET /api/suppliers` -> array of `{id,name,email}` ordered by name.
   `POST /api/suppliers` -> 201; duplicate name -> 409.
@@ -652,6 +764,12 @@ validation failures are 400 validation problem details whose `errors` keys name 
   with onHand <= reorderLevel, ordered by SKU.
 - Integration tests with `WebApplicationFactory<Program>` in environment `Testing` using EF Core
   InMemory (at least 8 tests covering the endpoints above).
+  Use namespace `Inventory.Tests`, class `ApiContractTests`, and parameterless `[Fact]` methods:
+  `Suppliers_are_ordered_by_name`, `Duplicate_supplier_name_returns_conflict`,
+  `Products_support_search_and_paging`, `Invalid_product_page_returns_bad_request`,
+  `Product_creation_returns_location`, `Unknown_supplier_returns_validation_error`,
+  `Sale_requires_negative_quantity`, `Low_stock_report_is_ordered_by_sku`.
+  Keep every earlier named acceptance test passing.
 '@
     $promptT3 = New-Prompt @'
 # Task T3 - Razor Pages UI
@@ -665,10 +783,18 @@ Build the Razor Pages UI on the same services as the API (no HTTP calls from pag
   `Input.SupplierId` (supplier drop-down). Server-side validation with the same rules as the API,
   validation messages next to fields (`asp-validation-for`), antiforgery tokens, and on success a
   redirect to the product details page. Duplicate SKU shows a model error on `Input.Sku`.
+  Accept zero price and zero reorder level. Enforce SKU length 3-32 and `^[A-Z0-9-]+$`,
+  required name at most 120 characters, and an existing supplier. Invalid SKU, overlong name,
+  or unknown supplier must show the corresponding `Input.*` field error without inserting a
+  product; validate each rule independently rather than relying on another invalid field.
 - `/Products/Details/{id}` - product facts, on-hand stock, movement history newest first, and a
   form with the heading text `Record movement` (quantity, reason, note) that posts to the page.
-- `/Reports/LowStock` - the low-stock report as a table.
-- Add the pages to the layout navigation. Add tests for the page model logic (at least 3 tests).
+- `/Reports/LowStock` - the same low-stock report as the API, as a table: include products
+  with on-hand stock less than or equal to reorder level, exclude those above it, and order by SKU.
+- Add the pages to the layout navigation. Add parameterless `[Fact]` tests in namespace
+  `Inventory.Tests`, class `RazorPageTests`: `Products_page_filters_search`,
+  `Create_page_rejects_invalid_input`, `Details_page_lists_movements_newest_first`.
+  Each must exercise the real page model logic. Keep every earlier named acceptance test passing.
 '@
     $promptT4 = New-Prompt @'
 # Task T4 - Make the protected regression tests pass
@@ -694,6 +820,9 @@ Prevent lost updates when two clerks edit the same product:
   error (model error) when the product changed since it was loaded.
 - Tests for the 428/412/200 paths (InMemory does not enforce rowversion; simulate the check in
   your concurrency logic or test it at the service level, and say which).
+  Use parameterless `[Fact]` methods in namespace `Inventory.Tests`, class `ConcurrencyTests`:
+  `Missing_if_match_returns_428`, `Stale_if_match_returns_412`,
+  `Matching_if_match_updates_product_and_etag`. Keep every earlier named acceptance test passing.
 '@ '`, `tests/Inventory.Tests/RegressionTests.cs`'
     $promptReview = @'
 # Task T6 - Read-only engineering review
@@ -723,11 +852,26 @@ listing at most 10 findings ordered by severity.
         $dotnetProcess.environment[$name] = $directory
     }
     $affected = @('README.md', 'src', 'tests')
-    $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($dotnetProcess)
-    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($dotnetProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
+    $namesT1 = @('Supplier_requires_valid_email', 'Product_rejects_invalid_sku', 'StockMovement_requires_nonzero_quantity') | ForEach-Object { "Inventory.Tests.DomainValidationTests.$_" }
+    $namesT2 = @($namesT1) + @(@('Suppliers_are_ordered_by_name', 'Duplicate_supplier_name_returns_conflict', 'Products_support_search_and_paging', 'Invalid_product_page_returns_bad_request', 'Product_creation_returns_location', 'Unknown_supplier_returns_validation_error', 'Sale_requires_negative_quantity', 'Low_stock_report_is_ordered_by_sku') | ForEach-Object { "Inventory.Tests.ApiContractTests.$_" })
+    $namesT3 = @($namesT2) + @(@('Products_page_filters_search', 'Create_page_rejects_invalid_input', 'Details_page_lists_movements_newest_first') | ForEach-Object { "Inventory.Tests.RazorPageTests.$_" })
+    $regressionNames = @('Sku_is_trimmed_and_uppercased_on_create', 'Sale_exceeding_stock_returns_insufficient_stock_problem', 'Whitespace_only_product_name_is_rejected', 'Supplier_email_must_be_valid')
+    $namesT4 = @($namesT3) + @($regressionNames | ForEach-Object { "Inventory.Tests.RegressionTests.$_" })
+    $namesT5 = @($namesT4) + @(@('Missing_if_match_returns_428', 'Stale_if_match_returns_412', 'Matching_if_match_updates_product_and_etag') | ForEach-Object { "Inventory.Tests.ConcurrencyTests.$_" })
+    function New-DotnetCheck([string[]]$Names, [int]$DeadlineSeconds) {
+        return [ordered]@{ manifest = (Split-Path -Leaf (Get-Solution)); runner = 'dotnet'; profile = 'dotnet'
+            timeout_ms = [math]::Min(300000, [long]$DeadlineSeconds * 1000); expected_tests = $Names
+            rationale = 'Owner acceptance: cumulative named Inventory xUnit tests must pass against current application source.' }
+    }
+    $profiles = @{}
+    foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT2), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
+        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $pair[1] $ctx.DeadlineSeconds)
+    }
+    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false -Guardrail
-    foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    foreach ($key in 'T1', 'T2', 'T3', 'T4', 'T5') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    foreach ($pair in @(@('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
     [void](Test-ProcessEnvironment $ctx $stage $dotnetProcess 'dotnet-tool-restore' @('tool', 'restore'))
     [void](Test-ProcessEnvironment $ctx $stage $dotnetProcess 'dotnet-build' @('build', (Get-Solution), '-nologo'))
 
@@ -744,21 +888,21 @@ listing at most 10 findings ordered by severity.
     }
 
     # --- T1 ----------------------------------------------------------------
-    $gatesT1 = { param($s) Test-Build $s; Test-Tests $s 4; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected }
-    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-data' -Title 'Domain model, EF Core, InitialCreate' -Prompt $promptT1 -Config $profileMain
-    if ($t1) { Test-StageExit $ctx $t1 'T1-data'; & $gatesT1 'T1-data'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-data' -Config $profileMain -GateScript $gatesT1) }
+    $gatesT1 = { param($s) Test-Build $s; Test-Tests $s 4 $namesT1; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected }
+    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-data' -Title 'Domain model, EF Core, InitialCreate' -Prompt $promptT1 -Config $profiles['T1']
+    if ($t1) { Test-StageExit $ctx $t1 'T1-data'; & $gatesT1 'T1-data'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-data' -Config $profiles['T1'] -GateScript $gatesT1) }
     Save-Checkpoint $ctx 'T1: data model and InitialCreate'
 
     # --- T2 ----------------------------------------------------------------
-    $gatesT2 = { param($s) Test-Build $s; Test-Tests $s 12; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p } }
-    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-api' -Title 'RESTful JSON API' -Prompt $promptT2 -Config $profileMain
-    if ($t2) { Test-StageExit $ctx $t2 'T2-api'; & $gatesT2 'T2-api'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-api' -Config $profileMain -GateScript $gatesT2) }
+    $gatesT2 = { param($s) Test-Build $s; Test-Tests $s 12 $namesT2; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p } }
+    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-api' -Title 'RESTful JSON API' -Prompt $promptT2 -Config $profiles['T2']
+    if ($t2) { Test-StageExit $ctx $t2 'T2-api'; & $gatesT2 'T2-api'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-api' -Config $profiles['T2'] -GateScript $gatesT2) }
     Save-Checkpoint $ctx 'T2: REST API'
 
     # --- T3 ----------------------------------------------------------------
-    $gatesT3 = { param($s) Test-Build $s; Test-Tests $s 15; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-RazorPages $s $p; Test-ApiContract $s $p } }
-    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-razor' -Title 'Razor Pages UI' -Prompt $promptT3 -Config $profileMain
-    if ($t3) { Test-StageExit $ctx $t3 'T3-razor'; & $gatesT3 'T3-razor'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-razor' -Config $profileMain -GateScript $gatesT3) }
+    $gatesT3 = { param($s) Test-Build $s; Test-Tests $s 15 $namesT3; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-RazorPages $s $p; Test-ApiContract $s $p } }
+    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-razor' -Title 'Razor Pages UI' -Prompt $promptT3 -Config $profiles['T3']
+    if ($t3) { Test-StageExit $ctx $t3 'T3-razor'; & $gatesT3 'T3-razor'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-razor' -Config $profiles['T3'] -GateScript $gatesT3) }
     Save-Checkpoint $ctx 'T3: Razor Pages UI'
 
     # --- T4: protected regression tests -----------------------------------
@@ -767,19 +911,20 @@ listing at most 10 findings ordered by severity.
     if (-not $protected.ContainsKey('tests/Inventory.Tests/RegressionTests.cs')) {
         $protected['tests/Inventory.Tests/RegressionTests.cs'] = Get-Sha256 (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')
     }
-    $regressionNames = @('Sku_is_trimmed_and_uppercased_on_create', 'Sale_exceeding_stock_returns_insufficient_stock_problem', 'Whitespace_only_product_name_is_rejected', 'Supplier_email_must_be_valid')
-    $gatesT4 = { param($s) Test-Build $s; Test-Tests $s 19 $regressionNames; Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p; Test-RazorPages $s $p } }
-    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profileMain
-    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profileMain -GateScript $gatesT4) }
+    $gatesT4 = { param($s) Test-Build $s; Test-Tests $s 19 $namesT4; Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p; Test-RazorPages $s $p } }
+    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profiles['T4']
+    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'
 
     # --- T5: concurrency, short deadline then 'resume <task>' --------------
-    $gatesT5 = { param($s) Test-Build $s; Test-Tests $s 22 $regressionNames; Test-Migrations $s @('InitialCreate', 'AddProductRowVersion'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-Concurrency $s $p; Test-ApiContract $s $p; Test-RazorPages $s $p } }
+    $gatesT5 = { param($s) Test-Build $s; Test-Tests $s 22 $namesT5; Test-Migrations $s @('InitialCreate', 'AddProductRowVersion'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-Concurrency $s $p; Test-ApiContract $s $p; Test-RazorPages $s $p } }
     $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-concurrency' -Title 'Optimistic concurrency (short deadline)' -Prompt $promptT5 -Config $profileShort -AcceptExit @(0, 3, 8)
     if ($t5) {
-        Test-StageExit $ctx $t5 'T5-concurrency'
-        if ($t5.exit_code -eq 8 -and $t5.task) {
-            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task)" -Arguments @('resume', $t5.task) -Config $profileMain -AcceptExit @(0, 3)
+        $unresolvedDeadline = $t5.exit_code -eq 7
+        Test-StageExit $ctx $t5 'T5-concurrency' -DiagnosticUnresolvedDeadline:$unresolvedDeadline
+        if ($unresolvedDeadline) { [void](Invoke-DeadlineCostReconciliation $ctx $t5) }
+        if (($t5.exit_code -eq 8 -or $unresolvedDeadline) -and $t5.task) {
+            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task)" -Arguments @('resume', $t5.task) -Config $profiles['T5'] -AcceptExit @(0, 3)
             if ($resumed) {
                 Test-StageExit $ctx $resumed 'T5-resume'
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'resume <task> continued the paused T5 task' -Test {
@@ -788,7 +933,7 @@ listing at most 10 findings ordered by severity.
         }
         else { [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'resume <task> continued the paused T5 task' "T5 ended with exit $($t5.exit_code); continuation not exercised") }
         & $gatesT5 'T5-concurrency'
-        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-concurrency' -Config $profileMain -GateScript $gatesT5)
+        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-concurrency' -Config $profiles['T5'] -GateScript $gatesT5)
     }
     Save-Checkpoint $ctx 'T5: optimistic concurrency'
 
@@ -799,7 +944,7 @@ listing at most 10 findings ordered by severity.
     $stage = 'FINAL'
     Write-Step $ctx 'FINAL publish and independent verification' 'phase'
     Test-Build $stage
-    Test-Tests $stage 22 $regressionNames
+    Test-Tests $stage 22 $namesT5
     Test-Migrations $stage @('InitialCreate', 'AddProductRowVersion')
     Test-ProtectedUnchanged $stage $protected
     $publishDir = Join-Path $ws 'artifacts\publish'

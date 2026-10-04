@@ -1334,6 +1334,140 @@ async fn native_hook_compaction_fires_only_for_eligible_retained_history() {
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fixed_provider_retains_more_recent_pairs_only_when_exact_request_fits() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use vcp_lifecycle::foundation::coding::CodingConfig;
+    use wiremock::{
+        matchers::{method, path},
+        Mock, ResponseTemplate,
+    };
+    for (backend, prompt_limit, expected_retention) in [
+        (BackendKind::Files, 190_000, 12),
+        (BackendKind::Sqlite, 110_000, 6),
+    ] {
+        let f = Fixture::with_coding(backend, true).await;
+        let (snapshot, raw) = provider_snapshot();
+        let mut endpoint: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        endpoint["data"]["endpoints"][0]["context_length"] = serde_json::json!(200_000);
+        endpoint["data"]["endpoints"][0]["max_prompt_tokens"] = serde_json::json!(prompt_limit);
+        let raw = serde_json::to_vec(&endpoint).unwrap();
+        let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
+            &raw,
+            snapshot.observed_at,
+            snapshot.valid_until,
+            snapshot.compatibility,
+        )
+        .unwrap();
+        f.host.configure_provider(snapshot, raw).unwrap();
+        fs::write(
+            f.workspace.join("history.txt"),
+            "historical source material\n".repeat(280),
+        )
+        .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        f.host
+            .configure_coding(
+                f.thread,
+                CodingConfig {
+                    canonical_tools: Default::default(),
+                    operating: "Read retained history, then report observed facts.".into(),
+                    affected_paths: vec!["history.txt".into()],
+                    max_requests: 16,
+                    deadline: Timestamp::new(now + 300_000),
+                },
+            )
+            .unwrap();
+        f.host
+            .configure_continuity(
+                f.thread,
+                vcp_context::compaction::Config {
+                    keep_recent_pairs: 6,
+                    preview_bytes: 512,
+                    minimum_gain_bytes: 2048,
+                },
+            )
+            .unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        let observed = count.clone();
+        Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request: &wiremock::Request| {
+            let n = observed.fetch_add(1, Ordering::SeqCst);
+            assert!(request.body.len() <= prompt_limit, "actual transport exceeds fixed prompt limit");
+            let mut events = vec![]; let mut output = vec![];
+            if n < 13 {
+                let item = serde_json::json!({"type":"function_call","id":format!("retention-{n}"),"call_id":format!("retention-{n}"),"name":"vcp_read","arguments":serde_json::json!({"path":"history.txt","max_bytes":10000,"start_line":null,"end_line":null}).to_string(),"status":"completed"});
+                events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item})); output.push(item);
+            } else { events.push(ev_assistant_message("retention-final", "Observed retained source.")); }
+            events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("retention-response-{n}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.00001}}}));
+            ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(events))
+        }).mount(&f._server).await;
+        f.test
+            .codex
+            .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+                text: "Inspect retained source history".into(),
+                text_elements: vec![],
+            }]))
+            .await
+            .unwrap();
+        let mut diagnostics = Vec::new();
+        tokio::time::timeout(Duration::from_secs(300), async {
+            loop {
+                let event = f.test.codex.next_event().await.unwrap();
+                diagnostics.push(
+                    format!("{:?}", event.msg)
+                        .chars()
+                        .take(320)
+                        .collect::<String>(),
+                );
+                if matches!(event.msg, EventMsg::TurnComplete(_)) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            14,
+            "{backend:?}: {diagnostics:?}"
+        );
+        let state = f.host.snapshot().unwrap();
+        let mut chosen = Vec::new();
+        for row in state
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+        {
+            let artifact: ArtifactDescriptor = row.decode().unwrap();
+            if artifact.spec.schema == "canonical-compaction-projection/1" {
+                let value: serde_json::Value =
+                    serde_json::from_slice(&f.host.read_artifact(artifact.spec.id).unwrap())
+                        .unwrap();
+                chosen.push(
+                    value["projection"]["config"]["keep_recent_pairs"]
+                        .as_u64()
+                        .unwrap(),
+                );
+                assert!(value["input_estimate_after"].as_u64().unwrap() <= prompt_limit as u64);
+            }
+        }
+        assert!(
+            chosen.contains(&expected_retention),
+            "{backend:?}: chosen={chosen:?}"
+        );
+        if expected_retention == 6 {
+            assert!(
+                !chosen.contains(&12),
+                "oversized expansion must fall back to configured six"
+            );
+        }
+        f.close().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_hook_owner_approval_resume_reuses_pending_hook_for_same_user_bytes() {
     use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
     use vcp_lifecycle::foundation::coding::CodingConfig;

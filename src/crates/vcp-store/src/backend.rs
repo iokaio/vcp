@@ -173,7 +173,7 @@ impl Backend {
                     {
                         return Err(Error::Corruption("SQLite commit identity"));
                     }
-                    state.replay(&commit)?;
+                    state = state.into_replayed(&commit)?;
                     commits.push(commit);
                 }
                 let mut backend = Self::Sqlite(db);
@@ -472,7 +472,7 @@ impl Journal {
                 return Err(Error::Corruption("committed journal bytes"));
             }
             let commit: Commit = serde_json::from_slice(&payload)?;
-            state.replay(&commit)?;
+            state = state.into_replayed(&commit)?;
             commits.push(commit);
             self.chain = hash;
             if let Some(tip) = &tip {
@@ -585,7 +585,7 @@ impl Journal {
                 .iter()
                 .take_while(|c| c.receipt.watermark <= watermark)
             {
-                expected.replay(commit)?;
+                expected = expected.into_replayed(commit)?;
                 let payload = canonical_bytes(commit)?;
                 let mut header = Vec::new();
                 header.extend_from_slice(MAGIC);

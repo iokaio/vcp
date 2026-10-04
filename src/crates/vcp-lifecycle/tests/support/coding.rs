@@ -206,19 +206,29 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared_files() {
+    run_coding_modes(&[
+        "complete",
+        "nested",
+        "process_fail",
+        "limit",
+        "missing_cost",
+        "incomplete_usage",
+        "invalid_call_usage",
+        "stale_instructions",
+        "deadline",
+        "empty",
+    ])
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registered_directory_tools_reject_quoted_root_then_accept_empty_root() {
+    run_coding_modes(&["quoted_root"]).await;
+}
+
+async fn run_coding_modes(modes: &[&'static str]) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
-        for mode in [
-            "complete",
-            "nested",
-            "process_fail",
-            "limit",
-            "missing_cost",
-            "incomplete_usage",
-            "invalid_call_usage",
-            "stale_instructions",
-            "deadline",
-            "empty",
-        ] {
+        for &mode in modes {
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
             std::fs::create_dir(&workspace).unwrap();
@@ -353,7 +363,14 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 } else if mode == "empty" {
                     events.push(ev_assistant_message("empty-answer", " \n\t "));
                 } else if index < 4 {
-                    let (name, arguments) = if index == 1 {
+                    let (name, arguments) = if mode == "quoted_root" {
+                        let root = if index % 2 == 0 { r#"\"\""# } else { "" };
+                        if index < 2 {
+                            ("vcp_exec", serde_json::json!({"profile":"fixture","arguments":["verify",directory.to_str().unwrap()],"directory":root,"timeout_ms":10_000,"output_bytes":1_048_576,"input":null}))
+                        } else {
+                            ("vcp_list", serde_json::json!({"path":root,"max_entries":100}))
+                        }
+                    } else if index == 1 {
                         ("vcp_patch", serde_json::json!({"patch":"*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** Update File: AGENTS.md\n@@\n-instruction version one\n+instruction version two\n*** End Patch"}))
                     } else if index==3 { ("vcp_exec", serde_json::json!({"profile":"fixture","arguments":["verify",directory.to_str().unwrap()],"directory":"","timeout_ms":10_000,"output_bytes":1_048_576,"input":null})) }
                     else { ("vcp_read", serde_json::json!({"path":if mode=="nested" && index==0 {"nested/file.txt"}else{"file.txt"},"max_bytes":1024,"start_line":null,"end_line":null})) };
@@ -460,14 +477,15 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 .unwrap();
             assert_eq!(
                 canonical_turn.state,
-                if matches!(mode, "complete" | "nested" | "process_fail") {
+                if matches!(mode, "complete" | "nested" | "process_fail" | "quoted_root") {
                     vcp_domain::task::TurnState::Verifying
                 } else {
                     vcp_domain::task::TurnState::Paused
                 },
                 "{backend:?} {mode}"
             );
-            let expected = if matches!(mode, "complete" | "nested" | "process_fail") {
+            let expected = if matches!(mode, "complete" | "nested" | "process_fail" | "quoted_root")
+            {
                 5
             } else if mode == "limit" {
                 2
@@ -486,6 +504,30 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 );
             }
             assert_eq!(requests[0]["parallel_tool_calls"], true);
+            if mode == "quoted_root" {
+                let result = |index: usize| -> serde_json::Value {
+                    let item = requests[index + 1]["input"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|item| {
+                            item["type"] == "function_call_output"
+                                && item["call_id"] == format!("call-{index}")
+                        })
+                        .unwrap();
+                    serde_json::from_str(item["output"].as_str().unwrap()).unwrap()
+                };
+                for index in [0, 2] {
+                    let rejected = result(index);
+                    assert!(
+                        rejected.to_string().contains("zero characters"),
+                        "{rejected}"
+                    );
+                    assert!(!rejected.to_string().contains("alternate stream"));
+                }
+                assert_eq!(result(1)["exit_code"], 0);
+                assert!(result(3).to_string().contains("fixture.txt"));
+            }
             if mode == "complete" {
                 let input = requests[1]["input"].as_array().unwrap();
                 for (call, expected) in [("call-0", "before"), ("sibling-read", "answer = 42")] {
@@ -529,6 +571,7 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                     | "stale_instructions"
                     | "deadline"
                     | "empty"
+                    | "quoted_root"
             ) {
                 if matches!(mode, "complete" | "process_fail") {
                     assert!(requests[2].to_string().contains("instruction version two"));
@@ -607,6 +650,8 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
                 } else if mode == "nested" {
                     3
                 } else if mode == "limit" {
+                    2
+                } else if mode == "quoted_root" {
                     2
                 } else {
                     0

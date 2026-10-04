@@ -257,7 +257,7 @@ impl Context {
                 if patch.len() > 256 * 1024 {
                     return Err("child patch exceeds input ceiling".into());
                 }
-                for hunk in codex_apply_patch::parse_patch(patch)?.hunks {
+                for hunk in vcp_tools::patch::parse(patch)?.hunks {
                     match hunk {
                         codex_apply_patch::Hunk::AddFile { path, .. }
                         | codex_apply_patch::Hunk::DeleteFile { path } => {

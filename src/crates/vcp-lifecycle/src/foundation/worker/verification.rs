@@ -598,6 +598,15 @@ impl Context {
         }
         let revisions = self.context_revisions(binding)?;
         for id in &citations {
+            if !self
+                .engine
+                .store()
+                .state()
+                .records
+                .contains_key(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
+            {
+                return Err("verification citation artifact was not found: use a complete same-task artifact ID from the top-level evidence field of a successful vcp_read, vcp_list or vcp_search result, not an effect ID, path or check selector. For configured acceptance checks, citations may be an empty array []".into());
+            }
             self.verification_bytes(&binding.scope, id)?;
         }
         let (_, before) = self.verification_observe(binding)?;

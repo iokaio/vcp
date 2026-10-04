@@ -11,6 +11,8 @@ use vcp_protocol::digest_bytes;
 pub(super) struct Runtime {
     pub configuration: Configuration,
     pub prepared: HashMap<TaskId, RoutingDecision>,
+    pub rotation_selected: HashMap<TaskId, routing::ModelEndpoint>,
+    pub rotation_preview: bool,
     #[cfg(windows)]
     pub pending: HashMap<TaskId, super::escalation::Pending>,
 }
@@ -35,6 +37,32 @@ impl Context {
                 .map_err(|error| error.into());
         };
         decision.validate()?;
+        if let Some(rotation) = owner.configuration.rotation.as_ref().filter(|policy| {
+            !owner.rotation_preview && !policy.sets(decision.input.role).is_empty()
+        }) {
+            let selected = decision
+                .selected
+                .as_ref()
+                .ok_or("rotation selected identity missing")?;
+            let set = rotation
+                .sets(decision.input.role)
+                .iter()
+                .find(|set| set.members.contains(selected))
+                .ok_or("rotation selection outside captured role sets")?;
+            let snapshot = catalog
+                .snapshot(selected)
+                .ok_or("rotation selected snapshot missing")?;
+            let reference = vcp_models::rotation::reference_cost(
+                snapshot,
+                rotation.reference_input_tokens,
+                rotation.reference_output_tokens,
+            )?;
+            if reference.currency != set.max_reference_request_cost.currency
+                || reference.micros > set.max_reference_request_cost.micros
+            {
+                return Err("rotation selected tariff exceeds captured choice-set ceiling".into());
+            }
+        }
         let ordered = owner
             .configuration
             .owner_assignments
@@ -184,6 +212,8 @@ impl Context {
         self.routing = Some(Runtime {
             configuration,
             prepared: HashMap::new(),
+            rotation_selected: HashMap::new(),
+            rotation_preview: false,
             #[cfg(windows)]
             pending: HashMap::new(),
         });
@@ -318,6 +348,15 @@ impl Context {
                 .clone());
         };
         let mut configuration = runtime.configuration.clone();
+        if configuration
+            .rotation
+            .as_ref()
+            .is_some_and(|policy| !policy.sets(binding.role).is_empty())
+            && !runtime.rotation_preview
+            && !runtime.rotation_selected.contains_key(&binding.scope.task)
+        {
+            return Err("rotation requires coordinated asynchronous route admission".into());
+        }
         self.routing
             .as_mut()
             .ok_or("routing configuration missing")?
@@ -403,8 +442,13 @@ impl Context {
                 estimate.first_attempt.output = output_ceiling;
             }
         }
+        let rotation_selected = self
+            .routing
+            .as_ref()
+            .and_then(|runtime| runtime.rotation_selected.get(&binding.scope.task))
+            .cloned();
         let input = RoutingInput {
-            retry_pin: self
+            retry_pin: rotation_selected.or(self
                 .provider
                 .as_ref()
                 .and_then(|provider| provider.retries.get(&binding.scope.task))
@@ -425,7 +469,7 @@ impl Context {
                         endpoint: attempt.quote.price.provider,
                     })
                 })
-                .transpose()?,
+                .transpose()?),
             excluded: {
                 let mut excluded = escalation
                     .as_ref()

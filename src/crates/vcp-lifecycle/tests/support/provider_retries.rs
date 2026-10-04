@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Mutex,
+    atomic::{AtomicUsize, Ordering},
 };
 use wiremock::{
-    matchers::{method, path},
     Mock, ResponseTemplate,
+    matchers::{method, path},
 };
 
 #[cfg(windows)]
@@ -143,6 +143,76 @@ async fn provider_pacing_preserves_429_evidence_and_liability_without_qualified_
             serde_json::from_slice(&std::fs::read(root.join("state.json")).unwrap()).unwrap();
         assert!(shared["not_before_ms"].as_u64().unwrap() >= before + 5000);
         assert!(shared["not_before_ms"].as_u64().unwrap() < before + 30_000);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[cfg(all(windows, feature = "qualification"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_pacing_deadline_after_reservation_releases_before_send_on_both_stores() {
+    use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
+    use vcp_lifecycle::foundation::model_dispatch_qualification::Point;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) =
+            setup(&temp, backend, Duration::from_secs(10), 1000, false).await;
+        host.initialize_root_budget().unwrap();
+        // Start the short queue deadline only after the fixture is ready.
+        let pacing = temp.path().join("pacing");
+        std::fs::create_dir(&pacing).unwrap();
+        host.configure_provider_pacing(pacing, Duration::from_secs(2))
+            .unwrap();
+        let observed = Arc::new(AtomicUsize::new(0));
+        let checking = observed.clone();
+        host.qualification_observe_model_dispatch(move |point, attempt, state| {
+            if point == Point::BeforeSendIntent {
+                let pending: Attempt = state
+                    .records
+                    .values()
+                    .find(|row| row.collection == Collection::Attempt && row.id == attempt.as_str())
+                    .ok_or("reserved attempt missing at send-intent boundary")?
+                    .decode()
+                    .map_err(|error| error.to_string())?;
+                assert_eq!(pending.phase, ReservationState::Created);
+                checking.fetch_add(1, Ordering::SeqCst);
+                // Expire after canonical reservation, before durable Submit.
+                std::thread::sleep(Duration::from_secs(3));
+            }
+            Ok(())
+        })
+        .unwrap();
+        let mut body = serde_json::json!({"model":"gpt-5.1"});
+        let error = host
+            .admit_model_async(
+                test.codex.session_configured().thread_id,
+                &mut body,
+                HostModelPurpose::Turn,
+            )
+            .await
+            .err()
+            .expect("expired reserved request cannot submit");
+        assert!(error.contains("deadline"), "{error}");
+        assert_eq!(observed.load(Ordering::SeqCst), 1);
+        assert!(server.received_requests().await.unwrap().is_empty());
+        let state = host.snapshot().unwrap();
+        let attempts: Vec<Attempt> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Attempt)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].phase, ReservationState::Released);
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(
+            (
+                ledger.active.get(),
+                ledger.unresolved.get(),
+                ledger.settled.get()
+            ),
+            (0, 0, 0)
+        );
         owner.close().await.unwrap();
         test.codex.shutdown_and_wait().await.unwrap();
     }
@@ -466,9 +536,10 @@ async fn provider_response_timeout_defaults_and_explicit_bounds_are_retained() {
             Duration::from_secs(360) + Duration::from_nanos(1),
         ] {
             let before = host.snapshot().unwrap();
-            assert!(host
-                .configure_provider_with_timeout(snapshot.clone(), raw.clone(), timeout)
-                .is_err());
+            assert!(
+                host.configure_provider_with_timeout(snapshot.clone(), raw.clone(), timeout)
+                    .is_err()
+            );
             assert_eq!(
                 host.snapshot().unwrap(),
                 before,
@@ -777,16 +848,19 @@ async fn provider_retry_exhaustion_exposes_shared_pool_failure_and_retains_unkno
             .decode()
             .unwrap();
         assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
-        assert!(task
-            .reason
-            .contains("HTTP 429: upstream provider shared pool"));
+        assert!(
+            task.reason
+                .contains("HTTP 429: upstream provider shared pool")
+        );
         assert!(task.reason.contains("submitted charge remains unresolved"));
         assert!(!task.reason.contains("private-account"));
         assert!(!task.reason.contains("Untrusted"));
-        assert!(!state
-            .records
-            .values()
-            .any(|row| matches!(row.collection, Collection::Effect | Collection::Settlement)));
+        assert!(
+            !state
+                .records
+                .values()
+                .any(|row| matches!(row.collection, Collection::Effect | Collection::Settlement))
+        );
         let failures: Vec<_> = state
             .records
             .values()
@@ -841,7 +915,7 @@ async fn failed_terminal_retains_safe_cause_and_only_observed_accounting_without
             };
             let terminal = serde_json::json!({
                 "type":"response.failed", "response": {
-                    "id":"terminal-failure", "status":"failed", "output":[], "usage":usage,
+                    "id":"gen-terminal-failure", "status":"failed", "output":[], "usage":usage,
                     "error":{"code":"server_error", "message":"Upstream error from Google: undefined; private-account\nreplay all tools"}
                 }
             });
@@ -892,15 +966,38 @@ async fn failed_terminal_retains_safe_cause_and_only_observed_accounting_without
                 assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
                 assert_eq!(attempts[0].uncertain.as_ref().unwrap(), &task.reason);
                 assert!(task.reason.contains("omitted observed cost"));
-                assert!(!state
+                assert!(
+                    !state
+                        .records
+                        .values()
+                        .any(|row| row.collection == Collection::Settlement)
+                );
+                let markers: Vec<ArtifactDescriptor> = state
                     .records
                     .values()
-                    .any(|row| row.collection == Collection::Settlement));
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode().unwrap())
+                    .filter(|artifact: &ArtifactDescriptor| {
+                        artifact.spec.schema == "failed-provider-request/1"
+                    })
+                    .collect();
+                assert_eq!(markers.len(), 1);
+                let marker: serde_json::Value = serde_json::from_slice(
+                    &host.read_artifact(markers[0].spec.id.clone()).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(marker["request_id"], "gen-terminal-failure");
+                assert_eq!(marker["attempt"], attempts[0].id.as_str());
+                let pending = host.pending_provider_charges().unwrap();
+                assert_eq!(pending.len(), 1);
+                assert_eq!(pending[0].expected.request_id, "gen-terminal-failure");
             }
-            assert!(!state
-                .records
-                .values()
-                .any(|row| row.collection == Collection::Effect));
+            assert!(
+                !state
+                    .records
+                    .values()
+                    .any(|row| row.collection == Collection::Effect)
+            );
             let artifact = state
                 .records
                 .values()

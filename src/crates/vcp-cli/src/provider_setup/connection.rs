@@ -30,7 +30,26 @@ pub async fn refresh(model: &str, key: &str) -> std::result::Result<PreparedMode
         .map_err(|e| e.to_string().replace(key, "[redacted]"))
 }
 
+/// All current eligible exact endpoints for an explicitly selected model.
+/// Metadata collection is unbilled and does not establish equivalent quality.
+pub async fn refresh_all(
+    model: &str,
+    key: &str,
+) -> std::result::Result<Vec<PreparedModel>, String> {
+    refresh_all_with(model, key, API)
+        .await
+        .map_err(|e| e.to_string().replace(key, "[redacted]"))
+}
+
 async fn refresh_with(model: &str, key: &str, api: &str) -> Result<PreparedModel> {
+    refresh_all_with(model, key, api)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "no endpoint supports the bounded connection response".into())
+}
+
+async fn refresh_all_with(model: &str, key: &str, api: &str) -> Result<Vec<PreparedModel>> {
     validate_key(key)?;
     if model.len() > 256
         || !model.contains('/')
@@ -66,16 +85,22 @@ async fn refresh_with(model: &str, key: &str, api: &str) -> Result<PreparedModel
         if snapshot.max_output < Units::new(u64::from(OUTPUT_TOKENS)) {
             continue;
         }
-        let price = reservation_snapshot(&snapshot)?;
+        let Ok(price) = reservation_snapshot(&snapshot) else {
+            continue;
+        };
         priced.push((price, snapshot.compatibility.endpoint.clone(), snapshot));
     }
     priced.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-    let snapshot = priced
+    if priced.is_empty() {
+        return Err("no endpoint supports the bounded connection response".into());
+    }
+    Ok(priced
         .into_iter()
-        .next()
-        .ok_or("no endpoint supports the bounded connection response")?
-        .2;
-    Ok(PreparedModel { snapshot, catalog })
+        .map(|(_, _, snapshot)| PreparedModel {
+            snapshot,
+            catalog: catalog.clone(),
+        })
+        .collect())
 }
 
 fn validate_key(key: &str) -> Result<()> {
@@ -848,6 +873,34 @@ mod tests {
         assert!(retained_result(&output).await.unwrap().is_none());
         std::fs::create_dir(&output).unwrap();
         assert!(retained_result(&output).await.is_err());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+    #[tokio::test]
+    async fn metadata_rotation_retains_all_priced_exact_endpoints_without_inference() {
+        let server = MockServer::start().await;
+        let mut value = catalog();
+        let mut second = value["data"]["endpoints"][0].clone();
+        second["tag"] = json!("fixture/alternative");
+        second["pricing"]["prompt"] = json!("0.000001");
+        value["data"]["endpoints"]
+            .as_array_mut()
+            .unwrap()
+            .push(second);
+        Mock::given(method("GET"))
+            .and(path("/models/fixture/model/endpoints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(value))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let prepared = refresh_all_with("fixture/model", "synthetic-connection-key", &server.uri())
+            .await
+            .unwrap();
+        assert_eq!(prepared.len(), 2);
+        assert_ne!(
+            prepared[0].snapshot.compatibility.endpoint,
+            prepared[1].snapshot.compatibility.endpoint
+        );
+        assert_eq!(prepared[0].catalog, prepared[1].catalog);
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 }

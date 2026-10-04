@@ -266,7 +266,7 @@ impl Store {
             .iter()
             .take_while(|c| c.receipt.watermark <= watermark)
         {
-            state.replay(commit)?;
+            state = state.into_replayed(commit)?;
         }
         if state.watermark != watermark {
             return Err(Error::Corruption("snapshot prefix missing"));
@@ -319,7 +319,7 @@ impl Store {
                 .iter()
                 .take_while(|c| c.receipt.watermark <= watermark)
             {
-                state.replay(commit)?;
+                state = state.into_replayed(commit)?;
             }
             state
         };

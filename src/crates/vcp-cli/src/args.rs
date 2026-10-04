@@ -241,6 +241,11 @@ pub enum Sessions {
 }
 #[derive(Debug, Subcommand)]
 pub enum Tasks {
+    /// Reconcile provider charge metadata for a paused root without resuming work.
+    ReconcileCost {
+        #[arg(value_parser = task_id)]
+        task: TaskId,
+    },
     /// Inspect attributed child progress without starting or resuming work.
     Agents {
         #[arg(value_parser = task_id)]

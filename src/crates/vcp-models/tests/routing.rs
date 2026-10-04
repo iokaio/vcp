@@ -25,6 +25,20 @@ fn provenance() -> Vec<Provenance> {
         limitations: vec!["Synthetic test labels; no actual model qualification".into()],
     }]
 }
+#[test]
+fn rotation_reference_quote_preserves_cache_classes_and_checked_rounding() {
+    use vcp_domain::accounting::{ChargeCategory, Rate};
+    let mut snapshot = candidate("fixture/reference", Group::High, 9000, 100, "0.000001").snapshot.unwrap();
+    for (category, numerator) in [(ChargeCategory::Input, 1), (ChargeCategory::CacheRead, 2), (ChargeCategory::CacheWrite, 4)] {
+        snapshot.price.rates.insert(category, Rate { micros: Micros::new(numerator), per_units: Units::new(3) });
+    }
+    snapshot.price.rates.insert(ChargeCategory::Output, Rate { micros: Micros::new(1), per_units: Units::new(2) });
+    snapshot.price.rates.insert(ChargeCategory::Request, Rate { micros: Micros::new(1), per_units: Units::new(1) });
+    let quote = vcp_models::rotation::reference_cost(&snapshot, Units::new(7), Units::new(5)).unwrap();
+    assert_eq!(quote.micros, Micros::new(14));
+    snapshot.price.rates.remove(&ChargeCategory::CacheWrite);
+    assert!(vcp_models::rotation::reference_cost(&snapshot, Units::new(7), Units::new(5)).is_err());
+}
 fn candidate(
     model: &str,
     group: Group,

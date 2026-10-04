@@ -195,6 +195,9 @@ pub struct Configuration {
     /// Explicit owner assignments, distinct from empirical optimizer rankings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owner_assignments: Vec<OwnerAssignment>,
+    /// Explicit three-choice rotation; absence preserves legacy routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<vcp_models::rotation::Policy>,
     /// Explicit local policy only; absence preserves ordinary fixed selection.
     #[serde(default)]
     pub escalation: Option<vcp_models::escalation::Policy>,
@@ -216,6 +219,30 @@ pub struct OwnerAssignment {
 }
 impl Configuration {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(rotation) = &self.rotation {
+            rotation.validate().map_err(|error| error.to_string())?;
+            if self.escalation.is_some() || self.policy.pin.is_some() {
+                return Err("model rotation cannot override escalation or a strict pin".into());
+            }
+            for assignment in &rotation.roles {
+                let owner = self
+                    .owner_assignments
+                    .iter()
+                    .find(|owner| owner.role == assignment.role)
+                    .ok_or("rotation needs an explicit owner role assignment")?;
+                if assignment
+                    .sets
+                    .iter()
+                    .flat_map(|set| &set.members)
+                    .any(|identity| {
+                        !owner.candidates.contains(identity)
+                            || self.catalog.snapshot(identity).is_none()
+                    })
+                {
+                    return Err("rotation membership exceeds captured owner endpoints".into());
+                }
+            }
+        }
         if !self.owner_assignments.is_empty() && self.escalation.is_some() {
             return Err("owner model assignments cannot use empirical optimizer escalation".into());
         }

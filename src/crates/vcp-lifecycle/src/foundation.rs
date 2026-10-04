@@ -47,6 +47,7 @@ pub mod openrouter;
 mod process;
 #[cfg(windows)]
 mod provider_pacing;
+pub mod reconciliation;
 pub mod routing;
 pub mod routing_state;
 pub mod skills;
@@ -137,6 +138,7 @@ pub struct ThreadBinding {
 }
 #[derive(Clone)]
 pub struct CanonicalHost {
+    receipt_source: Arc<Mutex<Option<Arc<reconciliation::ReceiptRuntime>>>>,
     #[cfg(windows)]
     provider_pacing: Arc<Mutex<Option<(provider_pacing::Gate, Duration)>>>,
     local_memory_only: bool,
@@ -308,6 +310,14 @@ impl CanonicalHost {
         expected: Option<Revision>,
     ) -> Result<(Self, CanonicalOwner), String> {
         let worker = worker::Worker::open(config, expected)?;
+        // Recovery may fence startup on an acknowledged aborted response. Replay
+        // already captured authoritative receipts under the exclusive owner
+        // before binding a retained thread; registration cannot precede this
+        // settlement. This performs no metadata GET or provider submission.
+        worker.run_cleanup(|context| {
+            context.replay_provider_receipts()?;
+            Ok(())
+        })?;
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
         let memory_owner_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         #[cfg(windows)]
@@ -321,6 +331,7 @@ impl CanonicalHost {
         };
         Ok((
             Self {
+                receipt_source: Arc::new(Mutex::new(None)),
                 #[cfg(windows)]
                 provider_pacing: Arc::new(Mutex::new(None)),
                 local_memory_only: false,
@@ -527,6 +538,12 @@ struct ModelPermit {
     deadline: Option<std::time::Instant>,
 }
 impl HostWorkPermit for ModelPermit {
+    fn response_generation_identity(&mut self, identity: &str) -> Result<(), String> {
+        let attempt = self.attempt.clone();
+        let identity = identity.to_owned();
+        self.worker
+            .run(move |context| context.record_failed_generation_header(&attempt, identity))
+    }
     fn retry_delay(
         &mut self,
         failure: codex_extension_api::HostModelFailure,
@@ -544,26 +561,6 @@ impl HostWorkPermit for ModelPermit {
             codex_extension_api::HostModelFailure::Http(status) => Some(*status),
             _ => None,
         };
-        #[cfg(windows)]
-        let cooldown = if http_status == Some(429) {
-            self.provider_slot.as_ref().map_or(Ok(()), |slot| {
-                // The transport uses MAX as an unsupported/overflowing hint.
-                // The retry policy rejects it; share the ordinary cooldown
-                // rather than losing HTTP failure evidence to an overflow.
-                slot.cooldown(Duration::from_millis(
-                    retry_after_ms
-                        .filter(|ms| *ms != u64::MAX)
-                        .unwrap_or(5_000)
-                        .max(5_000),
-                ))
-            })
-        } else {
-            Ok(())
-        };
-        // Headers have ended this transport attempt. Release shared capacity
-        // before waiting; its canonical billing liability remains independent.
-        #[cfg(windows)]
-        self.provider_slot.take();
         let failure = match failure {
             codex_extension_api::HostModelFailure::Http(status) => {
                 vcp_models::retry::http_failure(status)
@@ -574,6 +571,35 @@ impl HostWorkPermit for ModelPermit {
             }
             codex_extension_api::HostModelFailure::Protocol => vcp_models::retry::Failure::Protocol,
         };
+        #[cfg(windows)]
+        let cooldown = {
+            let attempt = self.attempt.clone();
+            let binding = self.binding.clone();
+            let (source, route) = self.worker.run(move |context| {
+                Ok((
+                    context.provider_limit_source(&attempt),
+                    context.provider_attempt_endpoint(&binding, &attempt)?,
+                ))
+            })?;
+            if let Some(slot) = self.provider_slot.as_mut() {
+                slot.bind_failed_route(route)?;
+            }
+            self.provider_slot.as_ref().map_or(Ok(()), |slot| {
+                slot.failed(
+                    failure,
+                    source,
+                    Duration::from_millis(
+                        retry_after_ms
+                            .filter(|ms| *ms != u64::MAX)
+                            .unwrap_or(5_000)
+                            .max(5_000),
+                    ),
+                )
+            })
+        };
+        // Availability leases and canonical billing uncertainty are independent.
+        #[cfg(windows)]
+        self.provider_slot.take();
         let binding = self.binding.clone();
         let attempt = self.attempt.clone();
         let count = self.retries;
@@ -632,9 +658,10 @@ impl HostWorkPermit for ModelPermit {
             }
             #[cfg(windows)]
             {
+                let _ = self.host.reconcile_pending(self.thread).await?;
                 let slot = self
                     .host
-                    .acquire_provider_slot(self.thread, self.deadline)
+                    .acquire_provider_slot(self.thread, Some(self.purpose), self.deadline)
                     .await?;
                 if !self.retry_current() {
                     return Err("provider retry cancelled by current owner/context/deadline".into());
@@ -693,6 +720,19 @@ impl HostWorkPermit for ModelPermit {
         usage: Option<&TokenUsage>,
         response_id: &str,
     ) -> Result<(), String> {
+        #[cfg(windows)]
+        let scheduling_usage = usage.and_then(|usage| {
+            Some(Usage {
+                input: vcp_domain::Units::new(u64::try_from(usage.input_tokens).ok()?),
+                output: vcp_domain::Units::new(u64::try_from(usage.output_tokens).ok()?),
+                cache_read: vcp_domain::Units::new(u64::try_from(usage.cached_input_tokens).ok()?),
+                cache_write: vcp_domain::Units::new(
+                    u64::try_from(usage.cache_write_input_tokens).ok()?,
+                ),
+                requests: vcp_domain::Units::new(1),
+                ..Usage::default()
+            })
+        });
         let usage = usage.cloned();
         let response_id = response_id.to_owned();
         let attempt = self.attempt.clone();
@@ -703,7 +743,12 @@ impl HostWorkPermit for ModelPermit {
         self.runtime.complete()?;
         self.finished = true;
         #[cfg(windows)]
-        self.provider_slot.take();
+        {
+            if let Some(slot) = &self.provider_slot {
+                slot.succeeded(scheduling_usage.as_ref())?;
+            }
+            self.provider_slot.take();
+        }
         Ok(())
     }
 }
@@ -838,7 +883,24 @@ impl HostWorkAdmission for CanonicalHost {
         Box::pin(async move {
             #[cfg(windows)]
             {
-                let slot = self.acquire_provider_slot(thread, None).await?;
+                let deadline = if self
+                    .provider_pacing
+                    .lock()
+                    .map_err(|_| "provider pacing poisoned")?
+                    .is_some()
+                {
+                    let binding = self.binding(thread)?;
+                    let remaining = self
+                        .worker
+                        .run(move |context| context.provider_queue_remaining(&binding))?;
+                    Some(std::time::Instant::now() + remaining)
+                } else {
+                    None
+                };
+                let _ = self.reconcile_pending(thread).await?;
+                let slot = self
+                    .acquire_provider_slot(thread, Some(purpose), deadline)
+                    .await?;
                 return self.admit_model_with_slot(thread, body, purpose, slot);
             }
             #[cfg(not(windows))]
@@ -868,6 +930,7 @@ impl CanonicalHost {
     async fn acquire_provider_slot(
         &self,
         thread: ThreadId,
+        purpose: Option<HostModelPurpose>,
         deadline: Option<std::time::Instant>,
     ) -> Result<Option<provider_pacing::Slot>, String> {
         let configured = self
@@ -878,13 +941,29 @@ impl CanonicalHost {
         let Some((gate, timeout)) = configured else {
             return Ok(None);
         };
-        let binding = self.binding(thread)?;
+        let mut binding = self.binding(thread)?;
+        if purpose == Some(HostModelPurpose::Compaction) {
+            binding.role = RequestRole::Compaction;
+        }
         let generation = self
             .runtime
             .admission_generation(thread)
             .map_err(|e| format!("{e:?}"))?;
-        let deadline = deadline.unwrap_or_else(|| std::time::Instant::now() + timeout);
-        gate.acquire(deadline, || {
+        let remaining = self.worker.run({
+            let binding = binding.clone();
+            move |context| context.provider_queue_remaining(&binding)
+        })?;
+        let queue_deadline = std::time::Instant::now() + timeout.min(remaining);
+        let deadline = deadline.map_or(queue_deadline, |value| value.min(queue_deadline));
+        let routes = if purpose.is_some() {
+            self.worker.run({
+                let binding = binding.clone();
+                move |context| context.prepare_rotation_routes(&binding)
+            })?
+        } else {
+            None
+        };
+        let current = || {
             self.runtime.admission_generation(thread).ok() == Some(generation)
                 && self
                     .worker
@@ -893,9 +972,36 @@ impl CanonicalHost {
                         move |context| context.can_start(&binding)
                     })
                     .is_ok()
-        })
-        .await
-        .map(Some)
+        };
+        let queued = std::time::Instant::now();
+        let mut slot = if let Some(mut routes) = routes {
+            routes.deadline = Some(deadline);
+            loop {
+                let sweep_deadline =
+                    (std::time::Instant::now() + Duration::from_secs(2)).min(deadline);
+                match gate.acquire_routes(&routes, sweep_deadline, &current).await {
+                    Ok(mut slot) => {
+                        slot.deadline = deadline;
+                        break slot;
+                    }
+                    Err(error)
+                        if error == "provider rotation deadline expired before submission"
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        let _ = self.reconcile_pending(thread).await?;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        } else {
+            gate.acquire(deadline, current).await?
+        };
+        slot.queued_for(queued.elapsed())?;
+        if let Some(selection) = slot.selection() {
+            self.worker
+                .run(move |context| context.select_rotation_route(&binding, selection))?;
+        }
+        Ok(Some(slot))
     }
     #[cfg(windows)]
     fn admit_model_with_slot(
@@ -943,16 +1049,26 @@ impl CanonicalHost {
         )?;
         let input = body.clone();
         let admitted = binding.clone();
-        let admission = self
-            .worker
-            .run(move |context| context.admit(&admitted, input));
-        let (attempt, prepared, deadline, retries) = match admission {
+        #[cfg(windows)]
+        let queue_deadline = slot.as_ref().map(|slot| slot.deadline);
+        #[cfg(not(windows))]
+        let queue_deadline = None;
+        let admission = self.worker.run(move |context| {
+            context.set_provider_queue_deadline(&admitted, queue_deadline)?;
+            context.admit(&admitted, input)
+        });
+        let (attempt, prepared, mut deadline, retries) = match admission {
             Ok(value) => value,
             Err(error) => {
                 runtime.complete()?;
                 return Err(error);
             }
         };
+        #[cfg(windows)]
+        if let Some(slot) = &slot {
+            slot.mark_admitted();
+            deadline = Some(deadline.map_or(slot.deadline, |value| value.min(slot.deadline)));
+        }
         *body = prepared;
         Ok(Box::new(ModelPermit {
             #[cfg(windows)]

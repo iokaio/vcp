@@ -373,7 +373,9 @@ function Invoke-Http {
     }
     $response = Invoke-WebRequest @parameters
     $json = $null
-    $content = [string]$response.Content
+    # PowerShell returns byte[] for application/problem+json. Casting those
+    # bytes to string produces decimal numbers instead of the JSON error body.
+    $content = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
     if ($content -and ($content.TrimStart().StartsWith('{') -or $content.TrimStart().StartsWith('['))) {
         try { $json = $content | ConvertFrom-Json -Depth 50 } catch { }
     }
@@ -800,7 +802,7 @@ function Get-VcpStageInspection {
     <# One canonical read owner for every page; a failed bundle never silently
        falls back to a costly or potentially inconsistent second evidence sweep. #>
     param($Ctx, [string]$Stage, [string]$Task)
-    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'inspect-bundle' -Arguments @('inspect-bundle', $Task) -TimeoutSeconds 300
+    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'inspect-bundle' -Arguments @('inspect-bundle', $Task) -TimeoutSeconds 1800
     $bundle = $run.Result.data
     $valid = $run.ExitCode -eq 0 -and -not $run.TimedOut -and $run.InvalidLines -eq 0 -and
         $bundle.schema_version -eq 1 -and $bundle.source_watermark -and $bundle.task.scope.task -eq $Task
@@ -873,7 +875,11 @@ function Get-VcpFinalMessage {
         if ($length -le 0 -or $length -gt 4MB) { return $null }
         $buffer = [System.IO.MemoryStream]::new()
         for ($offset = [int64]0; $offset -lt $length; $offset += 65536) {
-            $read = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'inspect-response-range' -TimeoutSeconds 120 `
+            # Range reads replay the same canonical history as inspect-bundle.
+            # The optimized B candidate already needed 268 seconds at stage T2;
+            # later stages retain more history. Bound metadata reads separately
+            # from paid provider work without discarding verification evidence.
+            $read = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'inspect-response-range' -TimeoutSeconds 1800 `
                 -Arguments @('inspect', $item.id, '--view', 'outputs', '--offset', [string]$offset, '--length', '65536')
             if ($read.ExitCode -ne 0 -or $read.InvalidLines -ne 0 -or @($read.Result.data.items).Count -ne 1) { return $null }
             $row = $read.Result.data.items | Select-Object -First 1
@@ -909,6 +915,32 @@ function Get-VcpFinalMessage {
     finally { if ($buffer) { $buffer.Dispose() } }
 }
 
+function Get-VcpStageFinalMessage {
+    <# Extract derived assistant text only when a gate or caller requests it.
+       The mandatory evidence sweep already retained output descriptors and
+       chronological frames; the existing extractor verifies every byte range. #>
+    param($Ctx, $StageRecord)
+    if (-not $StageRecord -or -not $StageRecord.task) { return $null }
+    $stage = [string]$StageRecord.stage
+    $path = Join-Path $Ctx.Logs "$stage/final-message.md"
+    try {
+        if ($StageRecord.final_message -and (Test-Path -LiteralPath $path)) {
+            return [IO.File]::ReadAllText($path)
+        }
+        $outputsPath = Join-Path $Ctx.Logs "$stage/inspect-outputs.json"
+        if (-not $StageRecord.Run -or -not (Test-Path -LiteralPath $outputsPath)) { return $null }
+        $outputs = Get-Content -LiteralPath $outputsPath -Raw | ConvertFrom-Json -Depth 100
+        $message = Get-VcpFinalMessage -Ctx $Ctx -Stage $stage -OutputPages $outputs -Frames $StageRecord.Run.Frames
+        if ($message) {
+            Write-Utf8File -Path $path -Content $message
+            $StageRecord.final_message = "logs/$stage/final-message.md"
+            return $message
+        }
+    }
+    catch { return $null }
+    return $null
+}
+
 function Get-CompletedTurnIds {
     <# Completed turn IDs from canonical event facts (used by sessions fork). #>
     param($Frames)
@@ -924,7 +956,7 @@ function Get-CompletedTurnIds {
 
 function Get-WorkspaceManifest {
     <# SHA-256 manifest of authored files (dependency caches and build outputs excluded). #>
-    param([Parameter(Mandatory)][string]$Path, [switch]$IncludeGenerated)
+    param([Parameter(Mandatory)][string]$Path, [switch]$IncludeGenerated, [switch]$ForCheckpoint)
     $root = (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\')
     $manifest = [ordered]@{}
     $pending = [System.Collections.Generic.Stack[string]]::new()
@@ -939,7 +971,11 @@ function Get-WorkspaceManifest {
                 continue
             }
             if ($entry.PSIsContainer) {
-                if (-not $IncludeGenerated -and ($script:ManifestExclusions -contains $entry.Name -or $entry.Name -like '*.egg-info')) { continue }
+                $excluded = $script:ManifestExclusions -contains $entry.Name -or $entry.Name -like '*.egg-info'
+                # Ambiguous ML/cache/report names are root-only exclusions for
+                # checkpoints; nested Models and Pages/Reports may be source.
+                if ($ForCheckpoint -and $entry.Name -in 'models', 'models-repro', 'reports' -and $relative.Contains('/')) { $excluded = $false }
+                if (-not $IncludeGenerated -and $excluded) { continue }
                 if ($IncludeGenerated) { $manifest[$relative + '/'] = 'directory' }
                 $pending.Push($entry.FullName)
             }
@@ -1079,6 +1115,36 @@ function Get-FreshScenarioProfile {
     return $freshProfile
 }
 
+function Invoke-PaidScenarioDispatch {
+    <# Reserve before process dispatch, including exceptions while decoding its
+       output or collecting canonical accounting. The evidence collector keeps
+       its normal cumulative per-task accounting; remove this temporary hold
+       only after that collector returns successfully. #>
+    param($Ctx, [decimal]$AdditionalBudgetUsd, [scriptblock]$Dispatch)
+    $priorSpent = [decimal]$Ctx.SpentUsd
+    $Ctx.SpentUsd += $AdditionalBudgetUsd
+    $Ctx.CostUnknown = $true
+    $completed = $false
+    try {
+        $result = & $Dispatch
+        $Ctx.SpentUsd -= $AdditionalBudgetUsd
+        $Ctx.CostUnknown = [bool]$Ctx.UnscopedCostUnknown -or $Ctx.UnknownTaskCosts.Count -gt 0
+        $completed = $true
+        return $result
+    }
+    finally {
+        # Evidence collection may have recorded some settlement before a later
+        # operation threw. Retain at least the full possible spend, without
+        # double-counting that settlement or prior spend on a resumed task.
+        # Finally also covers pipeline cancellation, which may bypass catch.
+        if (-not $completed) {
+            $Ctx.SpentUsd = [math]::Max($priorSpent + $AdditionalBudgetUsd, $Ctx.SpentUsd - $AdditionalBudgetUsd)
+            $Ctx.CostUnknown = $true
+            $Ctx.UnscopedCostUnknown = $true
+        }
+    }
+}
+
 function Invoke-VcpTask {
     <#
     One paid VCP turn: vcp run --file <prompt> with the stage profile, then the
@@ -1128,10 +1194,11 @@ function Invoke-VcpTask {
     $before = Get-WorkspaceManifest $Ctx.Workspace
     $arguments = @('run', '--file', $promptPath, '--budget-usd', (Format-Usd $BudgetUsd), '--autonomy', $Autonomy)
     foreach ($id in $Skill) { $arguments += @('--skill', $id) }
-    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'run' -Config $Config -Arguments $arguments `
-        -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
-    $evidence = Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $stageRecord
-    return $evidence
+    return Invoke-PaidScenarioDispatch $Ctx $BudgetUsd {
+        $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'run' -Config $Config -Arguments $arguments `
+            -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
+        Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $stageRecord
+    }
 }
 
 function Test-VcpPreAdmissionRejection {
@@ -1204,11 +1271,8 @@ function Complete-VcpStageEvidence {
         $Record.tool_items = (Get-InspectItems $tools).Count
         Update-ScenarioCost -Ctx $Ctx -Task $task -Cost $cost.Usd -Record $Record
         [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id 'cost-evidence' -Description 'canonical task cost is complete and settled at this checkpoint' -Advisory -Test { $null -ne $cost.Usd })
-        $message = Get-VcpFinalMessage -Ctx $Ctx -Stage $Stage -OutputPages $outputs -Frames $Run.Frames
-        if ($message) {
-            Write-Utf8File -Path (Join-Path $Ctx.Logs "$Stage\final-message.md") -Content $message
-            $Record.final_message = "logs/$Stage/final-message.md"
-        }
+        # Optional final text is extracted on demand by its consuming gate.
+        # Keep the complete outputs view and original response artifacts here.
     }
     elseif (Test-VcpPreAdmissionRejection $Run) {
         $Record.cost_usd = [decimal]0
@@ -1332,9 +1396,11 @@ function Invoke-VcpContinuation {
     $record.profile = $Config
     Write-Step $Ctx "$Stage :: $Title" 'phase'
     $before = Get-WorkspaceManifest $Ctx.Workspace
-    $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label ($Arguments[0..1] -join '-') -Config $Config -Arguments $Arguments `
-        -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
-    return Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $record
+    return Invoke-PaidScenarioDispatch $Ctx $budget.Additional {
+        $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label ($Arguments[0..1] -join '-') -Config $Config -Arguments $Arguments `
+            -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
+        Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $record
+    }
 }
 
 function Invoke-RepairLoop {
@@ -1351,15 +1417,25 @@ function Invoke-RepairLoop {
         [string]$Constraints = ''
     )
     $current = $Stage
-    for ($attempt = 1; $attempt -le $Ctx.MaxRepairTurns; $attempt++) {
+    for ($attempt = 1; $attempt -le $Ctx.MaxRepairTurns + 1; $attempt++) {
         $failed = Get-FailedGates $Ctx $current
-        if ($failed.Count -eq 0) { return $current }
         if ($Ctx.SkipPaidStages) { return $current }
+        # A model cannot repair a missing canonical evidence sweep. Preserve its
+        # original failure and full accounting hold for metadata-only recovery,
+        # including failures discovered after an otherwise successful repair.
+        $inspectionFailures = @($failed | Where-Object { $_.id -like 'inspect-*' })
+        if ($Ctx.CostUnknown -or $inspectionFailures.Count -gt 0) {
+            throw "Stage $current has incomplete canonical inspection or accounting; no paid application repair or dependent stage was started. Inspect retained evidence and reconcile accounting first."
+        }
+        if ($failed.Count -eq 0) { return $current }
+        if ($attempt -gt $Ctx.MaxRepairTurns) {
+            throw "Stage $current still has required failures after $($Ctx.MaxRepairTurns) allowed repair turns; dependent stages were not started."
+        }
         $repairStage = "$Stage-repair$attempt"
         if ($Ctx.PaidExecutionBlock) {
             $skippedRepair = [ordered]@{ stage = $repairStage; title = "Repair failures from $current"; kind = 'run'; skipped = $null }
             [void](Test-PaidExecutionAdmission $Ctx $skippedRepair)
-            return $current
+            throw "Stage $current has unresolved required gates and a paid-execution stopping condition; dependent stages were not started."
         }
         $originalPromptPath = Join-Path $Ctx.Logs "$Stage/prompt.md"
         if (-not (Test-Path -LiteralPath $originalPromptPath -PathType Leaf)) { throw "Cannot repair $Stage without its original task instructions: $originalPromptPath" }
@@ -1396,7 +1472,7 @@ you before finishing, then reply with a short summary of the root causes and fix
 $Constraints
 "@
         $result = Invoke-VcpTask -Ctx $Ctx -Stage $repairStage -Title "Repair failures from $current" -Prompt $prompt -Config $Config -AcceptExit @(0)
-        if (-not $result) { return $current }
+        if (-not $result) { throw "Repair $repairStage was not admitted; dependent stages were not started." }
         Test-StageExit $Ctx $result $repairStage
         & $GateScript $repairStage
         $current = $repairStage
@@ -1404,11 +1480,139 @@ $Constraints
     return $current
 }
 
+function Get-DeadlineAccountingSnapshot {
+    param($Bundle, $Scope, [switch]$Settled)
+    Assert-That ($Bundle.schema_version -eq 1 -and $Bundle.kind -eq 'inspection_bundle' -and $Bundle.source_watermark -and $Bundle.task.state -eq 'paused') 'Expected a complete paused-task inspection bundle.'
+    foreach ($field in 'workspace', 'session', 'task') {
+        Assert-That ($Scope.$field -and $Bundle.task.scope.$field -eq $Scope.$field) "Reconciliation inspection has a different $field."
+    }
+    $agents = @($Bundle.agents)
+    Assert-That ($agents.Count -eq 1 -and $agents[0].root -eq $Scope.task -and $agents[0].total -eq 0 -and @($agents[0].items).Count -eq 0 -and -not $agents[0].next_offset) 'Reconciliation requires no active agents or missing agent pages.'
+    foreach ($view in 'costs', 'tools') {
+        $pages = @($Bundle.views.$view)
+        Assert-That ($pages.Count -gt 0 -and -not $pages[-1].next_cursor) "Incomplete reconciliation $view pages."
+        foreach ($page in $pages) {
+            Assert-That ($page.view -eq $view -and $page.source_watermark -eq $Bundle.source_watermark -and @($page.gaps).Count -eq 0 -and @($page.items | Where-Object visibility -ne 'available').Count -eq 0) "Untrusted or incomplete reconciliation $view evidence."
+            foreach ($field in 'workspace', 'session', 'task') {
+                Assert-That ($page.scope.$field -eq $Scope.$field) "Reconciliation $view page has a different $field."
+            }
+        }
+    }
+    foreach ($item in @(Get-InspectItems $Bundle.views.tools | Where-Object collection -eq 'effect')) {
+        Assert-That ($item.record.scope.task -eq $Scope.task -and $item.record.state -in 'succeeded', 'failed', 'cancelled') 'A tool effect remains active or unknown; billing reconciliation cannot authorize resume.'
+        foreach ($field in 'workspace', 'session') { Assert-That ($item.record.scope.$field -eq $Scope.$field) "Effect has a different $field." }
+    }
+    $items = @(Get-InspectItems $Bundle.views.costs)
+    $ledgers = @($items | Where-Object collection -eq 'ledger')
+    Assert-That ($ledgers.Count -eq 1 -and $ledgers[0].record.scope.task -eq $Scope.task) 'Expected exactly one same-task reconciliation ledger.'
+    $ledger = $ledgers[0].record
+    foreach ($field in 'workspace', 'session') { Assert-That ($ledger.scope.$field -eq $Scope.$field) "Ledger has a different $field." }
+    foreach ($field in 'cap', 'settled', 'active', 'unresolved') { Assert-That ([string]$ledger.$field -match '^\d+$') "Invalid ledger $field." }
+    Assert-That ($ledger.currency -eq 'USD' -and $ledger.overrun -is [bool] -and $ledger.overrun -eq $false -and [decimal]$ledger.active -eq 0 -and [decimal]$ledger.settled + [decimal]$ledger.unresolved -le [decimal]$ledger.cap) 'Ledger has active, overrun, or invalid liability.'
+    if (-not $Settled) {
+        Assert-That ([decimal]$ledger.unresolved -gt 0) 'The original stop did not retain unresolved provider billing.'
+        $pending = @($items | Where-Object { $_.collection -eq 'reservation' -and $_.record.phase -eq 'reconciliation_pending' })
+        $liability = [decimal]0
+        foreach ($reservation in $pending) {
+            $attempt = @($items | Where-Object { $_.collection -eq 'attempt' -and $_.id -eq $reservation.record.attempt })
+            Assert-That ($reservation.record.scope.task -eq $Scope.task -and $attempt.Count -eq 1 -and $attempt[0].record.scope.task -eq $Scope.task -and
+                $attempt[0].record.phase -eq 'reconciliation_pending' -and [string]$reservation.record.liability -match '^\d+$' -and [decimal]$reservation.record.liability -gt 0) 'Unresolved liability is not fully bound to provider attempts.'
+            $liability += [decimal]$reservation.record.liability
+        }
+        Assert-That ($liability -eq [decimal]$ledger.unresolved) 'Pending provider receipts do not explain all unresolved liability.'
+    }
+    $cost = Get-VcpTaskCost $Bundle.views.costs
+    if ($Settled) { Assert-That ($null -ne $cost.Usd -and [decimal]$ledger.unresolved -eq 0) 'Canonical accounting remains unresolved.' }
+    return [pscustomobject]@{ Ledger = $ledger; Cost = $cost }
+}
+
+function Invoke-DeadlineCostReconciliation {
+    <# Only A/B's deliberate T5 pause may resolve a billing-only exit 7 into
+       same-task resume eligibility. This never launches inference or resumes. #>
+    param($Ctx, $StageResult)
+    $stage = [string]$StageResult.stage
+    $metadataStage = "$stage-cost-reconciliation"
+    $block = $Ctx.PaidExecutionBlock
+    try {
+        Assert-That (($Ctx.Name -eq 'a-vue-taskboard' -and $stage -eq 'T5-production') -or ($Ctx.Name -eq 'b-aspnet-inventory' -and $stage -eq 'T5-concurrency')) 'Billing recovery is limited to A/B short-deadline T5.'
+        Assert-That ($StageResult.exit_code -eq 7 -and -not $StageResult.Run.TimedOut -and $StageResult.Run.InvalidLines -eq 0 -and
+            $block -and $block.task -eq $StageResult.task -and $block.session -eq $StageResult.session -and
+            @($block.reasons).Count -eq 1 -and $block.reasons[0] -eq 'unresolved_effect' -and @($block.approval_ids).Count -eq 0) 'Expected only the same-task unresolved-billing stop.'
+        Assert-That ((Get-FailedGates $Ctx $stage).Count -eq 0 -and @($Ctx.Gates | Where-Object { $_.stage -eq $stage -and $_.id -eq 'jsonl' -and $_.outcome -eq 'pass' }).Count -eq 1) 'Original framing or mandatory inspection failed; do not poll or resume.'
+        Assert-That (-not $Ctx.UnscopedCostUnknown -and @($Ctx.UnknownTaskCosts.Keys | Where-Object { $_ -ne $StageResult.task }).Count -eq 0) 'Unrelated or unscoped accounting remains unknown.'
+        $scope = $StageResult.Run.Scope
+        $originalPath = Join-Path $Ctx.Logs "$stage/inspection-bundle.json"
+        $original = Get-Content -LiteralPath $originalPath -Raw | ConvertFrom-Json -Depth 100
+        $originalState = Get-DeadlineAccountingSnapshot $original $scope
+        Assert-That ([decimal]$originalState.Ledger.cap / 1000000 -eq [decimal]$Ctx.TaskBudgetUsd[$StageResult.task]) 'Original ledger cap differs from the admitted task cap.'
+        $originalHashes = @($StageResult.Run.StdoutPath, $originalPath | ForEach-Object { @{ path = $_; sha256 = Get-Sha256 $_ } })
+        $pollEvidence = @(); $settled = $false
+        for ($poll = 1; $poll -le 3; $poll++) {
+            # Credential is needed only for authenticated receipt metadata GET.
+            # The native command holds the paused root lease and cannot infer.
+            $run = Invoke-Vcp -Ctx $Ctx -Stage $metadataStage -Label "reconcile-$poll" -Arguments @('tasks', 'reconcile-cost', $StageResult.task) -TimeoutSeconds 1800
+            $frames = @($run.Frames); $data = $run.Result.data
+            Assert-That (-not $run.TimedOut -and $run.ExitCode -in 0, 7 -and $run.InvalidLines -eq 0 -and -not $run.Accepted -and
+                @($frames | Where-Object type -eq 'accepted').Count -eq 0 -and @($frames | Where-Object type -eq 'result').Count -eq 1 -and
+                $frames[-1].type -eq 'result' -and $run.Result.schema_version -eq 1 -and $run.Result.exit_code -eq $run.ExitCode -and $run.Result.correlation) 'Reconciliation command is unsupported or did not produce a complete metadata-only result.'
+            Assert-That ($data.kind -eq 'provider_cost_reconciliation' -and $data.task -eq $StageResult.task -and $data.state -eq 'paused' -and
+                $data.metadata_only -is [bool] -and $data.metadata_only -eq $true -and $data.resumed -is [bool] -and $data.resumed -eq $false) 'Invalid reconciliation receipt or unexpected task activation.'
+            foreach ($field in 'workspace', 'session', 'task') {
+                Assert-That ($data.scope.$field -eq $scope.$field -and $run.Result.scope.$field -eq $scope.$field -and $data.ledger.scope.$field -eq $scope.$field) "Receipt has a different $field."
+            }
+            foreach ($field in 'cap', 'settled', 'active', 'unresolved') { Assert-That ([string]$data.ledger.$field -match '^\d+$') "Invalid receipt ledger $field." }
+            Assert-That ($data.ledger.currency -eq 'USD' -and $data.ledger.overrun -is [bool] -and $data.ledger.overrun -eq $false -and $data.ledger.cap -eq $originalState.Ledger.cap -and
+                [decimal]$data.ledger.active -eq 0 -and [decimal]$data.ledger.settled + [decimal]$data.ledger.unresolved -le [decimal]$data.ledger.cap) 'Receipt ledger has active, overrun, or changed-cap liability.'
+            $pollEvidence += @{ path = $run.StdoutPath; sha256 = Get-Sha256 $run.StdoutPath; exit_code = $run.ExitCode }
+            if ($run.ExitCode -eq 0) {
+                Assert-That ([decimal]$data.ledger.unresolved -eq 0 -and @($data.observations | Where-Object status -ne 'settled').Count -eq 0) 'Successful receipt still has unknown billing.'
+                $settled = $true; break
+            }
+            Assert-That ([decimal]$data.ledger.unresolved -gt 0) 'Unresolved receipt has inconsistent exit status.'
+            if ($poll -lt 3) { Start-Sleep -Seconds 10 }
+        }
+        Assert-That $settled 'Provider receipts remain unknown after three metadata polls; the full task hold remains and no resume is permitted.'
+        $fresh = Invoke-Vcp -Ctx $Ctx -Stage $metadataStage -Label 'inspect-settled' -Arguments @('inspect-bundle', $StageResult.task) -TimeoutSeconds 1800 -DenyProviderCredentials
+        Assert-That ($fresh.ExitCode -eq 0 -and -not $fresh.TimedOut -and $fresh.InvalidLines -eq 0 -and -not $fresh.Accepted -and
+            @($fresh.Frames | Where-Object type -eq 'accepted').Count -eq 0 -and @($fresh.Frames | Where-Object type -eq 'result').Count -eq 1 -and
+            $fresh.Frames[-1].type -eq 'result' -and $fresh.Result.schema_version -eq 1 -and $fresh.Result.exit_code -eq 0 -and $fresh.Result.correlation) 'Fresh canonical inspection failed; the full hold remains.'
+        $freshState = Get-DeadlineAccountingSnapshot $fresh.Result.data $scope -Settled
+        foreach ($field in 'cap', 'settled', 'active', 'unresolved') { Assert-That ($freshState.Ledger.$field -eq $data.ledger.$field) 'Canonical accounting differs from the reconciliation receipt.' }
+        foreach ($file in $originalHashes) { Assert-That ((Get-Sha256 $file.path) -eq $file.sha256) 'Original stop evidence changed during reconciliation.' }
+        $proof = @{ schema = 'vcp-scenario-deadline-reconciliation/1'; stage = $stage; scope = $scope; original_exit_code = 7
+            original_evidence = $originalHashes; polls = $pollEvidence; inspection = @{ path = $fresh.StdoutPath; sha256 = Get-Sha256 $fresh.StdoutPath }
+            settled_usd = $freshState.Cost.Usd; resume_same_task_only = $true; at = [DateTimeOffset]::UtcNow.ToString('o') }
+        $proofPath = Join-Path $Ctx.Logs "$metadataStage/reconciliation.json"
+        Write-JsonFile $proofPath $proof
+        $accounting = [ordered]@{ stage = $metadataStage; budget_usd = $StageResult.budget_usd }
+        Update-ScenarioCost -Ctx $Ctx -Task $StageResult.task -Cost $freshState.Cost.Usd -Record $accounting
+        $StageResult | Add-Member -NotePropertyName deadline_reconciliation -NotePropertyValue @{ path = $proofPath; sha256 = Get-Sha256 $proofPath; accounting = $accounting } -Force
+        # Keep the original stop record intact; only this new proof grants a
+        # same-task continuation. Ordinary paid tasks/repairs remain blocked.
+        $next = [ordered]@{}
+        foreach ($property in $block.PSObject.Properties) { $next[$property.Name] = $property.Value }
+        $next.reasons = @('durably_paused'); $next.resume_same_task = $true
+        $next.reconciliation = @{ path = $proofPath; sha256 = Get-Sha256 $proofPath }
+        $Ctx.PaidExecutionBlock = [pscustomobject]$next
+        Write-JsonFile (Join-Path $Ctx.Results 'paid-execution.json') $Ctx.PaidExecutionBlock
+        [void](Add-GateResult $Ctx $stage 'deadline-cost-reconciliation' 'original unresolved T5 stop has authoritative settled billing and only same-task resume eligibility' 'pass' $proofPath $true)
+        return $proof
+    }
+    catch {
+        [void](Add-GateResult $Ctx $stage 'deadline-cost-reconciliation' 'original unresolved T5 stop must be reconciled before same-task continuation' 'fail' $_.Exception.Message $true)
+        throw
+    }
+}
+
 function Test-StageExit {
     <# Gate: the VCP stage ended with an accepted exit code. #>
-    param($Ctx, $StageResult, [string]$Stage)
+    param($Ctx, $StageResult, [string]$Stage, [switch]$DiagnosticUnresolvedDeadline)
     if (-not $StageResult) { return }
-    [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "vcp-exit" -Description "vcp exit code in {$($StageResult.accepted_exit -join ',')}" -Test {
+    if ($DiagnosticUnresolvedDeadline) {
+        Assert-That ($StageResult.exit_code -eq 7 -and (($Ctx.Name -eq 'a-vue-taskboard' -and $Stage -eq 'T5-production') -or ($Ctx.Name -eq 'b-aspnet-inventory' -and $Stage -eq 'T5-concurrency'))) 'Diagnostic exit handling is limited to A/B T5 unresolved stops.'
+    }
+    $exitId = if ($DiagnosticUnresolvedDeadline) { 'original-unresolved-exit' } else { 'vcp-exit' }
+    [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id $exitId -Description "vcp exit code in {$($StageResult.accepted_exit -join ',')}" -Advisory:$DiagnosticUnresolvedDeadline -Test {
             Assert-That ($StageResult.accepted_exit -contains $StageResult.exit_code) ("exit {0} conditions [{1}]; stderr: {2}" -f $StageResult.exit_code, ($StageResult.conditions -join ','), (Get-TextTail $StageResult.Run.StderrPath 15))
             $true
         })
@@ -1439,7 +1643,7 @@ function Invoke-PlanModeReview {
     param($Ctx, [string]$Stage, [string]$Config, [string]$Prompt)
     $before = Get-WorkspaceManifest $Ctx.Workspace -IncludeGenerated
     $review = Invoke-VcpTask -Ctx $Ctx -Stage $Stage -Title 'Plan-mode review (read-only)' -Prompt $Prompt -Config $Config `
-        -Autonomy 'plan' -BudgetUsd ([math]::Min($Ctx.TurnBudgetUsd, [decimal]2)) -AcceptExit @(0, 3, 4)
+        -Autonomy 'plan' -BudgetUsd $Ctx.TurnBudgetUsd -AcceptExit @(0, 3, 4)
     if (-not $review) { return $null }
     Test-StageExit $Ctx $review $Stage
     [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "immutable" -Description 'plan autonomy left the workspace byte-identical' -Test {
@@ -1448,9 +1652,8 @@ function Invoke-PlanModeReview {
             $true
         })
     [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id "findings-json" -Description 'review ends with a parseable JSON findings block' -Advisory -Test {
-            $path = Join-Path $Ctx.Logs "$Stage\final-message.md"
-            Assert-That (Test-Path -LiteralPath $path) 'final message unavailable from outputs view'
-            $text = [System.IO.File]::ReadAllText($path)
+            $text = Get-VcpStageFinalMessage -Ctx $Ctx -StageRecord $review
+            Assert-That (-not [string]::IsNullOrEmpty($text)) 'final message unavailable from outputs view'
             $match = [regex]::Match($text, '```json\s*(?<j>[\s\S]*?)```')
             Assert-That $match.Success 'no ```json block'
             $findings = $match.Groups['j'].Value | ConvertFrom-Json -Depth 20
@@ -1758,8 +1961,77 @@ function Initialize-GitCheckpoint {
     Save-Checkpoint $Ctx 'seed: scenario scaffold'
 }
 
+function Assert-CheckpointPhysicalPath([string]$Path) {
+    $probe = [IO.Path]::GetFullPath($Path)
+    while ($probe) {
+        if (Test-Path -LiteralPath $probe) {
+            if ((Get-Item -LiteralPath $probe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Source checkpoint cannot traverse a link or junction: $probe"
+            }
+        }
+        $parent = Split-Path -Parent $probe
+        if ($parent -eq $probe) { break }
+        $probe = $parent
+    }
+}
+
+function Save-SourceCheckpoint($Ctx, [string]$Message) {
+    $workspace = [IO.Path]::GetFullPath($Ctx.Workspace).TrimEnd('\', '/')
+    $checkpoints = [IO.Path]::GetFullPath((Join-Path $Ctx.Root 'checkpoints'))
+    if ($checkpoints -ieq $workspace -or $checkpoints.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Source checkpoints must be outside the authored workspace.'
+    }
+    Assert-CheckpointPhysicalPath $workspace
+    Assert-CheckpointPhysicalPath $checkpoints
+    $before = Get-WorkspaceManifest $workspace -ForCheckpoint
+    foreach ($relative in $before.Keys) {
+        if ([string]$before[$relative] -notmatch '^[0-9a-f]{64}$') { throw "Source checkpoint contains a link or invalid hash: $relative" }
+    }
+    $directory = Join-Path $checkpoints ([guid]::NewGuid().ToString('N'))
+    if (Test-Path -LiteralPath $directory) { throw 'Source checkpoint directory already exists.' }
+    $filesRoot = Join-Path $directory 'files'
+    [void][IO.Directory]::CreateDirectory($filesRoot)
+    foreach ($relative in $before.Keys) {
+        $source = [IO.Path]::GetFullPath((Join-Path $workspace $relative))
+        $target = [IO.Path]::GetFullPath((Join-Path $filesRoot $relative))
+        if (-not $source.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+            -not $target.StartsWith($filesRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Source checkpoint path escapes its source or destination.' }
+        Assert-CheckpointPhysicalPath $source
+        Assert-CheckpointPhysicalPath $target
+        [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
+        [IO.File]::Copy($source, $target, $false)
+        Assert-CheckpointPhysicalPath $source
+        Assert-CheckpointPhysicalPath $target
+        if ((Get-Sha256 $target) -ne $before[$relative]) { throw "Source checkpoint copy differs from the captured source: $relative" }
+    }
+    $after = Get-WorkspaceManifest $workspace -ForCheckpoint
+    $copied = Get-WorkspaceManifest $filesRoot -ForCheckpoint
+    Assert-CheckpointPhysicalPath $workspace
+    Assert-CheckpointPhysicalPath $filesRoot
+    if ((Compare-WorkspaceManifest $before $after).Changed -ne 0 -or (Compare-WorkspaceManifest $before $copied).Changed -ne 0) {
+        throw 'Authored source changed during checkpoint capture; no completed checkpoint was published.'
+    }
+    # Publish the completion manifest last. A failed capture has no manifest and
+    # cannot be mistaken for a restorable checkpoint. Never overwrite a snapshot.
+    $manifest = @{ schema = 'vcp-source-checkpoint/1'; message = $Message; at = [DateTimeOffset]::UtcNow.ToString('o')
+        workspace = $workspace; files = $before; file_count = $before.Count
+        exclusions = @{ directory_names = @($script:ManifestExclusions | Where-Object { $_ -notin 'models', 'models-repro', 'reports' })
+            root_only_directory_names = @('models', 'models-repro', 'reports'); directory_suffixes = @('.egg-info'); links = 'rejected' } }
+    $path = Join-Path $directory 'manifest.json'
+    $pending = Join-Path $directory 'manifest.pending.json'
+    $stream = [IO.File]::Open($pending, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    try {
+        $bytes = $script:Utf8NoBom.GetBytes(($manifest | ConvertTo-Json -Depth 10))
+        $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true)
+    }
+    finally { $stream.Dispose() }
+    [IO.File]::Move($pending, $path, $false)
+    Write-Step $Ctx "Source checkpoint saved: $path"
+}
+
 function Save-Checkpoint {
     param($Ctx, [string]$Message)
+    Save-SourceCheckpoint $Ctx $Message
     if ($Ctx.ReuseProject -or -not $Ctx.Git) { return }
     [void](Invoke-Tool -Ctx $Ctx -Stage 'git' -Label 'add' -FilePath $Ctx.Git -ArgumentList @('add', '-A'))
     [void](Invoke-Tool -Ctx $Ctx -Stage 'git' -Label 'commit' -FilePath $Ctx.Git -ArgumentList @(
@@ -1924,8 +2196,8 @@ Export-ModuleMember -Function @(
     'ConvertFrom-JsonLines', 'Write-Step', 'Find-Executable', 'Invoke-NativeLogged', 'Invoke-Tool',
     'Start-BackgroundServer', 'Stop-BackgroundServer', 'Invoke-Http', 'Initialize-VcpScenario', 'Add-GateResult',
     'Invoke-Gate', 'Skip-Gate', 'Get-FailedGates', 'Invoke-Vcp', 'Invoke-VcpInspect', 'Get-InspectItems',
-    'Get-VcpTaskCost', 'Get-VcpFinalMessage', 'Get-CompletedTurnIds', 'Get-WorkspaceManifest',
-    'Compare-WorkspaceManifest', 'Invoke-VcpTask', 'Invoke-VcpContinuation', 'Invoke-RepairLoop', 'Test-StageExit',
+    'Get-VcpTaskCost', 'Get-VcpFinalMessage', 'Get-VcpStageFinalMessage', 'Get-CompletedTurnIds', 'Get-WorkspaceManifest',
+    'Compare-WorkspaceManifest', 'Invoke-VcpTask', 'Invoke-VcpContinuation', 'Invoke-RepairLoop', 'Test-StageExit', 'Invoke-DeadlineCostReconciliation',
     'Invoke-PlanModeReview', 'New-ProcessProfile', 'New-ScenarioProfile', 'Invoke-CommonPreflight',
     'Update-ScenarioProviderMetadata', 'Test-ProfileCheck', 'Test-ProcessEnvironment', 'Invoke-GuardrailRun', 'Invoke-WorkspaceDiscover', 'Invoke-FinalEvidenceSweep',
     'Initialize-GitCheckpoint', 'Save-Checkpoint', 'Add-Asset', 'Complete-VcpScenario'

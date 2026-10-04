@@ -886,10 +886,85 @@ pub struct State {
     pub transactions: BTreeMap<TransactionId, Receipt>,
     pub sequences: BTreeMap<SessionId, SessionSeq>,
 }
+/// Publication checks inspect the prior records and receipts, never prior
+/// event payloads. Keeping that boundary explicit lets private replay transfer
+/// owned history after the checks that require the complete prior State.
+#[derive(Clone, Copy)]
+pub(crate) struct RecordView<'a> {
+    pub watermark: Watermark,
+    pub records: &'a BTreeMap<String, Record>,
+    transactions: &'a BTreeMap<TransactionId, Receipt>,
+    excluded_transaction: Option<&'a TransactionId>,
+}
+impl<'a> RecordView<'a> {
+    pub fn transaction(&self, id: &TransactionId) -> Option<&'a Receipt> {
+        if self.excluded_transaction == Some(id) {
+            None
+        } else {
+            self.transactions.get(id)
+        }
+    }
+    pub fn record(
+        &self,
+        collection: Collection,
+        id: &str,
+        workspace: &WorkspaceId,
+    ) -> Result<&'a Record> {
+        let record = self
+            .records
+            .get(&key(collection, id))
+            .ok_or(Error::Conflict("record not found"))?;
+        if &record.workspace != workspace {
+            return Err(Error::Access);
+        }
+        Ok(record)
+    }
+}
+enum Preparation<'a> {
+    Borrowed(&'a State),
+    Owned(State),
+}
+impl std::ops::Deref for Preparation<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        match self {
+            Self::Borrowed(state) => state,
+            Self::Owned(state) => state,
+        }
+    }
+}
+impl Preparation<'_> {
+    fn history(&mut self) -> Vec<EventEnvelope> {
+        match self {
+            Self::Borrowed(state) => state.events.clone(),
+            Self::Owned(state) => std::mem::take(&mut state.events),
+        }
+    }
+    fn commands(&mut self) -> BTreeMap<String, CommandReceipt> {
+        match self {
+            Self::Borrowed(state) => state.commands.clone(),
+            Self::Owned(state) => std::mem::take(&mut state.commands),
+        }
+    }
+    fn transactions(&mut self) -> BTreeMap<TransactionId, Receipt> {
+        match self {
+            Self::Borrowed(state) => state.transactions.clone(),
+            Self::Owned(state) => std::mem::take(&mut state.transactions),
+        }
+    }
+}
 pub fn command_key(workspace: &WorkspaceId, command: &CommandId) -> String {
     format!("{workspace}:{command}")
 }
 impl State {
+    pub(crate) fn record_view(&self) -> RecordView<'_> {
+        RecordView {
+            watermark: self.watermark,
+            records: &self.records,
+            transactions: &self.transactions,
+            excluded_transaction: None,
+        }
+    }
     fn memory_version(
         &self,
         id: &ClaimVersionId,
@@ -1208,17 +1283,23 @@ impl State {
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
+        Self::prepare_from(Preparation::Borrowed(self), transaction)
+    }
+    fn prepare_from(
+        mut source: Preparation<'_>,
+        transaction: &Transaction,
+    ) -> Result<(Self, Commit)> {
         let bytes = canonical_bytes(transaction)?;
         if bytes.len() > MAX_TRANSACTION_BYTES {
             return Err(Error::Limit("transaction bytes"));
         }
         let digest = digest_bytes(&bytes);
-        if let Some(receipt) = self.transactions.get(&transaction.id) {
+        if let Some(receipt) = source.transactions.get(&transaction.id) {
             if receipt.digest != digest {
                 return Err(Error::Conflict("transaction ID reused"));
             }
             return Ok((
-                self.clone(),
+                source.clone(),
                 Commit {
                     version: FORMAT_VERSION,
                     transaction: transaction.clone(),
@@ -1226,19 +1307,26 @@ impl State {
                 },
             ));
         }
-        if transaction.expected_watermark != self.watermark {
+        if transaction.expected_watermark != source.watermark {
             return Err(Error::Conflict("stale canonical watermark"));
         }
-        crate::memory_review_contract::transaction(self, transaction)?;
-        let watermark = self.watermark.next()?;
-        let mut result = self.clone();
+        crate::memory_review_contract::transaction(&source, transaction)?;
+        let watermark = source.watermark.next()?;
+        let mut result = State {
+            watermark: source.watermark,
+            records: source.records.clone(),
+            events: Vec::new(),
+            commands: BTreeMap::new(),
+            transactions: BTreeMap::new(),
+            sequences: source.sequences.clone(),
+        };
         result.watermark = watermark;
         let mut touched = BTreeSet::new();
         for mutation in &transaction.mutations {
             match mutation {
                 Mutation::Put { expected, record } => {
                     let late_accounting = crate::accounting_contract::redacted_attempt_update(
-                        self,
+                        &source,
                         transaction,
                         record,
                     )?;
@@ -1274,7 +1362,7 @@ impl State {
                     if !touched.insert(key.clone()) {
                         return Err(Error::Conflict("duplicate mutation"));
                     }
-                    match (self.records.get(&key), expected) {
+                    match (source.records.get(&key), expected) {
                         (None, None) if record.revision == Revision::ZERO => {
                             if record.controller_lease()? {
                                 record
@@ -1282,7 +1370,7 @@ impl State {
                                     .validate()?;
                             }
                             ingestion_contract::insert(record)?;
-                            crate::snapshot_jobs::insert(self, record)?;
+                            crate::snapshot_jobs::insert(&source, record)?;
                         }
                         (Some(previous), Some(expected))
                             if previous.revision == *expected
@@ -1375,7 +1463,7 @@ impl State {
                 }
                 Mutation::DropProjection { id, expected } => {
                     let key = key(Collection::Projection, id);
-                    if self
+                    if source
                         .records
                         .get(&key)
                         .map(crate::editor_contract::kind)
@@ -1384,7 +1472,7 @@ impl State {
                     {
                         return Err(Error::Conflict("durable editor authority cannot be dropped"));
                     }
-                    if self
+                    if source
                         .records
                         .get(&key)
                         .map(agents_contract::kind)
@@ -1393,7 +1481,7 @@ impl State {
                     {
                         return Err(Error::Conflict("durable graph cannot be dropped"));
                     }
-                    if self
+                    if source
                         .records
                         .get(&key)
                         .map(Record::immutable_memory)
@@ -1403,7 +1491,7 @@ impl State {
                         return Err(Error::Conflict("immutable memory evidence"));
                     }
                     if !touched.insert(key.clone())
-                        || self
+                        || source
                             .records
                             .get(&key)
                             .is_none_or(|r| r.revision != *expected)
@@ -1463,10 +1551,10 @@ impl State {
                         || e.correlation != input.command
                 })
             {
-                crate::fork_contract::validate(self, transaction)?;
+                crate::fork_contract::validate(&source, transaction)?;
             }
             let key = command_key(&input.workspace, &input.command);
-            if result.commands.contains_key(&key) {
+            if source.commands.contains_key(&key) {
                 return Err(Error::Conflict("command already committed"));
             }
             let receipt = CommandReceipt {
@@ -1494,10 +1582,35 @@ impl State {
         result
             .transactions
             .insert(transaction.id.clone(), receipt.clone());
+        // All checks requiring the complete prior State have finished. Keep
+        // candidate validation complete while transferring privately owned
+        // history; borrowed/public preparation still clones these collections.
+        let mut history = source.history();
+        history.append(&mut result.events);
+        result.events = history;
+        let mut commands = source.commands();
+        for (key, receipt) in std::mem::take(&mut result.commands) {
+            commands.insert(key, receipt);
+        }
+        result.commands = commands;
+        let mut transactions = source.transactions();
+        for (id, receipt) in std::mem::take(&mut result.transactions) {
+            transactions.insert(id, receipt);
+        }
+        result.transactions = transactions;
         result.validate()?;
-        crate::accounting_contract::admission(self, &result, transaction)?;
-        search_contract::publication(self, &result, transaction)?;
-        agents_contract::publication(self, &result)?;
+        // The only receipt added above is the current transaction, whose prior
+        // absence was checked before preparation. Excluding it recreates the
+        // exact prior receipt lookup without cloning the historical map.
+        let before = RecordView {
+            watermark: source.watermark,
+            records: &source.records,
+            transactions: &result.transactions,
+            excluded_transaction: Some(&transaction.id),
+        };
+        crate::accounting_contract::admission(before, &result, transaction)?;
+        search_contract::publication(before, &result, transaction)?;
+        agents_contract::publication(before, &result)?;
         Ok((
             result,
             Commit {
@@ -1508,18 +1621,26 @@ impl State {
         ))
     }
     pub fn replay(&mut self, commit: &Commit) -> Result<()> {
+        *self = Self::replay_from(Preparation::Borrowed(self), commit)?;
+        Ok(())
+    }
+    /// Private reconstruction discards the owned state on any invalid commit.
+    /// Public replay retains its original atomic failure contract.
+    pub(crate) fn into_replayed(self, commit: &Commit) -> Result<Self> {
+        Self::replay_from(Preparation::Owned(self), commit)
+    }
+    fn replay_from(source: Preparation<'_>, commit: &Commit) -> Result<Self> {
         if commit.version != FORMAT_VERSION {
             return Err(Error::Incompatible);
         }
-        if self.transactions.contains_key(&commit.transaction.id) {
+        if source.transactions.contains_key(&commit.transaction.id) {
             return Err(Error::Corruption("duplicate persisted transaction"));
         }
-        let (next, expected) = self.prepare(&commit.transaction)?;
+        let (next, expected) = Self::prepare_from(source, &commit.transaction)?;
         if expected != *commit {
             return Err(Error::Corruption("durable receipt mismatch"));
         }
-        *self = next;
-        Ok(())
+        Ok(next)
     }
 }
 
@@ -1528,6 +1649,14 @@ pub trait CanonicalStore {
     fn state(&self) -> &State;
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
 }
+
+#[cfg(test)]
+#[path = "replay_owned_tests.rs"]
+mod replay_owned_tests;
+
+#[cfg(test)]
+#[path = "search_contract_tests.rs"]
+mod search_contract_tests;
 
 #[cfg(test)]
 mod size_tests {

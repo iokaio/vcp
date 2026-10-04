@@ -67,6 +67,42 @@ vcp models customize --role main --model openai/gpt-4.1-mini --model qwen/qwen3-
 vcp models budget 5.00
 ```
 
+To opt a role into per-request round robin, select consecutive first-, second-
+and optional third-choice sets. Each command replaces that role's specified
+choice; repeating `--model` adds members inside the choice. Members cannot be
+repeated across its choices. Legacy commands without `--choice` keep ordered
+fallback and disable rotation for the changed role.
+The interactive `vcp models` chooser also offers `rotate`: choose a role,
+enter model members for each priority, and provide the reserve ceiling.
+Simply revisiting setup and accepting selections preserves existing choices.
+
+```powershell
+vcp models customize --role main --choice 1 --model qwen/qwen3-coder --model deepseek/deepseek-v3.2
+vcp models customize --role main --choice 2 --model z-ai/glm-4.7
+vcp models customize --role main --choice 3 --model moonshotai/kimi-k2.5 --max-reference-request-cost-usd 0.10
+vcp models show
+vcp models show --refresh
+```
+
+These IDs illustrate owner selections, not qualified equivalent-quality models.
+Normal choices default to a ceiling of twice the first available member's
+cheapest exact-endpoint quote for the same 8,000-input/1,024-output reference
+request, using the largest input/cache tariff. The third choice requires an
+explicit USD ceiling. `--max-reference-request-cost-usd` also overrides a normal
+choice's default. `select <suggested-set> --choice <1|2|3>` assigns that choice
+to every role; `--project` selects a project override.
+For a restricted endpoint list, repeat `--endpoint <model-id>=<exact-endpoint-tag>`
+with `customize --choice`; omitted models capture all compatible current
+endpoints. For example, `--endpoint qwen/qwen3-coder=google-vertex/us-south1`.
+
+`show --refresh` fetches metadata only and displays exact endpoint tariffs,
+reference costs and conservative full-input reservation amounts, plus unavailable
+models. New tasks capture eligible exact endpoints within the selected ceiling;
+existing tasks keep their original membership and ceilings. Endpoint changes
+cannot widen retained task authority. The highest-priority ready choice serves
+each request; later approved choices provide bounded failover within the task's
+budget, retry allowance and original deadline.
+
 Only eligible alternatives within the selected set and remaining budget may be
 used. If none qualify, VCP stops and asks the owner to change the selection before
 using an outside model. Gateway fallback is disabled. Set labels describe

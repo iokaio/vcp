@@ -311,7 +311,7 @@ fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn publication(before: &State, after: &State) -> Result<()> {
+pub(super) fn publication(before: RecordView<'_>, after: &State) -> Result<()> {
     for record in after.records.values() {
         if !kind(record)? {
             continue;

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{workspace::Scope, *};
 
 pub mod native_bound;
-mod unique_json;
+pub(crate) mod unique_json;
 
 pub const VERSION: u32 = 1;
 pub const MAX_BYTES: usize = 64 * 1024;

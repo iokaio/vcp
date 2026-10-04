@@ -838,6 +838,7 @@ $regressionNames = @('test_fullwidth_and_case_are_normalized', 'test_urls_are_ma
                         $diff = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $ws -IncludeGenerated)
                         Assert-That ($diff.Changed -eq 0) ('changed: ' + (($diff.Added + $diff.Modified + $diff.Removed) -join ', ')); $true })
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T7-fork' -Id 'review-consistency' -Description 'forked review cites an overlapping set of files (Jaccard >= 0.3)' -Advisory -Test {
+                        [void](Get-VcpStageFinalMessage -Ctx $ctx -StageRecord $fork)
                         $first = Join-Path $ctx.Logs 'T6-review\final-message.md'; $second = Join-Path $ctx.Logs 'T7-fork\final-message.md'
                         Assert-That ((Test-Path -LiteralPath $first) -and (Test-Path -LiteralPath $second)) 'final messages unavailable'
                         $pattern = '(?:src|tests|data)/[A-Za-z0-9_./-]+\.(?:py|csv|toml)'

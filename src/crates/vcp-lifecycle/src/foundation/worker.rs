@@ -39,6 +39,8 @@ mod memory_query;
 #[cfg(windows)]
 pub(super) mod observers;
 mod provider;
+#[cfg(windows)]
+mod public_backup;
 pub(super) mod public_connection;
 mod public_diff;
 #[cfg(windows)]
@@ -46,23 +48,22 @@ mod public_editor;
 mod public_events;
 mod public_export;
 mod public_history;
-mod public_policy;
-mod public_routing_inspection;
-mod public_optimizer;
-#[cfg(windows)]
-mod public_backup;
 mod public_memory;
 mod public_memory_history;
 mod public_memory_query;
 mod public_memory_review;
-mod public_retention;
-pub(super) mod public_resume;
-mod public_rpc;
+mod public_optimizer;
+mod public_policy;
 mod public_presentation;
+pub(super) mod public_resume;
+mod public_retention;
+mod public_routing_inspection;
+mod public_rpc;
 #[cfg(windows)]
 pub(super) mod public_start;
 mod public_workspace;
 mod reasoning;
+mod reconciliation;
 pub(super) mod recovery;
 mod retention_policy;
 mod routing;
@@ -967,6 +968,7 @@ impl Context {
         if self.capture_admission_blocked() {
             return Err("unfinished capture requires reconciliation".into());
         }
+        self.guard_unresolved_availability(binding)?;
         #[cfg(windows)]
         if let Err(error) = self.check_public_start_budget() {
             self.pause_root("original public run budget requires attention")?;
@@ -1134,6 +1136,8 @@ impl Context {
             TurnState::ReservingBudget,
             "reserving captured request budget",
         )?;
+        #[cfg(windows)]
+        self.provider_queue_current(binding)?;
         let reservation = self.runtime.block_on(vcp_budget::reserve_captured(
             self.engine.store_mut(),
             input,
@@ -1246,6 +1250,21 @@ impl Context {
             ))?;
             return Err(error);
         }
+        #[cfg(feature = "qualification")]
+        self.qualification_model_dispatch_point(
+            super::model_dispatch_qualification::Point::BeforeSendIntent,
+            &attempt.id,
+        )?;
+        #[cfg(windows)]
+        if let Err(error) = self.provider_queue_current(binding) {
+            self.runtime.block_on(vcp_budget::release_before_send(
+                self.engine.store_mut(),
+                &attempt.id,
+                scope,
+                &actor,
+            ))?;
+            return Err(error);
+        }
         if let Err(error) = self.runtime.block_on(vcp_budget::submit(
             self.engine.store_mut(),
             &attempt.id,
@@ -1281,6 +1300,12 @@ impl Context {
             .as_mut()
             .and_then(|p| p.retries.remove(&binding.scope.task));
         let (deadline, retries) = retry.map_or((deadline, 0), |r| (Some(r.deadline), r.count));
+        #[cfg(windows)]
+        let deadline = match (deadline, self.provider_queue_deadline(binding)) {
+            (Some(current), Some(queued)) => Some(current.min(queued)),
+            (None, queued) => queued,
+            (current, None) => current,
+        };
         #[cfg(windows)]
         self.seed_decision_shadow(binding, &attempt);
         #[cfg(feature = "qualification")]
@@ -1674,6 +1699,12 @@ impl Context {
             provider.error_sources.remove(attempt);
             provider.failures.remove(attempt)
         });
+        let generation = self
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.streams.get(attempt))
+            .and_then(|stream| stream.observed_generation())
+            .cloned();
         if let Some(provider) = &mut self.provider {
             provider.streams.remove(attempt);
         }
@@ -1682,10 +1713,13 @@ impl Context {
             drop(writer);
             let raw = descriptor.spec.id.clone();
             self.command(
-                Command::AttachArtifact { descriptor },
+                Command::AttachArtifact {
+                    descriptor: descriptor.clone(),
+                },
                 Some(binding.scope.task.clone()),
                 Revision::ZERO,
             )?;
+            self.record_failed_charge(attempt, &descriptor, failure.as_ref(), generation.as_ref())?;
             if let Some(failure) = &failure {
                 self.capture(
                     &binding.scope,

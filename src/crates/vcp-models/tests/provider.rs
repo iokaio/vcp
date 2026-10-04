@@ -66,6 +66,59 @@ fn sse(value: Value) -> Vec<u8> {
     )
     .into_bytes()
 }
+
+#[test]
+fn interrupted_sse_identity_requires_a_complete_structured_frame() {
+    let bytes = sse(json!({"type":"response.created","response":{"id":"gen-interrupted"}}));
+    let mut parser = stream();
+    parser.push(&bytes[..bytes.len() - 2]).unwrap();
+    assert!(parser.observed_generation().is_none());
+    parser.push(&bytes[bytes.len() - 2..]).unwrap();
+    let observed = parser.observed_generation().unwrap();
+    assert_eq!(observed.request_id, "gen-interrupted");
+    assert_eq!(observed.frame_sha256.len(), 64);
+    assert!(parser.terminal_identity().is_none());
+    assert_eq!(
+        retained_generation(&bytes).unwrap().unwrap().request_id,
+        observed.request_id
+    );
+    assert!(retained_generation(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"gen-partial\"}}\n").unwrap().is_none());
+    assert!(retained_generation(b"id: gen-comment\n: gen-comment\n\n")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn retained_sse_identity_survives_large_output_and_partial_tail_without_tool_admission() {
+    let mut bytes = sse(json!({"type":"response.created","response":{"id":"gen-large"}}));
+    bytes.extend(sse(
+        json!({"type":"response.output_text.delta","delta":"x".repeat(90_000)}),
+    ));
+    bytes.extend(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","name":"unregistered","arguments":"untrusted"}})));
+    bytes.extend_from_slice(
+        b"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"gen-partial",
+    );
+    assert_eq!(
+        retained_generation(&bytes).unwrap().unwrap().request_id,
+        "gen-large"
+    );
+}
+
+#[test]
+fn sse_identity_conflicts_duplicates_and_event_mismatch_fail_closed() {
+    let first = sse(json!({"type":"response.created","response":{"id":"gen-first"}}));
+    for second in [
+        sse(json!({"type":"response.in_progress","response":{"id":"gen-second"}})),
+        b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"gen-first\",\"id\":\"gen-second\"}}\n\n".to_vec(),
+        b"event: response.created\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"gen-first\"}}\n\n".to_vec(),
+    ] {
+        let mut parser = stream();
+        parser.push(&first).unwrap();
+        assert!(parser.push(&second).is_err());
+        assert!(parser.observed_generation().is_none());
+        assert!(retained_generation(&[first.clone(), second].concat()).is_err());
+    }
+}
 fn call(id: &str, path: &str) -> Value {
     json!({"type":"function_call","id":format!("item_{id}"),"call_id":id,"name":"read_file","arguments":serde_json::to_string(&json!({"path":path})).unwrap()})
 }
@@ -1227,6 +1280,10 @@ fn provider_failure_diagnostics_allowlist_metadata_without_treating_errors_as_us
         assert!(!specific.summary().contains("provider rate limit"));
     }
     assert_eq!(error_limit_source(b"not json"), None);
+    assert_eq!(
+        error_limit_source(br#"{"error":{"metadata":{"limit_source":"openrouter_in_flight_budget","limit_source":"upstream_provider_shared_pool"}}}"#),
+        None
+    );
     assert_eq!(error_limit_source(&vec![b' '; 65537]), None);
     assert_eq!(
         error_limit_source(br#"{"error":{"metadata":{"limit_source":"invented"}}}"#),

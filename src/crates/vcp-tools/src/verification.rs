@@ -11,6 +11,7 @@ use vcp_repository::{observation::Observation, FileVersion};
 pub enum Runner {
     Node,
     Cargo,
+    Dotnet,
 }
 /// Explicit owner acceptance, not model-supplied assertions about coverage.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -122,11 +123,164 @@ pub fn discover(observation: &Observation, requirements: &[Requirement]) -> Resu
                     // Cargo, not a second partial TOML parser, validates the manifest.
                     Ok(["test", "--locked", "--offline", "--manifest-path", "Cargo.toml", "--all-targets", "--", "--test-threads=1"].into_iter().map(str::to_owned).collect())
                 }
+                Runner::Dotnet => {
+                    let filename = requirement.manifest.rsplit('/').next().ok_or("missing .NET project filename")?;
+                    dotnet_projects(filename, &source.bytes)?.into_iter().try_for_each(|project| {
+                        let path = if plan.directory.is_empty() { project.clone() } else { format!("{}/{project}", plan.directory) };
+                        if observation.sources.iter().any(|s| s.version.path == path) { Ok(()) }
+                        else { Err(format!("solution project is unavailable or excluded: {path}")) }
+                    })?;
+                    // MSBuild validates project XML. The owner selects the direct
+                    // executable profile; discovery never enables a shell or restore.
+                    Ok(["test", filename, "--no-restore", "--nologo", "--logger", "console;verbosity=normal", "--disable-build-servers"].into_iter().map(str::to_owned).collect())
+                }
             }
         })();
         match discovered { Ok(arguments) => plan.request.arguments = arguments, Err(reason) => plan.not_run = Some(reason) }
         Ok(plan)
     }).collect()
+}
+
+fn dotnet_projects(filename: &str, bytes: &[u8]) -> std::result::Result<Vec<String>, String> {
+    if filename.starts_with('-') {
+        return Err(".NET manifest cannot be a command option".into());
+    }
+    if bytes.len() > 1024 * 1024 {
+        return Err("solution exceeds parser bound".into());
+    }
+    if filename.ends_with(".csproj") {
+        return Ok(vec![filename.into()]);
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| "solution is not UTF-8")?;
+    let mut projects = BTreeSet::new();
+    let mut add = |path: String| -> std::result::Result<(), String> {
+        let path = path.replace('\\', "/");
+        if !path.ends_with(".csproj")
+            || vcp_repository::path::relative(Path::new(&path))
+                .ok()
+                .as_deref()
+                != Some(&path)
+            || path.starts_with('-')
+            || path.contains(['\r', '\n', '\0'])
+            || !projects.insert(path.to_lowercase())
+        {
+            return Err("solution projects must be distinct literal relative .csproj paths".into());
+        }
+        if projects.len() > 256 {
+            return Err("solution project count exceeds parser bound".into());
+        }
+        Ok(())
+    };
+    // Keep original casing for exact source identity lookup on every platform.
+    let mut paths = Vec::new();
+    if filename.ends_with(".sln") {
+        let project = regex::Regex::new(
+            r#"^Project\("\{[0-9A-Fa-f-]{36}\}"\) = "[^"]+", "([^"]+)", "\{[0-9A-Fa-f-]{36}\}"$"#,
+        )
+        .map_err(|_| "invalid solution parser")?;
+        if !text
+            .trim_start_matches('\u{feff}')
+            .trim_start()
+            .starts_with("Microsoft Visual Studio Solution File, Format Version ")
+        {
+            return Err("unsupported .sln header".into());
+        }
+        for line in text.lines().map(str::trim) {
+            if line.starts_with("Project(") {
+                let captures = project
+                    .captures(line)
+                    .ok_or("malformed solution project record")?;
+                // Solution folders have no project file and cannot provide test coverage.
+                if line.starts_with("Project(\"{2150E333-8FDC-42A3-9474-1A3956D46DE8}\")") {
+                    continue;
+                }
+                let path = captures[1].replace('\\', "/");
+                add(path.clone())?;
+                paths.push(path);
+            }
+        }
+    } else if filename.ends_with(".slnx") {
+        use quick_xml::events::Event;
+        let mut reader = quick_xml::Reader::from_str(text.trim_start_matches('\u{feff}'));
+        reader.config_mut().trim_text(true);
+        let mut stack: Vec<Vec<u8>> = Vec::new();
+        let mut root_seen = false;
+        loop {
+            let event = reader.read_event().map_err(|_| "malformed .slnx XML")?;
+            let empty = matches!(&event, Event::Empty(_));
+            match event {
+                Event::Start(element) | Event::Empty(element) => {
+                    let name = element.name().as_ref().to_vec();
+                    let mut attrs = BTreeMap::new();
+                    for attribute in element.attributes() {
+                        let attribute = attribute.map_err(|_| "malformed solution attribute")?;
+                        let value = std::str::from_utf8(attribute.value.as_ref())
+                            .map_err(|_| "solution attribute is not UTF-8")?;
+                        if value.contains('&')
+                            || attrs
+                                .insert(attribute.key.as_ref().to_vec(), value.to_owned())
+                                .is_some()
+                        {
+                            return Err(
+                                "solution entities or duplicate attributes are unsupported".into(),
+                            );
+                        }
+                    }
+                    match name.as_slice() {
+                        b"Solution" if stack.is_empty() && !root_seen && attrs.is_empty() => {
+                            root_seen = true
+                        }
+                        b"Folder"
+                            if stack
+                                .last()
+                                .is_some_and(|n| n == b"Solution" || n == b"Folder")
+                                && attrs.len() == 1
+                                && attrs.contains_key(b"Name".as_slice()) => {}
+                        b"Project"
+                            if stack
+                                .last()
+                                .is_some_and(|n| n == b"Solution" || n == b"Folder")
+                                && empty
+                                && attrs.len() == 1
+                                && attrs.contains_key(b"Path".as_slice()) =>
+                        {
+                            let path = attrs
+                                .remove(b"Path".as_slice())
+                                .ok_or("missing project path")?
+                                .replace('\\', "/");
+                            add(path.clone())?;
+                            paths.push(path);
+                        }
+                        _ => return Err("unsupported .slnx element or attributes".into()),
+                    }
+                    if !empty {
+                        if stack.len() >= 32 {
+                            return Err("solution XML depth exceeds parser bound".into());
+                        }
+                        stack.push(name);
+                    }
+                }
+                Event::End(element) => {
+                    if stack.pop().as_deref() != Some(element.name().as_ref()) {
+                        return Err("malformed solution nesting".into());
+                    }
+                }
+                Event::Text(value) if value.iter().all(u8::is_ascii_whitespace) => {}
+                Event::Decl(_) | Event::Comment(_) => {}
+                Event::Eof => break,
+                _ => return Err("solution DTD, entities and content are unsupported".into()),
+            }
+        }
+        if !root_seen || !stack.is_empty() {
+            return Err("incomplete .slnx document".into());
+        }
+    } else {
+        return Err(".NET check requires .csproj, .sln or .slnx".into());
+    }
+    if paths.is_empty() {
+        return Err("solution contains no qualified projects".into());
+    }
+    Ok(paths)
 }
 
 /// Runner output is an observation from untrusted project execution. It is
@@ -163,6 +317,79 @@ pub fn evaluate(
     };
     let mut passed = BTreeSet::new();
     match plan.runner {
+        Runner::Dotnet => {
+            let Ok(duration_pattern) = regex::Regex::new(
+                r"^(?:< )?[0-9]+(?:\.[0-9]+)? (?:ms|s|m|h)(?: [0-9]+(?:\.[0-9]+)? (?:ms|s|m|h))*\]$",
+            ) else {
+                return fail("invalid .NET duration parser");
+            };
+            let mut total = None;
+            let mut summary_passed = None;
+            let mut successful = false;
+            let mut other_counts = BTreeMap::new();
+            for line in stdout.lines().chain(stderr.lines()) {
+                let row = line.trim();
+                if row == "Test Run Successful." {
+                    if successful {
+                        return fail("duplicate .NET success summary");
+                    }
+                    successful = true;
+                }
+                if row == "Test Run Failed."
+                    || row == "Test Run Aborted."
+                    || ["Failed ", "Skipped "].iter().any(|prefix| {
+                        row.strip_prefix(*prefix)
+                            .and_then(|result| result.rsplit_once(" ["))
+                            .is_some_and(|(name, duration)| {
+                                !name.is_empty() && duration_pattern.is_match(duration)
+                            })
+                    })
+                {
+                    return fail(".NET runner reports failed or skipped tests");
+                }
+                if let Some(result) = row.strip_prefix("Passed ") {
+                    let Some((name, duration)) = result.rsplit_once(" [") else {
+                        return fail("malformed .NET passed test result");
+                    };
+                    if name.is_empty()
+                        || name.len() > 1024
+                        || name.chars().any(char::is_control)
+                        || !duration_pattern.is_match(duration)
+                        || !passed.insert(name.to_owned())
+                    {
+                        return fail("duplicate or malformed .NET passed test result");
+                    }
+                }
+                for (label, target) in [
+                    ("Total tests: ", &mut total),
+                    ("Passed: ", &mut summary_passed),
+                ] {
+                    if let Some(value) = row.strip_prefix(label) {
+                        let Ok(value) = value.parse::<u64>() else {
+                            return fail("invalid .NET summary count");
+                        };
+                        if target.replace(value).is_some() {
+                            return fail("duplicate .NET summary count");
+                        }
+                    }
+                }
+                for label in ["Failed: ", "Skipped: "] {
+                    if let Some(value) = row.strip_prefix(label) {
+                        if value.parse::<u64>().ok() != Some(0)
+                            || other_counts.insert(label, 0).is_some()
+                        {
+                            return fail(".NET summary reports omitted tests or duplicate counts");
+                        }
+                    }
+                }
+            }
+            // VSTest omits zero Failed/Skipped rows on success. Require the
+            // explicit success marker and account for every reported test.
+            let count = passed.len() as u64;
+            if !successful || count == 0 || total != Some(count) || summary_passed != Some(count) {
+                return fail(".NET runner did not prove nonempty complete test execution");
+            }
+        }
         Runner::Node => {
             let mut totals = BTreeMap::new();
             let mut plan_count = None;
@@ -267,6 +494,206 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dotnet_requires_complete_unskipped_exact_test_evidence() {
+        let plan = plan(Runner::Dotnet);
+        let output = "  Passed seeded_acceptance [2 ms]\nTest Run Successful.\nTotal tests: 1\n     Passed: 1\n Total time: 0.6910 Seconds\n";
+        assert_eq!(
+            evaluate(&plan, Some(0), output.as_bytes(), b"", None),
+            CheckOutcome::Passed
+        );
+        for malformed in [
+            String::new(),
+            output.replace("Total tests: 1", "Total tests: 0"),
+            output.replace("Passed: 1", "Passed: 2"),
+            output.replace("Test Run Successful.", "Test Run Failed."),
+            output.replace("seeded_acceptance", "unrelated"),
+            output.replace(" [2 ms]", ""),
+            format!("{output}Skipped: 1\n"),
+            format!("{output}Failed: 1\n"),
+            format!("{output}  Passed seeded_acceptance [1 ms]\n"),
+            format!("{output}Total tests: 1\n"),
+            format!("{output}Test Run Successful.\n"),
+        ] {
+            assert!(
+                matches!(
+                    evaluate(&plan, Some(0), malformed.as_bytes(), b"", None),
+                    CheckOutcome::Failed { .. }
+                ),
+                "{malformed}"
+            );
+        }
+        assert!(matches!(
+            evaluate(&plan, Some(1), output.as_bytes(), b"", None),
+            CheckOutcome::Failed { .. }
+        ));
+        assert!(matches!(
+            evaluate(&plan, Some(0), output.as_bytes(), b"", Some("timeout")),
+            CheckOutcome::Failed { .. }
+        ));
+    }
+    #[test]
+    fn dotnet_application_warning_is_not_a_test_result() {
+        // Retained B T2 stdout dc8ad34b-7269-4ae0-a5d4-c2de2265de9b:
+        // all twelve results passed; HTTPS redirection logged this warning.
+        let names = [
+            "Inventory.Tests.UnitTest1.Test1",
+            "Inventory.Tests.DomainValidationTests.Supplier_requires_valid_email",
+            "Inventory.Tests.DomainValidationTests.StockMovement_requires_nonzero_quantity",
+            "Inventory.Tests.DomainValidationTests.Product_rejects_invalid_sku",
+            "Inventory.Tests.ApiContractTests.Sale_requires_negative_quantity",
+            "Inventory.Tests.ApiContractTests.Duplicate_supplier_name_returns_conflict",
+            "Inventory.Tests.ApiContractTests.Low_stock_report_is_ordered_by_sku",
+            "Inventory.Tests.ApiContractTests.Suppliers_are_ordered_by_name",
+            "Inventory.Tests.ApiContractTests.Product_creation_returns_location",
+            "Inventory.Tests.ApiContractTests.Unknown_supplier_returns_validation_error",
+            "Inventory.Tests.ApiContractTests.Invalid_product_page_returns_bad_request",
+            "Inventory.Tests.ApiContractTests.Products_support_search_and_paging",
+        ];
+        let mut plan = plan(Runner::Dotnet);
+        plan.expected_tests = names.iter().map(|name| (*name).into()).collect();
+        let mut output = String::from(
+            "warn: Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware[3]\r\n      Failed to determine the https port for redirect.\r\n",
+        );
+        for name in names {
+            output.push_str(&format!("  Passed {name} [2 ms]\r\n"));
+        }
+        output.push_str("Test Run Successful.\r\nTotal tests: 12\r\n     Passed: 12\r\n");
+        assert_eq!(
+            evaluate(&plan, Some(0), output.as_bytes(), b"", None),
+            CheckOutcome::Passed
+        );
+        // A conflicting actual result still fails even with success counts.
+        for failure in [
+            "  Failed Inventory.Tests.AdditionalTest [< 1 ms]\r\n",
+            "  Skipped Inventory.Tests.AdditionalTest [1 ms]\r\n",
+            "Test Run Failed.\r\n",
+            "Test Run Aborted.\r\n",
+            "Failed: 1\r\n",
+            "Skipped: 1\r\n",
+        ] {
+            for (stdout, stderr) in [
+                (format!("{output}{failure}"), String::new()),
+                (output.clone(), failure.into()),
+            ] {
+                assert!(matches!(
+                    evaluate(&plan, Some(0), stdout.as_bytes(), stderr.as_bytes(), None),
+                    CheckOutcome::Failed { .. }
+                ));
+            }
+        }
+        let omitted = output.replace(
+            "  Passed Inventory.Tests.UnitTest1.Test1 [2 ms]\r\n",
+            "  Skipped Inventory.Tests.UnitTest1.Test1\r\n",
+        );
+        assert!(matches!(
+            evaluate(&plan, Some(0), omitted.as_bytes(), b"", None),
+            CheckOutcome::Failed { .. }
+        ));
+    }
+    #[test]
+    fn dotnet_solution_discovery_is_literal_bounded_and_fail_closed() {
+        let slnx = br#"<Solution><Folder Name="/tests/"><Project Path="tests/Fixture.csproj" /></Folder></Solution>"#;
+        assert_eq!(
+            dotnet_projects("Fixture.slnx", slnx).unwrap(),
+            vec!["tests/Fixture.csproj"]
+        );
+        let sln = "Microsoft Visual Studio Solution File, Format Version 12.00\nProject(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"Fixture\", \"tests\\Fixture.csproj\", \"{EA42D705-5530-40DB-A5A0-57DBE764972E}\"\nEndProject\n";
+        assert_eq!(
+            dotnet_projects("Fixture.sln", sln.as_bytes()).unwrap(),
+            vec!["tests/Fixture.csproj"]
+        );
+        assert_eq!(
+            dotnet_projects("Fixture.sln", format!("\u{feff}\r\n{sln}").as_bytes()).unwrap(),
+            vec!["tests/Fixture.csproj"]
+        );
+        for xml in ["<Solution/>", "<Solution><Project Path=\"../escape.csproj\" /></Solution>", "<Solution><Project Path=\"C:/escape.csproj\" /></Solution>", "<Solution><Project Path=\"fixture.csproj\" /><Project Path=\"FIXTURE.csproj\" /></Solution>", "<Solution><Project Path=\"&external;\" /></Solution>", "<!DOCTYPE Solution [<!ENTITY external SYSTEM 'file:///secret'>]><Solution/>", "<Solution><Unknown/></Solution>", "<Solution><Project Path=\"test.csproj\"></Project></Solution>", "<Solution><Folder Name=\"/tests/\"><Project Path=\"test.csproj\" /></Solution>"] {
+            assert!(dotnet_projects("Fixture.slnx", xml.as_bytes()).is_err(), "{xml}");
+        }
+        assert!(dotnet_projects(
+            "Fixture.sln",
+            sln.replace("tests\\Fixture.csproj", "..\\Fixture.csproj")
+                .as_bytes()
+        )
+        .is_err());
+        assert!(dotnet_projects(
+            "Fixture.sln",
+            sln.replace("Project(", "Project(garbage").as_bytes()
+        )
+        .is_err());
+    }
+    #[test]
+    #[cfg(windows)]
+    fn dotnet_discovery_requires_observed_projects_and_preserves_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join("tests")).unwrap();
+        std::fs::write(
+            temp.path().join("Fixture.slnx"),
+            "<Solution><Project Path=\"tests/Fixture.csproj\" /></Solution>",
+        )
+        .unwrap();
+        let root = vcp_repository::Root::open(
+            vcp_repository::RootIdentity {
+                workspace: WorkspaceId::parse("workspace").unwrap(),
+                root: RootId::parse("root").unwrap(),
+                repository: "synthetic".into(),
+                worktree: "synthetic".into(),
+                binding: Revision::ZERO,
+            },
+            temp.path(),
+        )
+        .unwrap();
+        let observe = || {
+            let scan = root.discover(&Default::default()).unwrap();
+            Observation {
+                manifest: vcp_repository::observation::Manifest {
+                    version: 1,
+                    identity: root.identity.clone(),
+                    git: None,
+                    files: scan.sources.iter().map(|s| s.version.clone()).collect(),
+                    ignore_dependencies: scan.ignore_dependencies,
+                    exclusions: scan.exclusions,
+                    bounded_scan_complete: scan.complete,
+                },
+                digest: String::new(),
+                sources: scan.sources,
+                git: None,
+            }
+        };
+        let requirement = Requirement {
+            manifest: "Fixture.slnx".into(),
+            runner: Runner::Dotnet,
+            profile: "dotnet".into(),
+            timeout_ms: Some(120000),
+            expected_tests: vec!["Fixture.Checks.Acceptance".into()],
+            rationale: "qualified solution acceptance".into(),
+        };
+        let observation = observe();
+        assert!(discover(&observation, &[requirement.clone()]).unwrap()[0]
+            .not_run
+            .is_some());
+        std::fs::write(
+            temp.path().join("tests/Fixture.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+        )
+        .unwrap();
+        let observation = observe();
+        let plans = discover(&observation, &[requirement]).unwrap();
+        assert!(plans[0].not_run.is_none());
+        assert_eq!(plans[0].directory, "");
+        assert_eq!(
+            plans[0].request.arguments,
+            [
+                "test",
+                "Fixture.slnx",
+                "--no-restore",
+                "--nologo",
+                "--logger",
+                "console;verbosity=normal",
+                "--disable-build-servers"
+            ]
+        );
+    }
     fn plan(runner: Runner) -> Plan {
         Plan {
             specification: "project#test".into(),

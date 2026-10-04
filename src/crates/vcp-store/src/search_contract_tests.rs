@@ -9,9 +9,9 @@ use vcp_domain::{
     *,
 };
 use vcp_store::{contract::*, Error, Result};
-#[path = "common/mod.rs"]
+#[path = "../tests/common/mod.rs"]
 mod common;
-#[path = "../src/search_contract.rs"]
+#[path = "search_contract.rs"]
 #[allow(dead_code)]
 mod search_contract;
 
@@ -124,10 +124,18 @@ fn publication_requires_atomic_pointer_and_current_epochs_and_predecessor() {
     let state = initial();
     let value = manifest(&state);
     let transaction = tx(&state, &value);
-    search_contract::publication(&state, &after(&state, &transaction), &transaction).unwrap();
+    search_contract::publication(
+        state.record_view(),
+        &after(&state, &transaction),
+        &transaction,
+    )
+    .unwrap();
     let mut missing = transaction.clone();
     missing.mutations.pop();
-    assert!(search_contract::publication(&state, &after(&state, &missing), &missing).is_err());
+    assert!(
+        search_contract::publication(state.record_view(), &after(&state, &missing), &missing)
+            .is_err()
+    );
     for bad in [
         Generation {
             authority: AuthorityRevision::new(1),
@@ -147,10 +155,12 @@ fn publication_requires_atomic_pointer_and_current_epochs_and_predecessor() {
         },
     ] {
         let transaction = tx(&state, &bad);
-        assert!(
-            search_contract::publication(&state, &after(&state, &transaction), &transaction)
-                .is_err()
-        );
+        assert!(search_contract::publication(
+            state.record_view(),
+            &after(&state, &transaction),
+            &transaction
+        )
+        .is_err());
     }
 }
 
@@ -184,12 +194,18 @@ fn exact_covered_intents_require_same_transaction_acknowledgements() {
     .unwrap();
     state.records.insert(intent_row.key(), intent_row);
     let skipped = tx(&state, &value);
-    assert!(search_contract::publication(&state, &after(&state, &skipped), &skipped).is_err());
+    assert!(
+        search_contract::publication(state.record_view(), &after(&state, &skipped), &skipped)
+            .is_err()
+    );
     value.covered_intents = vec![intent.id.clone()];
     let mut transaction = tx(&state, &value);
-    assert!(
-        search_contract::publication(&state, &after(&state, &transaction), &transaction).is_err()
-    );
+    assert!(search_contract::publication(
+        state.record_view(),
+        &after(&state, &transaction),
+        &transaction
+    )
+    .is_err());
     let mut ready = intent.clone();
     ready.status = IndexStatus::Ready;
     ready.revision = Revision::new(1);
@@ -205,10 +221,17 @@ fn exact_covered_intents_require_same_transaction_acknowledgements() {
         expected: Some(Revision::ZERO),
         record,
     });
-    search_contract::publication(&state, &after(&state, &transaction), &transaction).unwrap();
+    search_contract::publication(
+        state.record_view(),
+        &after(&state, &transaction),
+        &transaction,
+    )
+    .unwrap();
     let mut alone = transaction.clone();
     alone.mutations.drain(..2);
-    assert!(search_contract::publication(&state, &after(&state, &alone), &alone).is_err());
+    assert!(
+        search_contract::publication(state.record_view(), &after(&state, &alone), &alone).is_err()
+    );
     let mut deficient = value.clone();
     deficient.vector_checksum = None;
     assert!(deficient.validate().is_err());
@@ -217,11 +240,19 @@ fn exact_covered_intents_require_same_transaction_acknowledgements() {
         record.value = serde_json::to_value(&deficient).unwrap();
     }
     assert!(state.prepare(&deficient_tx).is_err());
-    assert!(
-        search_contract::publication(&state, &after(&state, &deficient_tx), &deficient_tx).is_err()
-    );
+    assert!(search_contract::publication(
+        state.record_view(),
+        &after(&state, &deficient_tx),
+        &deficient_tx
+    )
+    .is_err());
     let mut inflated = value;
     inflated.memory_seq = MemorySeq::new(100);
     let inflated = tx(&state, &inflated);
-    assert!(search_contract::publication(&state, &after(&state, &inflated), &inflated).is_err());
+    assert!(search_contract::publication(
+        state.record_view(),
+        &after(&state, &inflated),
+        &inflated
+    )
+    .is_err());
 }

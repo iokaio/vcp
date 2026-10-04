@@ -213,25 +213,39 @@ fn command_result(format: Format, data: Value) -> Result<u8, String> {
     command_outcome(format, data, 0)
 }
 fn command_outcome(format: Format, data: Value, exit_code: u8) -> Result<u8, String> {
-    Jsonl::new(DisplayOutput {
-        jsonl: format == Format::Jsonl,
-        frame: Vec::new(),
-        frame_limit: if data["kind"] == "inspection_bundle" {
-            crate::inspection_bundle::MAX_BYTES + 1024
-        } else {
-            1024 * 1024
+    command_outcome_scoped(format, data, exit_code, None)
+}
+fn command_outcome_scoped(
+    format: Format,
+    data: Value,
+    exit_code: u8,
+    scope: Option<&vcp_domain::workspace::Scope>,
+) -> Result<u8, String> {
+    emit_command_outcome(
+        DisplayOutput {
+            jsonl: format == Format::Jsonl,
+            frame: Vec::new(),
+            frame_limit: if data["kind"] == "inspection_bundle" {
+                crate::inspection_bundle::MAX_BYTES + 1024
+            } else {
+                1024 * 1024
+            },
         },
-    })
-    .emit(
-        &CommandId::new(),
-        None,
-        Payload::CommandResult {
-            exit_code,
-            data: &data,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+        &data,
+        exit_code,
+        scope,
+    )?;
     Ok(exit_code)
+}
+pub(crate) fn emit_command_outcome(
+    output: impl Write,
+    data: &Value,
+    exit_code: u8,
+    scope: Option<&vcp_domain::workspace::Scope>,
+) -> Result<(), String> {
+    Jsonl::new(output)
+        .emit(&CommandId::new(), scope, Payload::CommandResult { exit_code, data })
+        .map_err(|e| e.to_string())
 }
 
 async fn discover_selection(cli: ValidatedCli, value: Value) -> Result<u8, String> {
@@ -503,6 +517,14 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
             "legacy workspace binding is unverified; run vcp rebind {} to reconcile the current root", entry.config.workspace
         ))?;
         crate::binding::verify(&root, identity)?;
+    }
+    if let ValidatedCommand::Tasks(Tasks::ReconcileCost { task }) = &cli.command {
+        let entry = entry.as_ref().ok_or("workspace has no durable session")?;
+        let (exit_code, result) =
+            crate::provider_reconciliation::execute(entry, task, &workspace).await?;
+        let scope = serde_json::from_value(result["scope"].clone())
+            .map_err(|_| "cost reconciliation returned invalid scope")?;
+        return command_outcome_scoped(cli.format, result, exit_code, Some(&scope));
     }
     if matches!(
         cli.command,

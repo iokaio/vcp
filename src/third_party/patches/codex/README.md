@@ -223,6 +223,11 @@ already include these changes; normal builds never apply patches.
     retry admission hooks, allowing shared provider pacing without holding a
     canonical store lock. Default hosts retain their synchronous behavior.
 
+50. `0050-failed-generation-identity.patch` passes the allowlisted failed-response
+    generation identity to the host for authoritative charge reconciliation.
+    Authentication headers stay inside the transport; other hosts retain their
+    existing behavior.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance
@@ -237,3 +242,5 @@ Local setup preparation maintains the final
 the VCP CLI Cargo.lock package version. Its destination version, selection
 digest and resulting lock inventory are refreshed together before each
 new local candidate; original upstream acquisition evidence is retained.
+
+`0051-dotnet-verification-lock.patch` restores the P2-06 native .NET verification dependency from VCP commit 2f77ebb4; it adds the already-pinned workspace quick-xml 0.41.0 dependency to vcp-tools without changing upstream versions.

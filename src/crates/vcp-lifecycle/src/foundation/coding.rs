@@ -2,6 +2,16 @@
 //! Retained tool wrappers; canonical assembly owns the actual provider body.
 pub use super::canonical_tools::CanonicalTools;
 use super::*;
+
+/// Bounded working history for installed CLI tasks and their isolated children.
+/// This controls projections, never original artifact retention or authority.
+pub fn continuity_defaults() -> vcp_context::compaction::Config {
+    vcp_context::compaction::Config {
+        keep_recent_pairs: 6,
+        preview_bytes: 512,
+        minimum_gain_bytes: 2048,
+    }
+}
 use codex_extension_api::*;
 use serde_json::{json, Value};
 
@@ -65,7 +75,7 @@ pub fn schemas() -> Value {
         .push(vcp_tools::process::definition());
     schemas.as_array_mut().unwrap().push(json!({
         "type":"function","name":"vcp_verify","strict":true,
-        "description":"Automatically run the owner's configured acceptance checks against current sources; no separate vcp_exec call is needed to run those checks. For unchanged analysis, citations must contain at least one relevant complete same-task artifact ID, such as the top-level evidence UUID from a successful vcp_read, vcp_list or vcp_search result. Use artifact IDs, not paths, effect IDs or check selectors such as package.json#test. Resolve verification.outstanding_issues within current authority and rerun when applicable checks can run. An isolated child without executable checks must report them as not run and return its result for current-parent verification; do not retry unavailable checks through another tool. complete:false means this tool records evidence without finalizing the task; the host decides completion.",
+        "description":"Call this tool after your final edit and before your final response. It runs the owner's configured acceptance checks against current sources and records the observed evidence required for completion; ordinary vcp_exec test output alone does not register that evidence. No separate vcp_exec call is needed to run these checks. For unchanged analysis, citations must contain at least one relevant complete same-task artifact ID, such as the top-level evidence UUID from a successful vcp_read, vcp_list or vcp_search result. Use artifact IDs, not paths, effect IDs or check selectors such as package.json#test. Resolve verification.outstanding_issues within current authority and rerun when applicable checks can run. An isolated child without executable checks must report them as not run and return its result for current-parent verification; do not retry unavailable checks through another tool. complete:false means this tool records evidence without finalizing the task; the host decides completion.",
         "parameters":{"type":"object","properties":{"citations":{"type":"array","items":{"type":"string"}}},"required":["citations"],"additionalProperties":false}
     }));
     schemas.as_array_mut().unwrap().push(json!({

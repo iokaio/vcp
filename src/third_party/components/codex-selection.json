@@ -229,8 +229,16 @@
       "sha256": "63cc435963a11adc652eb9e977d25d9b92be2e3c9aac5234c54835fae6844bc8"
     },
     {
+      "path": "src/third_party/patches/codex/0050-failed-generation-identity.patch",
+      "sha256": "4942803b143db2fcf0f5c706170d44ed66ffe175badb1fb0337a8643719f20be"
+    },
+    {
+      "path": "src/third_party/patches/codex/0051-dotnet-verification-lock.patch",
+      "sha256": "17c2e32650c6c1ff83317f4d6710ab981826e5fab6a518f7ac72855c6f247b23"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
-      "sha256": "f69b95992ed382854b71244dbd326eae025645976764be7d671d0e044418d909"
+      "sha256": "a8c7990349d62a5ff2b3093836433658935da9c9cbc2cb3f2f3a3c22a097b20f"
     }
   ],
   "licenses": [

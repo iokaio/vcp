@@ -95,14 +95,18 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
     }
     Ok(())
 }
-fn generation(state: &State, workspace: &WorkspaceId, id: &GenerationId) -> Result<Generation> {
+fn generation(
+    state: RecordView<'_>,
+    workspace: &WorkspaceId,
+    id: &GenerationId,
+) -> Result<Generation> {
     let record = state.record(Collection::Generation, id.as_str(), workspace)?;
     if kind(record)? != Some(GENERATION) {
         return Err(Error::Corruption("search generation reference type"));
     }
     record.decode()
 }
-fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<Active>> {
+fn active(state: RecordView<'_>, workspace: &WorkspaceId) -> Result<Option<Active>> {
     state
         .records
         .get(&key(Collection::Generation, workspace.as_str()))
@@ -114,7 +118,10 @@ fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<Active>> {
         })
         .transpose()
 }
-fn intents(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
+fn intents(
+    state: RecordView<'_>,
+    manifest: &Generation,
+) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
     let mut values = BTreeMap::new();
     for record in state.records.values().filter(|record| {
         record.workspace == manifest.scope.workspace
@@ -128,7 +135,7 @@ fn intents(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntentI
     }
     Ok(values)
 }
-fn covered_sequence(state: &State, manifest: &Generation) -> Result<MemorySeq> {
+fn covered_sequence(state: RecordView<'_>, manifest: &Generation) -> Result<MemorySeq> {
     let mut sequence = MemorySeq::ZERO;
     for row in state.records.values().filter(|row| {
         row.workspace == manifest.scope.workspace
@@ -146,9 +153,7 @@ fn covered_sequence(state: &State, manifest: &Generation) -> Result<MemorySeq> {
                 let value: ProposalResult = row.decode()?;
                 (value.transaction, value.memory_seq)
             };
-        let watermark = state
-            .transactions
-            .get(&transaction)
+        let watermark = state.transaction(&transaction)
             .ok_or(Error::Corruption("memory result receipt missing"))?
             .watermark;
         if watermark <= manifest.canonical_watermark {
@@ -157,7 +162,10 @@ fn covered_sequence(state: &State, manifest: &Generation) -> Result<MemorySeq> {
     }
     Ok(sequence)
 }
-fn coverage(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
+fn coverage(
+    state: RecordView<'_>,
+    manifest: &Generation,
+) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
     if !manifest.empty_complete
         && (manifest.vector_checksum.is_none() || !manifest.vector_deficits.is_empty())
     {
@@ -207,7 +215,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
                         "search snapshot exceeds publication boundary",
                     ));
                 }
-                if coverage(state, &value)?
+                if coverage(state.record_view(), &value)?
                     .values()
                     .any(|intent| intent.status != IndexStatus::Ready)
                 {
@@ -216,7 +224,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
                     ));
                 }
                 if let Some(previous) = &value.previous {
-                    let old = generation(state, &value.scope.workspace, previous)?;
+                    let old = generation(state.record_view(), &value.scope.workspace, previous)?;
                     if old.canonical_watermark > value.canonical_watermark
                         || old.transaction == value.transaction
                     {
@@ -227,7 +235,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
             Some(ACTIVE) => {
                 shape(row)?;
                 let value: Active = row.decode()?;
-                let manifest = generation(state, &value.workspace, &value.generation)?;
+                let manifest = generation(state.record_view(), &value.workspace, &value.generation)?;
                 if manifest.transaction != value.transaction {
                     return Err(Error::Corruption(
                         "search active publication receipt mismatch",
@@ -241,7 +249,11 @@ pub(super) fn validate(state: &State) -> Result<()> {
 }
 /// Call after mutations/receipt are assembled in State::prepare, before return.
 /// Replay follows the same hook, preventing generic Put from bypassing publish.
-pub(super) fn publication(before: &State, after: &State, transaction: &Transaction) -> Result<()> {
+pub(super) fn publication(
+    before: RecordView<'_>,
+    after: &State,
+    transaction: &Transaction,
+) -> Result<()> {
     let mut manifests = Vec::new();
     let mut pointers = Vec::new();
     let mut ready = BTreeSet::new();

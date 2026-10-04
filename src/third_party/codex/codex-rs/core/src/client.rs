@@ -1787,6 +1787,23 @@ impl ModelClientSession {
                 }
             }
 
+            if let Err(ApiError::Transport(codex_client::TransportError::Http {
+                headers: Some(headers),
+                ..
+            })) = &stream_result
+            {
+                if let (Some(permit), Some(identity)) = (
+                    host_permit.as_mut(),
+                    headers
+                        .get("x-generation-id")
+                        .and_then(|value| value.to_str().ok()),
+                ) {
+                    permit
+                        .response_generation_identity(identity)
+                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
+                }
+            }
+
             if let (Err(error), Some(permit)) = (&stream_result, host_permit.as_mut()) {
                 use codex_extension_api::HostModelFailure;
                 let (failure, retry_after_ms) = match error {

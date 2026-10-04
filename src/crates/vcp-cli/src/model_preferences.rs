@@ -34,6 +34,23 @@ pub struct Preferences {
     pub version: u32,
     pub set: ModelSet,
     pub budget_usd: String,
+    /// Explicit request rotation opt-in. Empty preserves legacy ordered fallback.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub choice_sets: BTreeMap<String, Vec<ChoicePreferences>>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChoicePreferences {
+    pub models: Vec<String>,
+    /// Optional owner narrowing. Omitted model entries approve compatible
+    /// endpoints captured at task creation; task retention is always exact.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub endpoints: BTreeMap<String, Vec<String>>,
+    /// USD ceiling for the same 8k-input/1k-output reference request. Normal
+    /// choices default to twice the first member's cheapest eligible quote.
+    /// A third reserve choice always requires an explicitly selected ceiling.
+    #[serde(default)]
+    pub max_reference_request_cost_usd: Option<String>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -41,6 +58,7 @@ impl Default for Preferences {
             version: 1,
             set: balanced(),
             budget_usd: "10".into(),
+            choice_sets: BTreeMap::new(),
         }
     }
 }
@@ -230,6 +248,56 @@ impl Preferences {
                 }
             }
         }
+        if self.choice_sets.len() > 8 {
+            return Err("at most eight rotation roles are supported".into());
+        }
+        for (name, sets) in &self.choice_sets {
+            role(name)?;
+            if !self.set.roles.contains_key(name) || sets.is_empty() || sets.len() > 3 {
+                return Err(
+                    "rotation requires one to three consecutive choices for an existing role"
+                        .into(),
+                );
+            }
+            let mut seen = BTreeSet::new();
+            for (index, choice) in sets.iter().enumerate() {
+                let mut legacy = self.clone();
+                legacy.choice_sets.clear();
+                legacy.set.roles.insert(name.clone(), choice.models.clone());
+                legacy.validate()?;
+                if choice.models.iter().any(|model| !seen.insert(model)) {
+                    return Err("a model may occur only once across a role's choices".into());
+                }
+                if index == 2 && choice.max_reference_request_cost_usd.is_none() {
+                    return Err(
+                        "third choice requires an explicit reference-request price ceiling".into(),
+                    );
+                }
+                if let Some(ceiling) = &choice.max_reference_request_cost_usd {
+                    crate::args::parse_usd(ceiling)?;
+                }
+                for (model, endpoints) in &choice.endpoints {
+                    if !choice.models.contains(model)
+                        || endpoints.is_empty()
+                        || endpoints.len() > 32
+                        || endpoints.iter().collect::<BTreeSet<_>>().len() != endpoints.len()
+                    {
+                        return Err(
+                            "endpoint narrowing requires distinct endpoints of selected models"
+                                .into(),
+                        );
+                    }
+                    for endpoint in endpoints {
+                        ModelEndpoint {
+                            model: model.clone(),
+                            endpoint: endpoint.clone(),
+                        }
+                        .validate()
+                        .map_err(|error| error.to_string())?;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -402,11 +470,21 @@ pub enum Command {
         #[arg(long)]
         project_type: Option<String>,
     },
-    /// Inspect every role and its ordered eligible alternatives.
-    Show { set: String },
+    /// Inspect a suggested set, or current account/project choices when omitted.
+    Show {
+        set: Option<String>,
+        /// Fetch exact endpoint prices/context metadata; no inference is sent.
+        #[arg(long)]
+        refresh: bool,
+    },
     /// Select account defaults or a project override; existing tasks retain their set.
     Select {
         set: String,
+        /// Opt into rotation at this priority (1, 2 or 3); omit for legacy fallback.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+        choice: Option<u8>,
+        #[arg(long, requires = "choice")]
+        max_reference_request_cost_usd: Option<String>,
         #[arg(long)]
         project: bool,
     },
@@ -416,6 +494,14 @@ pub enum Command {
         role: String,
         #[arg(long, required = true)]
         model: Vec<String>,
+        /// Rotate these models at this priority; later choices require earlier ones.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=3))]
+        choice: Option<u8>,
+        #[arg(long, requires = "choice")]
+        max_reference_request_cost_usd: Option<String>,
+        /// Restrict an approved model to exact endpoint tags: model=id/region.
+        #[arg(long, requires = "choice")]
+        endpoint: Vec<String>,
         #[arg(long)]
         project: bool,
     },
@@ -431,7 +517,7 @@ pub async fn execute(command: Option<&Command>, workspace: &Path) -> Result<Valu
     let selected = || effective(&root, workspace);
     match command {
         None => Ok(
-            json!({"account":read(&root)?.unwrap_or_default(),"effective":selected()?,"precedence":["retained task selection","explicit --config","project override","account defaults"],"fallback":"eligible alternatives in the selected set and remaining budget only; outside models require a new owner selection"}),
+            json!({"account":read(&root)?.unwrap_or_default(),"effective":selected()?,"precedence":["retained task selection","explicit --config","project override","account defaults"],"rotation":"when explicitly selected: rotate inside the highest ready choice, then fail over to second/third choices; outside models remain unauthorized","reference_request":{"input_tokens":8000,"output_tokens":1024,"normal_suggestion_multiplier":2},"fallback":"legacy selections preserve ordered eligible alternatives"}),
         ),
         Some(Command::List {
             maker,
@@ -439,13 +525,28 @@ pub async fn execute(command: Option<&Command>, workspace: &Path) -> Result<Valu
         }) => Ok(
             json!({"sets":builtin_sets().into_iter().filter(|set| maker.as_ref().is_none_or(|m| &set.maker==m) && project_type.as_ref().is_none_or(|p| &set.project_type==p)).collect::<Vec<_>>(),"qualification":"suggestions only; current provider compatibility and metadata determine eligibility"}),
         ),
-        Some(Command::Show { set }) => serde_json::to_value(
-            builtin_sets()
-                .into_iter()
-                .find(|s| &s.id == set)
-                .ok_or("unknown model set")?,
-        )
-        .map_err(|_| "model set serialization failed".into()),
+        Some(Command::Show { set, refresh }) => {
+            let preferences = if let Some(set) = set {
+                Preferences {
+                    set: builtin_sets()
+                        .into_iter()
+                        .find(|candidate| &candidate.id == set)
+                        .ok_or("unknown model set")?,
+                    ..Preferences::default()
+                }
+            } else {
+                selected()?
+            };
+            if *refresh {
+                inspect_endpoints(&preferences).await
+            } else if set.is_some() {
+                serde_json::to_value(preferences.set)
+                    .map_err(|_| "model set serialization failed".into())
+            } else {
+                serde_json::to_value(preferences)
+                    .map_err(|_| "model set serialization failed".into())
+            }
+        }
         Some(command) => {
             let project = match command {
                 Command::Select { project, .. }
@@ -459,14 +560,64 @@ pub async fn execute(command: Option<&Command>, workspace: &Path) -> Result<Valu
                 read(&root)?.unwrap_or_default()
             };
             match command {
-                Command::Select { set, .. } => {
-                    preferences.set = builtin_sets()
+                Command::Select {
+                    set,
+                    choice,
+                    max_reference_request_cost_usd,
+                    ..
+                } => {
+                    let selected = builtin_sets()
                         .into_iter()
                         .find(|s| &s.id == set)
-                        .ok_or("unknown model set")?
+                        .ok_or("unknown model set")?;
+                    if let Some(choice) = choice {
+                        for (role, models) in selected.roles {
+                            set_choice(
+                                &mut preferences,
+                                &role,
+                                *choice,
+                                models,
+                                max_reference_request_cost_usd.clone(),
+                            )?;
+                        }
+                    } else {
+                        preferences.set = selected;
+                        preferences.choice_sets.clear();
+                    }
                 }
-                Command::Customize { role, model, .. } => {
-                    preferences.set.roles.insert(role.clone(), model.clone());
+                Command::Customize {
+                    role,
+                    model,
+                    choice,
+                    max_reference_request_cost_usd,
+                    endpoint,
+                    ..
+                } => {
+                    if let Some(choice) = choice {
+                        set_choice(
+                            &mut preferences,
+                            role,
+                            *choice,
+                            model.clone(),
+                            max_reference_request_cost_usd.clone(),
+                        )?;
+                        for value in endpoint {
+                            let (model, tag) = value
+                                .split_once('=')
+                                .ok_or("endpoint syntax requires model=exact-endpoint-tag")?;
+                            preferences
+                                .choice_sets
+                                .get_mut(role)
+                                .ok_or("rotation role unavailable")?[usize::from(*choice - 1)]
+                            .endpoints
+                            .entry(model.into())
+                            .or_default()
+                            .push(tag.into());
+                        }
+                    } else {
+                        preferences.set.roles.insert(role.clone(), model.clone());
+                        preferences.choice_sets.remove(role);
+                    }
                     preferences.set.rationale = "Customized owner selections; inspect each role's ordered models. No comparative quality result is implied.".into();
                 }
                 Command::Budget { usd, .. } => preferences.budget_usd = usd.clone(),
@@ -484,6 +635,85 @@ pub async fn execute(command: Option<&Command>, workspace: &Path) -> Result<Valu
     }
 }
 
+async fn inspect_endpoints(preferences: &Preferences) -> Result<Value, String> {
+    preferences.validate()?;
+    let key = crate::credential::require(false)?;
+    let mut endpoints = Vec::new();
+    let mut unavailable = Vec::new();
+    for model in selected_models(preferences) {
+        match crate::provider_setup::connection::refresh_all(model, key.expose()).await {
+            Ok(prepared) => {
+                for value in prepared {
+                    let reference = vcp_models::rotation::reference_cost(
+                        &value.snapshot,
+                        REFERENCE_INPUT,
+                        REFERENCE_OUTPUT,
+                    )?;
+                    let reservation = vcp_lifecycle::foundation::conformance::reservation(
+                        &value.snapshot,
+                        REFERENCE_OUTPUT,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    endpoints.push(json!({"model":model,"endpoint":value.snapshot.compatibility.endpoint,"tariffs":value.snapshot.price,"max_input_tokens":value.snapshot.max_input,"max_output_tokens":value.snapshot.max_output,"reference_request_cost":reference,"conservative_full_input_reservation_micros":reservation,"observed_at":value.snapshot.observed_at}));
+                }
+            }
+            Err(_) => unavailable.push(model),
+        }
+    }
+    Ok(
+        json!({"preferences":preferences,"endpoints":endpoints,"unavailable_models":unavailable,"reference_request":{"input_tokens":REFERENCE_INPUT,"output_tokens":REFERENCE_OUTPUT,"normal_suggestion_multiplier":2},"qualification":"endpoint metadata only; no comparative quality or independent-capacity claim","model_calls":0}),
+    )
+}
+
+pub(crate) fn set_choice(
+    preferences: &mut Preferences,
+    name: &str,
+    choice: u8,
+    models: Vec<String>,
+    ceiling: Option<String>,
+) -> Result<(), String> {
+    role(name)?;
+    if !(1..=3).contains(&choice) {
+        return Err("choice must be 1, 2 or 3".into());
+    }
+    let index = usize::from(choice - 1);
+    let sets = preferences.choice_sets.entry(name.into()).or_default();
+    if index > sets.len() {
+        return Err("select earlier choices first".into());
+    }
+    let value = ChoicePreferences {
+        models: models.clone(),
+        endpoints: BTreeMap::new(),
+        max_reference_request_cost_usd: ceiling,
+    };
+    if index == sets.len() {
+        sets.push(value);
+    } else {
+        sets[index] = value;
+    }
+    preferences.set.roles.entry(name.into()).or_insert(models);
+    preferences.validate()
+}
+
+fn selected_models(preferences: &Preferences) -> BTreeSet<&String> {
+    preferences
+        .set
+        .roles
+        .iter()
+        .flat_map(|(role, models)| {
+            preferences
+                .choice_sets
+                .get(role)
+                .map(|sets| {
+                    sets.iter()
+                        .flat_map(|set| set.models.iter())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| models.iter().collect())
+        })
+        .collect()
+}
+
 pub fn routing_configuration(
     preferences: &Preferences,
     prepared: &[(Snapshot, Vec<u8>)],
@@ -498,13 +728,7 @@ pub fn routing_configuration(
     let mut raw_catalogs = BTreeMap::new();
     for (snapshot, raw) in prepared {
         let model = &snapshot.compatibility.model;
-        if !preferences
-            .set
-            .roles
-            .values()
-            .flatten()
-            .any(|selected| selected == model)
-        {
+        if !selected_models(preferences).contains(model) {
             return Err("prepared provider is outside selected model set".into());
         }
         let identity = ModelEndpoint {
@@ -557,22 +781,43 @@ pub fn routing_configuration(
         micros: Micros::ZERO,
     };
     let estimates=entries.iter().map(|entry| CostEstimate{candidate:entry.identity.clone(),first_attempt:Usage{input:Units::new(1),output:Units::new(1),requests:Units::new(1),..Usage::default()},retries:Usage::default(),handoff:Usage::default(),support:Some(zero.clone()),children:Some(zero.clone()),verification:Some(zero.clone()),assumptions:vec!["Per-request estimate is filled from actual assembled input and output ceiling; later calls require independent ledger admission".into()],evidence_refs:vec!["owner-model-set/1".into()]}).collect();
+    let rotation = capture_rotation(preferences, &entries)?;
     let owner_assignments = preferences
         .set
         .roles
         .iter()
-        .map(|(name, models)| {
+        .map(|(name, legacy)| {
+            let request_role = role(name)?;
+            let models = preferences
+                .choice_sets
+                .get(name)
+                .map(|sets| {
+                    sets.iter()
+                        .flat_map(|set| set.models.iter())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| legacy.iter().collect());
             Ok(vcp_lifecycle::foundation::routing::OwnerAssignment {
-                role: role(name)?,
-                candidates: models
-                    .iter()
-                    .flat_map(|model| {
-                        entries
-                            .iter()
-                            .filter(move |e| &e.identity.model == model)
-                            .map(|e| e.identity.clone())
-                    })
-                    .collect(),
+                role: request_role,
+                candidates: if let Some(sets) = rotation
+                    .as_ref()
+                    .map(|rotation| rotation.sets(request_role))
+                    .filter(|sets| !sets.is_empty())
+                {
+                    sets.iter()
+                        .flat_map(|set| set.members.iter().cloned())
+                        .collect()
+                } else {
+                    models
+                        .into_iter()
+                        .flat_map(|model| {
+                            entries
+                                .iter()
+                                .filter(move |entry| &entry.identity.model == model)
+                                .map(|entry| entry.identity.clone())
+                        })
+                        .collect()
+                },
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -584,6 +829,7 @@ pub fn routing_configuration(
     }
     let config = vcp_lifecycle::foundation::routing::Configuration {
         owner_assignments,
+        rotation,
         escalation: None,
         catalog: CatalogRevision::create(None, observed, None, entries)
             .map_err(|e| e.to_string())?,
@@ -596,28 +842,138 @@ pub fn routing_configuration(
     Ok(config)
 }
 
+const REFERENCE_INPUT: Units = Units::new(8000);
+const REFERENCE_OUTPUT: Units = Units::new(1024);
+
+fn capture_rotation(
+    preferences: &Preferences,
+    entries: &[Candidate],
+) -> Result<Option<vcp_models::rotation::Policy>, String> {
+    use vcp_models::rotation::{reference_cost, ChoiceSet, Policy as RotationPolicy, RoleSets};
+    if preferences.choice_sets.is_empty() {
+        return Ok(None);
+    }
+    let mut roles = Vec::new();
+    for (name, choices) in &preferences.choice_sets {
+        let mut sets = Vec::new();
+        for (index, choice) in choices.iter().enumerate() {
+            let allowed = |entry: &Candidate| {
+                choice
+                    .endpoints
+                    .get(&entry.identity.model)
+                    .is_none_or(|endpoints| endpoints.contains(&entry.identity.endpoint))
+            };
+            let explicit_ceiling = choice
+                .max_reference_request_cost_usd
+                .as_ref()
+                .map(|value| crate::args::parse_usd(value))
+                .transpose()?;
+            let priced = entries
+                .iter()
+                .filter(|entry| choice.models.contains(&entry.identity.model) && allowed(entry))
+                .map(|entry| {
+                    let snapshot = entry.snapshot.as_ref().ok_or("rotation snapshot missing")?;
+                    Ok((
+                        entry,
+                        reference_cost(snapshot, REFERENCE_INPUT, REFERENCE_OUTPUT)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let reference = choice.models.iter().find_map(|model| {
+                priced
+                    .iter()
+                    .filter(|(entry, cost)| {
+                        &entry.identity.model == model
+                            && explicit_ceiling.is_none_or(|ceiling| cost.micros <= ceiling)
+                    })
+                    .min_by_key(|(_, cost)| cost.micros)
+                    .map(|(_, cost)| cost.clone())
+            });
+            let Some(reference) = reference else {
+                continue;
+            };
+            let ceiling = match explicit_ceiling {
+                Some(value) => value,
+                None => Micros::new(
+                    reference
+                        .micros
+                        .get()
+                        .checked_mul(2)
+                        .ok_or("reference cost overflow")?,
+                ),
+            };
+            let mut members = Vec::new();
+            for model in &choice.models {
+                for (entry, cost) in priced
+                    .iter()
+                    .filter(|(entry, _)| &entry.identity.model == model)
+                {
+                    if cost.micros <= ceiling {
+                        members.push(entry.identity.clone());
+                    }
+                }
+            }
+            if members.is_empty() {
+                return Err("choice has no endpoint within selected price ceiling".into());
+            }
+            sets.push(ChoiceSet {
+                id: format!("{name}-choice-{}", index + 1),
+                label: format!("{} choice", ["First", "Second", "Third"][index]),
+                members,
+                max_reference_request_cost: Money {
+                    currency: reference.currency.clone(),
+                    micros: ceiling,
+                },
+                reference_request_cost: reference,
+            });
+        }
+        roles.push(RoleSets {
+            role: role(name)?,
+            sets,
+        });
+    }
+    let policy = RotationPolicy {
+        roles,
+        reference_input_tokens: REFERENCE_INPUT,
+        reference_output_tokens: REFERENCE_OUTPUT,
+    };
+    policy.validate().map_err(|error| error.to_string())?;
+    Ok(Some(policy))
+}
+
 pub async fn refresh_set(
     preferences: &Preferences,
     key: &str,
 ) -> Result<Vec<(Snapshot, Vec<u8>)>, String> {
     preferences.validate()?;
     let mut prepared = vec![];
-    for model in preferences
-        .set
-        .roles
-        .values()
-        .flatten()
-        .collect::<BTreeSet<_>>()
-    {
+    for model in selected_models(preferences) {
         // A unavailable member cannot authorize a model outside the set. Keep
         // current eligible alternatives; every role must retain at least one.
-        match crate::provider_setup::connection::refresh(model,key).await {
-            Ok(value)=>prepared.push((value.snapshot,value.catalog)),
+        let rotation_member = preferences
+            .choice_sets
+            .values()
+            .flatten()
+            .any(|set| set.models.contains(model));
+        let result = if rotation_member {
+            crate::provider_setup::connection::refresh_all(model, key).await
+        } else {
+            crate::provider_setup::connection::refresh(model, key)
+                .await
+                .map(|value| vec![value])
+        };
+        match result {
+            Ok(values)=>prepared.extend(values.into_iter().map(|value| (value.snapshot,value.catalog))),
             Err(_)=>eprintln!("Model {model} is currently ineligible or metadata is unavailable; it will not be used."),
         }
     }
-    for models in preferences.set.roles.values() {
-        if !models.iter().any(|model| {
+    for (role, legacy) in &preferences.set.roles {
+        let models = preferences
+            .choice_sets
+            .get(role)
+            .map(|sets| sets.iter().flat_map(|set| &set.models).collect::<Vec<_>>())
+            .unwrap_or_else(|| legacy.iter().collect());
+        if !models.into_iter().any(|model| {
             prepared
                 .iter()
                 .any(|(snapshot, _)| &snapshot.compatibility.model == model)
@@ -652,12 +1008,7 @@ fn publish_configuration(
     configuration: vcp_lifecycle::foundation::routing::Configuration,
 ) -> Result<PathBuf, String> {
     configuration.validate()?;
-    let main = configuration
-        .owner_assignments
-        .iter()
-        .find(|assignment| assignment.role == RequestRole::Main)
-        .and_then(|assignment| assignment.candidates.first())
-        .ok_or("main model selection unavailable")?;
+    let main = preferred_main(&configuration)?;
     let snapshot = configuration
         .catalog
         .snapshot(main)
@@ -708,6 +1059,28 @@ fn publish_configuration(
         serde_json::from_value(value).map_err(|_| "selected profile rejected")?;
     parsed.prepare(vcp_domain::policy::Autonomy::Plan)?;
     Ok(profile)
+}
+
+pub(crate) fn preferred_main(
+    configuration: &vcp_lifecycle::foundation::routing::Configuration,
+) -> Result<&ModelEndpoint, String> {
+    let sets = configuration
+        .rotation
+        .as_ref()
+        .map(|rotation| rotation.sets(RequestRole::Main))
+        .unwrap_or(&[]);
+    if !sets.is_empty() {
+        sets.iter()
+            .find_map(|set| set.members.first())
+            .ok_or_else(|| "main rotation selection unavailable".into())
+    } else {
+        configuration
+            .owner_assignments
+            .iter()
+            .find(|assignment| assignment.role == RequestRole::Main)
+            .and_then(|assignment| assignment.candidates.first())
+            .ok_or_else(|| "main model selection unavailable".into())
+    }
 }
 /// Caller has obtained explicit trust for this project. Merely selecting model
 /// preferences cannot create this registration or grant project trust.
@@ -1022,20 +1395,21 @@ async fn refresh_retained(profile: &mut settings::Profile, key: &str) -> Result<
         return Ok(());
     };
     let mut fresh = Vec::new();
-    for entry in &routing.catalog.entries {
-        if let Ok(prepared) =
-            crate::provider_setup::connection::refresh(&entry.identity.model, key).await
-        {
-            let snapshots = vcp_models::catalog::compatibility::snapshots(
-                &prepared.catalog,
-                prepared.snapshot.observed_at,
-            )
-            .map_err(|e| e.to_string())?;
-            if let Some(snapshot) = snapshots.into_iter().find(|snapshot| {
-                snapshot.compatibility.model == entry.identity.model
-                    && snapshot.compatibility.endpoint == entry.identity.endpoint
-            }) {
-                fresh.push((snapshot, prepared.catalog));
+    for model in routing
+        .catalog
+        .entries
+        .iter()
+        .map(|entry| &entry.identity.model)
+        .collect::<BTreeSet<_>>()
+    {
+        if let Ok(prepared) = crate::provider_setup::connection::refresh_all(model, key).await {
+            for endpoint in prepared {
+                if routing.catalog.entries.iter().any(|entry| {
+                    entry.identity.model == endpoint.snapshot.compatibility.model
+                        && entry.identity.endpoint == endpoint.snapshot.compatibility.endpoint
+                }) {
+                    fresh.push((endpoint.snapshot, endpoint.catalog));
+                }
             }
         }
     }
@@ -1157,6 +1531,15 @@ fn renew_retained_configuration(
             return Err("a retained role has no eligible original endpoint; ask the owner to choose a new set for a new task".into());
         }
     }
+    if let Some(rotation) = &mut configuration.rotation {
+        for role in &mut rotation.roles {
+            for set in &mut role.sets {
+                set.members
+                    .retain(|identity| entries.iter().any(|entry| &entry.identity == identity));
+            }
+            role.sets.retain(|set| !set.members.is_empty());
+        }
+    }
     configuration.estimates.retain(|estimate| {
         entries
             .iter()
@@ -1179,6 +1562,241 @@ fn renew_retained_configuration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rotation_metadata(model: &str, endpoints: &[(&str, &str)]) -> Vec<(Snapshot, Vec<u8>)> {
+        let raw = serde_json::to_vec(
+            &json!({"data":{"id":model,"endpoints":endpoints.iter().map(|(tag,prompt)| json!({
+            "tag":tag,"status":0,"context_length":32000,"max_completion_tokens":8000,
+            "supported_parameters":["tools","tool_choice","max_tokens"],
+            "pricing":{"prompt":prompt,"completion":"0.000002"}
+        })).collect::<Vec<_>>()}}),
+        )
+        .unwrap();
+        vcp_models::catalog::compatibility::snapshots(&raw, settings::now())
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| (snapshot, raw.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn legacy_preferences_and_commands_do_not_opt_in_to_rotation() {
+        use clap::Parser;
+        let old = json!({"version":1,"set":balanced(),"budget_usd":"10"});
+        let preferences: Preferences = serde_json::from_value(old.clone()).unwrap();
+        assert!(preferences.choice_sets.is_empty());
+        preferences.validate().unwrap();
+        assert_eq!(serde_json::to_value(preferences).unwrap(), old);
+        for args in [
+            vec!["vcp", "models", "show", "balanced"],
+            vec!["vcp", "models", "show", "--refresh"],
+            vec![
+                "vcp",
+                "models",
+                "customize",
+                "--role",
+                "main",
+                "--choice",
+                "1",
+                "--model",
+                "fixture/model",
+            ],
+        ] {
+            assert!(crate::args::Cli::try_parse_from(args).is_ok());
+        }
+        assert!(crate::args::Cli::try_parse_from([
+            "vcp",
+            "models",
+            "customize",
+            "--role",
+            "main",
+            "--choice",
+            "4",
+            "--model",
+            "fixture/model"
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn choices_require_consecutive_distinct_members_and_explicit_reserve_ceiling() {
+        let mut preferences = Preferences::default();
+        assert!(set_choice(
+            &mut preferences,
+            "main",
+            2,
+            vec!["fixture/two".into()],
+            None
+        )
+        .is_err());
+        set_choice(
+            &mut preferences,
+            "main",
+            1,
+            vec!["fixture/one".into()],
+            None,
+        )
+        .unwrap();
+        set_choice(
+            &mut preferences,
+            "main",
+            2,
+            vec!["fixture/two".into()],
+            None,
+        )
+        .unwrap();
+        let mut duplicate = preferences.clone();
+        assert!(set_choice(&mut duplicate, "main", 2, vec!["fixture/one".into()], None).is_err());
+        let mut no_ceiling = preferences.clone();
+        assert!(set_choice(
+            &mut no_ceiling,
+            "main",
+            3,
+            vec!["fixture/three".into()],
+            None
+        )
+        .is_err());
+        set_choice(
+            &mut preferences,
+            "main",
+            3,
+            vec!["fixture/three".into()],
+            Some("0.10".into()),
+        )
+        .unwrap();
+        assert_eq!(preferences.choice_sets["main"].len(), 3);
+    }
+
+    #[test]
+    fn rotation_captures_endpoint_diversity_and_same_envelope_price_ceiling() {
+        let mut preferences = Preferences::default();
+        preferences.set.roles = BTreeMap::from([("main".into(), vec!["fixture/one".into()])]);
+        set_choice(
+            &mut preferences,
+            "main",
+            1,
+            vec!["fixture/one".into(), "fixture/two".into()],
+            None,
+        )
+        .unwrap();
+        set_choice(
+            &mut preferences,
+            "main",
+            2,
+            vec!["fixture/three".into()],
+            Some("0.1".into()),
+        )
+        .unwrap();
+        let mut prepared = rotation_metadata(
+            "fixture/one",
+            &[
+                ("host/first", "0.000001"),
+                ("host/second", "0.000001"),
+                ("host/expensive", "0.00001"),
+            ],
+        );
+        prepared.extend(rotation_metadata(
+            "fixture/two",
+            &[("host/other", "0.000001")],
+        ));
+        prepared.extend(rotation_metadata(
+            "fixture/three",
+            &[("host/reserve", "0.000002")],
+        ));
+        let configuration = routing_configuration(&preferences, &prepared).unwrap();
+        let rotation = configuration.rotation.as_ref().unwrap();
+        let sets = rotation.sets(RequestRole::Main);
+        assert_eq!(sets.len(), 2);
+        assert_eq!(sets[0].members.len(), 3);
+        assert_eq!(
+            sets[0]
+                .members
+                .iter()
+                .filter(|identity| identity.model == "fixture/one")
+                .count(),
+            2
+        );
+        assert!(sets[0]
+            .members
+            .iter()
+            .all(|identity| identity.endpoint != "host/expensive"));
+        assert_eq!(
+            sets[0].max_reference_request_cost.micros.get(),
+            sets[0].reference_request_cost.micros.get() * 2
+        );
+        let mut narrowed = preferences.clone();
+        narrowed.choice_sets.get_mut("main").unwrap()[0]
+            .endpoints
+            .insert("fixture/one".into(), vec!["host/second".into()]);
+        let restricted = routing_configuration(&narrowed, &prepared).unwrap();
+        assert_eq!(preferred_main(&restricted).unwrap().endpoint, "host/second");
+        assert_eq!(
+            restricted
+                .rotation
+                .as_ref()
+                .unwrap()
+                .sets(RequestRole::Main)[0]
+                .members
+                .len(),
+            2
+        );
+        narrowed.choice_sets.get_mut("main").unwrap()[0]
+            .endpoints
+            .insert("fixture/outside".into(), vec!["host/unauthorized".into()]);
+        assert!(narrowed.validate().is_err());
+        let mut price_limited = preferences.clone();
+        price_limited.choice_sets.get_mut("main").unwrap()[0]
+            .endpoints
+            .insert("fixture/one".into(), vec!["host/expensive".into()]);
+        price_limited.choice_sets.get_mut("main").unwrap()[0].max_reference_request_cost_usd =
+            Some("0.02".into());
+        let peer = routing_configuration(&price_limited, &prepared).unwrap();
+        assert_eq!(preferred_main(&peer).unwrap().model, "fixture/two");
+        price_limited.choice_sets.get_mut("main").unwrap()[0].max_reference_request_cost_usd =
+            Some("0.0001".into());
+        let later = routing_configuration(&price_limited, &prepared).unwrap();
+        assert_eq!(preferred_main(&later).unwrap().model, "fixture/three");
+        assert_eq!(
+            later.rotation.as_ref().unwrap().sets(RequestRole::Main)[0].id,
+            "main-choice-2"
+        );
+        let mut fresh = prepared.clone();
+        fresh.retain(|(snapshot, _)| snapshot.compatibility.endpoint != "host/first");
+        fresh.extend(rotation_metadata(
+            "fixture/one",
+            &[("host/outside", "0.000001")],
+        ));
+        let renewed = renew_retained_configuration(&configuration, &fresh).unwrap();
+        assert_eq!(
+            renewed.rotation.as_ref().unwrap().sets(RequestRole::Main)[0]
+                .members
+                .len(),
+            2
+        );
+        assert!(renewed
+            .catalog
+            .entries
+            .iter()
+            .all(|entry| entry.identity.endpoint != "host/outside"));
+        assert_eq!(
+            configuration
+                .rotation
+                .as_ref()
+                .unwrap()
+                .sets(RequestRole::Main)[0]
+                .members
+                .len(),
+            3
+        );
+        let mut invalid = configuration;
+        invalid.rotation.as_mut().unwrap().roles[0].sets[0]
+            .members
+            .push(ModelEndpoint {
+                model: "fixture/one".into(),
+                endpoint: "host/outside".into(),
+            });
+        assert!(invalid.validate().is_err());
+    }
 
     #[test]
     fn renewal_replaces_obsolete_adapter_evidence_without_changing_owner_authority() {

@@ -154,6 +154,7 @@ switch ($Mode) {
         function Invoke-Vcp {
             param($Ctx, $Stage, $Label, $TimeoutSeconds, $Arguments)
             if ($Arguments[1] -ne 'a-latest') { throw 'Selected response by canonical key instead of event order' }
+            if ($TimeoutSeconds -lt 130) { return @{ ExitCode = 124; InvalidLines = 0; TimedOut = $true; Result = $null } }
             return @{ ExitCode = 0; InvalidLines = 0; Result = @{ data = @{ gaps = @(@{ visibility = 'redacted'; omissions = @('authentication_headers') }); items = @(@{
                 bytes = $bytes; artifact = 'a-latest'; descriptor = $descriptor; visibility = 'available'
                 range = @{ start = 0; end = $bytes.Length }; next_offset = $null

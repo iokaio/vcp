@@ -40,7 +40,7 @@ pub fn error_limit_source(body: &[u8]) -> Option<LimitSource> {
     if body.len() > 64 * 1024 {
         return None;
     }
-    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let value = crate::decision::unique_json::parse(body).ok()?;
     match value.pointer("/error/metadata/limit_source")?.as_str()? {
         "upstream_provider_shared_pool" => Some(LimitSource::UpstreamProviderSharedPool),
         "openrouter_in_flight_budget" => Some(LimitSource::OpenrouterInFlightBudget),

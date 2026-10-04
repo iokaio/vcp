@@ -223,7 +223,7 @@ modify an existing MDF file.
     <stage>\vcp\NN-<label>.stderr.txt
     <stage>\tasks-status.json, tasks-agents.json, history.json
     <stage>\inspect-{costs,verification,tools,routing,policy,outputs}.json
-    <stage>\final-message.md                final assistant text (best effort, see 3.5)
+    <stage>\final-message.md                final assistant text (on demand, see 3.5)
     <stage>\workspace-diff.json             files added/modified/removed by the stage
     <stage>\tools\NN-<label>.{out,err}.log   build/test/CLI output used by the gates
     <stage>\servers\*.log                   logs of the app servers started by gates
@@ -247,7 +247,7 @@ to `<run>\artifacts` and D writes final deliverables to `<run>\deliverables`.
 | P1-profiles | none | Compose profiles, validate each with `vcp setup check`, then run toolchain probes with the exact cleared process environment before inference |
 | G0-guardrail | none | A `vcp run` that must be rejected before execution with exit 2 and no accepted task |
 | T1-T5 | paid | Feature turns, each followed by the evidence sweep (3.4), deterministic gates (3.6) and at most `-MaxRepairTurns` repair turns |
-| T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. |
+| T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. A/B also support a transient billing-only exit 7 after the mandatory reconciliation proof described below. |
 | T6-review | paid, small (cap 2.00 USD) | A review in `--autonomy plan` with a read-only profile. The workspace must stay byte-identical, and the answer ends with a JSON findings block. |
 | T7-fork (D only) | paid | `sessions fork` of the review session, which tests consistency and immutability |
 | FINAL | none (VCP) | Independent build and functional regression gates for the final project, packaging of compiled assets; lifecycle actions are not repeated |
@@ -315,18 +315,27 @@ Design notes, each based on the current source:
   public environment. `npm`, `mvn` and the `dotnet-ef` tool are reached through `node.exe`,
   `java.exe` and `dotnet.exe`; each task prompt gives the exact argument forms. The
   environment excludes ambient user configuration and credentials. B explicitly supplies
-  public Windows installation paths and run-local `APPDATA`, `LOCALAPPDATA` and
+  public Windows installation paths (`ProgramFiles` and `ProgramFiles(x86)` from the
+  Windows known-folder API) and fresh run-owned `APPDATA`, `LOCALAPPDATA` and
   `DOTNET_CLI_HOME` directories: NuGet cannot bootstrap with only `SYSTEMROOT` and `PATH`.
-  Each scenario runs a toolchain probe with its exact cleared profile environment before
-  inference. These probes check bootstrap compatibility; native broker tests check execution
-  authority and isolation. See the [A/B runtime investigation](run-review-20261003-130226.md).
+  These locations provide SDK initialization without copying ambient configuration
+  or credential variables. Each scenario runs a toolchain probe with its exact cleared
+  profile environment before inference. These probes check bootstrap compatibility;
+  native broker tests check execution authority and isolation. See the
+  [A/B runtime investigation](run-review-20261003-130226.md).
 - **`reduced_isolation: true` with no required isolation** mirrors the repository's own
   execution fixtures. Toolchains need to read SDK, cache and package locations outside the
   workspace. This is an explicit owner choice for a test machine; review it before reusing
   these profiles anywhere else.
-- **Checks.** The VCP verification runner supports `node` (`node --test <files>`) and `cargo`
-  only. Scenario A adds a per-turn `node` check with the cumulative expected test names.
-  Scenarios B, C and D use `checks: []` and rely on the harness gates.
+- **Checks.** The VCP verification runner supports `node`, `cargo` and `dotnet`.
+  Scenario A adds a per-turn `node` check with cumulative expected test names.
+  Scenario B requires a solution-level `dotnet test` check with cumulative fully
+  qualified acceptance-test names. Its configured normal console logger must show
+  a complete, nonempty successful run without skipped tests. The model restores
+  dependencies separately before invoking `vcp_verify`; the qualified check uses
+  `--no-restore --disable-build-servers`. Independent build, migrations, database and HTTP gates still
+  assess the inventory behavior. Scenarios C and D use `checks: []` and rely on
+  the harness gates. Review profiles remain read-only.
 - **The read-only review profile** has `maximum_autonomy: plan`, `automatic_effects: ["read"]`
   and no processes.
 
@@ -348,7 +357,7 @@ vcp $G inspect <task> --view tools        --limit 128 [--cursor ...]
 vcp $G inspect <task> --view routing      --limit 128 [--cursor ...]
 vcp $G inspect <task> --view policy       --limit 128 [--cursor ...]
 vcp $G inspect <task> --view outputs      --limit 128 [--cursor ...]
-vcp $G inspect <last-response-artifact> --view outputs --offset <n> --length 65536   (repeated to the artifact length)
+vcp $G inspect <last-response-artifact> --view outputs --offset <n> --length 65536   (on demand, repeated to the artifact length)
 vcp $G history list --task <task> --limit 128
 ```
 
@@ -368,6 +377,22 @@ Its prompt lists the failed gate IDs with their exact failure details, followed 
   short-deadline turns accept 0, 3 or 8, and plan reviews/forks accept 0, 3 or 4. These
   allowances never substitute for the stage's functional gates. JSONL acceptance and final
   result framing are required independently of the process exit code.
+- **A/B T5 unresolved billing:** the short-deadline stage may finish with exit 7 while
+  provider receipt accounting is pending. This is an explicit conditional T5 contract,
+  not a general accepted exit or an exit-8 conversion. The original failed exit, JSONL
+  and inspection remain retained; the stop is recorded as diagnostic evidence. A new
+  required `deadline-cost-reconciliation` gate requires the same paused task, complete
+  scoped inspection, no active agents or unknown tool effects, and billing-only pending
+  reservations. The harness polls `tasks reconcile-cost <task>` at most three times,
+  with 10-second waits and 1,800-second command timeouts. Only this metadata command
+  receives the existing credential for authenticated receipt GETs; it cannot infer or
+  resume. A successful scoped receipt must agree with a fresh credential-denied
+  `inspect-bundle`, including zero active/unresolved liability and no overrun, before
+  the existing same-task resume command can run. Its framing, identity, functional and
+  final accounting gates remain required. Unsupported commands, malformed/unknown
+  receipts (including unavailable receipts), incomplete evidence or exhausted polling
+  stop the scenario and preserve its full possible-spend hold. Original artifact hashes
+  and a separate reconciliation receipt are recorded; cumulative cost is counted once.
 - **Cost** comes from `settled` micros in the canonical task `ledger` records in
   `inspect --view costs`, counting a resumed task's cumulative total only once. If cost evidence is incomplete, the budget guard assumes the full
   per-turn cap was spent and the scorecard sets `spend_evidence_complete: false`.
@@ -376,7 +401,13 @@ Its prompt lists the failed gate IDs with their exact failure details, followed 
   `inspect --view outputs` byte ranges and extracts `output_text` from its
   `response.completed` SSE event. Inspection page order is canonical key order, not
   response chronology. Missing ordering or capture evidence leaves the message unavailable;
-  this is best effort and is used only by advisory gates.
+  this is best effort and is used only by advisory gates. Ordinary coding, repair and
+  resume stages retain the canonical response artifacts and output descriptors without
+  reading every response byte again. The review findings gate and D's fork-consistency
+  gate request extraction with `Get-VcpStageFinalMessage -Ctx $ctx -StageRecord $stage`;
+  a successful extraction is saved and reused. This avoids reopening all retained
+  history for optional text after every coding stage. Missing text still fails the
+  same advisory gate, and accounting/evidence completeness checks are unchanged.
 - **Completed turn IDs** for `sessions fork` come from `event.event.data.facts[]` entries with
   `collection == "turn"` and `value.state == "completed"`.
 
@@ -514,8 +545,8 @@ vcp $G --config <profiles>\profile-T5-short-<run>.json run --file <logs>\T5-prod
 [if exit 8] vcp $G --config <profiles>\profile-T5-<run>.json resume --last
 [repair]    vcp $G --config <profiles>\profile-T5-<run>.json run --file <logs>\T5-production-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
-# T6 - plan-mode review
-vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 2.00 --autonomy plan
+# T6 - plan-mode review (uses the configured per-turn budget)
+vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 3.00 --autonomy plan
 
 # P9 - read-only evidence sweep
 vcp $G sessions list
@@ -607,8 +638,8 @@ vcp $G --config <profiles>\profile-short-<run>.json run --file <logs>\T5-concurr
 [if exit 8] vcp $G --config <profiles>\profile-main-<run>.json resume <T5 task id>
 [repair]    vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T5-concurrency-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
-# T6 - plan-mode review
-vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 2.00 --autonomy plan
+# T6 - plan-mode review (uses the configured per-turn budget)
+vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 3.00 --autonomy plan
 
 # P9 - read-only evidence sweep
 vcp $G sessions list

@@ -383,7 +383,7 @@ pub(super) async fn execute(
         }
         if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
         let profile = crate::execution_profile::install_host(
-            &host, &config, prepared, prepared_http,
+            &host, &config, prepared, prepared_http, &credential,
             |name| std::env::var(name).map_err(|_| ()),
         )?;
         active_session=Some(crate::session::Session::start(&host,retained,ThreadBinding{scope:scope.clone(),agent:AgentId::new(),role:RequestRole::Main}).await?);

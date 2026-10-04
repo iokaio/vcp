@@ -11,7 +11,7 @@ fn sum(left: u64, right: u64) -> Result<u64> {
     left.checked_add(right)
         .ok_or(Error::Corruption("accounting overflow"))
 }
-fn lineage(state: &State, task: &Task) -> Result<Vec<Task>> {
+fn lineage(state: RecordView<'_>, task: &Task) -> Result<Vec<Task>> {
     let mut result = vec![task.clone()];
     let mut parent = task.parent.clone();
     while let Some(id) = parent {
@@ -324,7 +324,11 @@ pub(crate) fn transition(previous: &Record, next: &Record) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn admission(before: &State, after: &State, transaction: &Transaction) -> Result<()> {
+pub(crate) fn admission(
+    before: RecordView<'_>,
+    after: &State,
+    transaction: &Transaction,
+) -> Result<()> {
     for mutation in &transaction.mutations {
         if let Mutation::Put {
             expected: None,
@@ -415,7 +419,7 @@ pub(crate) fn admission(before: &State, after: &State, transaction: &Transaction
                             &row.scope.workspace,
                         )?
                         .decode()?;
-                    for ancestor in lineage(after, &row_task)? {
+                    for ancestor in lineage(after.record_view(), &row_task)? {
                         if ledger.allocations.contains_key(&ancestor.scope.task) {
                             let total = allocated.entry(ancestor.scope.task).or_default();
                             *total = sum(*total, sum(row.charged.get(), row.liability.get())?)?;

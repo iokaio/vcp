@@ -133,6 +133,7 @@ pub(super) fn configure(path: &Path) {
         }],
         raw_catalogs: BTreeMap::from([(snapshot.id.clone(), raw)]),
         owner_assignments: vec![],
+        rotation: None,
     };
     configuration.validate().unwrap();
     profile["routing"] = serde_json::to_value(configuration).unwrap();

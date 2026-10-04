@@ -72,7 +72,9 @@ impl Supervisor {
                 request.turn,
             )
             .await;
-        if launched.is_err() {
+        if let Err(error) = &launched {
+            #[cfg(feature = "qualification")]
+            eprintln!("qualification startup error: {error}");
             pause(&self.host, &scope);
         }
         Ok(receipt)
@@ -105,6 +107,7 @@ impl Supervisor {
             &self.config,
             prepared,
             http,
+            &credential,
             |name| self.configuration.credentials.get(name).cloned().ok_or(()),
         )?;
         let startup = connection.authorize_start_startup(&mut ticket, current)?;

@@ -1,6 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::*;
 use vcp_repository::FileVersion;
+
+/// Keep the literal parser authoritative while making rejected control lines actionable.
+pub fn parse(text: &str) -> Result<codex_apply_patch::ApplyPatchArgs> {
+    codex_apply_patch::parse_patch(text).map_err(|error| {
+        let closing_hint = if text
+            .trim_end()
+            .lines()
+            .rev()
+            .take(2)
+            .any(|line| line == "+*** End Patch")
+        {
+            " Your patch ends with '+*** End Patch', which is a file-content line, not the closing marker. If this is your closing marker, resend the patch with that line changed to exactly '*** End Patch': remove its leading '+', and put nothing after the closing marker. Do not change the added file's code to repair this delimiter."
+        } else {
+            ""
+        };
+        Error::Patch(format!(
+            "{error}.{closing_hint} Begin/End/File/@@ control lines must have no '+' prefix; only added file/content lines start with '+'"
+        ))
+    })
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct Change {
     pub path: String,
@@ -84,7 +104,7 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
     {
         return Err(Error::Invalid("bounded literal patch required"));
     }
-    let parsed = codex_apply_patch::parse_patch(text).map_err(|e| Error::Patch(e.to_string()))?;
+    let parsed = parse(text)?;
     if parsed.hunks.is_empty() || parsed.hunks.len() > 64 {
         return Err(Error::Invalid("patch file count"));
     }

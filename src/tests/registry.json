@@ -152,7 +152,7 @@
     },
     "p6-live-runner": {
       "task_ids": ["P6-04"],
-      "args": ["--test", "src/tests/contracts/p6-live-runner.test.cjs"],
+      "args": ["--test", "src/tests/contracts/p6-live-runner.test.cjs", "src/tests/contracts/model-rotation-live-runner.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 30000,

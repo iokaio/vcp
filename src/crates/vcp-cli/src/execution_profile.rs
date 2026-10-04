@@ -52,6 +52,7 @@ pub(crate) fn install_host(
     config: &Config,
     prepared: PreparedProfile,
     http: Vec<crate::mcp::PreparedHttp>,
+    credential: &ProviderCredential,
     resolve: impl FnMut(&str) -> Result<String, ()>,
 ) -> Result<Profile, String> {
     let PreparedProfile {
@@ -72,6 +73,24 @@ pub(crate) fn install_host(
         raw_catalog,
         profile.provider_timeout()?,
     )?;
+    #[cfg(windows)]
+    {
+        let receipt_credential =
+            ProviderCredential::from_config(credential.header_for_transport().to_owned());
+        #[cfg(feature = "qualification")]
+        let receipts = if let Some(endpoint) = &profile.qualification_endpoint {
+            qualification_transport(endpoint, credential)?;
+            crate::provider_reconciliation::OpenRouterReceipts::new_qualification(
+                receipt_credential,
+                endpoint,
+            )?
+        } else {
+            crate::provider_reconciliation::OpenRouterReceipts::new(receipt_credential)?
+        };
+        #[cfg(not(feature = "qualification"))]
+        let receipts = crate::provider_reconciliation::OpenRouterReceipts::new(receipt_credential)?;
+        host.configure_receipt_source(std::sync::Arc::new(receipts))?;
+    }
     #[cfg(windows)]
     {
         // Scenario --data-dir roots deliberately differ. Request capacity and
@@ -131,6 +150,13 @@ pub(crate) fn install_thread(
         affected_paths: profile.affected_paths.clone(), max_requests: profile.max_requests,
         deadline: vcp_domain::Timestamp::new(settings::now().get() + u64::from(profile.deadline_seconds) * 1000),
     })?;
+    // Production uses the same source-fenced continuity path as qualification.
+    // Original captures remain available; older completed pairs become bounded
+    // previews while current task facts and recent pairs stay in the request.
+    host.configure_continuity(
+        thread,
+        vcp_lifecycle::foundation::coding::continuity_defaults(),
+    )?;
     Ok(())
 }
 

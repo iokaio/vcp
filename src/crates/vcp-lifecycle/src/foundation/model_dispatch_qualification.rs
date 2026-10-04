@@ -8,6 +8,7 @@ use vcp_store::contract::State;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Point {
+    BeforeSendIntent,
     BeforeTransport,
     BeforeSettlement,
 }

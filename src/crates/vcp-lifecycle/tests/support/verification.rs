@@ -35,6 +35,14 @@ async fn native_verification_binds_checks_to_sources_and_honest_completion() {
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_verification_rejects_missing_citation_then_accepts_current_artifact() {
+    let node = std::env::var_os("VCP_TEST_NODE").expect("explicit native Node dependency");
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        verification_case(backend, "analysis", &node).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_verification_marks_concurrent_edit_stale() {
     let node =
         std::env::var_os("VCP_TEST_NODE").expect("runner supplies explicit native Node dependency");
@@ -243,6 +251,10 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
         .spec
         .id;
     if mode == "analysis" {
+        let missing = ArtifactId::parse(ToolRunId::new().as_str()).unwrap();
+        let error = host.verify(thread, vec![missing]).await.unwrap_err();
+        assert!(error.contains("top-level evidence field"), "{error}");
+        assert!(error.contains("not an effect ID"), "{error}");
         let uncited = host.verify(thread, vec![]).await.unwrap();
         assert!(host.complete_verified(thread, uncited.id).is_err());
     }

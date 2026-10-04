@@ -684,15 +684,29 @@ impl Context {
         let output_ceiling = self.current_output_ceiling()?;
         let codec_envelope =
             request::envelope(&codec_snapshot, output_ceiling, Units::new(512), now())?;
+        // Extra history must not change which smaller routed candidates remain
+        // eligible. Only the fixed-provider path has one exact envelope here.
+        let retention_capacity = if self.routing.is_none() {
+            Some(codec_envelope.input_capacity()?)
+        } else {
+            None
+        };
+        let codec_effort = if retention_capacity.is_some() {
+            self.current_reasoning_effort()?
+        } else {
+            None
+        };
         self.ensure_coding_ledger()?;
-        let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
-            Ok(request::encode(
-                parts,
-                &codec_envelope,
-                &schemas,
-                &codec_snapshot,
-            )?)
-        })?;
+        let parts =
+            self.compact_coding_parts(binding, parts, &current, retention_capacity, |parts| {
+                Ok(request::encode_with_effort(
+                    parts,
+                    &codec_envelope,
+                    &schemas,
+                    &codec_snapshot,
+                    codec_effort,
+                )?)
+            })?;
         let snapshot = self.select_coding_snapshot(binding, &parts, &schemas)?;
         let reasoning_effort = self.current_reasoning_effort()?;
         let envelope = request::envelope(&snapshot, output_ceiling, Units::new(512), now())?;
@@ -1056,7 +1070,13 @@ impl Context {
                         .into(),
                 },
             )?,
-            "vcp_list" | "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
+            "vcp_list" => {
+                self.child_context_scope(binding)?;
+                vcp_tools::validate_directory_path(
+                    call.arguments["path"].as_str().ok_or("list path missing")?,
+                )?;
+            }
+            "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
             "vcp_exec" => self.child_process_scope(binding)?,
             // A materialization is an Add File at its destination.
             "vcp_skill" => {
@@ -1080,7 +1100,7 @@ impl Context {
             )],
             "vcp_patch" => {
                 let patch = call.arguments["patch"].as_str().ok_or("patch missing")?;
-                let parsed = codex_apply_patch::parse_patch(patch)?;
+                let parsed = vcp_tools::patch::parse(patch)?;
                 let mut paths = Vec::new();
                 for hunk in parsed.hunks {
                     match hunk {
@@ -1099,12 +1119,13 @@ impl Context {
             "vcp_skill" => vec![std::path::PathBuf::from(skill_destination(
                 &call.arguments,
             )?)],
-            "vcp_exec" => vec![std::path::PathBuf::from(
-                call.arguments["directory"]
+            "vcp_exec" => {
+                let directory = call.arguments["directory"]
                     .as_str()
-                    .ok_or("process directory missing")?,
-            )
-            .join(".vcp-context-scope")],
+                    .ok_or("process directory missing")?;
+                vcp_tools::validate_directory_path(directory)?;
+                vec![std::path::PathBuf::from(directory).join(".vcp-context-scope")]
+            }
             _ => return Ok(true),
         };
         self.validate_coding_sources(binding)?;

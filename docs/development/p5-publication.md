@@ -75,7 +75,8 @@ Reproduce using the native Windows build environment and externally provisioned
 `VCP_MINILM_ASSETS`:
 
 ```text
-cargo +stable test --locked --offline -j4 -p vcp-memory --test publication -p vcp-store --test search_contract --test snapshot_pin -- --include-ignored
+cargo +stable test --locked --offline -j4 -p vcp-memory --test publication -p vcp-store --test snapshot_pin -- --include-ignored
+cargo +stable test --locked --offline -j4 -p vcp-store --lib contract::search_contract_tests
 cargo +stable test --locked --offline -j4 -p vcp-lifecycle --test canonical_host memory_publication:: -- --include-ignored --test-threads=1 --nocapture
 cargo +stable test --locked --offline -j4 -p vcp-domain -p vcp-protocol -p vcp-store -p vcp-memory --tests
 cargo +stable clippy --locked --offline -j4 -p vcp-store -p vcp-memory -p vcp-lifecycle --all-targets --no-deps

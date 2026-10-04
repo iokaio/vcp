@@ -131,3 +131,5 @@ Return to the [documentation index](../README.md).
 [ADR-082](082-account-setup-and-model-selections.md) defines optional-project account setup, balanced model defaults and retained task selections.
 
 [ADR-083](083-shared-provider-request-pacing.md) coordinates concurrent CLI provider requests before billing admission while retaining unresolved submitted liabilities.
+
+[ADR-084](084-owner-model-rotation-and-scoped-recovery.md) adds explicit ordered model sets, shared request rotation, scoped recovery and failed-request reconciliation under the existing authority and budget boundaries.

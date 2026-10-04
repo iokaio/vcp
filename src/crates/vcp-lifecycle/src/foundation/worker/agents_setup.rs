@@ -138,6 +138,11 @@ impl CanonicalHost {
             if !context.coding.contains_key(&binding.scope.task) {
                 context.configure_coding_setup(&binding, coding, held)?;
             }
+            if context.continuity_configuration(&binding).is_none() {
+                if let Some(continuity) = context.continuity_configuration(&parent) {
+                    context.configure_continuity_setup(&binding, continuity, held)?;
+                }
+            }
             Ok(())
         })
     }

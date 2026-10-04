@@ -69,8 +69,18 @@ impl<'de> Visitor<'de> for Node<'_> {
         Ok(Value::Array(values))
     }
 }
-pub(super) fn parse(raw: &[u8]) -> Result<Value, serde_json::Error> {
-    if raw.len() > super::MAX_BYTES {
+pub(crate) fn parse(raw: &[u8]) -> Result<Value, serde_json::Error> {
+    parse_bounded(raw, super::MAX_BYTES)
+}
+
+/// SSE already permits one MiB per framed event. Keep that transport contract
+/// without increasing the smaller decision/receipt JSON byte budget.
+pub(crate) fn parse_sse(raw: &[u8]) -> Result<Value, serde_json::Error> {
+    parse_bounded(raw, 1024 * 1024)
+}
+
+fn parse_bounded(raw: &[u8], maximum: usize) -> Result<Value, serde_json::Error> {
+    if raw.len() > maximum {
         return Err(de::Error::custom("JSON byte limit"));
     }
     let raw: &RawValue = serde_json::from_slice(raw)?;

@@ -145,6 +145,26 @@ struct Pending {
     done: bool,
 }
 
+/// Identity from a completely framed provider event, not a completion or charge.
+#[derive(Clone, Debug)]
+pub struct ObservedGeneration {
+    pub request_id: String,
+    pub frame_sha256: String,
+}
+
+/// Recover only an identity from retained, bounded SSE bytes. Reuses the live
+/// framing/identity checks without interpreting tool arguments or granting
+/// completion. An unframed final tail cannot supply an identity. Malformed or
+/// conflicting completed frames invalidate the entire observation.
+pub fn retained_generation(bytes: &[u8]) -> Result<Option<ObservedGeneration>> {
+    let mut stream = Stream::new(Tools::parse(&serde_json::json!([]))?);
+    stream.identity_only = true;
+    for chunk in bytes.chunks(65_536) {
+        stream.push(chunk)?;
+    }
+    Ok(stream.observed_generation().cloned())
+}
+
 /// One parser per admitted attempt. Raw bytes must be captured before push.
 /// Bounded framing operates on bytes so arbitrary UTF-8 transport splits work.
 pub struct Stream {
@@ -163,8 +183,15 @@ pub struct Stream {
     terminal_data: Option<String>,
     done: bool,
     failed: bool,
+    generation: Option<ObservedGeneration>,
+    identity_only: bool,
 }
 impl Stream {
+    pub fn observed_generation(&self) -> Option<&ObservedGeneration> {
+        self.generation.as_ref().filter(|generation| {
+            !self.failed && crate::reconciliation::valid_request_id(&generation.request_id)
+        })
+    }
     pub fn rejected_usage(&self) -> Option<&RejectedResponseUsage> {
         // A partial or contradictory frame after the terminal cannot establish
         // an accounting observation, even if tool validation already failed.
@@ -199,6 +226,8 @@ impl Stream {
             terminal_data: None,
             done: false,
             failed: false,
+            generation: None,
+            identity_only: false,
         }
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<Event>> {
@@ -298,7 +327,9 @@ impl Stream {
             return Err(Error::Limit("SSE events"));
         }
         if text == "[DONE]" {
-            if self.terminal.is_none() || self.done {
+            if (self.terminal.is_none() && !(self.identity_only && self.terminal_data.is_some()))
+                || self.done
+            {
                 return Err(Error::Protocol("premature/duplicate DONE"));
             }
             self.done = true;
@@ -307,18 +338,60 @@ impl Stream {
         if self.done {
             return Err(Error::Protocol("payload after DONE"));
         }
-        let value: Value = serde_json::from_str(text)?;
+        let value = crate::decision::unique_json::parse_sse(text.as_bytes())?;
         let kind = value["type"]
             .as_str()
             .ok_or(Error::Protocol("event type missing"))?;
         if event_type.is_some_and(|event| event != "message" && event != kind) {
             return Err(Error::Protocol("SSE/payload type mismatch"));
         }
-        if self.terminal.is_some() {
+        if self.terminal.is_some() || (self.identity_only && self.terminal_data.is_some()) {
             if self.terminal_data.as_deref() == Some(text) {
                 return Ok(None);
             }
             return Err(Error::Protocol("conflicting event after terminal"));
+        }
+        if matches!(
+            kind,
+            "response.created"
+                | "response.in_progress"
+                | "response.completed"
+                | "response.incomplete"
+                | "response.failed"
+        ) {
+            // Only structured response identity fields may identify a charge.
+            // Duplicate keys must not let a billing identity differ from the
+            // captured frame's other interpretation. Unknown provider ID forms
+            // remain unavailable for OpenRouter receipt retrieval.
+            if let Some(id) = value.pointer("/response/id").and_then(Value::as_str) {
+                if self
+                    .generation
+                    .as_ref()
+                    .is_some_and(|prior| prior.request_id != id)
+                {
+                    return Err(Error::Protocol(
+                        "conflicting provider generation identities",
+                    ));
+                }
+                if id.len() > 256 {
+                    return Err(Error::Limit("provider generation identity"));
+                }
+                if self.generation.is_none() {
+                    self.generation = Some(ObservedGeneration {
+                        request_id: id.to_owned(),
+                        frame_sha256: vcp_protocol::digest_bytes(text.as_bytes()),
+                    });
+                }
+            }
+        }
+        if self.identity_only {
+            if matches!(
+                kind,
+                "response.completed" | "response.incomplete" | "response.failed"
+            ) {
+                self.terminal_data = Some(text.to_owned());
+            }
+            return Ok(None);
         }
         match kind {
             "response.output_item.done" if value["item"]["type"] == "message" => {
