@@ -2,6 +2,34 @@
 
 Work items: EE-00c, EE-06 and EE-07. The [implementation ledger](../plan/25-execution-engine-refinements.md) records completed checks and outstanding acceptance. Experiments exercise the existing engine. A test helper does not provide a second execution path or authority to dispatch model requests.
 
+## Small live repair probe
+
+`execution-engine-probe.ps1` seeds a fresh cart-calculation project with a known defect and six protected acceptance tests. It uses the same native driver, profile validation, inspection collection and analyzer as the scenarios, then runs the tests independently and checks that the model did not alter the acceptance files. Pass a newly built local executable and a fresh qualified provider generation; the script never overwrites a nonempty project. `-SkipPaidStages` checks setup without model requests. Each invocation retains a separate run directory under `C:\vcp-scenarios\execution-engine-probes` by default.
+
+```powershell
+pwsh -NoProfile -File docs/test-plans/execution-engine-probe.ps1 -Vcp <local-candidate-vcp.exe> -ProviderGeneration <fresh-provider-generation>
+```
+
+Record baseline failures, final independent results, candidate version/hash, request and tool sequence, adaptive allocation observations, actual settled cost and remaining uncertainty. Inspect the retained bundle before choosing another run. `-PauseAfterProgress` additionally exercises the same explicit-pause handshake used by A/B T5, requires a durably paused result and resumes the exact task; an uncertain outcome stops the probe for diagnosis. The default run does not qualify pause/resume. Neither variation proves full A/B, unknown-price admission or larger-history acceptance. It can run with a priced provider while those separate implementation items remain open.
+
+## October 4 live probe results: candidate 0.2.25
+
+Candidate `artifacts/a-b-tests-candidates/0.2.25/vcp.exe` reports `vcp 0.2.25`, SHA-256 `55d4ec6e7ce7d8f971793871dbeb1b77f7b12d62f5878ea560adedb6c87448c2`, built from clean source commit `18ccfb6a2f6f9d9c14fb80c38232a8b6fa1199e0`. Its build log, version preparation and build-evidence receipt are retained beside the executable. Both runs used `anthropic/claude-haiku-4.5` at endpoint `anthropic`, with provider generation `C:\vcp-scenarios\execution-engine-probes\provider-0.2.25`. These are priced-provider probes before integrated Store activation and unknown-price support.
+
+| Probe | Retained run under `C:\vcp-scenarios\execution-engine-probes\ee06-cart-repair` | Outcome |
+|---|---|---|
+| No inference setup | `20261004-163622-4bad80` | DRY-RUN-PASS, 4/4 required gates |
+| Normal repair | `20261004-163635-765e93` | PASS, 14/14 required gates, six independent Node tests passed |
+| Explicit pause after progress | `20261004-163836-7cbb43` | FAIL, 11/14 required gates; exit 7 with `unresolved_effect,durably_paused`; no resume attempted |
+
+Normal task `91a4456c-c5ee-4637-91a5-35a6238e5512` completed in 36.9 seconds with seven provider requests and $0.089195 settled cost. It changed only `cart.js`; protected acceptance files were unchanged. Independent tests checked empty input, quantities, zero quantities, invalid input, safe-integer overflow and immutability. Both native verification records succeeded. The bundle contains 263 scoped history events and 151 artifact attachments. The implementation was also inspected against the stated arithmetic requirements. This establishes the small repair result, not full A/B or larger-engagement quality.
+
+Pause task `098fb813-1b02-460a-b3c3-56a501c4f35a` received an accepted durable pause receipt at watermark 103, revision 2. All four recorded tool effects succeeded, but the next provider exchange had started: attempt `5c028bf2-7174-4936-99a0-f0e736fd962d` remained `ReconciliationPending`, with uncertainty `retained response did not complete`. The task stopped in 5.7 seconds with no source files changed. Settled cost was $0.008449; the unresolved 811240-micro amount was a reservation estimate, not observed spend. Additional actual spend remains unknown. The harness correctly rejected clean-pause qualification and blocked automatic continuation. Acknowledging pause does not prove that an interrupted provider exchange is resolved.
+
+The immediate correction requires qualifying stop at a known execution boundary without weakening the interrupted-response fence. Inspect the existing pause contract before choosing a cooperative provider-drain boundary; explicit cancel must remain effective. An alternative is to complete T5 application work normally and qualify pause/resume separately, with separate outcomes. Neither approach permits treating this failed probe as a successful pause or retrying the uncertain attempt.
+
+The experiment also exposed a diagnostic gap: the reopened inspection bundle lacks `lifecycle_diagnostics` from the execution owner, so its phase timings cannot be recovered by the analyzer. The diagnostic graph has no explicit causal edges, and 277 `artifact_visibility` gaps require classification between intentional omissions and material missing evidence. Event counts and identity joins do not fill those gaps. Retain bounded execution-owner observations before owner shutdown, export them with their original scope/window, and verify reconstruction before the next paid probe. Raw logs are retained as `artifacts/ee06-probe-{dry-run,live-repair,live-pause}.log`; each run's `logs/repair` directory contains immutable inspection snapshots, analysis and hash-linked indexes. No retained run was cleaned up or overwritten.
+
 ## Offline reconstruction
 
 Collect an authorized `vcp inspect-bundle <task>` result from the selected locally built candidate. Preserve the original JSON/JSONL, scenario scorecard, candidate version/hash, source revision and dirty diff, provider/model setup, backend, workspace and independent check outputs. An inspection after reopening measures that inspection owner; its phase counters are not the earlier execution's lifetime counters. Missing earlier spans remain unknown.

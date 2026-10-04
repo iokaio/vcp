@@ -30,7 +30,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-04b | Focused selection and freshness refinement | EE-04a | implemented; focused/full separation passed; conservative freshness retained |
 | EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | implemented; repeated-failure pause, public reason and deliberate resume/cancel passed |
 | EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | in progress; finite mocked integration verified |
-| EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | in progress; scripted repair archives analyzed, live repair unrun |
+| EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | in progress; small live repair passed; pause race and missing execution-owner timings identified |
 | EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | workloads defined; live qualification unrun |
 | EE-08 | Deferred selective constraints, if needed | Sufficient EE-07 data and separate owner decision | deferred |
 
@@ -51,6 +51,8 @@ Required joins use existing scope, command correlation, causation, attempt and a
 The current baseline lacks complete per-phase timing, so missing spans stay unknown. Instrumented baseline comparisons retain candidate, backend, host, workspace/checkpoint, provider settings and relevant cache conditions. New measurements never overwrite prior observations.
 
 ## Phase evidence and commits
+
+- EE-06 real execution feedback: added a fresh-project cart probe using the existing native driver and scenario harness, protected acceptance files, six independent Node tests, immutable inspection/analysis capture, and optional strict pause/resume qualification. Candidate 0.2.25 passed the normal repair (14/14 gates, seven requests, 36.9 seconds, $0.089195 settled). The pause variant reproduced an acknowledged pause during the next provider exchange (exit 7, 11/14 gates); the uncertain exchange remains fenced and no resume was attempted. Reopened bundles also lose execution-owner lifecycle observations. Exact run identities, evidence, limitations and next corrections are in the [experiment record](../test-plans/execution-engine-experiments.md#october-4-live-probe-results-candidate-0225). This qualifies a small repair, not full A/B, full financial suspension or larger-engagement acceptance.
 
 - EE-02c format and ownership transfer: the qualified migration stages and verifies an Origin under the real canonical lock, releases legacy State, and performs full native replay before returning the replacement owner. Format publication preserves exact prior marker bytes and atomically selects layout 3, causing older parsers to reject it. Four tests passed on both backends for transfer, same-watermark altered-source rejection and injected publication boundaries, including retry and corrupted-marker cases. Independent review found no concrete issue. These are injected failure tests, not hardware power-loss qualification. The next storage increment activates this path in public Store and removes its resident-history contract.
 
