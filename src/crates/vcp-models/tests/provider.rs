@@ -4,6 +4,9 @@ use std::collections::BTreeSet;
 use vcp_domain::{AttemptId, Timestamp, Units};
 use vcp_models::{catalog::*, request::*, retry::*, stream::*, Error};
 
+#[path = "support/context_capacity.rs"]
+mod context_capacity;
+
 fn tools() -> Value {
     json!([{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}])
 }
