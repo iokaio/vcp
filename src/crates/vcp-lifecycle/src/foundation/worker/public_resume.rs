@@ -121,14 +121,14 @@ impl PublicConnection {
                             may_execute: context.owner_alive,
                         };
                         let prepared = match context
-                            .engine
-                            .prepare_controlled_public(
+                            .runtime
+                            .block_on(context.engine.prepare_controlled_public(
                                 Call::SessionResume(request),
                                 &access,
                                 &facts,
                                 &connection,
                                 &token,
-                            )
+                            ))
                             .map_err(error)?
                         {
                             PublicAdmission::Replay(receipt) => {
@@ -310,13 +310,15 @@ impl Context {
             may_execute: self.owner_alive,
         };
         Ok(
-            match self.engine.prepare_controlled_public(
-                prepared.call().clone(),
-                access,
-                &facts,
-                connection,
-                token,
-            )? {
+            match self
+                .runtime
+                .block_on(self.engine.prepare_controlled_public(
+                    prepared.call().clone(),
+                    access,
+                    &facts,
+                    connection,
+                    token,
+                ))? {
                 PublicAdmission::Replay(receipt) => Some(receipt),
                 PublicAdmission::Ready(_) => {
                     if self.authority_pending {

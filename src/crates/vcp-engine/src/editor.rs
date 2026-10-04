@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Durable editor metadata. Native preparation/policy and draft bytes stay in the lifecycle host.
-use crate::{Access, Engine, controller::ControllerToken, public::PublicError};
+use crate::{controller::ControllerToken, public::PublicError, Access, Engine};
 use std::collections::BTreeMap;
 use vcp_domain::{
     editor::{self as domain, BufferFile, BufferState, ChangeSet, FileState, Observation},
@@ -17,7 +17,7 @@ use vcp_protocol::{
     methods::{self, Call},
 };
 use vcp_store::contract::{
-    CanonicalStore, Collection, Mutation, ReceiptInput, Record, State, Transaction, key,
+    key, CanonicalStore, Collection, Mutation, ReceiptInput, Record, State, Transaction,
 };
 type Result<T> = std::result::Result<T, PublicError>;
 fn invalid<E>(_: E) -> PublicError {
@@ -156,7 +156,7 @@ impl<S: CanonicalStore> Engine<S> {
         }
         Ok(value)
     }
-    pub fn editor_replay(
+    pub async fn editor_replay(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -181,12 +181,12 @@ impl<S: CanonicalStore> Engine<S> {
         )
         .map_err(invalid)?;
         self.store()
-            .state()
-            .command(
+            .command_receipt(
                 &access.workspace,
                 &command,
                 &call.digest(access.actor.as_str()).map_err(invalid)?,
             )
+            .await
             .map_err(|_| PublicError::CommandConflict)
     }
     pub fn editor_read(&self, access: &Access, p: &wire::EditorChangeRead) -> Result<ChangeSet> {
@@ -299,7 +299,7 @@ impl<S: CanonicalStore> Engine<S> {
         facts: &EditorObserveFacts,
     ) -> Result<CommandReceipt> {
         let call = Call::EditorContext(p.clone());
-        if let Some(receipt) = self.editor_replay(access, connection, token, &call)? {
+        if let Some(receipt) = self.editor_replay(access, connection, token, &call).await? {
             return Ok(receipt);
         }
         let mut task = self.editor_task(access, &p.scope, &p.task)?;
@@ -489,7 +489,7 @@ impl<S: CanonicalStore> Engine<S> {
     ) -> Result<EditorCommit> {
         let call = Call::EditorPrepare(p.clone());
         let name = change_id(p)?;
-        if let Some(receipt) = self.editor_replay(access, connection, token, &call)? {
+        if let Some(receipt) = self.editor_replay(access, connection, token, &call).await? {
             let change = self.editor_read(
                 access,
                 &wire::EditorChangeRead {
@@ -607,7 +607,7 @@ impl<S: CanonicalStore> Engine<S> {
                 change: p.change.clone(),
             },
         )?;
-        if let Some(receipt) = self.editor_replay(access, connection, token, &call)? {
+        if let Some(receipt) = self.editor_replay(access, connection, token, &call).await? {
             return Ok(EditorCommit {
                 receipt,
                 change,
@@ -760,7 +760,7 @@ impl<S: CanonicalStore> Engine<S> {
                 change: p.change.clone(),
             },
         )?;
-        if let Some(receipt) = self.editor_replay(access, connection, token, &call)? {
+        if let Some(receipt) = self.editor_replay(access, connection, token, &call).await? {
             return Ok(EditorCommit {
                 receipt,
                 change,

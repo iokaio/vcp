@@ -222,22 +222,22 @@ impl<S: CanonicalStore> Engine<S> {
         access: &Access,
         host: &HostFacts,
     ) -> Result<CommandReceipt, PublicError> {
-        match self.prepare_public(call, access, host)? {
+        match self.prepare_public(call, access, host).await? {
             PublicAdmission::Replay(receipt) => Ok(receipt),
             PublicAdmission::Ready(prepared) => self.commit_public(prepared, access, host).await,
         }
     }
 
-    pub fn prepare_public(
+    pub async fn prepare_public(
         &self,
         call: Call,
         access: &Access,
         host: &HostFacts,
     ) -> Result<PublicAdmission, PublicError> {
-        self.prepare_public_inner(call, access, host, None)
+        self.prepare_public_inner(call, access, host, None).await
     }
 
-    pub fn prepare_controlled_public(
+    pub async fn prepare_controlled_public(
         &self,
         call: Call,
         access: &Access,
@@ -247,7 +247,7 @@ impl<S: CanonicalStore> Engine<S> {
     ) -> Result<PublicAdmission, PublicError> {
         self.check_controller(access, connection, token)
             .map_err(|_| PublicError::Access)?;
-        let mut admission = self.prepare_public(call, access, host)?;
+        let mut admission = self.prepare_public(call, access, host).await?;
         if let PublicAdmission::Ready(prepared) = &mut admission {
             if matches!(prepared.call, Call::TurnSteer(_)) {
                 let task = self.public_task(prepared, access)?;
@@ -264,7 +264,7 @@ impl<S: CanonicalStore> Engine<S> {
         Ok(admission)
     }
 
-    fn prepare_public_inner(
+    async fn prepare_public_inner(
         &self,
         call: Call,
         access: &Access,
@@ -325,8 +325,10 @@ impl<S: CanonicalStore> Engine<S> {
             .map_err(|_| PublicError::InvalidParameters)?;
         // Access and scope precede lookup. Original parameters remain valid retry
         // identity even after their state revisions or engine owner have changed.
-        if let Some(receipt) = state
-            .command(&access.workspace, &id, &digest)
+        if let Some(receipt) = self
+            .store()
+            .command_receipt(&access.workspace, &id, &digest)
+            .await
             .map_err(|_| PublicError::CommandConflict)?
         {
             return Ok(PublicAdmission::Replay(receipt));
@@ -657,7 +659,7 @@ impl<S: CanonicalStore> Engine<S> {
         if prepared.controller.is_some() && matches!(prepared.call, Call::TurnSteer(_)) {
             return Err(PublicError::CapabilityUnavailable);
         }
-        match self.prepare_public(prepared.call, access, host)? {
+        match self.prepare_public(prepared.call, access, host).await? {
             PublicAdmission::Replay(receipt) => Ok(receipt),
             PublicAdmission::Ready(current) => self
                 .handle_with_digest(current.command, access, host, Some(current.digest))
@@ -678,7 +680,7 @@ impl<S: CanonicalStore> Engine<S> {
         if prepared.controller.is_none() || !matches!(prepared.call, Call::WorkspaceSetTrust(_)) {
             return Err(PublicError::CapabilityUnavailable);
         }
-        match self.prepare_public(prepared.call, access, host)? {
+        match self.prepare_public(prepared.call, access, host).await? {
             PublicAdmission::Replay(receipt) => Ok(receipt),
             PublicAdmission::Ready(current) => self
                 .handle_with_digest(current.command, access, host, Some(current.digest))
@@ -700,7 +702,7 @@ impl<S: CanonicalStore> Engine<S> {
         if prepared.controller.is_none() || !matches!(prepared.call, Call::SessionResume(_)) {
             return Err(PublicError::CapabilityUnavailable);
         }
-        match self.prepare_public(prepared.call, access, host)? {
+        match self.prepare_public(prepared.call, access, host).await? {
             PublicAdmission::Replay(receipt) => Ok(receipt),
             PublicAdmission::Ready(current) => {
                 if !host.may_execute
@@ -744,7 +746,8 @@ impl<S: CanonicalStore> Engine<S> {
         }
         // Revalidate the original expected revision and objective before changing state.
         if !matches!(
-            self.prepare_public(prepared.call.clone(), access, host)?,
+            self.prepare_public(prepared.call.clone(), access, host)
+                .await?,
             PublicAdmission::Ready(_)
         ) {
             return Err(PublicError::StaleState);
@@ -802,8 +805,8 @@ impl<S: CanonicalStore> Engine<S> {
         }
         if let Some(receipt) = self
             .store()
-            .state()
-            .command(&access.workspace, prepared.id(), prepared.digest())
+            .command_receipt(&access.workspace, prepared.id(), prepared.digest())
+            .await
             .map_err(|_| PublicError::CommandConflict)?
         {
             return Ok(receipt);
@@ -814,8 +817,8 @@ impl<S: CanonicalStore> Engine<S> {
         let expected = if let Some(receipt) = &proof.receipt {
             if self
                 .store()
-                .state()
-                .command(&access.workspace, &receipt.command, &receipt.digest)
+                .command_receipt(&access.workspace, &receipt.command, &receipt.digest)
+                .await
                 .map_err(|_| PublicError::StaleState)?
                 .as_ref()
                 != Some(receipt)
@@ -835,7 +838,10 @@ impl<S: CanonicalStore> Engine<S> {
         {
             return Err(PublicError::StaleState);
         }
-        match self.prepare_public_inner(prepared.call, access, host, Some(expected))? {
+        match self
+            .prepare_public_inner(prepared.call, access, host, Some(expected))
+            .await?
+        {
             PublicAdmission::Replay(receipt) => Ok(receipt),
             PublicAdmission::Ready(current) => self
                 .handle_with_digest(current.command, access, host, Some(current.digest))
@@ -1057,7 +1063,7 @@ mod tests {
                 task: id("task"),
             });
             let watermark = engine.store().state().watermark;
-            let prepare = |engine: &Engine<Store>| {
+            let prepare = async |engine: &Engine<Store>| {
                 ready(
                     engine
                         .prepare_controlled_public(
@@ -1067,6 +1073,7 @@ mod tests {
                             &connection,
                             &token,
                         )
+                        .await
                         .unwrap(),
                 )
             };
@@ -1079,6 +1086,7 @@ mod tests {
             let unbound = ready(
                 engine
                     .prepare_public(call.clone(), &access(), &facts())
+                    .await
                     .unwrap(),
             );
             assert_eq!(
@@ -1087,12 +1095,12 @@ mod tests {
                     .await,
                 Err(PublicError::CapabilityUnavailable)
             );
-            let prepared = prepare(&engine);
+            let prepared = prepare(&engine).await;
             assert_eq!(
                 engine.commit_public(prepared, &access(), &facts()).await,
                 Err(PublicError::CapabilityUnavailable)
             );
-            let prepared = prepare(&engine);
+            let prepared = prepare(&engine).await;
             assert_eq!(
                 engine
                     .commit_public_resume(prepared, &access(), &facts())
@@ -1120,7 +1128,7 @@ mod tests {
                     4 => evidence.owner_current = false,
                     _ => invalid.may_execute = false,
                 }
-                let prepared = prepare(&engine);
+                let prepared = prepare(&engine).await;
                 assert_eq!(
                     engine
                         .commit_public_resume(prepared, &access(), &invalid)
@@ -1130,7 +1138,7 @@ mod tests {
             }
             let mut revoked = access();
             revoked.write = false;
-            let prepared = prepare(&engine);
+            let prepared = prepare(&engine).await;
             assert_eq!(
                 engine
                     .commit_public_resume(prepared, &revoked, &trusted())
@@ -1138,8 +1146,8 @@ mod tests {
                 Err(PublicError::Access)
             );
             assert_eq!(engine.store().state().watermark, watermark);
-            let prepared = prepare(&engine);
-            let duplicate = prepare(&engine);
+            let prepared = prepare(&engine).await;
+            let duplicate = prepare(&engine).await;
             let receipt = engine
                 .commit_public_resume(prepared, &access(), &trusted())
                 .await
@@ -1157,7 +1165,9 @@ mod tests {
                 receipt
             );
             assert!(matches!(
-                engine.prepare_public(call.clone(), &revoked, &facts()),
+                engine
+                    .prepare_public(call.clone(), &revoked, &facts())
+                    .await,
                 Err(PublicError::Access)
             ));
             let mut changed = call.clone();
@@ -1165,7 +1175,7 @@ mod tests {
                 p.task = id("other-task");
             }
             assert!(matches!(
-                engine.prepare_public(changed, &access(), &facts()),
+                engine.prepare_public(changed, &access(), &facts()).await,
                 Err(PublicError::CommandConflict)
             ));
             assert_eq!(engine.store().state().watermark, watermark);
@@ -1173,11 +1183,13 @@ mod tests {
             let reopened =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
             assert!(
-                matches!(reopened.prepare_public(call.clone(), &access(), &facts()).unwrap(),
+                matches!(reopened.prepare_public(call.clone(), &access(), &facts()).await.unwrap(),
                 PublicAdmission::Replay(value) if value == receipt)
             );
             assert!(matches!(
-                reopened.prepare_controlled_public(call, &access(), &facts(), &connection, &token),
+                reopened
+                    .prepare_controlled_public(call, &access(), &facts(), &connection, &token)
+                    .await,
                 Err(PublicError::Access)
             ));
             assert_eq!(reopened.store().state().watermark, watermark);
@@ -1216,7 +1228,7 @@ mod tests {
                     }
                 }
                 assert!(
-                    matches!(engine.prepare_public(wrong, &access(), &facts()), Err(error) if error == expected_error)
+                    matches!(engine.prepare_public(wrong, &access(), &facts()).await, Err(error) if error == expected_error)
                 );
             }
             let stale = ready(
@@ -1228,6 +1240,7 @@ mod tests {
                         &connection,
                         &token,
                     )
+                    .await
                     .unwrap(),
             );
             internal(
@@ -1257,6 +1270,7 @@ mod tests {
             let pending = ready(
                 engine
                     .prepare_controlled_public(fresh, &access(), &facts(), &connection, &token)
+                    .await
                     .unwrap(),
             );
             engine
@@ -1298,7 +1312,7 @@ mod tests {
                 task: id("task"),
             });
             assert!(matches!(
-                engine.prepare_public(terminal, &access(), &facts()),
+                engine.prepare_public(terminal, &access(), &facts()).await,
                 Err(PublicError::StaleState)
             ));
             engine.into_store().close().await.unwrap();
@@ -1324,6 +1338,7 @@ mod tests {
                 let unbound = ready(
                     engine
                         .prepare_public(pause.clone(), &access(), &facts())
+                        .await
                         .unwrap(),
                 );
                 assert_eq!(
@@ -1340,6 +1355,7 @@ mod tests {
                             &connection,
                             &token,
                         )
+                        .await
                         .unwrap(),
                 );
                 let receipt = engine
@@ -1351,13 +1367,15 @@ mod tests {
                 assert_eq!(paused.revision, Revision::new(2));
                 let watermark = engine.store().state().watermark;
                 assert!(
-                    matches!(engine.prepare_controlled_public(pause.clone(), &access(), &facts(), &connection, &token).unwrap(), PublicAdmission::Replay(value) if value == receipt)
+                    matches!(engine.prepare_controlled_public(pause.clone(), &access(), &facts(), &connection, &token).await.unwrap(), PublicAdmission::Replay(value) if value == receipt)
                 );
                 assert_eq!(engine.store().state().watermark, watermark);
                 let mut observer = access();
                 observer.write = false;
                 assert!(matches!(
-                    engine.prepare_public(pause.clone(), &observer, &facts()),
+                    engine
+                        .prepare_public(pause.clone(), &observer, &facts())
+                        .await,
                     Err(PublicError::Access)
                 ));
                 let mut changed = pause;
@@ -1365,13 +1383,15 @@ mod tests {
                     p.reason = "different semantics".into();
                 }
                 assert!(matches!(
-                    engine.prepare_controlled_public(
-                        changed,
-                        &access(),
-                        &facts(),
-                        &connection,
-                        &token
-                    ),
+                    engine
+                        .prepare_controlled_public(
+                            changed,
+                            &access(),
+                            &facts(),
+                            &connection,
+                            &token
+                        )
+                        .await,
                     Err(PublicError::CommandConflict)
                 ));
                 // New pause identity is acknowledged without changing an already-paused task.
@@ -1384,6 +1404,7 @@ mod tests {
                             &connection,
                             &token,
                         )
+                        .await
                         .unwrap(),
                 );
                 engine
@@ -1401,6 +1422,7 @@ mod tests {
                             &connection,
                             &token,
                         )
+                        .await
                         .unwrap(),
                 );
                 let receipt = engine
@@ -1410,17 +1432,17 @@ mod tests {
                 assert_eq!(current_task(&engine).state, TaskState::Cancelled);
                 let watermark = engine.store().state().watermark;
                 assert!(
-                    matches!(engine.prepare_controlled_public(cancel.clone(), &access(), &facts(), &connection, &token).unwrap(), PublicAdmission::Replay(value) if value == receipt)
+                    matches!(engine.prepare_controlled_public(cancel.clone(), &access(), &facts(), &connection, &token).await.unwrap(), PublicAdmission::Replay(value) if value == receipt)
                 );
                 assert_eq!(engine.store().state().watermark, watermark);
                 engine.into_store().close().await.unwrap();
                 let reopened =
                     Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
                 assert!(
-                    matches!(reopened.prepare_public(cancel.clone(), &access(), &facts()).unwrap(), PublicAdmission::Replay(value) if value == receipt)
+                    matches!(reopened.prepare_public(cancel.clone(), &access(), &facts()).await.unwrap(), PublicAdmission::Replay(value) if value == receipt)
                 );
                 assert!(matches!(
-                    reopened.prepare_public(cancel, &observer, &facts()),
+                    reopened.prepare_public(cancel, &observer, &facts()).await,
                     Err(PublicError::Access)
                 ));
                 assert_eq!(reopened.store().state().watermark, watermark);
@@ -1479,33 +1501,39 @@ mod tests {
                 "a-newer-turn"
             );
             assert!(matches!(
-                engine.prepare_controlled_public(
-                    stop_call("pause", "obsolete", 1, "turn"),
-                    &access(),
-                    &facts(),
-                    &connection,
-                    &token
-                ),
+                engine
+                    .prepare_controlled_public(
+                        stop_call("pause", "obsolete", 1, "turn"),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    )
+                    .await,
                 Err(PublicError::StaleState)
             ));
             assert!(matches!(
-                engine.prepare_controlled_public(
-                    stop_call("pause", "missing-turn", 1, "other-task-turn"),
-                    &access(),
-                    &facts(),
-                    &connection,
-                    &token
-                ),
+                engine
+                    .prepare_controlled_public(
+                        stop_call("pause", "missing-turn", 1, "other-task-turn"),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    )
+                    .await,
                 Err(PublicError::StaleState)
             ));
             assert!(matches!(
-                engine.prepare_controlled_public(
-                    stop_call("pause", "stale-task", 0, "a-newer-turn"),
-                    &access(),
-                    &facts(),
-                    &connection,
-                    &token
-                ),
+                engine
+                    .prepare_controlled_public(
+                        stop_call("pause", "stale-task", 0, "a-newer-turn"),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    )
+                    .await,
                 Err(PublicError::StaleState)
             ));
             let mut wrong_scope = stop_call("task", "wrong-session", 1, "");
@@ -1513,13 +1541,15 @@ mod tests {
                 p.scope.session = id("other-session");
             }
             assert!(matches!(
-                engine.prepare_controlled_public(
-                    wrong_scope,
-                    &access(),
-                    &facts(),
-                    &connection,
-                    &token
-                ),
+                engine
+                    .prepare_controlled_public(
+                        wrong_scope,
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    )
+                    .await,
                 Err(PublicError::Access)
             ));
             let mut retained = engine.store().state().clone();
@@ -1539,6 +1569,7 @@ mod tests {
                         &connection,
                         &token,
                     )
+                    .await
                     .unwrap(),
             );
             engine
@@ -1555,6 +1586,7 @@ mod tests {
                         &connection,
                         &token,
                     )
+                    .await
                     .unwrap(),
             );
             engine
@@ -1599,13 +1631,15 @@ mod tests {
                 .unwrap();
             let watermark = engine.store().state().watermark;
             assert!(matches!(
-                engine.prepare_controlled_public(
-                    steer_call("stale", 0),
-                    &access(),
-                    &facts(),
-                    &connection,
-                    &token
-                ),
+                engine
+                    .prepare_controlled_public(
+                        steer_call("stale", 0),
+                        &access(),
+                        &facts(),
+                        &connection,
+                        &token
+                    )
+                    .await,
                 Err(PublicError::StaleState)
             ));
             assert_eq!(engine.store().state().watermark, watermark);
@@ -1619,6 +1653,7 @@ mod tests {
                         &connection,
                         &token,
                     )
+                    .await
                     .unwrap(),
             );
             assert_eq!(
@@ -1635,6 +1670,7 @@ mod tests {
                         &connection,
                         &token,
                     )
+                    .await
                     .unwrap(),
             );
             let proof = engine
@@ -1669,6 +1705,7 @@ mod tests {
                         &connection,
                         &token
                     )
+                    .await
                     .unwrap(),
                 PublicAdmission::Replay(_)
             ));
@@ -1712,6 +1749,7 @@ mod tests {
             let prepared = ready(
                 engine
                     .prepare_controlled_public(call, &access(), &facts(), &connection, &token)
+                    .await
                     .unwrap(),
             );
             let mut observer = access();
@@ -1773,6 +1811,7 @@ mod tests {
                         &access(),
                         &facts(),
                     )
+                    .await
                     .unwrap(),
             );
             let other = ready(
@@ -1782,6 +1821,7 @@ mod tests {
                         &access(),
                         &facts(),
                     )
+                    .await
                     .unwrap(),
             );
             let proof = engine
@@ -1804,6 +1844,7 @@ mod tests {
                         &access(),
                         &facts(),
                     )
+                    .await
                     .unwrap(),
             );
             let proof = engine
@@ -1827,6 +1868,7 @@ mod tests {
             let prepared = ready(
                 engine
                     .prepare_public(create_call("stale-owner"), &access(), &facts())
+                    .await
                     .unwrap(),
             );
             engine.into_store().close().await.unwrap();

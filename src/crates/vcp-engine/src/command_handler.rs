@@ -152,10 +152,10 @@ impl<S: CanonicalStore> Engine<S> {
         };
         // A retry is authenticated under current access, then resolves the old
         // receipt before stale state/owner checks. Restart cannot duplicate work.
-        if let Some(receipt) =
-            self.store
-                .state()
-                .command(&command.workspace, &command.id, &digest)?
+        if let Some(receipt) = self
+            .store
+            .command_receipt(&command.workspace, &command.id, &digest)
+            .await?
         {
             return Ok(receipt);
         }

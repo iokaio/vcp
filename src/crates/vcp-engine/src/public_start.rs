@@ -262,7 +262,7 @@ impl<S: CanonicalStore> Engine<S> {
     /// Revalidate an already accepted, still-pristine run. A lifecycle ticket
     /// must additionally prove that this process owns the fresh acceptance;
     /// calling this on a replay must never mint a constructor capability.
-    pub fn check_accepted_public_start(
+    pub async fn check_accepted_public_start(
         &self,
         request: &TurnStart,
         receipt: &CommandReceipt,
@@ -284,8 +284,10 @@ impl<S: CanonicalStore> Engine<S> {
             .digest(access.actor.as_str())
             .map_err(invalid)?;
         let state = self.store().state();
-        if state
-            .command(&access.workspace, &command, &digest)
+        if self
+            .store()
+            .command_receipt(&access.workspace, &command, &digest)
+            .await
             .map_err(|_| PublicError::CommandConflict)?
             .as_ref()
             != Some(receipt)
@@ -409,7 +411,7 @@ impl<S: CanonicalStore> Engine<S> {
 
     /// Current control and scope precede receipt lookup. A duplicate cannot
     /// create a task, capture another trigger or re-enter retained construction.
-    pub fn prepare_public_start(
+    pub async fn prepare_public_start(
         &self,
         request: TurnStart,
         access: &Access,
@@ -433,8 +435,8 @@ impl<S: CanonicalStore> Engine<S> {
         let digest = call.digest(access.actor.as_str()).map_err(invalid)?;
         if let Some(receipt) = self
             .store()
-            .state()
-            .command(&access.workspace, &id, &digest)
+            .command_receipt(&access.workspace, &id, &digest)
+            .await
             .map_err(|_| PublicError::CommandConflict)?
         {
             return Ok(PublicStartAdmission::Replay(receipt));
@@ -469,12 +471,15 @@ impl<S: CanonicalStore> Engine<S> {
         if prepared.actor != access.actor || prepared.authority != access.authority {
             return Err(PublicError::Access);
         }
-        let request = match self.prepare_public_start(
-            prepared.request,
-            access,
-            &prepared.connection,
-            &prepared.token,
-        )? {
+        let request = match self
+            .prepare_public_start(
+                prepared.request,
+                access,
+                &prepared.connection,
+                &prepared.token,
+            )
+            .await?
+        {
             PublicStartAdmission::Replay(receipt) => {
                 return Ok(PublicStartOutcome::Replay(receipt))
             }

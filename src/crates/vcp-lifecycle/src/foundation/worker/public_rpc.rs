@@ -623,14 +623,14 @@ impl RpcHost for PublicConnection {
                     )
                 })?;
                 let prepared = match context
-                    .engine
-                    .prepare_controlled_public(
+                    .runtime
+                    .block_on(context.engine.prepare_controlled_public(
                         request.clone(),
                         &admitted_access,
                         &facts,
                         &admitted_connection,
                         &admitted_token,
-                    )
+                    ))
                     .map_err(|error| public_error(error, operation.clone(), approval))?
                 {
                     PublicAdmission::Replay(receipt) => {

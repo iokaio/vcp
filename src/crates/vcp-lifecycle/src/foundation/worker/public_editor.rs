@@ -300,8 +300,13 @@ impl PublicConnection {
                         .to_owned();
                     let digest = vcp_protocol::digest_bytes(&canonical_bytes(&request)?);
                     if context
-                        .engine
-                        .editor_replay(&access, &connection, token, &request)?
+                        .runtime
+                        .block_on(context.engine.editor_replay(
+                            &access,
+                            &connection,
+                            token,
+                            &request,
+                        ))?
                         .is_some()
                     {
                         if let Some((original, reply)) = editor

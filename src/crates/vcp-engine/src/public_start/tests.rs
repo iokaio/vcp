@@ -102,7 +102,7 @@ async fn fixture(
     let token = engine.controller_token(&access, &connection).unwrap();
     (engine, access, connection, token)
 }
-fn prepare(
+async fn prepare(
     engine: &Engine<Store>,
     access: &Access,
     connection: &ControllerId,
@@ -110,6 +110,7 @@ fn prepare(
 ) -> PreparedPublicStart {
     match engine
         .prepare_public_start(request(), access, connection, token)
+        .await
         .unwrap()
     {
         PublicStartAdmission::Ready(prepared) => prepared,
@@ -141,8 +142,8 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, access, connection, token) = fixture(temp.path(), backend).await;
-        let prepared = prepare(&engine, &access, &connection, &token);
-        let duplicate = prepare(&engine, &access, &connection, &token);
+        let prepared = prepare(&engine, &access, &connection, &token).await;
+        let duplicate = prepare(&engine, &access, &connection, &token).await;
         let trigger = trigger(&engine);
         let before = engine.store().state().clone();
         let PublicStartOutcome::Accepted(receipt) = engine
@@ -174,6 +175,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         assert_eq!(turn.trigger, trigger.spec.id);
         let proof = engine
             .check_accepted_public_start(&request(), &receipt, &access, &connection, &token)
+            .await
             .unwrap();
         assert_eq!(proof.task, task);
         assert_eq!(proof.turn, turn);
@@ -221,19 +223,25 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         let mut occupied = request();
         occupied.mutation.command_id = id("another-command");
         assert!(matches!(
-            engine.prepare_public_start(occupied, &access, &connection, &token),
+            engine
+                .prepare_public_start(occupied, &access, &connection, &token)
+                .await,
             Err(PublicError::StaleState)
         ));
         let mut changed = request();
         changed.budget.max_requests += 1;
         assert!(matches!(
-            engine.prepare_public_start(changed, &access, &connection, &token),
+            engine
+                .prepare_public_start(changed, &access, &connection, &token)
+                .await,
             Err(PublicError::CommandConflict)
         ));
         let mut denied = access.clone();
         denied.write = false;
         assert!(matches!(
-            engine.prepare_public_start(request(), &denied, &connection, &token),
+            engine
+                .prepare_public_start(request(), &denied, &connection, &token)
+                .await,
             Err(PublicError::Access)
         ));
         assert_eq!(*engine.store().state(), accepted);
@@ -242,7 +250,9 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         let mut engine =
             Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
         assert!(matches!(
-            engine.prepare_public_start(request(), &access, &connection, &token),
+            engine
+                .prepare_public_start(request(), &access, &connection, &token)
+                .await,
             Err(PublicError::Access)
         ));
         engine
@@ -270,6 +280,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         let before = engine.store().state().clone();
         let PublicStartAdmission::Replay(replayed) = engine
             .prepare_public_start(request(), &access, &connection, &fresh)
+            .await
             .unwrap()
         else {
             panic!("restarted authorized retry must replay")
@@ -382,7 +393,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, access, connection, token) = fixture(temp.path(), backend).await;
-        let prepared = prepare(&engine, &access, &connection, &token);
+        let prepared = prepare(&engine, &access, &connection, &token).await;
         let trigger = trigger(&engine);
         engine
             .commit_public_start(prepared, &access, &facts(), &trigger, Timestamp::new(100))
@@ -660,7 +671,7 @@ async fn accepted_receipt_does_not_reauthorize_construction_after_task_changes()
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, access, connection, token) = fixture(temp.path(), backend).await;
-        let prepared = prepare(&engine, &access, &connection, &token);
+        let prepared = prepare(&engine, &access, &connection, &token).await;
         let trigger = trigger(&engine);
         let PublicStartOutcome::Accepted(receipt) = engine
             .commit_public_start(prepared, &access, &facts(), &trigger, Timestamp::new(3))
@@ -672,13 +683,17 @@ async fn accepted_receipt_does_not_reauthorize_construction_after_task_changes()
         let mut denied = access.clone();
         denied.write = false;
         assert!(matches!(
-            engine.check_accepted_public_start(&request(), &receipt, &denied, &connection, &token),
+            engine
+                .check_accepted_public_start(&request(), &receipt, &denied, &connection, &token)
+                .await,
             Err(PublicError::Access)
         ));
         let mut changed = request();
         changed.objective = "changed objective".into();
         assert!(matches!(
-            engine.check_accepted_public_start(&changed, &receipt, &access, &connection, &token),
+            engine
+                .check_accepted_public_start(&changed, &receipt, &access, &connection, &token)
+                .await,
             Err(PublicError::CommandConflict)
         ));
         engine
@@ -707,11 +722,14 @@ async fn accepted_receipt_does_not_reauthorize_construction_after_task_changes()
             .unwrap();
         let before = engine.store().state().clone();
         assert!(matches!(
-            engine.check_accepted_public_start(&request(), &receipt, &access, &connection, &token),
+            engine
+                .check_accepted_public_start(&request(), &receipt, &access, &connection, &token)
+                .await,
             Err(PublicError::StaleState)
         ));
         let PublicStartAdmission::Replay(replayed) = engine
             .prepare_public_start(request(), &access, &connection, &token)
+            .await
             .unwrap()
         else {
             panic!("receipt remains reconcilable")
@@ -735,7 +753,7 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
         let trigger = trigger(&engine);
         let before = engine.store().state().clone();
         for case in 0..6 {
-            let prepared = prepare(&engine, &access, &connection, &token);
+            let prepared = prepare(&engine, &access, &connection, &token).await;
             let mut trigger = trigger.clone();
             let mut facts = facts();
             match case {
@@ -763,6 +781,7 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
             }
             assert!(engine
                 .prepare_public_start(wrong, &access, &connection, &token)
+                .await
                 .is_err());
             assert_eq!(*engine.store().state(), before);
         }
@@ -780,7 +799,7 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
         invalid.mutations.retain(|mutation| !matches!(mutation, Mutation::Put { record, .. } if record.collection == Collection::Task));
         assert!(engine.store_mut().transact(invalid).await.is_err());
         assert_eq!(*engine.store().state(), before);
-        let prepared = prepare(&engine, &access, &connection, &token);
+        let prepared = prepare(&engine, &access, &connection, &token).await;
         engine
             .release_controller(
                 &access,
