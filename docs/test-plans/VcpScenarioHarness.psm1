@@ -154,7 +154,8 @@ function Invoke-NativeLogged {
     Runs a native executable without a shell. Arguments go through
     ProcessStartInfo.ArgumentList, so no quoting is reinterpreted. Stdout is
     streamed line by line to a file so long runs can be observed; stderr is
-    drained concurrently to avoid pipe deadlock. A timeout kills the tree.
+    drained concurrently to avoid pipe deadlock. A finite timeout kills the tree;
+    explicit null keeps execution supervised until exit or cancellation.
     #>
     param(
         [Parameter(Mandatory)][string]$FilePath,
@@ -162,13 +163,16 @@ function Invoke-NativeLogged {
         [string]$WorkingDirectory = (Get-Location).Path,
         [Parameter(Mandatory)][string]$StdoutPath,
         [Parameter(Mandatory)][string]$StderrPath,
-        [ValidateRange(1, 86400)][int]$TimeoutSeconds = 600,
+        [AllowNull()][Nullable[int]]$TimeoutSeconds = 600,
         [hashtable]$Environment = @{},
         [switch]$ClearEnvironment,
         [scriptblock]$OnLine,
         [string]$HeartbeatLabel,
         $Ctx
     )
+    if ($null -ne $TimeoutSeconds -and ($TimeoutSeconds -lt 1 -or $TimeoutSeconds -gt 86400)) {
+        throw 'TimeoutSeconds must be null (unbounded) or between 1 and 86400.'
+    }
     $psi = [System.Diagnostics.ProcessStartInfo]::new($FilePath)
     foreach ($argument in $ArgumentList) { $psi.ArgumentList.Add([string]$argument) }
     $psi.WorkingDirectory = $WorkingDirectory
@@ -200,7 +204,7 @@ function Invoke-NativeLogged {
         while ($true) {
             # Check every iteration, including continuously available output and
             # a child that closed stdout but is still running.
-            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+            if ($null -ne $TimeoutSeconds -and $clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
                 $timedOut = $true
                 try { $process.Kill($true) } catch { }
                 break
@@ -670,11 +674,14 @@ function Invoke-Vcp {
         [Parameter(Mandatory)][string]$Label,
         [Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments,
         [string]$Config,
-        [int]$TimeoutSeconds = 300,
+        [AllowNull()][Nullable[int]]$TimeoutSeconds = 300,
         [switch]$Live,
         [switch]$NoGlobals,
         [switch]$DenyProviderCredentials
     )
+    if ($null -ne $TimeoutSeconds -and ($TimeoutSeconds -lt 1 -or $TimeoutSeconds -gt 86400)) {
+        throw 'TimeoutSeconds must be null (unbounded) or between 1 and 86400.'
+    }
     $directory = Join-Path $Ctx.Logs (Join-Path $Stage 'vcp')
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     $safe = ($Label -replace '[^A-Za-z0-9_.-]', '-')
@@ -1230,7 +1237,7 @@ function Invoke-VcpTask {
     foreach ($id in $Skill) { $arguments += @('--skill', $id) }
     return Invoke-PaidScenarioDispatch $Ctx $BudgetUsd {
         $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'run' -Config $Config -Arguments $arguments `
-            -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
+            -TimeoutSeconds $null -Live
         Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $stageRecord
     }
 }
@@ -1434,7 +1441,7 @@ function Invoke-VcpContinuation {
     $before = Get-WorkspaceManifest $Ctx.Workspace
     return Invoke-PaidScenarioDispatch $Ctx $budget.Additional {
         $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label ($Arguments[0..1] -join '-') -Config $Config -Arguments $Arguments `
-            -TimeoutSeconds ($Ctx.DeadlineSeconds + 300) -Live
+            -TimeoutSeconds $null -Live
         Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $record
     }
 }

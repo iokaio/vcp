@@ -46,6 +46,7 @@ switch ($Mode) {
     'noisy' { while ($true) { [Console]::Out.WriteLine('still running') } }
     'closed' { [Console]::OpenStandardOutput().Dispose(); Start-Sleep -Seconds 30 }
     'quiet' { Start-Sleep -Seconds 30 }
+    'unbounded' { Start-Sleep -Milliseconds 1250; 'completed without a deadline'; exit 0 }
     'credential' {
         if ($env:OPENROUTER_API_KEY -or ($env:VCP_SCENARIO_CREDENTIAL_ENV -and [Environment]::GetEnvironmentVariable($env:VCP_SCENARIO_CREDENTIAL_ENV))) { exit 9 }
         'no inherited provider credential'
@@ -64,6 +65,10 @@ switch ($Mode) {
         Check ($result.TimedOut -and $result.ExitCode -eq -1) "$mode evaded timeout"
         Check ($result.DurationSeconds -lt 15) "$mode timeout was not bounded"
     }
+    $result = Invoke-NativeLogged -FilePath $pwsh -ArgumentList @('-NoProfile', '-File', $probe, 'unbounded') `
+        -StdoutPath (Join-Path $temporary 'unbounded.out') -StderrPath (Join-Path $temporary 'unbounded.err') -TimeoutSeconds $null
+    Check ($result.ExitCode -eq 0 -and -not $result.TimedOut -and $result.DurationSeconds -ge 1.2) 'Explicit unbounded supervision ended early'
+    Check ((Get-Content $result.StdoutPath -Raw).Trim() -eq 'completed without a deadline') 'Unbounded supervisor lost output'
     $ctx = New-TestContext
     $savedCredential = $env:OPENROUTER_API_KEY
     $savedCredentialName = $env:VCP_SCENARIO_CREDENTIAL_ENV
