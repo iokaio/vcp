@@ -23,6 +23,7 @@ mod conformance;
 #[cfg(windows)]
 mod console;
 mod control;
+mod diagnostic_turn;
 #[cfg(windows)]
 pub(super) mod decision;
 #[cfg(windows)]
@@ -222,6 +223,7 @@ impl Worker {
 }
 pub struct Context {
     pub diagnostics: super::execution_diagnostics::Collector,
+    diagnostic_turn: diagnostic_turn::Memo,
     pub(super) local_memory_only: bool,
     pub engine: Engine<Store>,
     pub runtime: tokio::runtime::Runtime,
@@ -299,11 +301,17 @@ impl Context {
         phase: super::execution_diagnostics::Phase,
         attempt: Option<AttemptId>,
     ) -> super::execution_diagnostics::Span {
-        let turn =
-            vcp_engine::public::current_public_turn(self.engine.store().state(), &binding.scope)
-                .ok()
-                .flatten()
-                .map(|turn| turn.id);
+        let store = self.engine.store();
+        let current = store.current_state();
+        let turn = self.runtime.block_on(self.diagnostic_turn.resolve(
+            &current,
+            &binding.scope,
+            || async {
+                vcp_engine::public::current_public_turn_store(store, &binding.scope)
+                    .await
+                    .map(|turn| turn.map(|turn| turn.id))
+            },
+        ));
         self.diagnostics
             .begin(phase, binding.scope.clone(), turn, attempt)
     }
@@ -423,6 +431,7 @@ impl Context {
             .any(|row| row.spec.schema == "openrouter-provider-configuration/1");
         let mut context = Self {
             diagnostics: super::execution_diagnostics::Collector::default(),
+            diagnostic_turn: diagnostic_turn::Memo::default(),
             local_memory_only: false,
             engine,
             runtime,

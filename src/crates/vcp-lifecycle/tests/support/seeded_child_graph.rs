@@ -87,7 +87,7 @@ impl Oracle {
                 .decode()
                 .unwrap()
         };
-        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        let ledger = vcp_budget::ledger(state, &binding.scope).unwrap();
         let sum = |value| {
             self.charge
                 .iter()
@@ -136,7 +136,7 @@ impl Oracle {
             .map(|id| (id.clone(), Micros::new(400)))
             .collect::<BTreeMap<_, _>>();
         assert_eq!(ledger.allocations, allocations);
-        let graph = vcp_engine::agents::graph(&state, &binding.scope, &config.root_task)
+        let graph = vcp_engine::agents::graph(state, &binding.scope, &config.root_task)
             .unwrap()
             .unwrap();
         assert_eq!(graph.children.keys().cloned().collect::<BTreeSet<_>>(), ids);
