@@ -3,10 +3,20 @@
 //! byte-for-byte journal bodies; the new header authenticates the staged root.
 use super::*;
 use crate::durable_owner::{DurableOwner, PreparedDurable};
+#[path = "backend_current_files.rs"]
+mod files;
+#[path = "backend_current_materialized.rs"]
+mod materialized;
+#[path = "backend_current_sqlite_replay.rs"]
+mod sqlite_replay;
+pub(crate) use sqlite_replay::replay_sqlite_all;
+#[path = "backend_current_origin.rs"]
+mod origin;
 #[path = "backend_current_replay.rs"]
 mod replay;
 #[path = "backend_current_sqlite.rs"]
 mod sqlite;
+pub(crate) use origin::Origin;
 pub(crate) use replay::replay_current;
 
 pub(crate) async fn initialize_sqlite(db: &mut SqliteConnection) -> Result<()> {
@@ -87,5 +97,7 @@ impl Journal {
     }
 }
 
+#[path = "backend_current_origin_tests.rs"]
+mod origin_tests;
 #[path = "backend_current_tests.rs"]
 mod tests;

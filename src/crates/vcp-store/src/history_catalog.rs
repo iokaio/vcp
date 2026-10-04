@@ -12,15 +12,15 @@ use vcp_domain::{CommandId, EventId, SessionId, TransactionId, Watermark, Worksp
 use vcp_protocol::{canonical_bytes, command::CommandReceipt, event::EventEnvelope};
 
 const PAGE_ROWS: usize = 4096;
-#[path = "history_catalog_encoding.rs"]
-mod encoding;
 #[path = "history_catalog_copy.rs"]
 mod copy;
-#[path = "history_catalog_equivalence.rs"]
-mod equivalence;
 #[cfg(test)]
 #[path = "history_catalog_current.rs"]
 mod current_append;
+#[path = "history_catalog_encoding.rs"]
+mod encoding;
+#[path = "history_catalog_equivalence.rs"]
+mod equivalence;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -52,6 +52,9 @@ impl Catalog {
     }
     pub(crate) fn event_count(&self) -> u64 {
         self.events.count()
+    }
+    pub(crate) fn command_count(&self) -> u64 {
+        self.commands.count()
     }
 
     /// A migration/replay adapter, not permission to trust a persisted head.

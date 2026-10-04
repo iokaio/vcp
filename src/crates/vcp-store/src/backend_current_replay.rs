@@ -29,7 +29,15 @@ pub(crate) async fn replay_current(
         .publication
         .as_ref()
         .ok_or(Error::Corruption("current frame publication missing"))?;
-    let commit: Commit = serde_json::from_slice(&frame.payload)?;
+    replay_payload(pages, source, &frame.payload, publication).await
+}
+pub(super) async fn replay_payload(
+    pages: &mut impl Pages,
+    source: &DurableOwner,
+    payload: &[u8],
+    publication: &str,
+) -> Result<DurableOwner> {
+    let commit: Commit = serde_json::from_slice(payload)?;
     if commit.version != FORMAT_VERSION {
         return Err(Error::Incompatible);
     }
@@ -45,17 +53,8 @@ pub(crate) async fn replay_current(
     if prepared.commit() != &commit {
         return Err(Error::Corruption("replayed receipt differs"));
     }
-    let next = source
-        .advance(&mut pages, &prepared, &frame.payload)
+    let next = source.advance(&mut pages, &prepared, payload).await?;
+    crate::history_publication::verify(&mut pages, publication, source, &prepared, &next, payload)
         .await?;
-    crate::history_publication::verify(
-        &mut pages,
-        publication,
-        source,
-        &prepared,
-        &next,
-        &frame.payload,
-    )
-    .await?;
     Ok(next)
 }
