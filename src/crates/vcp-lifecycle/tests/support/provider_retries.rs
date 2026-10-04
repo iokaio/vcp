@@ -9,6 +9,145 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_pacing_waits_before_reservation_and_submission_on_both_stores() {
+    use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for cancelled in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let (host, owner, binding, test, server) =
+                setup(&temp, backend, Duration::from_secs(10), 1000, false).await;
+            // Match the CLI's explicit root budget initialization. Keep the
+            // zero-liability ledger assertion meaningful before any attempt.
+            host.initialize_root_budget().unwrap();
+            let root = temp.path().join("pacing");
+            std::fs::create_dir(&root).unwrap();
+            let mut leases = Vec::new();
+            for index in 0..2 {
+                let lease = std::fs::File::create(root.join(format!("slot-{index}.lock"))).unwrap();
+                lease.try_lock().unwrap();
+                leases.push(lease);
+            }
+            host.configure_provider_pacing(root, Duration::from_millis(150))
+                .unwrap();
+            let stop = if cancelled {
+                let stopping = host.clone();
+                let task = binding.scope.task.clone();
+                Some(tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    stopping
+                        .command(
+                            Command::Transition {
+                                next: vcp_domain::task::TaskState::Paused,
+                                reason: "synthetic queued cancellation".into(),
+                                verification: None,
+                            },
+                            Some(task),
+                            Revision::new(1),
+                        )
+                        .unwrap();
+                }))
+            } else {
+                None
+            };
+            let mut body = serde_json::json!({"model":"gpt-5.1"});
+            let error = host
+                .admit_model_async(
+                    test.codex.session_configured().thread_id,
+                    &mut body,
+                    HostModelPurpose::Turn,
+                )
+                .await
+                .err()
+                .expect("queued request cannot submit");
+            assert!(
+                error.contains(if cancelled { "cancelled" } else { "deadline" }),
+                "{error}"
+            );
+            if let Some(stop) = stop {
+                stop.await.unwrap();
+            }
+            let state = host.snapshot().unwrap();
+            assert!(
+                !state.records.values().any(|row| matches!(
+                    row.collection,
+                    Collection::Attempt | Collection::Reservation
+                )),
+                "waiting must not create billing liability"
+            );
+            assert!(server.received_requests().await.unwrap().is_empty());
+            let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+            assert_eq!(
+                (
+                    ledger.active.get(),
+                    ledger.unresolved.get(),
+                    ledger.settled.get()
+                ),
+                (0, 0, 0)
+            );
+            drop(leases);
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+        }
+    }
+}
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_pacing_preserves_429_evidence_and_liability_without_qualified_hint() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(10),
+            1000,
+            false,
+            0,
+            None,
+        )
+        .await;
+        let root = temp.path().join("pacing");
+        std::fs::create_dir(&root).unwrap();
+        host.configure_provider_pacing(root.clone(), Duration::from_secs(10))
+            .unwrap();
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(429)
+                    .insert_header("retry-after", "unsupported")
+                    .set_body_string("synthetic rate limit"),
+            )
+            .mount(&server)
+            .await;
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        turn(&test).await;
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        let state = host.snapshot().unwrap();
+        let attempts: Vec<Attempt> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Attempt)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(ledger.settled.get(), 0);
+        assert!(ledger.unresolved.get() > 0);
+        let shared: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("state.json")).unwrap()).unwrap();
+        assert!(shared["not_before_ms"].as_u64().unwrap() >= before + 5000);
+        assert!(shared["not_before_ms"].as_u64().unwrap() < before + 30_000);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
 async fn setup(
     temp: &tempfile::TempDir,
     backend: BackendKind,

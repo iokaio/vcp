@@ -310,6 +310,20 @@ impl HostWorkAdmission for Grant {
     ) -> std::result::Result<Box<dyn HostWorkPermit>, String> {
         self.host.admit_model(thread, body, purpose)
     }
+    fn admit_model_async<'a>(
+        &'a self,
+        thread: ThreadId,
+        body: &'a mut serde_json::Value,
+        purpose: HostModelPurpose,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Box<dyn HostWorkPermit>, String>>
+                + Send
+                + 'a,
+        >,
+    > {
+        self.host.admit_model_async(thread, body, purpose)
+    }
     fn admit_tool(
         &self,
         thread: ThreadId,

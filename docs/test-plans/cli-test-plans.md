@@ -959,8 +959,13 @@ Concurrent runs are isolated by design:
   **same** scenario need different ports and separate `-ProjectPath` folders;
 - LocalDB is shared, but each B run creates its own database. npm, NuGet, Maven and pip
   caches are safe to share;
-- spend ceilings are per process (section 3.7). The shared provider key may hit rate limits.
-  Retries are bounded by `max_transport_retries: 2`;
+- spend ceilings are per process (section 3.7). The Windows CLI shares two active
+  model-request slots and 429 cooldown across the user's processes, independently
+  of each run's `--data-dir`. More runs queue before request reservation; their
+  tools and builds can proceed concurrently. The shared upstream pool can still
+  rate-limit requests. Retries remain bounded by `max_transport_retries: 2`, and
+  submitted requests with unknown final charges retain their liability. See
+  [ADR-083](../adr/083-shared-provider-request-pacing.md);
 - CPU-heavy builds (`dotnet`, `mvn`, `vite`) in parallel lengthen wall time but do not affect
   correctness. Gate timeouts are generous (15-30 minutes per toolchain command).
 

@@ -72,6 +72,24 @@ pub(crate) fn install_host(
         raw_catalog,
         profile.provider_timeout()?,
     )?;
+    #[cfg(windows)]
+    {
+        // Scenario --data-dir roots deliberately differ. Request capacity and
+        // cooldown belong to the installed user's account across those roots.
+        let account = crate::model_preferences::account_root()?;
+        crate::model_preferences::ensure_root(&account)?;
+        let registry = settings::registry_root(&account)?;
+        let _parent = registry
+            .hold(None, true)
+            .map_err(|_| "provider pacing parent redirected")?;
+        let pacing = account.join("provider-pacing");
+        match std::fs::create_dir(&pacing) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err("provider pacing directory unavailable".into()),
+        }
+        host.configure_provider_pacing(pacing, profile.provider_timeout()?)?;
+    }
     if let Some(routing) = profile.routing.clone() {
         host.configure_routing(routing)?;
     }

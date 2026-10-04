@@ -249,6 +249,19 @@ impl CanonicalHost {
             .runtime
             .admission_generation(thread)
             .map_err(|e| format!("{e:?}"))?;
+        let remaining = std::time::Duration::from_millis(
+            candidate.deadline.get().saturating_sub(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| "provider pacing clock unavailable")?
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            ),
+        );
+        let provider_slot = self
+            .acquire_provider_slot(thread, Some(std::time::Instant::now() + remaining))
+            .await?;
         let mut runtime = HostWorkAdmission::admit(
             &self.runtime,
             thread,
@@ -312,6 +325,10 @@ impl CanonicalHost {
             },
         )
         .await;
+        let rate_limited = match &response {
+            Ok(response) => response.status == 429,
+            Err(failure) => failure.status == Some(429),
+        };
         let completed = admitted.clone();
         let outcome = match response {
             Ok(response) => self.worker.run_cleanup(move |context| {
@@ -335,6 +352,11 @@ impl CanonicalHost {
         };
         guard.runtime.complete()?;
         guard.finished = true;
+        if rate_limited {
+            if let Some(slot) = &provider_slot {
+                slot.cooldown(super::provider_pacing::RATE_LIMIT_COOLDOWN)?;
+            }
+        }
         Ok(outcome)
     }
 }
