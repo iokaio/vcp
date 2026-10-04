@@ -508,7 +508,30 @@ mod request_limit_tests {
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(configured.provider_timeout_seconds, Some(360));
         assert_eq!(configured.deadline_seconds, vcp_domain::Limit::Finite(900));
-        let effective: Profile = serde_json::from_value(selected.clone()).unwrap();
+        let mut effective: Profile = serde_json::from_value(selected.clone()).unwrap();
+        // Preparation validates the real workspace and captured provider bytes
+        // before adopting effective limits; deserialization fixtures cannot
+        // stand in for that boundary.
+        let workspace = tempfile::tempdir().unwrap();
+        let configuration = tempfile::tempdir().unwrap();
+        effective.workspace = workspace.path().canonicalize().unwrap();
+        effective.catalog = configuration.path().join("catalog.json");
+        let raw = serde_json::to_vec(
+            &serde_json::json!({"data":{"id":"fixture/model","endpoints":[{
+                "tag":"fixture/provider","status":0,"context_length":10000,"max_prompt_tokens":9000,
+                "max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],
+                "pricing":{"prompt":"0","completion":"0","request":"0"}
+            }]}}),
+        )
+        .unwrap();
+        std::fs::write(&effective.catalog, &raw).unwrap();
+        let observed = now();
+        let expires = Timestamp::new(observed.get() + 60_000);
+        let mut compatibility = effective.provider.compatibility.clone();
+        compatibility.qualified_at = observed;
+        compatibility.valid_until = expires;
+        effective.provider =
+            Snapshot::from_endpoints(&raw, observed, expires, compatibility).unwrap();
         assert!(effective
             .prepare(Autonomy::Autonomous)
             .unwrap()

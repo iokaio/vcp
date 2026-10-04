@@ -38,16 +38,22 @@ mod diagnostic_cases;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_driver_repairs_failed_checks_and_exports_scoped_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        repaired(backend, false).await;
+        repaired(backend, false, false).await;
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_driver_refreshes_stale_verification_and_exports_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        repaired(backend, true).await;
+        repaired(backend, true, false).await;
     }
 }
-async fn repaired(backend: BackendKind, stale_verification: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_driver_reports_completed_unknown_cost_without_unknown_tool_effects() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        repaired(backend, false, true).await;
+    }
+}
+async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let workspace = temporary.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
@@ -81,7 +87,7 @@ async fn repaired(backend: BackendKind, stale_verification: bool) {
         },
     )
     .unwrap();
-    let config = Config {
+    let mut config = Config {
         canonical_root: temporary.path().join("canonical"),
         backend,
         workspace: WorkspaceId::new(),
@@ -108,6 +114,7 @@ async fn repaired(backend: BackendKind, stale_verification: bool) {
         max_transport_retries: 0,
         host_tool_denials: vec![],
     };
+    if missing_cost { config.cap.micros = vcp_domain::Limit::Unbounded; }
     let scope = Scope {
         workspace: config.workspace.clone(),
         session: config.session.clone(),
@@ -217,7 +224,8 @@ async fn repaired(backend: BackendKind, stale_verification: bool) {
         else if stale_verification && index==1 {json!({"type":"function_call","id":"verify-item","call_id":"initial-verify","name":"vcp_verify","arguments":json!({"citations":[]}).to_string(),"status":"completed"})}
         else if stale_verification && index==2 {json!({"type":"function_call","id":"read-item","call_id":"stale-read","name":"vcp_read","arguments":json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}).to_string(),"status":"completed"})}
         else {json!({"type":"message","id":format!("final-{index}"),"role":"assistant","status":"completed","content":[{"type":"output_text","text":"The change is ready for owner verification.","annotations":[]}]})};
-        let events=[json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("driver-response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})];
+        let cost = if missing_cost { Value::Null } else { json!(0.0001) };
+        let events=[json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("driver-response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":cost}}})];
         ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(events.into_iter().map(|event|format!("data: {event}\n\n")).collect::<String>())
     }).mount(&server).await;
     let credential =
@@ -341,6 +349,15 @@ async fn repaired(backend: BackendKind, stale_verification: bool) {
         .decode()
         .unwrap();
     assert_eq!(task.state, TaskState::Completed);
+    if missing_cost {
+        let outcome = Outcome::read(&host, &scope).unwrap();
+        assert_eq!(outcome.conditions.code(), 0);
+        assert!(!outcome.conditions.unresolved_effect);
+        let ledger: vcp_domain::accounting::Ledger = state.record(Collection::Ledger, scope.task.as_str(), &scope.workspace).unwrap().decode().unwrap();
+        assert_eq!(ledger.settled, Micros::ZERO);
+        assert!(ledger.unresolved > Micros::ZERO);
+        assert_eq!(state.records.values().filter(|row| row.collection == Collection::Artifact).filter_map(|row| row.decode::<ArtifactDescriptor>().ok()).filter(|descriptor| descriptor.spec.schema == "provider-completed-execution/1").count(), count.load(Ordering::SeqCst));
+    }
     let reports: Vec<Verification> = state
         .records
         .values()
@@ -400,6 +417,9 @@ async fn repaired(backend: BackendKind, stale_verification: bool) {
     )
     .unwrap();
     bundle["lifecycle_diagnostics"] = serde_json::to_value(&diagnostics).unwrap();
+    if missing_cost {
+        assert!(bundle.to_string().contains("provider-completed-execution/1"), "inspection retains the reporting proof metadata");
+    }
     if let Some(artifact) = stale_observation {
         bundle["fixture_observation_artifacts"] = json!([artifact]);
     }
@@ -424,6 +444,7 @@ async fn repaired(backend: BackendKind, stale_verification: bool) {
     drop(session);
     drop(host);
     let (reopened, reopened_owner) = CanonicalHost::open(config).unwrap();
+    if missing_cost { assert_eq!(Outcome::read(&reopened, &scope).unwrap().conditions.code(), 0); }
     assert!(reopened
         .execution_diagnostics(scope)
         .unwrap()

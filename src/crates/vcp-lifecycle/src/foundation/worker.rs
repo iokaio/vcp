@@ -31,6 +31,7 @@ mod escalation;
 #[cfg(windows)]
 mod execution;
 mod execution_constraints;
+mod financial_outcome;
 #[cfg(windows)]
 mod hooks;
 #[cfg(windows)]

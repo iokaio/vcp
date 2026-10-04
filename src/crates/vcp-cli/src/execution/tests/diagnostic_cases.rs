@@ -2,6 +2,12 @@
 //! Retained production-path diagnostic fixtures, using an isolated provider.
 use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_provider_remains_unresolved_without_completed_financial_proof() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        diagnostic_case(backend, Case::InterruptedProvider).await;
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archives_context_omission_and_interrupted_provider_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         diagnostic_case(backend, Case::ContextOmission).await;
@@ -67,7 +73,7 @@ async fn diagnostic_case(backend: BackendKind, case: Case) {
         },
     )
     .unwrap();
-    let config = Config {
+    let mut config = Config {
         canonical_root: temporary.path().join("canonical"),
         backend,
         workspace: WorkspaceId::new(),
@@ -94,6 +100,7 @@ async fn diagnostic_case(backend: BackendKind, case: Case) {
         max_transport_retries: 0,
         host_tool_denials: vec![],
     };
+    if interrupted { config.cap.micros = vcp_domain::Limit::Unbounded; }
     let scope = Scope {
         workspace: config.workspace.clone(),
         session: config.session.clone(),
@@ -444,6 +451,13 @@ setInterval(()=>{},1000);
         }
     } else if interrupted {
         assert_eq!(count.load(Ordering::SeqCst), 1);
+        let outcome = Outcome::read(&host, &scope).unwrap();
+        assert!(outcome.conditions.unresolved_effect);
+        assert_eq!(outcome.conditions.code(), 7);
+        assert!(!artifacts.iter().any(|artifact| artifact.spec.schema == "provider-completed-execution/1"));
+        for row in state.records.values().filter(|row| row.collection == Collection::Attempt) {
+            assert!(!host.completed_financial_uncertainty(row.decode().unwrap()).unwrap());
+        }
         assert!(view.effects.is_empty(), "partial patch cannot execute");
         let partial = artifacts
             .iter()

@@ -75,6 +75,8 @@ Qualified prerequisites now include a factory that owns the real canonical lock 
 
 **Accepted way forward.** A narrower reviewed change permits progression only when the response was captured, normalized as `Completed`, has no terminal diagnostic and has missing cost under an unbounded ledger. It retains unresolved charge evidence. A both-store fixture passes unique-attempt, duplicate-tool denial and reopen-without-send checks. Incomplete/error responses and uncertain sends/effects remain fenced.
 
+**Reporting integration.** The CLI previously classified every Submitted or ReconciliationPending attempt as an unresolved effect, even after the provider had completed successfully. Reporting now verifies a retained completion proof joined to the exact attempt, send/admission identity, complete artifact descriptors and captured terminal hash. This evidence does not authorize a send, resume work or settle cost. Actual CLI repair and read-only reopen passed on both stores with unresolved charges retained; an interrupted response still exits 7. Duplicate proof records fail closed. This closes the known completed-response reporting defect; in-flight pause and unknown-price admission still require separate qualification.
+
 **Further alternatives.** Investigate stronger typed evidence that separates a completed exchange with an unknown bill from an unknown execution outcome before broadening any other transition. Continue all independent work meanwhile. If the only remaining proposal genuinely weakens the uncertain-execution boundary, document its concrete effects and request that specific owner decision; do not retry the rejected broad change through another tool, file or flag.
 
 ## B-06 — The scenario supervisor still encodes the old experiment policy

@@ -493,6 +493,13 @@ impl CanonicalHost {
             Ok(bytes)
         })
     }
+
+    /// Reporting-only proof that a pending charge belongs to a validated complete
+    /// response. Missing evidence never authorizes execution or resolves billing.
+    pub fn completed_financial_uncertainty(&self, attempt: Attempt) -> Result<bool, String> {
+        self.worker
+            .run_cleanup(move |context| context.completed_financial_uncertainty(&attempt))
+    }
     pub fn project(&self) -> Result<vcp_audit::projection::View, String> {
         self.worker.run(|context| {
             let workspace = context.config.workspace.clone();

@@ -170,6 +170,39 @@ pub fn retained_generation(bytes: &[u8]) -> Result<Option<ObservedGeneration>> {
     Ok(stream.observed_generation().cloned())
 }
 
+/// Exact completed terminal identity for diagnostic joins, without imposing a
+/// provider billing-receipt ID format or exposing executable tool proposals.
+pub fn retained_completed_terminal(bytes: &[u8]) -> Result<Option<ObservedGeneration>> {
+    let mut stream = Stream::new(Tools::parse(&serde_json::json!([]))?);
+    stream.identity_only = true;
+    for chunk in bytes.chunks(65_536) {
+        stream.push(chunk)?;
+    }
+    let Some(terminal) = stream.terminal_data.as_deref() else {
+        return Ok(None);
+    };
+    let clean_tail =
+        stream.line.is_empty() && stream.data.is_empty() && stream.event_type.is_none();
+    let optional_done_prefix = !stream.done
+        && stream.event_type.is_none()
+        && ((stream.data.is_empty()
+            && [b"data: [DONE]".as_slice(), b"data:[DONE]".as_slice()]
+                .iter()
+                .any(|sentinel| sentinel.starts_with(&stream.line)))
+            || (stream.line.is_empty() && stream.data == b"[DONE]\n"));
+    if !clean_tail && !optional_done_prefix {
+        return Err(Error::Protocol("truncated retained terminal tail"));
+    }
+    let value = crate::decision::unique_json::parse_sse(terminal.as_bytes())?;
+    if value["type"] != "response.completed" || value["response"]["status"] != "completed" {
+        return Ok(None);
+    }
+    Ok(Some(ObservedGeneration {
+        request_id: identity(&value["response"], "id")?,
+        frame_sha256: vcp_protocol::digest_bytes(terminal.as_bytes()),
+    }))
+}
+
 /// One parser per admitted attempt. Raw bytes must be captured before push.
 /// Bounded framing operates on bytes so arbitrary UTF-8 transport splits work.
 pub struct Stream {

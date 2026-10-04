@@ -1404,13 +1404,34 @@ impl Context {
         }
         #[cfg(windows)]
         if self.coding.contains_key(&binding.scope.task) {
+            let financial_proof = normalized
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.cost.as_ref())
+                .is_none()
+                && admitted.phase == ReservationState::ReconciliationPending
+                && normalized
+                    .served_model
+                    .as_ref()
+                    .is_none_or(|model| model == &admitted.quote.price.model);
             self.complete_coding_response(
                 binding,
                 attempt,
                 normalized,
-                vec![descriptor.spec.id, normalized_capture.spec.id],
+                vec![
+                    descriptor.spec.id.clone(),
+                    normalized_capture.spec.id.clone(),
+                ],
                 mcp_provenance,
             )?;
+            if financial_proof {
+                self.record_completed_financial_uncertainty(
+                    &admitted,
+                    response_id,
+                    descriptor,
+                    normalized_capture,
+                )?;
+            }
         }
         Ok(())
     }

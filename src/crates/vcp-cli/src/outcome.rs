@@ -111,7 +111,9 @@ impl Outcome {
                         conditions.unresolved_effect |= matches!(
                             attempt.phase,
                             ReservationState::Submitted | ReservationState::ReconciliationPending
-                        );
+                        ) && !host
+                            .completed_financial_uncertainty(attempt)
+                            .unwrap_or(false);
                     }
                 }
                 Collection::Approval => {

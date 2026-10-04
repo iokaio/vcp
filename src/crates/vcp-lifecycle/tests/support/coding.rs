@@ -1385,6 +1385,26 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 assert!(attempts.iter().all(|attempt| attempt.phase
                     == vcp_domain::accounting::ReservationState::ReconciliationPending
                     && attempt.send_intent.is_some()));
+                let proofs: Vec<ArtifactDescriptor> = host.snapshot().unwrap().records.values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                    .filter(|artifact| artifact.spec.schema == "provider-completed-execution/1").collect();
+                assert_eq!(proofs.len(), expected, "one proof per complete missing-cost response");
+                for proof in proofs {
+                    let value: serde_json::Value = serde_json::from_slice(&host.read_artifact(proof.spec.id).unwrap()).unwrap();
+                    let raw = ArtifactId::parse(value["raw"]["spec"]["id"].as_str().unwrap()).unwrap();
+                    let captured = host.read_artifact(raw).unwrap();
+                    let identity = vcp_models::stream::retained_completed_terminal(&captured).unwrap();
+                    assert_eq!(identity.map(|identity| identity.request_id), value["response_id"].as_str().map(str::to_owned));
+                }
+                for attempt in attempts {
+                    assert!(host.completed_financial_uncertainty(attempt).unwrap());
+                }
+            }
+            if mode == "missing_cost" || mode == "deadline" {
+                for row in host.snapshot().unwrap().records.values().filter(|row| row.collection == Collection::Attempt) {
+                    assert!(!host.completed_financial_uncertainty(row.decode().unwrap()).unwrap());
+                }
             }
             assert!(codex_extension_api::HostWorkAdmission::admit_tool(
                 &host,
@@ -1429,6 +1449,9 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 );
                 assert_eq!(restored.ledgers[&config.root_task].settled, Micros::ZERO);
                 assert_eq!(restored.effects.len(), view.effects.len());
+                for row in reopened.snapshot().unwrap().records.values().filter(|row| row.collection == Collection::Attempt) {
+                    assert!(reopened.completed_financial_uncertainty(row.decode().unwrap()).unwrap());
+                }
                 assert_eq!(
                     count.load(Ordering::SeqCst),
                     expected,
@@ -1438,6 +1461,28 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     std::fs::read_to_string(workspace.join("file.txt")).unwrap(),
                     "after\n"
                 );
+                // Even identical duplicate proof records are ambiguous. Retain
+                // all bytes, but fail closed when interpreting the report.
+                use vcp_store::artifact::ArtifactWriter;
+                let proof = reopened.snapshot().unwrap().records.values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                    .find(|artifact| artifact.spec.schema == "provider-completed-execution/1").unwrap();
+                let bytes = reopened.read_artifact(proof.spec.id.clone()).unwrap();
+                let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                let id = AttemptId::parse(value["attempt"].as_str().unwrap()).unwrap();
+                let attempt = reopened.snapshot().unwrap().record(Collection::Attempt, id.as_str(), &config.workspace).unwrap().decode().unwrap();
+                assert!(reopened.completed_financial_uncertainty(attempt).unwrap());
+                let spool = vcp_store::artifact::Spool::open(&config.canonical_root.join("spool"), &[workspace.clone()], config.artifact_limit.get()).unwrap();
+                let mut spec = proof.spec;
+                spec.id = ArtifactId::new();
+                let mut writer = spool.create(spec).unwrap();
+                writer.write_chunk(&bytes).unwrap();
+                let duplicate = writer.finalize().unwrap();
+                drop(writer);
+                reopened.command(Command::AttachArtifact { descriptor: duplicate }, Some(config.root_task.clone()), Revision::ZERO).unwrap();
+                let attempt = reopened.snapshot().unwrap().record(Collection::Attempt, id.as_str(), &config.workspace).unwrap().decode().unwrap();
+                assert!(!reopened.completed_financial_uncertainty(attempt).unwrap());
                 owner.close().await.unwrap();
             }
             if mode == "complete" && !unknown_cost && !unbounded_time {

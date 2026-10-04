@@ -11,6 +11,55 @@ fn tools() -> Value {
     json!([{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}])
 }
 #[test]
+fn completed_terminal_proof_is_independent_of_billing_id_and_rejects_partial_tails() {
+    let terminal = json!({"type":"response.completed","response":{"id":"local-response-1","status":"completed","output":[]}}).to_string();
+    let raw = format!("data: {terminal}\n\n");
+    assert!(
+        retained_generation(raw.as_bytes()).unwrap().is_none(),
+        "not a billing receipt identity"
+    );
+    let observed = retained_completed_terminal(raw.as_bytes())
+        .unwrap()
+        .unwrap();
+    assert_eq!(observed.request_id, "local-response-1");
+    assert_eq!(
+        observed.frame_sha256,
+        vcp_protocol::digest_bytes(terminal.as_bytes())
+    );
+    for tail in ["", "data: [DO", "data: [DONE]\n", "data: [DONE]\n\n"] {
+        assert!(
+            retained_completed_terminal(format!("{raw}{tail}").as_bytes())
+                .unwrap()
+                .is_some()
+        );
+    }
+    for tail in [
+        "garbage",
+        "data: unexpected",
+        "data: [DONE]\n\ndata: [DO",
+        "data: {}\n\n",
+    ] {
+        assert!(retained_completed_terminal(format!("{raw}{tail}").as_bytes()).is_err());
+    }
+    assert!(
+        retained_completed_terminal(format!("data: {terminal}\n").as_bytes())
+            .unwrap()
+            .is_none()
+    );
+    for state in ["failed", "incomplete"] {
+        let terminal = json!({"type":format!("response.{state}"),"response":{"id":"local-response-1","status":state}});
+        assert!(
+            retained_completed_terminal(format!("data: {terminal}\n\n").as_bytes())
+                .unwrap()
+                .is_none()
+        );
+    }
+    let conflicting = format!(
+        "data: {{\"type\":\"response.created\",\"response\":{{\"id\":\"other\"}}}}\n\n{raw}"
+    );
+    assert!(retained_completed_terminal(conflicting.as_bytes()).is_err());
+}
+#[test]
 fn nullable_tool_input_accepts_only_explicit_string_or_null() {
     let mut schema = tools();
     schema[0]["parameters"]["properties"]["path"]["type"] = json!(["string", "null"]);
