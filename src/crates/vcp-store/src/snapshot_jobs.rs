@@ -141,7 +141,7 @@ impl Jobs {
             ));
         }
         let current: Workspace = store
-            .state()
+            .current()
             .record(Collection::Workspace, workspace.as_str(), workspace)?
             .decode()?;
         if current.deletion.get() != job.deletion || current.authority.get() != job.authority {
@@ -207,7 +207,7 @@ impl Jobs {
     }
     pub fn inspect(store: &Store, id: &CommandId, workspace: &WorkspaceId) -> Result<Job> {
         let row = store
-            .state()
+            .current()
             .record(Collection::SnapshotPin, id.as_str(), workspace)?;
         let job: Job = row.decode()?;
         if job.schema_version != 1
@@ -262,7 +262,7 @@ impl Jobs {
     ) -> Result<Capture> {
         self.path(&id, "archive")?;
         if store
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::SnapshotPin, id.as_str()))
         {
@@ -356,7 +356,7 @@ impl Jobs {
         let state = snapshot.state();
         if captured_workspace != *workspace
             || source_root != store.root()
-            || state.watermark != store.state().watermark
+            || state.watermark != store.current().watermark
         {
             return Err(Error::Conflict(
                 "snapshot input cut changed; recapture required",
@@ -697,7 +697,7 @@ impl Jobs {
             return Err(Error::Conflict("snapshot admission evidence changed"));
         }
         let ws: Workspace = store
-            .state()
+            .current()
             .record(Collection::Workspace, workspace.as_str(), workspace)?
             .decode()?;
         if ws.deletion.get() != job.deletion || ws.authority.get() != job.authority {
@@ -845,7 +845,7 @@ async fn put(store: &mut Store, job: &Job, expected: Option<Revision>) -> Result
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put { expected, record }],
             events: vec![],
             command: None,

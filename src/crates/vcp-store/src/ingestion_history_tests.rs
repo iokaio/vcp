@@ -254,6 +254,8 @@ fn equivalent(state: &State) {
     let expected = reference(state).map_err(|error| error.to_string());
     assert_eq!(validate(state).map_err(|error| error.to_string()), expected);
     let (cursors, jobs) = inputs(state);
+    let current = crate::CurrentState::from_state(state);
+    let current_inputs = Inputs::new((&current).into()).unwrap();
     for width in [1, 2, 7, 256] {
         for owned in [false, true] {
             let mut history = ingestion_history::IngestionHistory::new(
@@ -271,6 +273,20 @@ fn equivalent(state: &State) {
             }
             assert_eq!(
                 validate_history(state, &cursors, &jobs, history.finish().unwrap())
+                    .map_err(|error| error.to_string()),
+                expected
+            );
+            let mut feed = current_inputs.history(state.events.len());
+            for page in state.events.chunks(width) {
+                if owned {
+                    feed.extend(page.to_vec().into_iter().map(Ok)).unwrap();
+                } else {
+                    feed.extend(page.iter().map(Ok)).unwrap();
+                }
+            }
+            assert_eq!(
+                current_inputs
+                    .finish(feed.finish().unwrap())
                     .map_err(|error| error.to_string()),
                 expected
             );
@@ -400,6 +416,50 @@ fn read_failure_and_missing_tail_cannot_be_successful_ingestion_validation() {
         state.events.len(),
     );
     assert!(history.finish().is_err());
+}
+
+#[test]
+fn current_ingestion_inputs_accept_owned_pages_but_never_failed_or_partial_history() {
+    let (state, _, _) = queued();
+    let current = crate::CurrentState::from_state(&state);
+    let events = state.events.to_vec();
+    let expected = reference(&state).map_err(|error| error.to_string());
+    drop(state);
+    let inputs = Inputs::new((&current).into()).unwrap();
+    assert!(inputs.needs_history());
+    let mut full = inputs.history(events.len());
+    for page in events.chunks(1) {
+        full.extend(page.to_vec().into_iter().map(Ok)).unwrap();
+    }
+    assert_eq!(
+        inputs
+            .finish(full.finish().unwrap())
+            .map_err(|error| error.to_string()),
+        expected
+    );
+    for after_rows in [false, true] {
+        let mut failed = inputs.history(events.len());
+        if after_rows {
+            failed.extend(events.clone().into_iter().map(Ok)).unwrap();
+        }
+        assert!(matches!(
+            failed.extend::<EventEnvelope>([Err(Error::Unavailable("owned page failed"))]),
+            Err(Error::Unavailable("owned page failed"))
+        ));
+        assert!(
+            failed.extend(events.clone().into_iter().map(Ok)).is_err(),
+            "a failed stream cannot recover by adding later pages"
+        );
+        assert!(failed.finish().is_err());
+    }
+    let mut partial = inputs.history(events.len());
+    partial
+        .extend(events[..events.len() - 1].iter().cloned().map(Ok))
+        .unwrap();
+    assert!(
+        partial.finish().is_err(),
+        "an incomplete global prefix is not valid ingestion evidence"
+    );
 }
 
 #[test]

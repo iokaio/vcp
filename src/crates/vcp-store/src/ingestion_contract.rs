@@ -7,6 +7,10 @@ use vcp_domain::{
 };
 #[path = "ingestion_history.rs"]
 mod ingestion_history;
+#[path = "ingestion_inputs.rs"]
+mod ingestion_inputs;
+pub(crate) use ingestion_history::{History, IngestionHistory};
+pub(crate) use ingestion_inputs::Inputs;
 
 pub(super) fn kind(record: &Record) -> Result<Option<&str>> {
     let Some(kind) = record.value["document_type"].as_str() else {
@@ -174,42 +178,24 @@ pub(super) fn transition(previous: &Record, record: &Record) -> Result<()> {
 }
 
 pub(super) fn validate(state: &State) -> Result<()> {
-    let mut cursors = BTreeMap::<CommandId, Cursor>::new();
-    let mut jobs = BTreeMap::<CommandId, Job>::new();
-    for record in state.records.values() {
-        match kind(record)? {
-            Some("vcp_ingestion_cursor_v1") => {
-                let cursor: Cursor = record.decode()?;
-                cursors.insert(cursor.id.clone(), cursor);
-            }
-            Some("vcp_ingestion_job_v1") => {
-                let job: Job = record.decode()?;
-                jobs.insert(job.id.clone(), job);
-            }
-            _ => (),
-        }
-    }
+    let inputs = Inputs::new(state.into())?;
     // Full event validation already ran in State::validate. No ingestion
     // history constraint exists when there are no cursor or job records.
-    if cursors.is_empty() && jobs.is_empty() {
+    if !inputs.needs_history() {
         return Ok(());
     }
-    let mut history = ingestion_history::IngestionHistory::new(
-        &state.records,
-        &cursors,
-        &jobs,
-        state.events.len(),
-    );
+    let mut history = inputs.history(state.events.len());
     history.extend(state.events.iter().map(Ok))?;
-    validate_history(state, &cursors, &jobs, history.finish()?)
+    inputs.finish(history.finish()?)
 }
 
-fn validate_history(
-    state: &State,
+fn validate_history<'a>(
+    state: impl Into<crate::CurrentStateView<'a>>,
     cursors: &BTreeMap<CommandId, Cursor>,
     jobs: &BTreeMap<CommandId, Job>,
     mut history: ingestion_history::History,
 ) -> Result<()> {
+    let state = state.into();
     for cursor in cursors.values() {
         let root: Task = state
             .record(

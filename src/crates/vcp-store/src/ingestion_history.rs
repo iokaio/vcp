@@ -26,12 +26,12 @@ pub(super) struct CursorProgress {
     pub boundary: Option<Watermark>,
     pub first_error: Option<Error>,
 }
-pub(super) struct History {
-    pub count: usize,
-    pub origins: BTreeMap<EventId, Origin>,
-    pub cursors: BTreeMap<CommandId, CursorProgress>,
+pub(crate) struct History {
+    pub(super) count: usize,
+    pub(super) origins: BTreeMap<EventId, Origin>,
+    pub(super) cursors: BTreeMap<CommandId, CursorProgress>,
 }
-pub(super) struct IngestionHistory<'a> {
+pub(crate) struct IngestionHistory<'a> {
     records: &'a BTreeMap<String, Record>,
     active_cursors: Vec<&'a Cursor>,
     jobs: &'a BTreeMap<CommandId, Job>,
@@ -68,7 +68,7 @@ impl<'a> IngestionHistory<'a> {
         }
     }
 
-    pub(super) fn extend<E: Borrow<EventEnvelope>>(
+    pub(crate) fn extend<E: Borrow<EventEnvelope>>(
         &mut self,
         rows: impl IntoIterator<Item = Result<E>>,
     ) -> Result<()> {
@@ -123,7 +123,7 @@ impl<'a> IngestionHistory<'a> {
         Ok(())
     }
 
-    pub(super) fn finish(self) -> Result<History> {
+    pub(crate) fn finish(self) -> Result<History> {
         if self.failed || self.history.count != self.expected_count {
             return Err(Error::Corruption("ingestion history validation failed"));
         }

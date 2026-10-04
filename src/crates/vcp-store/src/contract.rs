@@ -20,7 +20,7 @@ use vcp_protocol::{
 #[path = "agents_contract.rs"]
 mod agents_contract;
 #[path = "ingestion_contract.rs"]
-mod ingestion_contract;
+pub(crate) mod ingestion_contract;
 #[path = "search_contract.rs"]
 mod search_contract;
 #[path = "state_size.rs"]
@@ -29,14 +29,19 @@ pub(crate) use state_size::StateSize;
 #[path = "prepared_transition.rs"]
 mod prepared_transition;
 pub(crate) use prepared_transition::PreparedTransition;
-#[path = "mutation_preparation.rs"]
-mod mutation_preparation;
-#[path = "event_history_validation.rs"]
-pub(crate) mod event_history_validation;
-#[path = "record_validation_facts.rs"]
-mod record_validation_facts;
+#[path = "current_preparation.rs"]
+pub(crate) mod current_preparation;
+#[cfg(test)]
+#[path = "current_preparation_reference.rs"]
+mod current_preparation_reference;
 #[path = "current_validation.rs"]
 pub(crate) mod current_validation;
+#[path = "event_history_validation.rs"]
+pub(crate) mod event_history_validation;
+#[path = "mutation_preparation.rs"]
+mod mutation_preparation;
+#[path = "record_validation_facts.rs"]
+mod record_validation_facts;
 #[path = "shared_state.rs"]
 mod shared_state;
 pub use shared_state::SharedStateValue;
@@ -1352,147 +1357,59 @@ impl State {
         diagnostics: Option<&mut crate::StoreDiagnostics>,
         mut size: Option<&mut StateSize>,
     ) -> Result<(Self, Commit)> {
-        let bytes = canonical_bytes(transaction)?;
-        if bytes.len() > MAX_TRANSACTION_BYTES {
-            return Err(Error::Limit("transaction bytes"));
-        }
-        let digest = digest_bytes(&bytes);
-        if let Some(receipt) = source.transactions.get(&transaction.id) {
-            if receipt.digest != digest {
-                return Err(Error::Conflict("transaction ID reused"));
-            }
-            return Ok((
-                source.clone(),
-                Commit {
-                    version: FORMAT_VERSION,
-                    transaction: transaction.clone(),
-                    receipt: receipt.clone(),
-                },
-            ));
-        }
-        if transaction.expected_watermark != source.watermark {
-            return Err(Error::Conflict("stale canonical watermark"));
-        }
-        crate::memory_review_contract::transaction(&*source, transaction)?;
-        let watermark = source.watermark.next()?;
-        let mut result = State {
-            watermark: source.watermark,
-            records: source.records.clone(),
-            events: SharedStateValue::default(),
-            commands: SharedStateValue::default(),
-            transactions: SharedStateValue::default(),
-            sequences: source.sequences.clone(),
-        };
-        result.watermark = watermark;
-        let touched = mutation_preparation::prepare(
-            crate::CurrentStateView::from(&*source),
+        let current = crate::CurrentState::from_state(&source);
+        let proposed = match current_preparation::propose(
+            &current,
             transaction,
-            &mut result.records,
-            &mut || crate::legacy_state_stream::digest(&source),
-        )?;
-        let mut first = SessionSeq::ZERO;
-        let mut last = SessionSeq::ZERO;
-        for event in &transaction.events {
-            let sequence = result
-                .sequences
-                .get(&event.session)
-                .copied()
-                .unwrap_or_default()
-                .next()?;
-            result.sequences.insert(event.session.clone(), sequence);
-            if transaction
-                .command
-                .as_ref()
-                .is_some_and(|c| c.session == event.session)
-            {
-                if first == SessionSeq::ZERO {
-                    first = sequence;
-                }
-                last = sequence;
+            &mut current_preparation::StateHistory(&source),
+        )? {
+            current_preparation::Outcome::Duplicate(receipt) => {
+                return Ok((
+                    source.clone(),
+                    Commit {
+                        version: FORMAT_VERSION,
+                        transaction: transaction.clone(),
+                        receipt,
+                    },
+                ));
             }
-            result.events.push(EventEnvelope {
-                redaction: None,
-                version: 1,
-                sequence,
-                watermark,
-                event: event.clone(),
-            });
-        }
-        let command = if let Some(input) = &transaction.command {
-            result.record(
-                Collection::Session,
-                input.session.as_str(),
-                &input.workspace,
-            )?;
-            if input.digest.len() != 64
-                || !input
-                    .digest
-                    .bytes()
-                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-            {
-                return Err(Error::Corruption("command digest"));
-            }
-            if crate::fork_contract::marked(transaction)
-                || transaction.events.iter().any(|e| {
-                    e.workspace != input.workspace
-                        || e.session != input.session
-                        || e.correlation != input.command
-                })
-            {
-                crate::fork_contract::validate(&source, transaction)?;
-            }
-            let key = command_key(&input.workspace, &input.command);
-            if source.commands.contains_key(&key) {
-                return Err(Error::Conflict("command already committed"));
-            }
-            let receipt = CommandReceipt {
-                version: 1,
-                command: input.command.clone(),
-                workspace: input.workspace.clone(),
-                digest: input.digest.clone(),
-                transaction: transaction.id.clone(),
-                watermark,
-                first_event: first,
-                last_event: last,
-                result: input.result.clone(),
-            };
-            result.commands.insert(key, receipt.clone());
-            Some(receipt)
-        } else {
-            None
+            current_preparation::Outcome::Proposed(proposed) => proposed,
         };
-        let receipt = Receipt {
-            transaction: transaction.id.clone(),
-            digest,
-            watermark,
-            command,
-        };
-        result
-            .transactions
-            .insert(transaction.id.clone(), receipt.clone());
+        // Account for the typed delta before transferring any retained rows.
+        // No partial archival State is constructed or passed to a validator.
         let next_size = size
             .as_deref()
-            .map(|size| size.next(&source, &result, &touched))
+            .map(|size| size.next_proposal(&source, &proposed))
             .transpose()?;
-        // All checks requiring the complete prior State have finished. Keep
-        // candidate validation complete while transferring privately owned
-        // history. Borrowed preparation shares untouched collections and
-        // detaches only components receiving a new event or receipt.
+        let current_preparation::ProposedTransition {
+            current,
+            mut events,
+            receipt,
+            ..
+        } = proposed;
         let mut history = source.history();
-        if !result.events.is_empty() {
-            history.append(&mut result.events);
+        if !events.is_empty() {
+            history.append(&mut events);
         }
-        result.events = history;
         let mut commands = source.commands();
-        for (key, receipt) in std::mem::take(&mut result.commands) {
-            commands.insert(key, receipt);
+        if let Some(command) = &receipt.command {
+            commands.insert(
+                command_key(&command.workspace, &command.command),
+                command.clone(),
+            );
         }
-        result.commands = commands;
         let mut transactions = source.transactions();
-        for (id, receipt) in std::mem::take(&mut result.transactions) {
-            transactions.insert(id, receipt);
-        }
-        result.transactions = transactions;
+        transactions.insert(transaction.id.clone(), receipt.clone());
+        // Construct a complete archival DTO at once: every retained event and
+        // receipt is present before any validation or publication can occur.
+        let result = State {
+            watermark: current.watermark,
+            records: current.records,
+            events: history,
+            commands,
+            transactions,
+            sequences: current.sequences,
+        };
         if let Some(diagnostics) = diagnostics {
             if next_size.is_some() {
                 diagnostics.state_size_delta_updates =
@@ -1632,6 +1549,20 @@ pub trait CanonicalStore {
     async fn history_event_at(&self, ordinal: u64) -> Result<Option<EventEnvelope>> {
         let ordinal = usize::try_from(ordinal).map_err(|_| Error::Limit("history ordinal"))?;
         let event = self.state().events.get(ordinal);
+        if event
+            .map(encoded_len)
+            .transpose()?
+            .is_some_and(|size| size > MAX_COMMIT_BYTES)
+        {
+            return Err(Error::Limit("history event row"));
+        }
+        Ok(event.cloned())
+    }
+
+    /// Exact identity lookup in validated canonical history. Event identities
+    /// are unique; absence is distinct from a failed authenticated read.
+    async fn history_event(&self, id: &EventId) -> Result<Option<EventEnvelope>> {
+        let event = self.state().events.iter().find(|row| &row.event.id == id);
         if event
             .map(encoded_len)
             .transpose()?
