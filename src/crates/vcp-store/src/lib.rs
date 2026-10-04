@@ -6,6 +6,10 @@ mod accounting_contract;
 mod admitted_history;
 pub mod artifact;
 mod backend;
+#[cfg(test)]
+mod journal_frame;
+#[cfg(test)]
+mod history_publication;
 pub mod contract;
 mod current_state;
 mod current_size;
@@ -23,6 +27,7 @@ mod legacy_state_stream;
 mod memory_review_contract;
 pub mod migration;
 mod observer_contract;
+mod original_commits;
 pub mod portable_snapshot;
 mod private_paths;
 mod redaction_contract;

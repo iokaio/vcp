@@ -23,6 +23,9 @@ const HEADER: usize = 8 + 4 + 4 + 64;
 const TRAILER: usize = 64 + 8;
 #[path = "backend_history.rs"]
 mod history;
+#[cfg(test)]
+#[path = "backend_current.rs"]
+mod current_publication;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

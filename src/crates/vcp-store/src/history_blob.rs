@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 use vcp_protocol::digest_bytes;
 
 pub(crate) const CHUNK_BYTES: usize = 64 * 1024;
+#[path = "history_blob_copy.rs"]
+pub(crate) mod copy;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Blob {

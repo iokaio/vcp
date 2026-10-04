@@ -67,11 +67,16 @@ impl Backend {
 }
 impl CommitReader<'_> {
     pub(crate) async fn next(&mut self) -> Result<Option<Commit>> {
+        Ok(self.next_original().await?.map(|original| original.commit))
+    }
+    pub(crate) async fn next_original(
+        &mut self,
+    ) -> Result<Option<crate::original_commits::OriginalCommit>> {
         if self.at == self.validated.watermark {
             return Ok(None);
         }
         let expected = self.at.next()?;
-        let commit = match &mut self.source {
+        let (commit, payload) = match &mut self.source {
             Source::Sqlite(db) => {
                 let row = sqlx::query("SELECT id,CASE WHEN length(payload) BETWEEN 1 AND ? THEN payload ELSE NULL END AS payload,digest FROM commits WHERE watermark=?")
                     .bind(MAX_COMMIT_BYTES as i64)
@@ -94,7 +99,7 @@ impl CommitReader<'_> {
                 if commit.transaction.id.as_str() != row.try_get::<String, _>("id")? {
                     return Err(Error::Corruption("retained commit identity"));
                 }
-                commit
+                (commit, payload)
             }
             Source::Files {
                 file,
@@ -124,7 +129,7 @@ impl CommitReader<'_> {
                 let commit: Commit = serde_json::from_slice(&payload)?;
                 *offset += (HEADER + len + TRAILER) as u64;
                 *chain = hash;
-                commit
+                (commit, payload)
             }
         };
         if commit.version != FORMAT_VERSION
@@ -137,7 +142,10 @@ impl CommitReader<'_> {
             ));
         }
         self.at = expected;
-        Ok(Some(commit))
+        Ok(Some(crate::original_commits::OriginalCommit {
+            bytes: payload,
+            commit,
+        }))
     }
     pub(crate) async fn close(self) -> Result<()> {
         match self.source {
