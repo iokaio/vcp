@@ -26,6 +26,10 @@ mod search_contract;
 #[path = "state_size.rs"]
 mod state_size;
 pub(crate) use state_size::StateSize;
+// Qualification only: production keeps complete historical event validation.
+#[cfg(test)]
+#[path = "event_index.rs"]
+mod event_index_qualification;
 
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_TRANSACTION_BYTES: usize = 8 * 1024 * 1024;
@@ -1237,6 +1241,15 @@ impl State {
                 }
             }
         }
+        self.validate_event_history()?;
+        crate::redaction_contract::validate(self)?;
+        crate::accounting_contract::validate(self)?;
+        ingestion_contract::validate(self)?;
+        search_contract::validate(self)?;
+        agents_contract::validate(self)?;
+        Ok(())
+    }
+    fn validate_event_history(&self) -> Result<()> {
         let mut event_ids = BTreeSet::new();
         let mut sequences = BTreeMap::<SessionId, SessionSeq>::new();
         for event in &self.events {
@@ -1290,11 +1303,6 @@ impl State {
         if sequences != self.sequences {
             return Err(Error::Corruption("session watermark"));
         }
-        crate::redaction_contract::validate(self)?;
-        crate::accounting_contract::validate(self)?;
-        ingestion_contract::validate(self)?;
-        search_contract::validate(self)?;
-        agents_contract::validate(self)?;
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {

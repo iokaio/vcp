@@ -13,6 +13,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
     time::Instant,
 };
 use vcp_domain::{artifact::ArtifactDescriptor, *};
@@ -36,6 +37,7 @@ pub struct Store {
     backend: Backend,
     state: State,
     state_size: StateSize,
+    current: OnceLock<Arc<crate::CurrentState>>,
     base: State,
     prefixes: Vec<crate::replay_base::PrefixCommitment>,
     anchor: PathBuf,
@@ -298,6 +300,7 @@ impl Store {
             backend,
             state,
             state_size,
+            current: OnceLock::new(),
             base,
             prefixes,
             anchor: root.clone(),
@@ -332,6 +335,15 @@ impl Store {
     /// Process-local diagnostics without reading payloads or changing durable state.
     pub fn diagnostics(&self) -> &crate::StoreDiagnostics {
         &self.diagnostics
+    }
+    /// Share a current-record snapshot without cloning historical payloads.
+    /// Successful commits invalidate this cache; existing readers retain their
+    /// immutable watermark. Admission must still check the canonical owner.
+    pub fn current_state(&self) -> Arc<crate::CurrentState> {
+        Arc::clone(
+            self.current
+                .get_or_init(|| Arc::new(crate::CurrentState::from_state(&self.state))),
+        )
     }
     /// Verify retained canonical history at an exact cut. This read-only digest
     /// cannot authorize an import or restore history before the retained base.
@@ -883,6 +895,7 @@ impl CanonicalStore for Store {
         append?;
         self.state = next;
         self.state_size = next_size;
+        self.current.take();
         self.diagnostics.current_watermark = self.state.watermark.get();
         self.commits.push(commit.clone());
         self.poisoned = false;
