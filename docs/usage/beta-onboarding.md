@@ -84,6 +84,15 @@ preserves the exact model/endpoint and adapter evidence, and reparses current ta
 and capabilities. It cannot renew empirical qualification or an expired compiled
 adapter contract. Existing snapshots and task selections remain unchanged (ADR-081).
 
+After an executable update changes the compiled adapter, obtain new evidence for
+the same selected model and endpoint with `vcp setup provider-metadata --model
+<exact-model-id> --endpoint <exact-endpoint-tag> --output <new-private-directory>`.
+This performs one credential-free public metadata GET and zero inference calls.
+The current compiled adapter validates the complete catalog and creates a new
+snapshot; earlier compatibility claims are not reused. Unsupported or ambiguous
+endpoints fail without selecting an alternative. Use the new snapshot and catalog
+with `setup profile`; retained profiles and tasks keep their original evidence.
+
 `setup provider` performs paid inference. Its `--budget-usd` explicitly admits
 one fixed probe pair, at most two requests with no inference retries, capped at
 25 USD per invocation. Select a cap within your separately authorized test

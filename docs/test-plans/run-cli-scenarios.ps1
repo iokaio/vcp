@@ -110,6 +110,17 @@ function Invoke-LauncherProviderRefresh($Ctx, $Candidate) {
             'setup', 'provider-refresh', '--snapshot', (Join-Path $Candidate.generation $snapshotFile),
             '--catalog', (Join-Path $Candidate.generation 'endpoints.json'), '--output', $generation)
         $evidence.exit_code = $run.ExitCode; $evidence.stdout = $run.StdoutPath; $evidence.stderr = $run.StderrPath
+        if ($run.ExitCode -eq 2 -and -not $run.TimedOut -and $run.Stderr -match 'requires the current compiled adapter contract') {
+            $current = Update-ScenarioProviderMetadata $Ctx (Join-Path $Candidate.generation $snapshotFile) (Join-Path $Candidate.generation 'endpoints.json') $Candidate.model $Candidate.endpoint
+            $generation = $current.Generation
+            $evidence.generation = $generation; $evidence.status = 'refreshed'; $evidence.adapter_updated = $true
+            $evidence.valid_until = ($current.SnapshotText | ConvertFrom-Json -Depth 100).valid_until
+            Write-JsonFile $resultPath $evidence
+            Write-JsonFile (Join-Path $Ctx.Results 'provider-selection.json') @{ source = 'same-provider current adapter metadata'; status = 'refreshed'
+                generation = $generation; model = $Candidate.model; endpoint = $Candidate.endpoint; refresh_attempted = $true
+                model_calls = 0; refresh_evidence = $resultPath }
+            return $generation
+        }
         if ($run.ExitCode -ne 0 -or $run.TimedOut -or $run.Result.data.status -ne 'refreshed' -or $run.Result.data.model_calls -ne 0) { throw "Metadata refresh failed (exit $($run.ExitCode)). The installed VCP must support setup provider-refresh (ADR-081); update the executable if this command is unavailable. No paid qualification fallback is used." }
         $valid = Assert-LauncherProvider $generation
         $snapshot = Get-Content -LiteralPath (Join-Path $valid 'snapshot.json') -Raw | ConvertFrom-Json -Depth 100
