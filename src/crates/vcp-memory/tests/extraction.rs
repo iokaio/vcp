@@ -405,11 +405,14 @@ async fn accounted_response_becomes_stable_host_scoped_inference_without_another
         let text = candidates(&fixture.source.spec.id).to_string();
         let context = accounted(&mut fixture, &text).await;
         let snapshot = fixture.engine.store().state().clone();
-        let proposals =
-            extraction::validate(fixture.engine.store(), &fixture.access, &context).unwrap();
+        let proposals = extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .unwrap();
         assert_eq!(
             proposals,
-            extraction::validate(fixture.engine.store(), &fixture.access, &context).unwrap()
+            extraction::validate(fixture.engine.store(), &fixture.access, &context)
+                .await
+                .unwrap()
         );
         assert_eq!(fixture.engine.store().state(), &snapshot);
         assert_eq!(proposals.len(), 1);
@@ -482,12 +485,20 @@ async fn untrusted_candidates_cannot_expand_authority_or_invent_sources() {
     ] {
         let context = accounted(&mut fixture, &output).await;
         let snapshot = fixture.engine.store().state().clone();
-        assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_err());
+        assert!(
+            extraction::validate(fixture.engine.store(), &fixture.access, &context)
+                .await
+                .is_err()
+        );
         assert_eq!(fixture.engine.store().state(), &snapshot);
     }
     let mut context = accounted(&mut fixture, &valid.to_string()).await;
     context.limits.candidate_bytes = 10;
-    assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .is_err()
+    );
     context.limits = Limits::default();
     let mut denied = Access {
         workspace: WorkspaceId::new(),
@@ -497,12 +508,24 @@ async fn untrusted_candidates_cannot_expand_authority_or_invent_sources() {
         write: true,
         tasks: None,
     };
-    assert!(extraction::validate(fixture.engine.store(), &denied, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &denied, &context)
+            .await
+            .is_err()
+    );
     denied.workspace = fixture.access.workspace.clone();
     denied.tasks = Some(Default::default());
-    assert!(extraction::validate(fixture.engine.store(), &denied, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &denied, &context)
+            .await
+            .is_err()
+    );
     context.output_artifact = fixture.source.spec.id.clone();
-    assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -512,7 +535,11 @@ async fn uncertain_accounting_cannot_promote_and_retains_liability() {
     let text = candidates(&fixture.source.spec.id).to_string();
     let context = response(&mut fixture, &text, false).await;
     let before = fixture.engine.store().state().clone();
-    assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .is_err()
+    );
     assert_eq!(fixture.engine.store().state(), &before);
     let attempt: Attempt = before
         .record(
@@ -542,7 +569,11 @@ async fn paused_attempt_task_and_partial_evidence_cannot_promote() {
     .await;
     let text = candidates(&fixture.source.spec.id).to_string();
     let context = accounted(&mut fixture, &text).await;
-    assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .is_err()
+    );
 
     fixture.source = capture(
         &mut fixture.engine,
@@ -553,7 +584,11 @@ async fn paused_attempt_task_and_partial_evidence_cannot_promote() {
     .await;
     let text = candidates(&fixture.source.spec.id).to_string();
     let context = accounted(&mut fixture, &text).await;
-    assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_ok());
+    assert!(
+        extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .is_ok()
+    );
     let task: vcp_domain::task::Task = fixture
         .engine
         .store()
@@ -579,6 +614,10 @@ async fn paused_attempt_task_and_partial_evidence_cannot_promote() {
     )
     .await;
     let before = fixture.engine.store().state().clone();
-    assert!(extraction::validate(fixture.engine.store(), &fixture.access, &context).is_err());
+    assert!(
+        extraction::validate(fixture.engine.store(), &fixture.access, &context)
+            .await
+            .is_err()
+    );
     assert_eq!(fixture.engine.store().state(), &before);
 }

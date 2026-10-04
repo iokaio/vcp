@@ -44,11 +44,11 @@ impl Context {
             );
         }
         let access = self.memory_access();
-        let candidates = match vcp_memory::extraction::validate(
+        let candidates = match self.runtime.block_on(vcp_memory::extraction::validate(
             self.engine.store(),
             &access,
             &context,
-        ) {
+        )) {
             Ok(candidates) => candidates,
             Err(error) => {
                 let data = serde_json::json!({"schema_version":1,"component":"memory_extraction",

@@ -213,7 +213,7 @@ fn descriptor(store: &Store, access: &Access, id: &ArtifactId) -> Result<Artifac
 /// Parse exactly the retained response associated with a settled memory attempt.
 /// Returned proposals still require repository::propose's current gates and
 /// atomic commit. This function performs no mutation and accepts no repair call.
-pub fn validate(
+pub async fn validate(
     store: &Store,
     access: &Access,
     context: &ExtractionContext,
@@ -237,10 +237,8 @@ pub fn validate(
         return Err(Error::Access);
     }
     let origin = store
-        .state()
-        .events
-        .iter()
-        .find(|event| event.event.id == context.origin)
+        .history_event(&context.origin)
+        .await?
         .ok_or_else(|| invalid("extraction origin is not retained"))?;
     let task_id = origin
         .event
@@ -531,8 +529,15 @@ pub fn validate(
             retention: context.retention.clone(),
         };
         proposal.validate()?;
-        access::proposal_scope(store.state(), access, &proposal)?;
-        if crate::history::proposal_removed(store.state(), &access.workspace, &proposal)? {
+        access::proposal_scope_store(store, access, &proposal, &|| Ok(())).await?;
+        if crate::history::proposal_removed_store_with_check(
+            store,
+            &access.workspace,
+            &proposal,
+            &|| Ok(()),
+        )
+        .await?
+        {
             return Err(Error::Access);
         }
         proposals.push(proposal);
