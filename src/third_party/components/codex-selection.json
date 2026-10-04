@@ -237,6 +237,10 @@
       "sha256": "17c2e32650c6c1ff83317f4d6710ab981826e5fab6a518f7ac72855c6f247b23"
     },
     {
+      "path": "src/third_party/patches/codex/0052-explicit-limit-schema-lock.patch",
+      "sha256": "2799535afb26be662ac25b51837e4e5bfc3bd9c3e650a5af3a137222ff1099a3"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
       "sha256": "a8c7990349d62a5ff2b3093836433658935da9c9cbc2cb3f2f3a3c22a097b20f"
     }

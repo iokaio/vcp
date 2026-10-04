@@ -1,5 +1,7 @@
 # Codex compatibility patch series
 
+Patch `0052-explicit-limit-schema-lock.patch` records the EE-01b `vcp-domain` dependency on the already-pinned `schemars 0.8.22` for explicit-limit schemas. It repairs provenance for the existing lockfile change and precedes the automatic product-version patch; it adds no dependency version or runtime behavior.
+
 Original base: `openai/codex@3d3ae4965ab370217e871b3a7f0d15589557ee4b`.
 The current selection uses `openai/codex@8b78600dc85cc265d7e7e827f6aa903875405287`;
 all 36 patches replay unchanged, without conflicts, in the
