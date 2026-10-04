@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Both canonical adapters must retain the same governed-write invariants.
+#[path = "origin_history.rs"]
+mod origin_history;
 use std::collections::BTreeMap;
 use vcp_domain::{
     artifact::{ArtifactDescriptor, ArtifactSpec, Channel},

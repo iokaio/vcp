@@ -98,8 +98,14 @@ pub async fn execute(
                 .iter()
                 .map(|row| row.event.event.id.clone())
                 .collect();
-            let (links, truncated) = vcp_memory::history::origin_links(store, access, &origins)
-                .map_err(|e| e.to_string())?;
+            let (links, truncated) = vcp_memory::history::origin_links_store_with_check(
+                store,
+                access,
+                &origins,
+                &|| Ok(()),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
             let mut value = serde_json::to_value(page).map_err(|e| e.to_string())?;
             value["claim_links"] = serde_json::to_value(links).map_err(|e| e.to_string())?;
             value["claim_links_truncated"] = serde_json::json!(truncated);

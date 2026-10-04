@@ -208,14 +208,17 @@ async fn inspect(
         .iter()
         .map(|row| row.event.event.id.clone())
         .collect();
-    let (links, truncated) =
-        vcp_memory::history::origin_links_with_check(store, &memory_access, &origins, &|| {
-            check().map_err(|_| vcp_memory::Error::Conflict("history query interrupted"))
-        })
-        .map_err(|error| match error {
-            vcp_memory::Error::Access => failure(Code::PolicyDenied),
-            _ => unavailable(),
-        })?;
+    let (links, truncated) = vcp_memory::history::origin_links_store_with_check(
+        store,
+        &memory_access,
+        &origins,
+        &|| check().map_err(|_| vcp_memory::Error::Conflict("history query interrupted")),
+    )
+    .await
+    .map_err(|error| match error {
+        vcp_memory::Error::Access => failure(Code::PolicyDenied),
+        _ => unavailable(),
+    })?;
     check()?;
     let next_cursor = page
         .next_cursor

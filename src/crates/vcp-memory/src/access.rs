@@ -3,6 +3,11 @@ use crate::{Error, Result};
 use std::collections::BTreeSet;
 use vcp_domain::{ids::*, revision::*, workspace::Workspace};
 use vcp_store::contract::{Collection, State};
+use vcp_store::CurrentStateView;
+
+mod origin_proof;
+pub(crate) use origin_proof::version_scope_store;
+use origin_proof::{OriginProof, StateOrigins};
 
 /// Issued by the authenticated host. Serialized proposals cannot mint access.
 pub struct Access {
@@ -26,7 +31,12 @@ impl Access {
         }
     }
 }
-pub(crate) fn authorize(state: &State, access: &Access, write: bool) -> Result<Workspace> {
+pub(crate) fn authorize<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    access: &Access,
+    write: bool,
+) -> Result<Workspace> {
+    let state = state.into();
     if !access.read || (write && !access.write) {
         return Err(Error::Access);
     }
@@ -68,25 +78,20 @@ pub(crate) fn proposal_scope(
     access: &Access,
     proposal: &vcp_domain::memory::Proposal,
 ) -> Result<()> {
+    proposal_scope_with_history(state.into(), access, proposal, &mut StateOrigins(state))
+}
+
+fn proposal_scope_with_history(
+    state: CurrentStateView<'_>,
+    access: &Access,
+    proposal: &vcp_domain::memory::Proposal,
+    history: &mut impl OriginProof,
+) -> Result<()> {
     use vcp_domain::{artifact::ArtifactDescriptor, verification::Verification};
     if proposal.scope.workspace != access.workspace || !access.allows_task(&proposal.scope.task) {
         return Err(Error::Access);
     }
-    for origin in state
-        .events
-        .iter()
-        .filter(|event| proposal.origins.contains(&event.event.id))
-    {
-        if origin.event.workspace != access.workspace
-            || origin
-                .event
-                .task
-                .as_ref()
-                .is_some_and(|task| !access.allows_task(task))
-        {
-            return Err(Error::Access);
-        }
-    }
+    history.check(access, &proposal.origins, false)?;
     for reference in &proposal.evidence {
         if let Some(row) = state.records.get(&vcp_store::contract::key(
             Collection::Artifact,
@@ -130,7 +135,7 @@ pub(crate) fn proposal_scope(
                 }
             } else if row.value["document_type"] == vcp_domain::redaction::VERSION {
                 let prior: vcp_domain::redaction::RedactedVersion = row.decode()?;
-                redacted_scope(state, access, &prior.scope, &prior.sources)?;
+                redacted_scope_with_history(state, access, &prior.scope, &prior.sources, history)?;
             }
         }
     }
@@ -142,17 +147,26 @@ pub(crate) fn resolution_scope(
     access: &Access,
     resolution: &vcp_domain::memory::Resolution,
 ) -> Result<()> {
+    resolution_scope_with_history(state.into(), access, resolution, &mut StateOrigins(state))
+}
+
+fn resolution_scope_with_history(
+    state: CurrentStateView<'_>,
+    access: &Access,
+    resolution: &vcp_domain::memory::Resolution,
+    history: &mut impl OriginProof,
+) -> Result<()> {
     for id in &resolution.conflicts {
         let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
         if row.value["document_type"] == vcp_domain::redaction::VERSION {
             let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
-            redacted_scope(state, access, &version.scope, &version.sources)?;
+            redacted_scope_with_history(state, access, &version.scope, &version.sources, history)?;
             continue;
         }
         let version: vcp_domain::memory::Version = state
             .record(Collection::Claim, id.as_str(), &access.workspace)?
             .decode()?;
-        proposal_scope(state, access, &version.proposal)?;
+        proposal_scope_with_history(state, access, &version.proposal, history)?;
     }
     Ok(())
 }
@@ -162,8 +176,17 @@ pub(crate) fn version_scope(
     access: &Access,
     version: &vcp_domain::memory::Version,
 ) -> Result<()> {
-    proposal_scope(state, access, &version.proposal)?;
-    resolution_scope(state, access, &version.resolution)
+    version_scope_with_history(state.into(), access, version, &mut StateOrigins(state))
+}
+
+fn version_scope_with_history(
+    state: CurrentStateView<'_>,
+    access: &Access,
+    version: &vcp_domain::memory::Version,
+    history: &mut impl OriginProof,
+) -> Result<()> {
+    proposal_scope_with_history(state, access, &version.proposal, history)?;
+    resolution_scope_with_history(state, access, &version.resolution, history)
 }
 
 /// Redaction preserves provenance identities, never authority. Resolve today's
@@ -174,32 +197,34 @@ pub(crate) fn redacted_scope(
     scope: &vcp_domain::workspace::Scope,
     sources: &vcp_domain::redaction::Sources,
 ) -> Result<()> {
+    redacted_scope_with_history(
+        state.into(),
+        access,
+        scope,
+        sources,
+        &mut StateOrigins(state),
+    )
+}
+
+fn redacted_scope_with_history(
+    state: CurrentStateView<'_>,
+    access: &Access,
+    scope: &vcp_domain::workspace::Scope,
+    sources: &vcp_domain::redaction::Sources,
+    history: &mut impl OriginProof,
+) -> Result<()> {
     fn check(
-        state: &State,
+        state: CurrentStateView<'_>,
         access: &Access,
         scope: &vcp_domain::workspace::Scope,
         sources: &vcp_domain::redaction::Sources,
         visited: &mut BTreeSet<ClaimVersionId>,
+        history: &mut impl OriginProof,
     ) -> Result<()> {
         if scope.workspace != access.workspace || !access.allows_task(&scope.task) {
             return Err(Error::Access);
         }
-        for id in &sources.origins {
-            let event = state
-                .events
-                .iter()
-                .find(|e| &e.event.id == id)
-                .ok_or(Error::Access)?;
-            if event.event.workspace != access.workspace
-                || event
-                    .event
-                    .task
-                    .as_ref()
-                    .is_some_and(|t| !access.allows_task(t))
-            {
-                return Err(Error::Access);
-            }
-        }
+        history.check(access, &sources.origins, true)?;
         for id in &sources.artifacts {
             let artifact: vcp_domain::artifact::ArtifactDescriptor = state
                 .record(Collection::Artifact, id.as_str(), &access.workspace)?
@@ -226,16 +251,30 @@ pub(crate) fn redacted_scope(
             let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
             if row.value["document_type"] == vcp_domain::redaction::VERSION {
                 let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
-                check(state, access, &version.scope, &version.sources, visited)?;
+                check(
+                    state,
+                    access,
+                    &version.scope,
+                    &version.sources,
+                    visited,
+                    history,
+                )?;
             } else {
                 let version: vcp_domain::memory::Version = row.decode()?;
                 // Convert only metadata to share the same bounded traversal.
                 let redacted = vcp_protocol::redaction::version(&version, DeletionEpoch::new(1))
                     .map_err(Error::Invalid)?;
-                check(state, access, &redacted.scope, &redacted.sources, visited)?;
+                check(
+                    state,
+                    access,
+                    &redacted.scope,
+                    &redacted.sources,
+                    visited,
+                    history,
+                )?;
             }
         }
         Ok(())
     }
-    check(state, access, scope, sources, &mut BTreeSet::new())
+    check(state, access, scope, sources, &mut BTreeSet::new(), history)
 }

@@ -1252,11 +1252,12 @@ async fn apply_inner(
 }
 /// Current recall eligibility is independent of raw history/presentation. A
 /// later RestoreRecall can reverse exclusion but never a purge decision.
-pub fn decision(
-    state: &State,
+pub fn decision<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     workspace: &WorkspaceId,
     target: &Target,
 ) -> Result<Option<Decision>> {
+    let state = state.into();
     let Some(row) = state
         .records
         .get(&key(Collection::Projection, &decision_id(target)?))
@@ -1276,7 +1277,11 @@ pub fn decision(
     }
     Ok(Some(value))
 }
-pub fn purged(state: &State, workspace: &WorkspaceId, target: &Target) -> Result<bool> {
+pub fn purged<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+    target: &Target,
+) -> Result<bool> {
     Ok(decision(state, workspace, target)?.is_some_and(|value| value.purged))
 }
 pub fn recall_allowed(state: &State, workspace: &WorkspaceId, target: &Target) -> Result<bool> {

@@ -14,8 +14,11 @@ use vcp_domain::{
 };
 use vcp_store::{
     contract::{Collection, State},
-    Store,
+    CurrentStateView, Store,
 };
+
+mod origin_links;
+pub use origin_links::origin_links_store_with_check;
 
 #[derive(Serialize)]
 pub struct EvidenceView {
@@ -58,6 +61,22 @@ fn proposal_removed_with_check(
     proposal: &vcp_domain::memory::Proposal,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<bool> {
+    proposal_removed_with_history(
+        state.into(),
+        workspace,
+        proposal,
+        check,
+        &mut origin_links::StateMasks(state),
+    )
+}
+
+fn proposal_removed_with_history(
+    state: CurrentStateView<'_>,
+    workspace: &WorkspaceId,
+    proposal: &vcp_domain::memory::Proposal,
+    check: &dyn Fn() -> Result<()>,
+    history: &mut impl origin_links::MaskProof,
+) -> Result<bool> {
     check()?;
     if crate::retention::purged(
         state,
@@ -72,7 +91,7 @@ fn proposal_removed_with_check(
     let current: vcp_domain::workspace::Workspace = state
         .record(Collection::Workspace, workspace.as_str(), workspace)?
         .decode()?;
-    for record in state.records.values() {
+    for (ordinal, record) in state.records.values().enumerate() {
         check()?;
         if record.collection != Collection::Tombstone || record.workspace != *workspace {
             continue;
@@ -92,18 +111,8 @@ fn proposal_removed_with_check(
         {
             return Ok(true);
         }
-        for e in &state.events {
-            check()?;
-            if e.event.workspace == *workspace
-                && e.event.session == mask.session
-                && e.sequence >= mask.first
-                && e.sequence <= mask.last
-                && (proposal.origins.contains(&e.event.id)
-                    || (e.event.correlation == proposal.command
-                        && e.event.kind == vcp_protocol::event::EventKind::MemoryResolved))
-            {
-                return Ok(true);
-            }
+        if history.masked(ordinal, &mask, proposal, check)? {
+            return Ok(true);
         }
     }
     Ok(false)
