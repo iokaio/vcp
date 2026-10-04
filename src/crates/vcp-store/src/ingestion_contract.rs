@@ -5,6 +5,8 @@ use vcp_domain::{
     ingestion::{Cursor, Job, JobState},
     workspace::Scope,
 };
+#[path = "ingestion_history.rs"]
+mod ingestion_history;
 
 pub(super) fn kind(record: &Record) -> Result<Option<&str>> {
     let Some(kind) = record.value["document_type"].as_str() else {
@@ -187,6 +189,27 @@ pub(super) fn validate(state: &State) -> Result<()> {
             _ => (),
         }
     }
+    // Full event validation already ran in State::validate. No ingestion
+    // history constraint exists when there are no cursor or job records.
+    if cursors.is_empty() && jobs.is_empty() {
+        return Ok(());
+    }
+    let mut history = ingestion_history::IngestionHistory::new(
+        &state.records,
+        &cursors,
+        &jobs,
+        state.events.len(),
+    );
+    history.extend(state.events.iter().map(Ok))?;
+    validate_history(state, &cursors, &jobs, history.finish()?)
+}
+
+fn validate_history(
+    state: &State,
+    cursors: &BTreeMap<CommandId, Cursor>,
+    jobs: &BTreeMap<CommandId, Job>,
+    mut history: ingestion_history::History,
+) -> Result<()> {
     for cursor in cursors.values() {
         let root: Task = state
             .record(
@@ -200,46 +223,21 @@ pub(super) fn validate(state: &State) -> Result<()> {
         }
         let after = usize::try_from(cursor.after.get())
             .map_err(|_| Error::Corruption("ingestion cursor offset"))?;
-        if after > state.events.len()
+        let progress = history
+            .cursors
+            .remove(&cursor.id)
+            .ok_or(Error::Corruption("ingestion history cursor"))?;
+        if after > history.count
             || cursor.scanned_through > state.watermark
             || (after == 0 && cursor.scanned_through != Watermark::ZERO)
-            || (after > 0 && state.events[after - 1].watermark != cursor.scanned_through)
+            || (after > 0 && progress.boundary != Some(cursor.scanned_through))
         {
             return Err(Error::Corruption("ingestion cursor progress"));
         }
-        for event in state.events.iter().take(after) {
-            if event.event.workspace != cursor.scope.workspace
-                || event.event.session != cursor.scope.session
-            {
-                continue;
-            }
-            let Some(task_id) = &event.event.task else {
-                continue;
-            };
-            let task: Task = state
-                .record(Collection::Task, task_id.as_str(), &cursor.scope.workspace)?
-                .decode()?;
-            let kind = serde_json::to_value(&event.event.kind)?;
-            if task.root == cursor.scope.task
-                && kind.as_str().is_some_and(|kind| {
-                    cursor.extractor.event_kinds.iter().any(|item| item == kind)
-                })
-            {
-                let id = CommandId::parse(job_id(&cursor.id, &event.event.id)?)?;
-                if !jobs.contains_key(&id) {
-                    return Err(Error::Corruption(
-                        "ingestion cursor advanced without durable job",
-                    ));
-                }
-            }
+        if let Some(error) = progress.first_error {
+            return Err(error);
         }
     }
-    let events: BTreeMap<_, _> = state
-        .events
-        .iter()
-        .enumerate()
-        .map(|(i, e)| (&e.event.id, (i, e)))
-        .collect();
     for job in jobs.values() {
         let cursor = cursors
             .get(&job.cursor)
@@ -251,10 +249,11 @@ pub(super) fn validate(state: &State) -> Result<()> {
                 &job.scope.workspace,
             )?
             .decode()?;
-        let (offset, event) = events
+        let event = history
+            .origins
             .get(&job.origin)
             .ok_or(Error::Corruption("ingestion origin missing"))?;
-        let kind = serde_json::to_value(&event.event.kind)?;
+        let kind = &event.kind;
         if job.scope != task.scope
             || task.root != job.root
             || job.root != cursor.scope.task
@@ -262,10 +261,10 @@ pub(super) fn validate(state: &State) -> Result<()> {
             || job.scope.session != cursor.scope.session
             || job.extractor != cursor.extractor
             || event.watermark != job.origin_watermark
-            || event.event.workspace != job.scope.workspace
-            || event.event.session != job.scope.session
-            || event.event.task.as_ref() != Some(&job.scope.task)
-            || *offset as u64 >= cursor.after.get()
+            || event.workspace != job.scope.workspace
+            || event.session != job.scope.session
+            || event.task.as_ref() != Some(&job.scope.task)
+            || event.offset as u64 >= cursor.after.get()
             || !kind
                 .as_str()
                 .is_some_and(|kind| job.extractor.event_kinds.iter().any(|item| item == kind))
@@ -307,3 +306,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "ingestion_history_tests.rs"]
+mod history_tests;
