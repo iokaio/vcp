@@ -32,6 +32,19 @@ The offline analyzer was exercised against two original campaign bundles without
 
 Source SHA-256 hashes: A `0c91410a3c75c1624d016921d6f5092913ccd052586005fd14ebd932c0e68ce1`; B `35a9bd1fd4c3205e859045dd91ad5698961013d36570fa90a25adb33d1a56d5a`. Local generated analysis: `artifacts/ee-baseline-bundle-analysis-v2.json`. The first report is retained separately. No verification records appear in either selected bundle. This supports a specific diagnostic improvement: preserve and expose attempt/effect/verification identities and owner repair decisions rather than assuming event count or timestamps can reconstruct the chain. It does not by itself identify the provider failure cause or prove the B application met all requirements. A's unresolved charge remains unknown; B's settled accounting does not make its failed task successful.
 
+### Retained B storage measurement after EE-02 increments
+
+The store-only release test opened a new disposable copy of the original 1,017-commit B history; it did not execute the task or contact a provider. Both reads reconstructed 746 records and 1,012 events with the historical state digest `af73de5fe1d9d7fb67c1f6e5961d56b81c879fa10859cb4efa14c46b512b46c0`. Original and copied SQLite bytes remained SHA-256 `3709abb0cd45862be09c41d3e2c63d50a8287f6293c251ca99e3649ea3eaae83`.
+
+| Sample | Store open | Replay (includes validation) | Validation | Artifact verification |
+|---|---:|---:|---:|---:|
+| First read of new copy | 29.046 s | 10.832 s | 8.900 s | 18.140 s |
+| Repeated read, same saved binary | 10.871 s | 10.395 s | 8.667 s | 0.413 s |
+
+The second process used 10.875 CPU seconds. Both performed 1,017 full semantic validations over 387,103 record inputs and 512,628 event inputs, one full state-size scan and 1,017 size deltas; all 606 retained artifacts were verified. Artifact-read cost changed substantially while validation cost remained similar. Filesystem cache and host scanning are possible explanations; these measurements do not distinguish them. Neither read meets the two-second cold-open engineering target. The previous store-only result was 14.546 seconds with the same state digest, but cache conditions and concurrent builds were not controlled, so the new 10.871-second observation is not a matched speedup proof. Two observations cannot establish p95 or history-scaling acceptance.
+
+Evidence is under `artifacts/execution-engine/retained-b-state-1bd958a5*`: preparation, first-read log, repeated-read log/receipt and exact preserved test executable (SHA-256 `970e0cc71b64c1af8f2f5c43cdacaa63cf7b486cdc640720841e8579c5b1ba6a`). Storage behavior derives from `1bd958a5`; an unused private streaming-encoder module may have been present during compilation, before its production callers changed. This is a store test binary, not a distributable candidate. The next supported engineering work is reducing repeated validation and retained-history representation while preserving integrity, plus investigating artifact-open overhead separately. Skipping verification is not supported by this evidence.
+
 ## Scripted qualification before live comparison
 
 Use local mock providers and both storage backends where the affected boundary supports them. Relevant cases are missing/stale native verification, actual failed check followed by a source-changing repair and fresh successful completion, instruction refresh before reissuing tools, denied process authority, repeated unchanged failure pause, explicit cancel, stop/reopen with unresolved effects, oversized tool output, changed/deleted file ranges, scoped artifact access and a truncated response whose partial tool call must never execute. Record actual request bodies and retained source/response references; returned helper strings alone do not prove the model received repair guidance.
