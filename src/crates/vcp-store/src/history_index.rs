@@ -21,6 +21,7 @@ const MAX_READ_ROWS: usize = 4096;
 pub(crate) enum Table {
     EventOrdinal,
     EventIdentity,
+    ArtifactReference,
     Command,
     Transaction,
     Commit,

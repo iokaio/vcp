@@ -12,6 +12,8 @@ use vcp_domain::{CommandId, EventId, SessionId, TransactionId, Watermark, Worksp
 use vcp_protocol::{canonical_bytes, command::CommandReceipt, event::EventEnvelope};
 
 const PAGE_ROWS: usize = 4096;
+#[path = "history_catalog_artifacts.rs"]
+mod artifacts;
 #[path = "history_catalog_copy.rs"]
 mod copy;
 #[cfg(test)]
@@ -29,6 +31,7 @@ pub(crate) struct Catalog {
     watermark: Watermark,
     events: Root,
     identities: Root,
+    artifacts: Root,
     commands: Root,
     transactions: Root,
     groups: Root,
@@ -69,6 +72,7 @@ impl Catalog {
             watermark: state.watermark,
             events: Root::empty(Table::EventOrdinal),
             identities: Root::empty(Table::EventIdentity),
+            artifacts: Root::empty(Table::ArtifactReference),
             commands: Root::empty(Table::Command),
             transactions: Root::empty(Table::Transaction),
             groups: Root::empty(Table::Commit),
@@ -152,6 +156,7 @@ impl Catalog {
         }
         self.events.validate_table(Table::EventOrdinal)?;
         self.identities.validate_table(Table::EventIdentity)?;
+        self.artifacts.validate_table(Table::ArtifactReference)?;
         self.commands.validate_table(Table::Command)?;
         self.transactions.validate_table(Table::Transaction)?;
         self.groups.validate_table(Table::Commit)?;
@@ -194,6 +199,8 @@ impl Catalog {
                 self.identities = self
                     .identities
                     .insert(pages, entry(event.event.id.to_string(), &ordinal)?)
+                    .await?;
+                self.append_artifact_references(pages, event, ordinal)
                     .await?;
             }
             self.groups = self

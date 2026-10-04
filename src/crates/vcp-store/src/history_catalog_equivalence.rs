@@ -65,6 +65,7 @@ impl Catalog {
         for (actual, expected, values) in [
             (&self.events, &replayed.events, Values::Event),
             (&self.identities, &replayed.identities, Values::Metadata),
+            (&self.artifacts, &replayed.artifacts, Values::Metadata),
             (&self.commands, &replayed.commands, Values::Blob),
             (&self.transactions, &replayed.transactions, Values::Blob),
             (&self.groups, &replayed.groups, Values::Metadata),

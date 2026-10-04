@@ -14,6 +14,7 @@ impl Catalog {
         for root in [
             &self.events,
             &self.identities,
+            &self.artifacts,
             &self.commands,
             &self.transactions,
             &self.groups,

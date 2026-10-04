@@ -21,6 +21,7 @@ impl Catalog {
             return Err(Error::Corruption("history catalog replay counts"));
         }
         let mut ordinal = 0u64;
+        let mut artifact_references = 0u64;
         while ordinal < self.events.count() {
             let rows = self
                 .event_page(pages, ordinal.checked_sub(1), PAGE_ROWS)
@@ -41,8 +42,17 @@ impl Catalog {
                 if serde_json::from_value::<u64>(id.value)? != ordinal {
                     return Err(Error::Corruption("history catalog replay ordinal"));
                 }
+                artifact_references = artifact_references
+                    .checked_add(
+                        self.verify_artifact_references(pages, &row, ordinal)
+                            .await?,
+                    )
+                    .ok_or(Error::Limit("history artifact references"))?;
                 ordinal += 1;
             }
+        }
+        if self.artifacts.count() != artifact_references {
+            return Err(Error::Corruption("history artifact reference count"));
         }
         let mut first = 0usize;
         let mut groups = 0u64;
