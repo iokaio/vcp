@@ -1006,6 +1006,9 @@ starting another run. An interrupted script may not write its final scorecard.
    The harness refuses new paid tasks after such a block; an ordinary deadline pause
    permits only a continuation of the same recorded task. Repair prompts retain the
    original task's environment and protected-file instructions.
+   Fatal admission messages and the final execution gate include the captured VCP task
+   reason. A failed provider terminal with missing observed cost still blocks execution;
+   the reservation is not proof of actual spend, and missing cost is not zero cost.
 2. For a failing gate, read its detail in `scorecard.json`, the tool log it names under
    `logs\<stage>\tools\`, and the stage's `prompt.md`, `final-message.md` and
    `workspace-diff.json`.
@@ -1017,6 +1020,13 @@ starting another run. An interrupted script may not write its final scorecard.
    `workspace-diff.json` files and inspect the actual project path from the scorecard.
 5. To compare runs or models, put several `scorecard.json` files side by side; they share
    the schema `vcp-practical-scenario/1`.
+
+A reused TaskBoard workspace can retain unfinished source from an earlier stopped turn.
+Its baseline includes strict server/test typechecking, tests and the UI build. For example,
+`TS18046` on fetched JSON requires typed parsing or narrowing before field access, and
+`await` inside synchronous `createApp` initialization is invalid. Repair the retained
+project before rerunning, or choose a new empty project directory for a fresh scenario;
+the harness preserves the existing files and rejects a broken baseline before paid turns.
 
 ### 9.5 Expected duration and spend
 

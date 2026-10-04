@@ -48,6 +48,9 @@ function Assert-Blocked([scriptblock]$Action, [string]$Description) {
     $errorText = $null
     try { & $Action | Out-Null } catch { $errorText = $_.Exception.Message }
     Check ($errorText -like 'Scenario stopped before*') "$Description did not stop the scenario: $errorText"
+    if ($ctx.PaidExecutionBlock.task_reason) {
+        Check ($errorText.Contains($ctx.PaidExecutionBlock.task_reason)) "$Description hid the VCP task reason in its fatal message"
+    }
     Check ((Paid-Count) -eq $count) "$Description executed another paid command"
 }
 try {
@@ -122,6 +125,8 @@ try {
         $scorecard = Get-Content -LiteralPath (Join-Path $ctx.Results 'scorecard.json') -Raw | ConvertFrom-Json
         Check ($scorecard.paid_execution_block.task -eq 'task-a') 'Final scorecard lost stopping task'
         Check ($scorecard.paid_execution_block.task_reason -eq $block.task_reason) 'Final scorecard lost the blocked provider reason'
+        $stoppingGate = $scorecard.gates | Where-Object { $_.stage -eq 'FINAL-execution' -and $_.id -eq 'paid-execution-stopped' }
+        Check ($stoppingGate.detail.Contains($block.task_reason)) 'Final stopping gate hid the VCP task reason'
       }
     }
     # A normal durable deadline permits only continuation of its own task.

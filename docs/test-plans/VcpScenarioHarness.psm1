@@ -1023,7 +1023,8 @@ function Test-PaidExecutionAdmission {
         }
         if ($source -and $source.task -eq $block.task) { return $true }
     }
-    $Record.skipped = "paid execution stopped by $($block.stage): $($block.reasons -join ', '); task $($block.task); inspect $($block.inspection)"
+    $diagnostic = if ($block.task_reason) { "; VCP reason: $($block.task_reason)" } else { '' }
+    $Record.skipped = "paid execution stopped by $($block.stage): $($block.reasons -join ', '); task $($block.task)$diagnostic; inspect $($block.inspection)"
     $Ctx.Stages.Add([pscustomobject]$Record)
     Write-Step $Ctx "Skipping $($Record.stage); $($Record.skipped)" 'warn'
     # Let each scenario's catch/finally finalize its evidence now. Returning null
@@ -1719,8 +1720,9 @@ function Complete-VcpScenario {
     #>
     param($Ctx)
     if ($Ctx.PaidExecutionBlock) {
+        $diagnostic = if ($Ctx.PaidExecutionBlock.task_reason) { "; VCP reason: $($Ctx.PaidExecutionBlock.task_reason)" } else { '' }
         [void](Add-GateResult $Ctx 'FINAL-execution' 'paid-execution-stopped' 'paid execution has no unresolved stopping condition' 'fail' `
-            ("$($Ctx.PaidExecutionBlock.reasons -join ', '); task $($Ctx.PaidExecutionBlock.task); inspect $($Ctx.PaidExecutionBlock.inspection)") $true)
+            ("$($Ctx.PaidExecutionBlock.reasons -join ', '); task $($Ctx.PaidExecutionBlock.task)$diagnostic; inspect $($Ctx.PaidExecutionBlock.inspection)") $true)
     }
     if ($Ctx.AccountedTaskUsd.Count -gt 0 -or $Ctx.UnscopedCostUnknown) {
         [void](Invoke-Gate -Ctx $Ctx -Stage 'FINAL-accounting' -Id 'cost-evidence' -Description 'latest accounting for every paid task is complete and within budget' -Test {

@@ -389,6 +389,9 @@ $environmentBlock = @'
   `+`-prefixed file lines directly; `@@` belongs to update hunks, never Add File sections.
 - Server and test TypeScript must remain runnable by Node type stripping: erasable syntax
   only and explicit `.ts` extensions on relative imports.
+- Node's fetch response `json()` returns `unknown` under this project's server TypeScript
+  configuration. Narrow or explicitly type parsed JSON before accessing fields in API tests
+  and server code; keep strict typechecking and every behavioral assertion.
 - The `npm test` script must stay in the form `node --test <explicit test files>`; add every
   new API test file to it.
 - Protected files (never edit, rename or delete): `tests/health.test.ts`{{PROTECTED}}.
@@ -436,6 +439,10 @@ signature; the file is `options.dataFile`, else environment variable `TASKBOARD_
 `data/tasks.json`. Create missing directories, write atomically (temporary file then rename) and
 reload existing data on start so tasks survive a restart. `server/index.ts` listens on `PORT`
 (default 41731) at 127.0.0.1.
+`createApp` must return the Express app synchronously because the protected health test calls
+`createApp(...).listen(...)`. Do not put `await` in this factory or change its return type to a
+Promise. Load persistence synchronously during construction, or await initialization inside
+async request handlers before reading or changing tasks.
 
 Tests: add `tests/tasks.api.test.ts` using `node:test`, starting the app on port 0. Each test uses a
 unique `mkdtemp` directory under `os.tmpdir()` for its data file, awaits server shutdown, then
@@ -811,7 +818,12 @@ $uiIds = @('column-todo', 'column-doing', 'column-done', 'task-card', 'task-form
     Test-Typecheck $stage
     Test-NodeTests $stage @('GET /api/health returns ok')
     Test-UnitAndBuild $stage @() 1
-    if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline scaffold does not build; fix the toolchain before spending on VCP turns.' }
+    if ((Get-FailedGates $ctx $stage).Count) {
+        if ($ctx.ReuseProject) {
+            throw "The retained TaskBoard project failed baseline checks: $ws. Inspect $($ctx.Logs)\B0-baseline and repair the existing source or tests before rerunning, or select a new empty project directory for a fresh scenario. Existing files were preserved; no paid VCP turns started."
+        }
+        throw "The fresh TaskBoard scaffold failed baseline checks. Inspect $($ctx.Logs)\B0-baseline for source, dependency or toolchain errors before spending on VCP turns."
+    }
     Initialize-GitCheckpoint $ctx
     $protected = @{ 'tests/health.test.ts' = (Get-Sha256 (Join-Path $ws 'tests\health.test.ts')) }
     if (Test-Path -LiteralPath (Join-Path $ws 'tests/regressions.test.ts')) {

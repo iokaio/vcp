@@ -29,7 +29,10 @@ function Test-NodeTests {}
 function Test-UnitAndBuild {}
 function Test-Build {}
 function Test-Tests {}
-function Get-FailedGates { @() }
+function Get-FailedGates {
+    if ($script:failBaseline) { return @(@{ id = 'typecheck'; detail = "TS18046: 'task' is of type 'unknown'." }) }
+    @()
+}
 function Save-Checkpoint {}
 
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -87,6 +90,18 @@ try {
             foreach ($directory in @('src/api', 'src/composables', 'src/components')) {
                 Assert-That (Test-Path -LiteralPath (Join-Path $ws $directory) -PathType Container) "Required patch parent missing: $directory"
                 Assert-That (@(Get-ChildItem -LiteralPath (Join-Path $ws $directory)).Count -eq 0) 'Scaffolding must not preimplement UI behavior.'
+            }
+            # A retained project can contain broken output from a prior turn. Reject it
+            # before paid execution without blaming or rewriting the toolchain/tests.
+            $script:failBaseline = $true
+            $baselineError = $null
+            try { & $baseline } catch { $baselineError = $_.Exception.Message }
+            finally { $script:failBaseline = $false }
+            Assert-That ($baselineError -like 'The retained TaskBoard project failed baseline checks:*') 'A failed reused baseline must identify retained project errors.'
+            Assert-That ($baselineError.Contains($ws) -and $baselineError.Contains('B0-baseline')) 'Baseline diagnostic must identify the workspace and check logs.'
+            Assert-That ($baselineError -match 'no paid VCP turns started') 'Baseline diagnostic must explain the zero-spend stop.'
+            foreach ($relative in $fixtures.Keys) {
+                Assert-That ((Get-Sha256 (Join-Path $ws $relative)) -eq $before[$relative]) "Failed TaskBoard baseline modified $relative"
             }
         }
         else { Assert-That ($calls.Count -eq 2 -and $calls[0] -eq 'tool restore' -and $calls[1] -eq "restore $(Get-Solution)") 'Reused Inventory must restore rather than recreate templates or add packages.' }
