@@ -36,7 +36,7 @@ impl<S: CanonicalStore> Engine<S> {
     ) -> Result<Task, QueryError> {
         // query also validates workspace/session records and current authority.
         let task_id = TaskId::parse(task.as_str()).map_err(|_| QueryError::Unavailable)?;
-        let result = self.query(access, &Query::Task { task: task_id })?;
+        let result = self.query_current(access, &Query::Task { task: task_id })?;
         if scope.workspace.as_str() != access.workspace.as_str()
             || scope.session.as_str() != access.session.as_str()
         {

@@ -342,13 +342,15 @@ impl PublicConnection {
                         if !access.write {
                             return Ok(Err(ControllerError::Access));
                         }
-                        match context.engine.controller_recover_receipt(
-                            &access,
-                            &connection,
-                            &command,
-                            expected,
-                            generation,
-                        ) {
+                        match context
+                            .runtime
+                            .block_on(context.engine.controller_recover_receipt(
+                                &access,
+                                &connection,
+                                &command,
+                                expected,
+                                generation,
+                            )) {
                             Ok(Some(receipt)) => return Ok(Ok(receipt)),
                             Err(error) => return Ok(Err(error)),
                             Ok(None) => (),
@@ -376,7 +378,11 @@ impl PublicConnection {
         let access = current.clone();
         self.host
             .worker
-            .run_cleanup(move |context| Ok(acceptance(&context.engine, &access, &receipt)))
+            .run_cleanup(move |context| {
+                Ok(context
+                    .runtime
+                    .block_on(acceptance(&context.engine, &access, &receipt)))
+            })
             .map_err(|_| controller_error(ControllerError::OutcomeUnknown, &call))?
     }
 }
@@ -628,7 +634,9 @@ impl RpcHost for PublicConnection {
                     .map_err(|error| public_error(error, operation.clone(), approval))?
                 {
                     PublicAdmission::Replay(receipt) => {
-                        return acceptance(&context.engine, &admitted_access, &receipt)
+                        return context
+                            .runtime
+                            .block_on(acceptance(&context.engine, &admitted_access, &receipt))
                             .map(Admission::Reply);
                     }
                     PublicAdmission::Ready(prepared) => prepared,
@@ -726,7 +734,9 @@ impl RpcHost for PublicConnection {
                                 )
                             })?;
                     }
-                    return acceptance(&context.engine, &admitted_access, &receipt)
+                    return context
+                        .runtime
+                        .block_on(acceptance(&context.engine, &admitted_access, &receipt))
                         .map(Admission::Reply);
                 }
                 let task_id = prepared
@@ -977,7 +987,9 @@ impl RpcHost for PublicConnection {
                         // credentials remain stale until explicit refresh.
                         context.access.authority = workspace.authority;
                     }
-                    acceptance(&context.engine, &result_access, &receipt)
+                    context
+                        .runtime
+                        .block_on(acceptance(&context.engine, &result_access, &receipt))
                 })();
                 context.clear_authority_pending();
                 Ok(result)

@@ -309,23 +309,27 @@ async fn atomic_public_fork_replays_after_restart_and_preserves_historical_metad
             assert_eq!(after.records.get(key), Some(record));
         }
         assert!(matches!(
-            engine.query(
-                &access(),
-                &Query::Command {
-                    command: receipt.command.clone()
-                }
-            ),
+            engine
+                .query(
+                    &access(),
+                    &Query::Command {
+                        command: receipt.command.clone()
+                    }
+                )
+                .await,
             Ok(QueryResult::Command { .. })
         ));
         let mut target_access = access();
         target_access.session = session.id;
         assert_eq!(
-            engine.query(
-                &target_access,
-                &Query::Command {
-                    command: receipt.command.clone()
-                }
-            ),
+            engine
+                .query(
+                    &target_access,
+                    &Query::Command {
+                        command: receipt.command.clone()
+                    }
+                )
+                .await,
             Err(QueryError::Unavailable)
         );
         let snapshot = engine.store().state().clone();

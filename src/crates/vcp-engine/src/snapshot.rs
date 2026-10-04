@@ -65,7 +65,7 @@ impl<S: CanonicalStore> Engine<S> {
         use SnapshotError::{Access as Denied, InvalidData, Limit};
         // query also rejects command-only bootstrap and nonexistent sessions.
         let QueryResult::Session { session, watermark } = self
-            .query(
+            .query_current(
                 access,
                 &Query::Session {
                     session: access.session.clone(),

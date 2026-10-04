@@ -271,7 +271,11 @@ impl PublicConnection {
                             durable::replay(context.engine.store(), &access, &call)?
                         {
                             return Ok((
-                                vcp_engine::rpc::acceptance(&context.engine, &access, &receipt)?,
+                                context.runtime.block_on(vcp_engine::rpc::acceptance(
+                                    &context.engine,
+                                    &access,
+                                    &receipt,
+                                ))?,
                                 None,
                             ));
                         }
@@ -472,7 +476,13 @@ impl PublicConnection {
                     if let Action::Cancel(operation) = &action {
                         let _stopped = manager.request_backup_stop(operation);
                     }
-                    let result = vcp_engine::rpc::acceptance(&context.engine, &access, &receipt)
+                    let result = context
+                        .runtime
+                        .block_on(vcp_engine::rpc::acceptance(
+                            &context.engine,
+                            &access,
+                            &receipt,
+                        ))
                         .map_err(|_| unknown(&call))?;
                     Ok((result, Some(action)))
                 })())

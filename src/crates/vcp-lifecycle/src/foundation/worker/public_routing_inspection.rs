@@ -280,7 +280,7 @@ fn inspect(
         return Err(failure(Code::PolicyDenied));
     }
     let task = match engine
-        .query(
+        .query_current(
             access,
             &vcp_engine::query::Query::Task {
                 task: TaskId::parse(request.task.as_str())

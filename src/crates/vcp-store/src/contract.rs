@@ -1740,6 +1740,43 @@ pub trait CanonicalStore {
     fn current(&self) -> crate::CurrentStateView<'_> {
         crate::CurrentStateView::from(self.state())
     }
+    /// Exact command-meaning replay remains available after event retention.
+    /// This resident-state adapter is replaced by authenticated durable lookup
+    /// before history eviction; an unbound mutable database row is insufficient.
+    async fn command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+        digest: &str,
+    ) -> Result<Option<CommandReceipt>> {
+        self.state().command(workspace, command, digest)
+    }
+    /// Public queries also require a nonempty complete correlation group proving
+    /// session scope. Scope-prefiltered pages cannot establish this proof.
+    async fn scoped_command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        session: &SessionId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>> {
+        let state = self.state();
+        let Some(receipt) = state.commands.get(&command_key(workspace, command)) else {
+            return Ok(None);
+        };
+        if &receipt.workspace != workspace || &receipt.command != command {
+            return Err(Error::Access);
+        }
+        let mut found = false;
+        for event in state.events.iter().filter(|event| {
+            event.watermark == receipt.watermark && &event.event.correlation == command
+        }) {
+            if &event.event.workspace != workspace || &event.event.session != session {
+                return Err(Error::Access);
+            }
+            found = true;
+        }
+        Ok(found.then(|| receipt.clone()))
+    }
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
 }
 

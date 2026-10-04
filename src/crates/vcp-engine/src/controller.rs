@@ -96,7 +96,7 @@ impl<S: CanonicalStore> Engine<S> {
         }
         // Shared queries validate actual workspace/session bindings as well as
         // current read authority; bootstrap is never enough to acquire a lease.
-        self.query(
+        self.query_current(
             access,
             &Query::Session {
                 session: access.session.clone(),
@@ -142,7 +142,7 @@ impl<S: CanonicalStore> Engine<S> {
 
     /// Read-only scoped ownership facts. This never constructs a controller token.
     pub fn read_controller(&self, access: &Access) -> Result<Option<Lease>> {
-        self.query(
+        self.query_current(
             access,
             &Query::Session {
                 session: access.session.clone(),
@@ -154,7 +154,7 @@ impl<S: CanonicalStore> Engine<S> {
 
     /// Check replay before a live host changes admission. A replayed acquisition
     /// must not mint a refreshed token after policy changes or lease release.
-    pub fn controller_acquire_receipt(
+    pub async fn controller_acquire_receipt(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -169,12 +169,12 @@ impl<S: CanonicalStore> Engine<S> {
                 expected_revision: expected,
             },
         )?;
-        self.controller_receipt(access, command, &digest)
+        self.controller_receipt(access, command, &digest).await
     }
 
     /// Access-before-replay validation lets the live host return an already
     /// durable explicit release without holding the retained owner a second time.
-    pub fn controller_release_receipt(
+    pub async fn controller_release_receipt(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -192,12 +192,12 @@ impl<S: CanonicalStore> Engine<S> {
                 reason: Reason::Released,
             },
         )?;
-        self.controller_receipt(access, command, &digest)
+        self.controller_receipt(access, command, &digest).await
     }
 
     /// Reconciliation remains available after a separate acquisition. Returning
     /// this receipt neither releases nor renews the current process's lease.
-    pub fn controller_recover_receipt(
+    pub async fn controller_recover_receipt(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -214,7 +214,7 @@ impl<S: CanonicalStore> Engine<S> {
                 generation,
             },
         )?;
-        self.controller_receipt(access, command, &digest)
+        self.controller_receipt(access, command, &digest).await
     }
 
     fn controller_digest(
@@ -229,15 +229,15 @@ impl<S: CanonicalStore> Engine<S> {
         })).map(|bytes|digest_bytes(&bytes)).map_err(|_|ControllerError::InvalidOperation)
     }
 
-    fn controller_receipt(
+    async fn controller_receipt(
         &self,
         access: &Access,
         command: &CommandId,
         digest: &str,
     ) -> Result<Option<CommandReceipt>> {
         self.store()
-            .state()
-            .command(&access.workspace, command, digest)
+            .command_receipt(&access.workspace, command, digest)
+            .await
             .map_err(|_| ControllerError::CommandConflict)
     }
 
@@ -280,7 +280,7 @@ impl<S: CanonicalStore> Engine<S> {
                 expected_revision: expected,
             },
         )?;
-        if let Some(receipt) = self.controller_receipt(access, &command, &digest)? {
+        if let Some(receipt) = self.controller_receipt(access, &command, &digest).await? {
             return Ok(receipt);
         }
         let current = self.load_controller(access)?;
@@ -418,7 +418,7 @@ impl<S: CanonicalStore> Engine<S> {
                 reason,
             },
         )?;
-        if let Some(receipt) = self.controller_receipt(access, &command, &digest)? {
+        if let Some(receipt) = self.controller_receipt(access, &command, &digest).await? {
             return Ok(receipt);
         }
         self.check_controller(access, connection, token)?;
@@ -462,7 +462,7 @@ impl<S: CanonicalStore> Engine<S> {
                 generation,
             },
         )?;
-        if let Some(receipt) = self.controller_receipt(access, &command, &digest)? {
+        if let Some(receipt) = self.controller_receipt(access, &command, &digest).await? {
             return Ok(receipt);
         }
         let current = self
@@ -592,12 +592,15 @@ mod tests {
         observer.write = false;
         assert!(engine.read_controller(&observer).unwrap().is_some());
         assert!(matches!(
-            engine.controller_acquire_receipt(&observer, &connection, &command("acquire"), None),
+            engine
+                .controller_acquire_receipt(&observer, &connection, &command("acquire"), None)
+                .await,
             Err(ControllerError::Access)
         ));
         assert_eq!(
             engine
                 .controller_acquire_receipt(&owner, &connection, &command("acquire"), None)
+                .await
                 .unwrap(),
             Some(acquired)
         );
@@ -624,27 +627,32 @@ mod tests {
                     token.revision(),
                     token.generation()
                 )
+                .await
                 .unwrap(),
             Some(released)
         );
         assert!(matches!(
-            engine.controller_release_receipt(
-                &observer,
-                &connection,
-                &command("release"),
-                token.revision(),
-                token.generation()
-            ),
+            engine
+                .controller_release_receipt(
+                    &observer,
+                    &connection,
+                    &command("release"),
+                    token.revision(),
+                    token.generation()
+                )
+                .await,
             Err(ControllerError::Access)
         ));
         assert!(matches!(
-            engine.controller_release_receipt(
-                &owner,
-                &connection,
-                &command("release"),
-                token.revision(),
-                Revision::new(2)
-            ),
+            engine
+                .controller_release_receipt(
+                    &owner,
+                    &connection,
+                    &command("release"),
+                    token.revision(),
+                    Revision::new(2)
+                )
+                .await,
             Err(ControllerError::CommandConflict)
         ));
         observer.authority = AuthorityRevision::new(1);

@@ -520,7 +520,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             )
         })?;
         self.engine
-            .query(
+            .query_current(
                 access,
                 &Query::Session {
                     session: access.session.clone(),
@@ -538,7 +538,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             Call::SessionRead(p) => {
                 check_scope(&p.scope, access)?;
                 match engine
-                    .query(
+                    .query_current(
                         access,
                         &Query::Session {
                             session: access.session.clone(),
@@ -561,7 +561,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     .transpose()
                     .map_err(|_| RpcError::invalid_params())?;
                 match engine
-                    .query(
+                    .query_current(
                         access,
                         &Query::Sessions {
                             limit: p.limit,
@@ -593,7 +593,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                 let task =
                     TaskId::parse(p.task.as_str()).map_err(|_| RpcError::invalid_params())?;
                 match engine
-                    .query(access, &Query::Task { task })
+                    .query_current(access, &Query::Task { task })
                     .map_err(query_error)?
                 {
                     QueryResult::Task { task, .. } => {
@@ -622,9 +622,12 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     .map_err(|_| RpcError::invalid_params())?;
                 match engine
                     .query(access, &Query::Command { command })
+                    .await
                     .map_err(query_error)?
                 {
-                    QueryResult::Command { receipt, .. } => acceptance(engine, access, &receipt)?,
+                    QueryResult::Command { receipt, .. } => {
+                        acceptance(engine, access, &receipt).await?
+                    }
                     _ => return Err(RpcError::internal_error()),
                 }
             }
@@ -638,7 +641,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     .handle_public(call, access, host)
                     .await
                     .map_err(|error| public_error(error, operation, approval))?;
-                acceptance(engine, access, &receipt)?
+                acceptance(engine, access, &receipt).await?
             }
             _ => {
                 return Err(application(
@@ -854,7 +857,7 @@ pub(crate) fn task_view(
 /// Project a canonical receipt inside the host's serialized admission operation.
 /// Recheck current access and persisted identity even when the caller just wrote
 /// the receipt, so this helper cannot project a forged or out-of-scope result.
-pub fn acceptance<S: CanonicalStore>(
+pub async fn acceptance<S: CanonicalStore>(
     engine: &Engine<S>,
     access: &Access,
     receipt: &CommandReceipt,
@@ -866,6 +869,7 @@ pub fn acceptance<S: CanonicalStore>(
                 command: receipt.command.clone(),
             },
         )
+        .await
         .map_err(query_error)?
     {
         QueryResult::Command {

@@ -281,7 +281,9 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             .unwrap();
         assert_eq!(retained.budget, request().budget);
         assert_eq!(retained.accepted_at, Timestamp::new(3));
-        let original = crate::rpc::acceptance(&engine, &access, &receipt).unwrap();
+        let original = crate::rpc::acceptance(&engine, &access, &receipt)
+            .await
+            .unwrap();
         let methods::ResultValue::Acceptance(original) = original else {
             panic!("acceptance")
         };
@@ -320,7 +322,9 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
                 .unwrap();
         assert_eq!(current.id.as_str(), "later-turn");
         assert_eq!(
-            crate::rpc::acceptance(&engine, &access, &receipt).unwrap(),
+            crate::rpc::acceptance(&engine, &access, &receipt)
+                .await
+                .unwrap(),
             methods::ResultValue::Acceptance(original)
         );
         let original_sequence = engine
@@ -366,7 +370,9 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             })
             .await
             .unwrap();
-        assert!(crate::rpc::acceptance(&engine, &access, &receipt).is_err());
+        assert!(crate::rpc::acceptance(&engine, &access, &receipt)
+            .await
+            .is_err());
         engine.into_store().close().await.unwrap();
     }
 }
@@ -638,7 +644,9 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             .await
             .unwrap();
         let methods::ResultValue::Acceptance(projected) =
-            crate::rpc::acceptance(&engine, &access, &receipt).unwrap()
+            crate::rpc::acceptance(&engine, &access, &receipt)
+                .await
+                .unwrap()
         else {
             panic!("legacy receipt")
         };

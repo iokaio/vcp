@@ -265,11 +265,11 @@ impl PublicConnection {
                             service::replay(context.engine.store(), &global, command)
                                 .map_err(service_error)?
                         {
-                            return vcp_engine::rpc::acceptance(
+                            return context.runtime.block_on(vcp_engine::rpc::acceptance(
                                 &context.engine,
                                 &access,
                                 &committed.receipt,
-                            );
+                            ));
                         }
                     }
                     if context.authority_pending || context.capture_admission_blocked() {
@@ -328,12 +328,14 @@ impl PublicConnection {
                             if check().is_err() {
                                 return Err(unknown(&call));
                             }
-                            vcp_engine::rpc::acceptance(
-                                &context.engine,
-                                &access,
-                                &committed.receipt,
-                            )
-                            .map_err(|_| unknown(&call))
+                            context
+                                .runtime
+                                .block_on(vcp_engine::rpc::acceptance(
+                                    &context.engine,
+                                    &access,
+                                    &committed.receipt,
+                                ))
+                                .map_err(|_| unknown(&call))
                         }
                         Call::RoutingPreview(request) => {
                             let ceilings = context
@@ -477,12 +479,14 @@ impl PublicConnection {
                             if check().is_err() {
                                 return Err(unknown(&call));
                             }
-                            vcp_engine::rpc::acceptance(
-                                &context.engine,
-                                &access,
-                                &committed.receipt,
-                            )
-                            .map_err(|_| unknown(&call))
+                            context
+                                .runtime
+                                .block_on(vcp_engine::rpc::acceptance(
+                                    &context.engine,
+                                    &access,
+                                    &committed.receipt,
+                                ))
+                                .map_err(|_| unknown(&call))
                         }
                         _ => Err(RpcError::invalid_params()),
                     }

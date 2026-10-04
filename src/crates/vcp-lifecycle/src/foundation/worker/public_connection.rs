@@ -144,7 +144,7 @@ impl CanonicalHost {
             {
                 return Err("public connection differs from host scope".into());
             }
-            context.engine.query(
+            context.engine.query_current(
                 &checked,
                 &Query::Session {
                     session: checked.session.clone(),
@@ -231,13 +231,17 @@ impl PublicConnection {
             .worker
             .run(move |context| {
                 Ok((|| -> std::result::Result<_, ControllerError> {
-                    if let Some(receipt) = context.engine.controller_release_receipt(
-                        &access,
-                        &connection,
-                        &requested,
-                        expected,
-                        generation,
-                    )? {
+                    if let Some(receipt) =
+                        context
+                            .runtime
+                            .block_on(context.engine.controller_release_receipt(
+                                &access,
+                                &connection,
+                                &requested,
+                                expected,
+                                generation,
+                            ))?
+                    {
                         return Ok(Err(receipt));
                     }
                     let token = token.ok_or(ControllerError::Stale)?;
@@ -362,12 +366,16 @@ impl PublicConnection {
                     if !connected.load(Ordering::SeqCst) {
                         return Err(ControllerError::Access);
                     }
-                    if let Some(receipt) = context.engine.controller_acquire_receipt(
-                        &access,
-                        &connection,
-                        &command,
-                        expected,
-                    )? {
+                    if let Some(receipt) =
+                        context
+                            .runtime
+                            .block_on(context.engine.controller_acquire_receipt(
+                                &access,
+                                &connection,
+                                &command,
+                                expected,
+                            ))?
+                    {
                         return Ok((receipt, None));
                     }
                     if !context.owner_alive || context.authority_pending {
@@ -423,7 +431,9 @@ impl PublicConnection {
         let (_, access, connection, token) = self.rpc_context(&self.access)?;
         self.host.worker.run_cleanup(move |context| {
             context.public_authorize(&access, &connection, token.as_ref(), false)?;
-            Ok(context.engine.query(&access, &query)?)
+            Ok(context
+                .runtime
+                .block_on(context.engine.query(&access, &query))?)
         })
     }
 
@@ -687,7 +697,7 @@ impl Context {
         {
             return Err("public host unavailable or scope changed".into());
         }
-        self.engine.query(
+        self.engine.query_current(
             access,
             &Query::Session {
                 session: access.session.clone(),

@@ -704,9 +704,14 @@ impl PublicConnection {
                                     .command
                                     .as_ref()
                                     .ok_or_else(|| unknown(&second_call))?;
-                                let ResultValue::Acceptance(acceptance) =
-                                    vcp_engine::rpc::acceptance(&context.engine, &access, receipt)
-                                        .map_err(|_| unknown(&second_call))?
+                                let ResultValue::Acceptance(acceptance) = context
+                                    .runtime
+                                    .block_on(vcp_engine::rpc::acceptance(
+                                        &context.engine,
+                                        &access,
+                                        receipt,
+                                    ))
+                                    .map_err(|_| unknown(&second_call))?
                                 else {
                                     return Err(unknown(&second_call));
                                 };

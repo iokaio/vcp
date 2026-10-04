@@ -58,7 +58,7 @@ async fn create_task(engine: &mut Engine<Store>) -> Task {
         )
         .await
         .unwrap();
-    match engine.query(&grant, &Query::Task { task }).unwrap() {
+    match engine.query_current(&grant, &Query::Task { task }).unwrap() {
         QueryResult::Task { task, .. } => task,
         _ => unreachable!(),
     }
