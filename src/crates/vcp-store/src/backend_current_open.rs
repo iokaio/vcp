@@ -5,6 +5,8 @@ use super::*;
 use crate::{canonical_lock::CanonicalLock, history_index::io, private_paths::Directory};
 #[path = "store_current_owner.rs"]
 mod owner;
+#[path = "store_current_open_legacy.rs"]
+mod legacy;
 
 pub(crate) struct Opened {
     pub(crate) backend: Backend,
@@ -15,6 +17,7 @@ pub(crate) struct Opened {
     pub(crate) poisoned: bool,
     pub(crate) diagnostics: crate::StoreDiagnostics,
     pub(crate) current: std::sync::OnceLock<std::sync::Arc<crate::CurrentState>>,
+    pub(crate) origin_digest: String,
     _data: File,
     _root: Directory,
     _lock: CanonicalLock,
@@ -211,6 +214,7 @@ impl Opened {
             poisoned: false,
             diagnostics: diagnostics.clone(),
             current: std::sync::OnceLock::new(),
+            origin_digest: origin_digest.to_owned(),
             _data: data,
             _root: root,
             _lock: lock,

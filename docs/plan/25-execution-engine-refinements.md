@@ -52,6 +52,8 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 
 ## Phase evidence and commits
 
+- EE-02c format and ownership transfer: the qualified migration stages and verifies an Origin under the real canonical lock, releases legacy State, and performs full native replay before returning the replacement owner. Format publication preserves exact prior marker bytes and atomically selects layout 3, causing older parsers to reject it. Four tests passed on both backends for transfer, same-watermark altered-source rejection and injected publication boundaries, including retry and corrupted-marker cases. Independent review found no concrete issue. These are injected failure tests, not hardware power-loss qualification. The next storage increment activates this path in public Store and removes its resident-history contract.
+
 - EE-01/00 unknown-estimate diagnostics: the scenario reader accepts the versioned unknown-estimate representation without replacing it with zero or losing known settled spend. Reports distinguish a complete amount, the priced component of an estimate and the count of unpriced valuation terms; malformed or overflowing evidence remains unavailable. The analyzer preserves the exact estimate object and explains its limits. All 74 offline harness checks and eight analyzer contracts passed. Runtime unknown-price admission remains in implementation.
 
 - EE-01d launcher freshness: the scenario launcher now uses the same independent five-minute provider-metadata admission window as per-task profile refresh, rather than deriving freshness from the suspended scenario deadline. All 82 offline launcher checks passed; this changes metadata selection timing, not provider identity or capability validation.
