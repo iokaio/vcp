@@ -371,11 +371,11 @@ impl Context {
             .ok_or("routing registry unavailable")?;
         self.can_start(binding)?;
         self.ensure_coding_ledger()?;
-        let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+        let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -495,7 +495,7 @@ impl Context {
                     let attempt: Attempt = self
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Attempt,
                             retry.predecessor.as_str(),

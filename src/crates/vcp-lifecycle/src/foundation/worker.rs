@@ -1489,7 +1489,7 @@ impl Context {
         if !self.owner_alive {
             return Err("budget initialization requires live owner".into());
         }
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let existing = state
             .record(
                 Collection::Ledger,
@@ -1508,20 +1508,17 @@ impl Context {
             return Err("root budget scope denied".into());
         }
         let actor = self.actor();
-        if existing {
+        if existing && self.config.cap.micros.is_unbounded() {
             self.runtime.block_on(vcp_budget::suspend_constraints(
                 self.engine.store_mut(),
                 &root.scope,
                 &actor,
             ))?;
-        } else {
+        } else if !existing {
             self.runtime.block_on(vcp_budget::initialize(
                 self.engine.store_mut(),
                 root.scope,
-                MonetaryLimit {
-                    currency: self.config.cap.currency.clone(),
-                    micros: vcp_domain::Limit::Unbounded,
-                },
+                self.config.cap.clone(),
                 self.config.protected,
                 None,
                 &actor,

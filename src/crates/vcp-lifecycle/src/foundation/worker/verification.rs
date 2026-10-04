@@ -83,7 +83,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -199,7 +199,7 @@ impl Context {
             .find_map(|artifact| {
                 self.engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .get(&vcp_store::contract::key(
                         Collection::Artifact,
@@ -325,7 +325,7 @@ impl Context {
         let effects = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Effect)
@@ -349,7 +349,7 @@ impl Context {
             self.verification_bytes(&binding.scope, source)?;
         }
         let (_, current) = self.verification_observe(binding)?;
-        let records = &self.engine.store().state().records;
+        let records = self.engine.store().current().records;
         let effects = records
             .values()
             .filter(|r| r.collection == Collection::Effect)
@@ -378,7 +378,7 @@ impl Context {
             let reservation: Reservation = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Reservation,
                     attempt.reservation.as_str(),
@@ -466,7 +466,7 @@ impl Context {
         let existing: Vec<ArtifactDescriptor> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -535,7 +535,7 @@ impl Context {
         let artifact: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &scope.workspace)?
             .decode()?;
         if artifact.spec.scope != *scope || artifact.state != CaptureState::Complete {
@@ -706,7 +706,7 @@ impl Context {
         let saved = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -720,7 +720,7 @@ impl Context {
                 if self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|r| r.collection == Collection::Effect)
@@ -800,7 +800,7 @@ impl Context {
             if !self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .contains_key(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
             {
@@ -878,7 +878,7 @@ impl Context {
     fn verification_ledger(&self) -> Result<Option<Ledger>> {
         self.engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .find(|r| r.collection == Collection::Ledger && r.id == self.config.root_task.as_str())
@@ -890,7 +890,7 @@ impl Context {
         let rows: Vec<Attempt> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Attempt)
@@ -1014,7 +1014,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -1064,7 +1064,7 @@ impl Context {
         let effects: Vec<Effect> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Effect)
@@ -1177,7 +1177,7 @@ impl Context {
         for record in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Effect)

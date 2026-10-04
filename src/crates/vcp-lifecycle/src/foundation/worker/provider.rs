@@ -244,7 +244,7 @@ impl Context {
         let attempt: Attempt = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Attempt, id.as_str(), &binding.scope.workspace)?
             .decode()?;
         if attempt.scope != binding.scope {
@@ -344,7 +344,7 @@ impl Context {
     }
     pub fn context_revisions(&self, binding: &ThreadBinding) -> Result<Revisions> {
         self.can_start(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -401,7 +401,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &scope.workspace)?
                 .decode()?;
             if descriptor.length.get() != limit || &descriptor.spec.scope != scope {
@@ -474,7 +474,7 @@ impl Context {
             let policy = self
                 .current_routing_policy()?
                 .ok_or("routing policy unavailable")?;
-            let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+            let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
             let replay_owner_choice = !admitting
                 && self
                     .routing
@@ -639,7 +639,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     part.artifact.as_str(),
@@ -939,7 +939,7 @@ impl Context {
             let attempts: Vec<Attempt> = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)
@@ -1053,7 +1053,7 @@ impl Context {
             let policy = self
                 .current_routing_policy()?
                 .ok_or("owner fallback policy missing")?;
-            let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+            let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
             let mut input = decision.input.clone();
             input.now = now;
             input.retry_pin = None;
@@ -1335,7 +1335,7 @@ impl Context {
             &actor,
         ))?;
         let admitted = vcp_budget::attempt(
-            self.engine.store().state(),
+            self.engine.store().current(),
             attempt,
             &binding.scope.workspace,
         )?;
