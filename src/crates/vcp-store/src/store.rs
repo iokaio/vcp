@@ -35,6 +35,7 @@ struct Format {
 pub struct Store {
     backend: Backend,
     state: State,
+    state_size: StateSize,
     base: State,
     prefixes: Vec<crate::replay_base::PrefixCommitment>,
     anchor: PathBuf,
@@ -269,7 +270,7 @@ impl Store {
         diagnostics
             .backend_open
             .record(backend_started, opened.is_ok());
-        let (backend, state, commits) = opened?;
+        let (backend, state, commits, state_size) = opened?;
         let base = loaded_base.map(|b| b.state).unwrap_or_default();
         let artifacts_started = Instant::now();
         let artifacts = (|| {
@@ -296,6 +297,7 @@ impl Store {
         Ok(Self {
             backend,
             state,
+            state_size,
             base,
             prefixes,
             anchor: root.clone(),
@@ -843,9 +845,10 @@ impl CanonicalStore for Store {
                 "reopen to reconcile an indeterminate commit",
             ));
         }
-        let (next, commit) = self
-            .state
-            .prepare_observed(&transaction, &mut self.diagnostics)?;
+        let mut next_size = self.state_size;
+        let (next, commit) =
+            self.state
+                .prepare_observed(&transaction, &mut self.diagnostics, &mut next_size)?;
         if self.state.transactions.contains_key(&transaction.id) {
             self.diagnostics.duplicate_transactions =
                 self.diagnostics.duplicate_transactions.saturating_add(1);
@@ -879,6 +882,7 @@ impl CanonicalStore for Store {
             .record(append_started, append.is_ok());
         append?;
         self.state = next;
+        self.state_size = next_size;
         self.diagnostics.current_watermark = self.state.watermark.get();
         self.commits.push(commit.clone());
         self.poisoned = false;

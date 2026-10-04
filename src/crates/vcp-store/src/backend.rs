@@ -133,14 +133,17 @@ impl Backend {
             &mut crate::StoreDiagnostics::new(kind),
         )
         .await
+        .map(|(backend, state, commits, _)| (backend, state, commits))
     }
     pub(crate) async fn open_observed(
         root: &Path,
         kind: BackendKind,
         base: Option<&crate::replay_base::ReplayBase>,
         diagnostics: &mut crate::StoreDiagnostics,
-    ) -> Result<(Self, State, Vec<Commit>)> {
+    ) -> Result<(Self, State, Vec<Commit>, StateSize)> {
         let seed = base.map(|b| b.state.clone()).unwrap_or_default();
+        let mut size = StateSize::measure(&seed)?;
+        diagnostics.state_size_full_scans = diagnostics.state_size_full_scans.saturating_add(1);
         let initial_chain = base
             .map(|b| b.chain())
             .transpose()?
@@ -222,7 +225,7 @@ impl Backend {
                     {
                         return Err(Error::Corruption("SQLite commit identity"));
                     }
-                    state = state.into_replayed_observed(&commit, diagnostics)?;
+                    state = state.into_replayed_observed(&commit, diagnostics, &mut size)?;
                     diagnostics.replayed_commits = diagnostics.replayed_commits.saturating_add(1);
                     diagnostics.replay_payload_bytes = diagnostics
                         .replay_payload_bytes
@@ -246,7 +249,7 @@ impl Backend {
                 diagnostics.materialized_events = state.events.len() as u64;
                 diagnostics.materialized_commands = state.commands.len() as u64;
                 backend.configuration().await?;
-                Ok((backend, state, commits))
+                Ok((backend, state, commits, size))
             }
             BackendKind::Files => {
                 let mut journal = Journal {
@@ -270,10 +273,10 @@ impl Backend {
                     .record(checkpoint_started, checkpoint.is_ok());
                 let checkpoint = checkpoint?;
                 let replay_started = Instant::now();
-                let replay = journal.replay(diagnostics, checkpoint.as_ref());
+                let replay = journal.replay(diagnostics, checkpoint.as_ref(), &mut size);
                 diagnostics.replay.record(replay_started, replay.is_ok());
                 let (state, commits) = replay?;
-                Ok((Self::Files(journal), state, commits))
+                Ok((Self::Files(journal), state, commits, size))
             }
         }
     }
@@ -480,6 +483,7 @@ impl Journal {
         &mut self,
         diagnostics: &mut crate::StoreDiagnostics,
         checkpoint: Option<&Checkpoint>,
+        size: &mut StateSize,
     ) -> Result<(State, Vec<Commit>)> {
         // A published durable tip distinguishes truncation of acknowledged data
         // from a writer that died before appending its commit marker.
@@ -557,7 +561,7 @@ impl Journal {
                 return Err(Error::Corruption("committed journal bytes"));
             }
             let commit: Commit = serde_json::from_slice(&payload)?;
-            state = state.into_replayed_observed(&commit, diagnostics)?;
+            state = state.into_replayed_observed(&commit, diagnostics, size)?;
             if let Some(checkpoint) =
                 checkpoint.filter(|checkpoint| state.watermark <= checkpoint.watermark)
             {

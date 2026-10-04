@@ -23,6 +23,9 @@ mod agents_contract;
 mod ingestion_contract;
 #[path = "search_contract.rs"]
 mod search_contract;
+#[path = "state_size.rs"]
+mod state_size;
+pub(crate) use state_size::StateSize;
 
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_TRANSACTION_BYTES: usize = 8 * 1024 * 1024;
@@ -1101,10 +1104,17 @@ impl State {
         }
     }
     pub fn validate(&self) -> Result<()> {
+        self.validate_sized(None)
+    }
+    fn validate_sized(&self, size: Option<StateSize>) -> Result<()> {
         if self.records.len() > MAX_RECORDS {
             return Err(Error::Limit("canonical record count"));
         }
-        if encoded_len(self)? > MAX_STATE_BYTES {
+        let bytes = match size {
+            Some(size) => size.bytes(),
+            None => encoded_len(self)?,
+        };
+        if bytes > MAX_STATE_BYTES {
             return Err(Error::Limit(
                 "canonical view bytes; explicit migration required",
             ));
@@ -1288,16 +1298,21 @@ impl State {
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
-        Self::prepare_from(Preparation::Borrowed(self), transaction, None)
+        Self::prepare_from(Preparation::Borrowed(self), transaction, None, None)
     }
     pub(crate) fn prepare_observed(
         &self,
         transaction: &Transaction,
         diagnostics: &mut crate::StoreDiagnostics,
+        size: &mut StateSize,
     ) -> Result<(Self, Commit)> {
         let started = std::time::Instant::now();
-        let result =
-            Self::prepare_from(Preparation::Borrowed(self), transaction, Some(diagnostics));
+        let result = Self::prepare_from(
+            Preparation::Borrowed(self),
+            transaction,
+            Some(diagnostics),
+            Some(size),
+        );
         diagnostics.preparation.record(started, result.is_ok());
         result
     }
@@ -1305,6 +1320,7 @@ impl State {
         mut source: Preparation<'_>,
         transaction: &Transaction,
         diagnostics: Option<&mut crate::StoreDiagnostics>,
+        mut size: Option<&mut StateSize>,
     ) -> Result<(Self, Commit)> {
         let bytes = canonical_bytes(transaction)?;
         if bytes.len() > MAX_TRANSACTION_BYTES {
@@ -1601,6 +1617,10 @@ impl State {
         result
             .transactions
             .insert(transaction.id.clone(), receipt.clone());
+        let next_size = size
+            .as_deref()
+            .map(|size| size.next(&source, &result, &touched))
+            .transpose()?;
         // All checks requiring the complete prior State have finished. Keep
         // candidate validation complete while transferring privately owned
         // history; borrowed/public preparation still clones these collections.
@@ -1618,8 +1638,12 @@ impl State {
         }
         result.transactions = transactions;
         if let Some(diagnostics) = diagnostics {
+            if next_size.is_some() {
+                diagnostics.state_size_delta_updates =
+                    diagnostics.state_size_delta_updates.saturating_add(1);
+            }
             let started = std::time::Instant::now();
-            let validation = result.validate();
+            let validation = result.validate_sized(next_size);
             diagnostics.validation.record(started, validation.is_ok());
             diagnostics.validation_input_records = diagnostics
                 .validation_input_records
@@ -1629,7 +1653,7 @@ impl State {
                 .saturating_add(result.events.len() as u64);
             validation?;
         } else {
-            result.validate()?;
+            result.validate_sized(next_size)?;
         }
         // The only receipt added above is the current transaction, whose prior
         // absence was checked before preparation. Excluding it recreates the
@@ -1643,6 +1667,9 @@ impl State {
         crate::accounting_contract::admission(before, &result, transaction)?;
         search_contract::publication(before, &result, transaction)?;
         agents_contract::publication(before, &result)?;
+        if let (Some(size), Some(next_size)) = (size.as_deref_mut(), next_size) {
+            *size = next_size;
+        }
         Ok((
             result,
             Commit {
@@ -1653,25 +1680,37 @@ impl State {
         ))
     }
     pub fn replay(&mut self, commit: &Commit) -> Result<()> {
-        *self = Self::replay_from(Preparation::Borrowed(self), commit, None)?;
+        *self = Self::replay_from(Preparation::Borrowed(self), commit, None, None)?;
         Ok(())
     }
     /// Private reconstruction discards the owned state on any invalid commit.
     /// Public replay retains its original atomic failure contract.
     pub(crate) fn into_replayed(self, commit: &Commit) -> Result<Self> {
-        Self::replay_from(Preparation::Owned(self), commit, None)
+        Self::replay_from(Preparation::Owned(self), commit, None, None)
     }
     pub(crate) fn into_replayed_observed(
         self,
         commit: &Commit,
         diagnostics: &mut crate::StoreDiagnostics,
+        size: &mut StateSize,
     ) -> Result<Self> {
-        Self::replay_from(Preparation::Owned(self), commit, Some(diagnostics))
+        let mut candidate = *size;
+        let result = Self::replay_from(
+            Preparation::Owned(self),
+            commit,
+            Some(diagnostics),
+            Some(&mut candidate),
+        );
+        if result.is_ok() {
+            *size = candidate;
+        }
+        result
     }
     fn replay_from(
         source: Preparation<'_>,
         commit: &Commit,
         diagnostics: Option<&mut crate::StoreDiagnostics>,
+        size: Option<&mut StateSize>,
     ) -> Result<Self> {
         if commit.version != FORMAT_VERSION {
             return Err(Error::Incompatible);
@@ -1679,7 +1718,7 @@ impl State {
         if source.transactions.contains_key(&commit.transaction.id) {
             return Err(Error::Corruption("duplicate persisted transaction"));
         }
-        let (next, expected) = Self::prepare_from(source, &commit.transaction, diagnostics)?;
+        let (next, expected) = Self::prepare_from(source, &commit.transaction, diagnostics, size)?;
         if expected != *commit {
             return Err(Error::Corruption("durable receipt mismatch"));
         }

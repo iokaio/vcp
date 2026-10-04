@@ -17,7 +17,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-01d | Derived bounds and start/resume conversion | EE-01b/c | planned |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | planned |
 | EE-02a | Consolidate opens and reconstruction | EE-00b | planned |
-| EE-02b | Incremental validation | EE-00b | planned |
+| EE-02b | Incremental validation | EE-00b | in progress; exact byte accounting verified |
 | EE-02c | Separate hot state and retained history | EE-02b | planned |
 | EE-02d | Verified checkpoint/index hydration | EE-02c and documented integrity design | planned |
 | EE-03a | Bounded output, CI fixtures and artifact access | EE-00a | planned |
@@ -59,3 +59,5 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 - EE-00c: bundle integration underway. Reconstruction checks and actual scenario analysis remain outstanding.
 - EE-01b/c core checkpoint: explicit versioned finite/unbounded limits across domain, public protocol, accounting, routing, SDK and editor usage projections. Actual costs remain finite observations. Legacy finite public-command and routing-decision hashes remain verifiable; original receipt bytes are preserved. Synthetic unbounded transitions retain reservations, attempt identity and duplicate-operation fences. CLI/lifecycle activation, editor start integration and full phase disposition remain outstanding; no paid execution qualifies this increment.
 - EE-01 checks passed: domain limits (2), legacy protocol hash (1), engine public start (4), budget/accounting (10), model routing (23), escalation (12), protocol generation/provenance (9), SDK validation (9), plus the new two-backend transition and routing hash regressions. SDK and VS Code TypeScript checks passed. These checks prove the tested compatibility boundaries, not full integrated execution.
+- EE-02b checkpoint: private exact serialized-state size accounting is rebuilt at reopen and updated from actual changed records, appended events/receipts and session sequences. It is installed only after successful durable append or receipt-matching replay. Public full validation and every semantic/global validator remain the reference behavior; this removes one repeated history traversal without claiming all validation is incremental. An 80-step generated trace compares exact byte lengths through record replacement/deletion, escaped payloads, sessions, receipts, rejection and duplicates. The complete store suite passed with `VCP_TEST_GIT` pointing to installed Git; existing opt-in tests remain ignored.
+- Follow-up single debug sample on the same synthetic 65-commit shape: SQLite open 72.270 ms / validation 33.345 ms; files open 56.509 ms / validation 31.636 ms. These observations justify further measurement, not a stable speedup claim or full fast-state acceptance.

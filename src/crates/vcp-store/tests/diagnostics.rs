@@ -151,6 +151,8 @@ async fn prefix_checkpoint_and_growing_history_need_one_validation_per_commit() 
         let diagnostics = reopened.diagnostics();
         assert_eq!(diagnostics.replayed_commits, 65);
         assert_eq!(diagnostics.validation.completed, 65);
+        assert_eq!(diagnostics.state_size_full_scans, 1);
+        assert_eq!(diagnostics.state_size_delta_updates, 65);
         assert_eq!(diagnostics.checkpoint_replayed_commits, 0);
         assert_eq!(
             diagnostics.checkpoint_state_comparisons,

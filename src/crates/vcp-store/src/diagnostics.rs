@@ -50,6 +50,8 @@ pub struct StoreDiagnostics {
     pub verified_artifacts: u64,
     pub duplicate_transactions: u64,
     pub current_watermark: u64,
+    pub state_size_full_scans: u64,
+    pub state_size_delta_updates: u64,
 }
 impl StoreDiagnostics {
     pub(crate) fn new(backend: BackendKind) -> Self {
@@ -80,6 +82,8 @@ impl StoreDiagnostics {
             verified_artifacts: 0,
             duplicate_transactions: 0,
             current_watermark: 0,
+            state_size_full_scans: 0,
+            state_size_delta_updates: 0,
         }
     }
 }
