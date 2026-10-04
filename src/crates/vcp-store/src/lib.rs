@@ -11,6 +11,7 @@ pub mod export_contract;
 mod forecast_contract;
 mod fork_contract;
 mod history;
+mod history_index;
 pub mod keys;
 mod legacy_state_stream;
 mod memory_review_contract;
