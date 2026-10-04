@@ -26,6 +26,9 @@ mod search_contract;
 #[path = "state_size.rs"]
 mod state_size;
 pub(crate) use state_size::StateSize;
+#[path = "shared_state.rs"]
+mod shared_state;
+pub use shared_state::SharedStateValue;
 // Qualification only: production keeps complete historical event validation.
 #[cfg(test)]
 #[path = "event_index.rs"]
@@ -892,10 +895,10 @@ pub struct Commit {
 #[serde(deny_unknown_fields)]
 pub struct State {
     pub watermark: Watermark,
-    pub records: BTreeMap<String, Record>,
-    pub events: Vec<EventEnvelope>,
-    pub commands: BTreeMap<String, CommandReceipt>,
-    pub transactions: BTreeMap<TransactionId, Receipt>,
+    pub records: SharedStateValue<BTreeMap<String, Record>>,
+    pub events: SharedStateValue<Vec<EventEnvelope>>,
+    pub commands: SharedStateValue<BTreeMap<String, CommandReceipt>>,
+    pub transactions: SharedStateValue<BTreeMap<TransactionId, Receipt>>,
     pub sequences: BTreeMap<SessionId, SessionSeq>,
 }
 /// Publication checks inspect the prior records and receipts, never prior
@@ -946,19 +949,19 @@ impl std::ops::Deref for Preparation<'_> {
     }
 }
 impl Preparation<'_> {
-    fn history(&mut self) -> Vec<EventEnvelope> {
+    fn history(&mut self) -> SharedStateValue<Vec<EventEnvelope>> {
         match self {
             Self::Borrowed(state) => state.events.clone(),
             Self::Owned(state) => std::mem::take(&mut state.events),
         }
     }
-    fn commands(&mut self) -> BTreeMap<String, CommandReceipt> {
+    fn commands(&mut self) -> SharedStateValue<BTreeMap<String, CommandReceipt>> {
         match self {
             Self::Borrowed(state) => state.commands.clone(),
             Self::Owned(state) => std::mem::take(&mut state.commands),
         }
     }
-    fn transactions(&mut self) -> BTreeMap<TransactionId, Receipt> {
+    fn transactions(&mut self) -> SharedStateValue<BTreeMap<TransactionId, Receipt>> {
         match self {
             Self::Borrowed(state) => state.transactions.clone(),
             Self::Owned(state) => std::mem::take(&mut state.transactions),
@@ -1356,9 +1359,9 @@ impl State {
         let mut result = State {
             watermark: source.watermark,
             records: source.records.clone(),
-            events: Vec::new(),
-            commands: BTreeMap::new(),
-            transactions: BTreeMap::new(),
+            events: SharedStateValue::default(),
+            commands: SharedStateValue::default(),
+            transactions: SharedStateValue::default(),
             sequences: source.sequences.clone(),
         };
         result.watermark = watermark;
@@ -1631,9 +1634,12 @@ impl State {
             .transpose()?;
         // All checks requiring the complete prior State have finished. Keep
         // candidate validation complete while transferring privately owned
-        // history; borrowed/public preparation still clones these collections.
+        // history. Borrowed preparation shares untouched collections and
+        // detaches only components receiving a new event or receipt.
         let mut history = source.history();
-        history.append(&mut result.events);
+        if !result.events.is_empty() {
+            history.append(&mut result.events);
+        }
         result.events = history;
         let mut commands = source.commands();
         for (key, receipt) in std::mem::take(&mut result.commands) {

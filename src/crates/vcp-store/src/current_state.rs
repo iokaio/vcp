@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Immutable current-record snapshots, distinct from canonical history evidence.
 use crate::{
-    contract::{key, Collection, Record, State},
+    contract::{key, Collection, Record, SharedStateValue, State},
     Error, Result,
 };
 use serde::Serialize;
@@ -15,7 +15,7 @@ use vcp_domain::{SessionId, SessionSeq, Watermark, WorkspaceId};
 pub struct CurrentState {
     schema_version: u32,
     pub watermark: Watermark,
-    pub records: BTreeMap<String, Record>,
+    pub records: SharedStateValue<BTreeMap<String, Record>>,
     pub sequences: BTreeMap<SessionId, SessionSeq>,
 }
 impl CurrentState {
