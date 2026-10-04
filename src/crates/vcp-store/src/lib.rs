@@ -10,6 +10,7 @@ mod diagnostics;
 pub mod export_contract;
 mod forecast_contract;
 mod fork_contract;
+mod history;
 pub mod keys;
 mod memory_review_contract;
 pub mod migration;
@@ -31,6 +32,7 @@ pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
 pub use current_state::CurrentState;
 pub use diagnostics::{StoreDiagnostics, StorePhase};
+pub use history::{CommandHistoryPage, EventHistoryPage};
 pub use store::{snapshot_pin_active, Snapshot, Store};
 
 #[derive(Debug, thiserror::Error)]

@@ -1255,13 +1255,16 @@ impl State {
     fn validate_event_history(&self) -> Result<()> {
         let mut event_ids = BTreeSet::new();
         let mut sequences = BTreeMap::<SessionId, SessionSeq>::new();
+        let mut previous_watermark = Watermark::ZERO;
         for event in &self.events {
             if event.version != 1
                 || event.watermark > self.watermark
+                || event.watermark < previous_watermark
                 || !event_ids.insert(event.event.id.clone())
             {
                 return Err(Error::Corruption("event identity"));
             }
+            previous_watermark = event.watermark;
             self.record(
                 Collection::Session,
                 event.event.session.as_str(),
