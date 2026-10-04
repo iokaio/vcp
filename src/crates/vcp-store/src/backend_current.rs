@@ -3,6 +3,8 @@
 //! byte-for-byte journal bodies; the new header authenticates the staged root.
 use super::*;
 use crate::durable_owner::{DurableOwner, PreparedDurable};
+#[path = "backend_current_checkpoint.rs"]
+mod checkpoint;
 #[path = "backend_current_files.rs"]
 mod files;
 #[path = "backend_current_materialized.rs"]

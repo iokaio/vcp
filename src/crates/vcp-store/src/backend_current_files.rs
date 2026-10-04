@@ -30,8 +30,23 @@ impl Journal {
             return Err(Error::Corruption("history origin before base"));
         }
         let checkpoint = self.read_checkpoint()?;
+        let current_checkpoint = self.read_current_checkpoint()?;
+        if let Some(checkpoint) = &current_checkpoint {
+            if self.file.metadata()?.len() < checkpoint.end()? {
+                return Err(Error::Corruption("checkpointed journal was truncated"));
+            }
+        }
+        if current_checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.watermark < origin.watermark())
+        {
+            return Err(Error::Corruption(
+                "current checkpoint before history origin",
+            ));
+        }
         // Legacy checkpoint payloads are compared at their actual prefix cut.
-        // Layout-3 checkpoints use a separate descriptor; none is emitted here.
+        // Layout-3 checkpoints use a separate descriptor and are checked only
+        // after the corresponding current owner has been semantically replayed.
         if checkpoint
             .as_ref()
             .is_some_and(|checkpoint| checkpoint.watermark > origin.watermark())
@@ -81,12 +96,23 @@ impl Journal {
             chain = frame.chain;
         }
         let mut owner = origin.admit(pages, &state, base).await?;
+        if let Some(checkpoint) = current_checkpoint
+            .as_ref()
+            .filter(|checkpoint| checkpoint.watermark == owner.semantic().current().watermark)
+        {
+            checkpoint.verify(&owner, &chain, offset, diagnostics)?;
+        }
         drop(state);
         drop(checkpoint);
         loop {
             match journal_frame::read(&mut self.file, offset, &chain)? {
                 ReadFrame::End => break,
                 ReadFrame::Incomplete => {
+                    if let Some(checkpoint) = &current_checkpoint {
+                        if checkpoint.end()? > offset {
+                            return Err(Error::Corruption("checkpointed journal was truncated"));
+                        }
+                    }
                     if tip
                         .as_ref()
                         .is_some_and(|tip| tip_end(tip).map_or(true, |end| end > offset))
@@ -105,6 +131,11 @@ impl Journal {
                         .saturating_add(frame.payload.len() as u64);
                     offset = frame.end;
                     chain = frame.chain;
+                    if let Some(checkpoint) = current_checkpoint.as_ref().filter(|checkpoint| {
+                        checkpoint.watermark == owner.semantic().current().watermark
+                    }) {
+                        checkpoint.verify(&owner, &chain, offset, diagnostics)?;
+                    }
                 }
             }
         }
@@ -113,6 +144,12 @@ impl Journal {
             if watermark > owner.semantic().current().watermark {
                 return Err(Error::Corruption("journal tip missing"));
             }
+        }
+        if current_checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.watermark > owner.semantic().current().watermark)
+        {
+            return Err(Error::Corruption("current checkpoint ahead of history"));
         }
         self.chain = chain;
         self.file.seek(SeekFrom::Start(offset))?;

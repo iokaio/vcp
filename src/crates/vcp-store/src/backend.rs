@@ -509,6 +509,16 @@ impl Backend {
         }
         Ok(())
     }
+    #[cfg(test)]
+    pub(crate) fn checkpoint_current(
+        &mut self,
+        owner: &crate::durable_owner::DurableOwner,
+    ) -> Result<()> {
+        if let Self::Files(journal) = self {
+            journal.checkpoint_current(owner)?;
+        }
+        Ok(())
+    }
     pub(crate) fn checkpoint(&mut self, state: &State) -> Result<()> {
         if let Self::Files(journal) = self {
             let bytes = canonical_bytes(state)?;
