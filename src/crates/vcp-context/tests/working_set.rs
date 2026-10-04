@@ -115,3 +115,90 @@ fn edits_deletion_binding_and_scope_never_reuse_stale_ranges_as_current() {
     ))
     .is_err());
 }
+
+#[test]
+fn seven_files_survive_repeated_reads_edits_deletion_and_steered_rebuild() {
+    let mut revisions = revisions();
+    let original = source();
+    let sources: Vec<_> = (0..7)
+        .map(|index| FileVersion {
+            path: format!("src/file-{index}.rs"),
+            native_identity: format!("fixture-{index}"),
+            ..original.clone()
+        })
+        .collect();
+    let mut history = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        history.extend(pair(&revisions, source, &format!("file-{index}"), 1, 20));
+    }
+    // Repeated reads must not consume the bounded index and evict the other
+    // six files. Preserve a distinct useful range of the same source as well.
+    for index in 0..140 {
+        history.extend(pair(
+            &revisions,
+            &sources[0],
+            &format!("repeat-{index}"),
+            1,
+            20,
+        ));
+    }
+    history.extend(pair(&revisions, &sources[0], "second-range", 80, 90));
+    let mut edited = sources[1].clone();
+    edited.sha256 = "b".repeat(64);
+    history.extend(pair(&revisions, &edited, "after-edit", 30, 40));
+    let retained = serde_json::to_value(&history).unwrap();
+    revisions.steering = revisions.steering.next().unwrap();
+    let current = |path: &str| {
+        if path == sources[2].path {
+            None
+        } else if path == edited.path {
+            Some(edited.clone())
+        } else {
+            sources.iter().find(|source| source.path == path).cloned()
+        }
+    };
+    let mut reads = 0;
+    let (index, probes) = rebuild(&history, &revisions, &original.root, |path| {
+        reads += 1;
+        current(path)
+    })
+    .unwrap();
+    assert_eq!(reads, 7);
+    assert_eq!(index.entries.len(), 8);
+    assert_eq!(index.coalesced_observations, 140);
+    assert_eq!(index.omitted_observations, 0);
+    assert_eq!(probes.len(), 6);
+    let ranges: Vec<_> = index
+        .entries
+        .iter()
+        .filter(|entry| entry.source.path == sources[0].path)
+        .collect();
+    assert_eq!(ranges.len(), 2);
+    assert_eq!(ranges[0].origin_call, "repeat-139");
+    assert_eq!(ranges[1].start_line, 80);
+    let changed = index
+        .entries
+        .iter()
+        .find(|entry| entry.source.path == edited.path)
+        .unwrap();
+    assert_eq!(changed.source, edited);
+    assert_eq!(changed.origin_call, "after-edit");
+    assert_eq!(changed.applicability, Applicability::Current);
+    assert_eq!(
+        index
+            .entries
+            .iter()
+            .find(|entry| entry.source.path == sources[2].path)
+            .unwrap()
+            .applicability,
+        Applicability::Unavailable
+    );
+    assert_eq!(index.revisions.steering, revisions.steering);
+    let decoded: Vec<Part> = serde_json::from_value(retained.clone()).unwrap();
+    let (reopened, _) = rebuild(&decoded, &revisions, &original.root, current).unwrap();
+    assert_eq!(
+        serde_json::to_value(index).unwrap(),
+        serde_json::to_value(reopened).unwrap()
+    );
+    assert_eq!(serde_json::to_value(history).unwrap(), retained);
+}

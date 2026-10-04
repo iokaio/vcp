@@ -30,6 +30,7 @@ pub struct Index {
     pub revisions: Revisions,
     pub entries: Vec<Entry>,
     pub omitted_observations: usize,
+    pub coalesced_observations: usize,
 }
 
 /// Callers validate retained sources and current authority before rebuilding.
@@ -46,6 +47,7 @@ pub fn rebuild(
         .filter(|part| matches!(part.kind, Kind::ToolCall | Kind::ToolResult))
         .collect();
     let mut entries = Vec::new();
+    let mut coalesced_observations = 0;
     for pair in history.chunks_exact(2) {
         let (
             Content::ToolCall {
@@ -110,12 +112,25 @@ pub fn rebuild(
         // A newer version supersedes older source/range observations. Multiple
         // useful ranges of the same exact source remain independently visible.
         entries.retain(|entry: &Entry| entry.source.path != source.path || entry.source == source);
+        let next_line = result["next_line"].as_u64();
+        // Keep the latest provenance for an identical observation. Coalescing
+        // affects this context index only; the original tool pairs remain in
+        // durable history. Different useful ranges retain separate entries.
+        entries.retain(|entry| {
+            let identical = entry.source == source
+                && entry.start_line == start_line
+                && entry.end_line == end_line
+                && entry.complete == complete
+                && entry.next_line == next_line;
+            coalesced_observations += usize::from(identical);
+            !identical
+        });
         entries.push(Entry {
             source,
             start_line,
             end_line,
             complete,
-            next_line: result["next_line"].as_u64(),
+            next_line,
             artifact: pair[1].artifact.clone(),
             origin_call: id.clone(),
             applicability: Applicability::Unavailable,
@@ -154,6 +169,7 @@ pub fn rebuild(
             revisions: revisions.clone(),
             entries,
             omitted_observations,
+            coalesced_observations,
         },
         probes,
     ))
