@@ -53,4 +53,7 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 ## Phase evidence and commits
 
 - EE-00a: evidence/quality definitions and phase registration complete. Source inspection and Markdown reference checks only; no new live scenario outcome is claimed.
-- EE-00b/c: implementation underway. Tests and measured results will be recorded after execution.
+- EE-00b/EE-02a first storage increment: payload-free open, replay, validation, materialization, artifact verification, append and checkpoint observations, including failed opens. Reused the already loaded replay base and verified the file checkpoint during the mandatory journal traversal, removing its duplicate prefix replay. Full historical semantic validation remains mandatory. This does not complete all phase instrumentation, resume consolidation or incremental validation.
+- Storage verification: 19 unit and 4 diagnostic tests passed; conformance (6), persisted JSON (5) and replay-base (7) tests passed after the checkpoint change. The unrelated OneDrive qualification remains opt-in. Added invalid-interior/later-valid history, forged resealed checkpoint and generated differential trace regressions.
+- Synthetic debug measurement, 65 commits and 3 business records: SQLite open 95.856 ms (replay 79.180 ms, full validation 60.672 ms); files open 82.567 ms (replay 74.436 ms, full validation 59.140 ms). Both validate 65 states and 2,145 event inputs. File checkpoint comparison adds no semantic prefix replay (formerly 33 extra states). This is small synthetic evidence, not A/B latency qualification; historical validation remains the measured dominant work.
+- EE-00c: bundle integration underway. Reconstruction checks and actual scenario analysis remain outstanding.

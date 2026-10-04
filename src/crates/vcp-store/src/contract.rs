@@ -519,7 +519,10 @@ impl Record {
             refs.extend(agents_contract::references(self)?);
             return Ok(refs);
         }
-        if crate::editor_contract::kind(self)? { refs.extend(crate::editor_contract::references(self)?); return Ok(refs); }
+        if crate::editor_contract::kind(self)? {
+            refs.extend(crate::editor_contract::references(self)?);
+            return Ok(refs);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if let Some(scope) = self.task_scope()? {
@@ -717,7 +720,9 @@ impl Record {
         if crate::observer_contract::kind(self) {
             return crate::observer_contract::scope(self).map(Some);
         }
-        if crate::editor_contract::kind(self)? { return Ok(Some(crate::editor_contract::scope(self)?)); }
+        if crate::editor_contract::kind(self)? {
+            return Ok(Some(crate::editor_contract::scope(self)?));
+        }
         if agents_contract::kind(self)? {
             return Ok(Some(self.decode::<vcp_domain::agents::TaskGraph>()?.scope));
         }
@@ -1283,11 +1288,23 @@ impl State {
         Ok(())
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
-        Self::prepare_from(Preparation::Borrowed(self), transaction)
+        Self::prepare_from(Preparation::Borrowed(self), transaction, None)
+    }
+    pub(crate) fn prepare_observed(
+        &self,
+        transaction: &Transaction,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<(Self, Commit)> {
+        let started = std::time::Instant::now();
+        let result =
+            Self::prepare_from(Preparation::Borrowed(self), transaction, Some(diagnostics));
+        diagnostics.preparation.record(started, result.is_ok());
+        result
     }
     fn prepare_from(
         mut source: Preparation<'_>,
         transaction: &Transaction,
+        diagnostics: Option<&mut crate::StoreDiagnostics>,
     ) -> Result<(Self, Commit)> {
         let bytes = canonical_bytes(transaction)?;
         if bytes.len() > MAX_TRANSACTION_BYTES {
@@ -1470,7 +1487,9 @@ impl State {
                         .transpose()?
                         .unwrap_or(false)
                     {
-                        return Err(Error::Conflict("durable editor authority cannot be dropped"));
+                        return Err(Error::Conflict(
+                            "durable editor authority cannot be dropped",
+                        ));
                     }
                     if source
                         .records
@@ -1598,7 +1617,20 @@ impl State {
             transactions.insert(id, receipt);
         }
         result.transactions = transactions;
-        result.validate()?;
+        if let Some(diagnostics) = diagnostics {
+            let started = std::time::Instant::now();
+            let validation = result.validate();
+            diagnostics.validation.record(started, validation.is_ok());
+            diagnostics.validation_input_records = diagnostics
+                .validation_input_records
+                .saturating_add(result.records.len() as u64);
+            diagnostics.validation_input_events = diagnostics
+                .validation_input_events
+                .saturating_add(result.events.len() as u64);
+            validation?;
+        } else {
+            result.validate()?;
+        }
         // The only receipt added above is the current transaction, whose prior
         // absence was checked before preparation. Excluding it recreates the
         // exact prior receipt lookup without cloning the historical map.
@@ -1621,22 +1653,33 @@ impl State {
         ))
     }
     pub fn replay(&mut self, commit: &Commit) -> Result<()> {
-        *self = Self::replay_from(Preparation::Borrowed(self), commit)?;
+        *self = Self::replay_from(Preparation::Borrowed(self), commit, None)?;
         Ok(())
     }
     /// Private reconstruction discards the owned state on any invalid commit.
     /// Public replay retains its original atomic failure contract.
     pub(crate) fn into_replayed(self, commit: &Commit) -> Result<Self> {
-        Self::replay_from(Preparation::Owned(self), commit)
+        Self::replay_from(Preparation::Owned(self), commit, None)
     }
-    fn replay_from(source: Preparation<'_>, commit: &Commit) -> Result<Self> {
+    pub(crate) fn into_replayed_observed(
+        self,
+        commit: &Commit,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<Self> {
+        Self::replay_from(Preparation::Owned(self), commit, Some(diagnostics))
+    }
+    fn replay_from(
+        source: Preparation<'_>,
+        commit: &Commit,
+        diagnostics: Option<&mut crate::StoreDiagnostics>,
+    ) -> Result<Self> {
         if commit.version != FORMAT_VERSION {
             return Err(Error::Incompatible);
         }
         if source.transactions.contains_key(&commit.transaction.id) {
             return Err(Error::Corruption("duplicate persisted transaction"));
         }
-        let (next, expected) = Self::prepare_from(source, &commit.transaction)?;
+        let (next, expected) = Self::prepare_from(source, &commit.transaction, diagnostics)?;
         if expected != *commit {
             return Err(Error::Corruption("durable receipt mismatch"));
         }

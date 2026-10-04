@@ -21,5 +21,9 @@ async fn benchmark_retained_history() {
         state.events.len(),
         vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(state).unwrap())
     );
+    println!(
+        "store_diagnostics={}",
+        serde_json::to_string(store.diagnostics()).unwrap()
+    );
     store.close().await.unwrap();
 }

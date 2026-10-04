@@ -4,6 +4,7 @@ extern crate self as vcp_store;
 mod accounting_contract;
 pub mod artifact;
 mod backend;
+mod diagnostics;
 pub mod contract;
 pub mod export_contract;
 mod forecast_contract;
@@ -27,6 +28,7 @@ pub mod trust_store;
 pub mod vault_crypto;
 pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
+pub use diagnostics::{StoreDiagnostics, StorePhase};
 pub use store::{snapshot_pin_active, Snapshot, Store};
 
 #[derive(Debug, thiserror::Error)]

@@ -13,6 +13,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    time::Instant,
 };
 use vcp_domain::{artifact::ArtifactDescriptor, *};
 use vcp_protocol::{canonical_bytes, digest_bytes};
@@ -44,6 +45,7 @@ pub struct Store {
     spool: Spool,
     artifact_limit: u64,
     poisoned: bool,
+    diagnostics: crate::StoreDiagnostics,
     #[cfg(feature = "qualification")]
     observer: Option<crate::backend::Observer>,
     _owner: File,
@@ -89,6 +91,57 @@ impl Store {
         forbidden_roots: &[PathBuf],
         artifact_limit: u64,
     ) -> Result<Self> {
+        Self::open_diagnosed_with_artifact_limit(root, kind, forbidden_roots, artifact_limit)
+            .await
+            .0
+    }
+
+    /// Return phase observations even when opening fails. Diagnostics contain
+    /// no paths, payloads or error text; the original error remains unchanged.
+    pub async fn open_with_diagnostics(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+    ) -> (Result<Self>, crate::StoreDiagnostics) {
+        Self::open_diagnosed_with_artifact_limit(
+            root,
+            kind,
+            forbidden_roots,
+            DEFAULT_ARTIFACT_LIMIT,
+        )
+        .await
+    }
+
+    async fn open_diagnosed_with_artifact_limit(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+        artifact_limit: u64,
+    ) -> (Result<Self>, crate::StoreDiagnostics) {
+        let open_started = Instant::now();
+        let mut diagnostics = crate::StoreDiagnostics::new(kind);
+        let mut result = Self::open_observed(
+            root,
+            kind,
+            forbidden_roots,
+            artifact_limit,
+            &mut diagnostics,
+        )
+        .await;
+        diagnostics.open.record(open_started, result.is_ok());
+        if let Ok(store) = &mut result {
+            store.diagnostics = diagnostics.clone();
+        }
+        (result, diagnostics)
+    }
+
+    async fn open_observed(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+        artifact_limit: u64,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<Self> {
         if artifact_limit == 0 || artifact_limit > DEFAULT_ARTIFACT_LIMIT {
             return Err(Error::Limit("artifact capacity"));
         }
@@ -131,11 +184,12 @@ impl Store {
             if activation.backend != kind {
                 return Err(Error::Incompatible);
             }
-            let mut active = Box::pin(Self::open_with_artifact_limit(
+            let mut active = Box::pin(Self::open_observed(
                 &destination,
                 kind,
                 forbidden_roots,
                 artifact_limit,
+                diagnostics,
             ))
             .await?;
             let activated_base = crate::replay_base::ReplayBase::load(&destination)?
@@ -200,24 +254,45 @@ impl Store {
                 Err(error) => return Err(error),
             }
         }
-        let loaded_base = crate::replay_base::ReplayBase::load(&root)?;
+        let base_started = Instant::now();
+        let loaded_base = crate::replay_base::ReplayBase::load(&root);
+        diagnostics
+            .replay_base
+            .record(base_started, loaded_base.is_ok());
+        let loaded_base = loaded_base?;
         let prefixes = loaded_base
             .as_ref()
             .map(|b| b.prefixes.clone())
             .unwrap_or_default();
+        let backend_started = Instant::now();
+        let opened = Backend::open_observed(&root, kind, loaded_base.as_ref(), diagnostics).await;
+        diagnostics
+            .backend_open
+            .record(backend_started, opened.is_ok());
+        let (backend, state, commits) = opened?;
         let base = loaded_base.map(|b| b.state).unwrap_or_default();
-        let (backend, state, commits) = Backend::open(&root, kind).await?;
-        let spool = Spool::open(&root.join("spool"), forbidden_roots, artifact_limit)?;
-        for record in state
-            .records
-            .values()
-            .filter(|record| record.collection == Collection::Artifact)
-        {
-            let descriptor: ArtifactDescriptor = record.decode()?;
-            if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
-                spool.verify(&descriptor)?;
+        let artifacts_started = Instant::now();
+        let artifacts = (|| {
+            let spool = Spool::open(&root.join("spool"), forbidden_roots, artifact_limit)?;
+            for record in state
+                .records
+                .values()
+                .filter(|record| record.collection == Collection::Artifact)
+            {
+                let descriptor: ArtifactDescriptor = record.decode()?;
+                if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
+                    spool.verify(&descriptor)?;
+                    diagnostics.verified_artifacts =
+                        diagnostics.verified_artifacts.saturating_add(1);
+                }
             }
-        }
+            Ok::<_, Error>(spool)
+        })();
+        diagnostics
+            .artifact_verification
+            .record(artifacts_started, artifacts.is_ok());
+        let spool = artifacts?;
+        diagnostics.current_watermark = state.watermark.get();
         Ok(Self {
             backend,
             state,
@@ -231,6 +306,7 @@ impl Store {
             spool,
             artifact_limit,
             poisoned: false,
+            diagnostics: diagnostics.clone(),
             #[cfg(feature = "qualification")]
             observer: None,
             _owner: owner,
@@ -250,6 +326,10 @@ impl Store {
     }
     pub fn state(&self) -> &State {
         &self.state
+    }
+    /// Process-local diagnostics without reading payloads or changing durable state.
+    pub fn diagnostics(&self) -> &crate::StoreDiagnostics {
+        &self.diagnostics
     }
     /// Verify retained canonical history at an exact cut. This read-only digest
     /// cannot authorize an import or restore history before the retained base.
@@ -358,7 +438,10 @@ impl Store {
         if self.poisoned {
             return Err(Error::Unavailable("reopen after indeterminate commit"));
         }
-        self.backend.checkpoint(&self.state)
+        let started = Instant::now();
+        let result = self.backend.checkpoint(&self.state);
+        self.diagnostics.checkpoint.record(started, result.is_ok());
+        result
     }
     #[cfg(feature = "qualification")]
     pub fn observe(&mut self, observer: crate::backend::Observer) {
@@ -760,8 +843,12 @@ impl CanonicalStore for Store {
                 "reopen to reconcile an indeterminate commit",
             ));
         }
-        let (next, commit) = self.state.prepare(&transaction)?;
+        let (next, commit) = self
+            .state
+            .prepare_observed(&transaction, &mut self.diagnostics)?;
         if self.state.transactions.contains_key(&transaction.id) {
+            self.diagnostics.duplicate_transactions =
+                self.diagnostics.duplicate_transactions.saturating_add(1);
             return Ok(commit.receipt);
         }
         for mutation in &transaction.mutations {
@@ -785,8 +872,14 @@ impl CanonicalStore for Store {
         // Poison before awaiting: cancellation after a write may have committed.
         // Reopening replays durable receipts and is the only way to clear it.
         self.poisoned = true;
-        self.backend.append(&commit, &next, &observe).await?;
+        let append_started = Instant::now();
+        let append = self.backend.append(&commit, &next, &observe).await;
+        self.diagnostics
+            .append
+            .record(append_started, append.is_ok());
+        append?;
         self.state = next;
+        self.diagnostics.current_watermark = self.state.watermark.get();
         self.commits.push(commit.clone());
         self.poisoned = false;
         observe(Barrier::BeforeReply);

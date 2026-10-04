@@ -81,3 +81,75 @@ async fn both_backends_reject_semantically_invalid_commits_with_valid_checksums(
         ));
     }
 }
+
+#[tokio::test]
+async fn later_valid_state_and_checkpoint_cannot_hide_invalid_interior_transition() {
+    for kind in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let (first, initial, second, mut invalid) = history();
+        invalid.transaction.events[0].task = Some(TaskId::parse("missing-task").unwrap());
+        invalid.receipt.digest = digest_bytes(&canonical_bytes(&invalid.transaction).unwrap());
+        let mut next_event = initial.transaction.events[0].clone();
+        next_event.id = EventId::new();
+        let next = Transaction {
+            id: TransactionId::new(),
+            expected_watermark: second.watermark,
+            mutations: Vec::new(),
+            events: vec![next_event],
+            command: None,
+        };
+        let (third, final_commit) = second.prepare(&next).unwrap();
+        let (mut backend, _, _) = Backend::open(temporary.path(), kind).await.unwrap();
+        backend.append(&initial, &first, |_| {}).await.unwrap();
+        backend.append(&invalid, &second, |_| {}).await.unwrap();
+        backend.append(&final_commit, &third, |_| {}).await.unwrap();
+        backend.checkpoint(&third).unwrap();
+        backend.close().await.unwrap();
+        assert!(matches!(
+            Backend::open(temporary.path(), kind).await,
+            Err(Error::Conflict("record not found"))
+        ));
+    }
+}
+
+#[test]
+fn generated_observed_replay_agrees_with_reference_at_every_transaction() {
+    let mut reference = State::default();
+    let mut observed = State::default();
+    let mut diagnostics = crate::StoreDiagnostics::new(BackendKind::Files);
+    let mut transaction = common::initial();
+    for index in 0..80 {
+        if index > 0 {
+            let mut event = common::initial().events.remove(0);
+            event.id = EventId::parse(format!("generated-event-{index}")).unwrap();
+            transaction = Transaction {
+                id: TransactionId::parse(format!("generated-transaction-{index}")).unwrap(),
+                expected_watermark: reference.watermark,
+                mutations: vec![],
+                events: vec![event],
+                command: None,
+            };
+        }
+        let mut invalid = transaction.clone();
+        invalid.events[0].task = Some(TaskId::parse("absent-task").unwrap());
+        let expected_error = reference.prepare(&invalid).unwrap_err().to_string();
+        let observed_error = observed
+            .prepare_observed(&invalid, &mut diagnostics)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(expected_error, observed_error, "invalid step {index}");
+        assert_eq!(observed, reference, "rejection mutated step {index}");
+        let (next, commit) = reference.prepare(&transaction).unwrap();
+        observed = observed
+            .into_replayed_observed(&commit, &mut diagnostics)
+            .unwrap();
+        reference = next;
+        assert_eq!(observed, reference, "accepted step {index}");
+        reference.validate().unwrap();
+        let (duplicate, duplicate_commit) = observed
+            .prepare_observed(&transaction, &mut diagnostics)
+            .unwrap();
+        assert_eq!(duplicate, reference, "duplicate step {index}");
+        assert_eq!(duplicate_commit, commit);
+    }
+}
