@@ -173,11 +173,12 @@ pub(crate) fn references(row: &Record) -> Result<BTreeSet<String>> {
     }
     Ok(refs)
 }
-pub(crate) fn version_identity(
-    state: &State,
+pub(crate) fn version_identity<'a>(
+    state: impl Into<crate::CurrentStateView<'a>>,
     id: &ClaimVersionId,
     workspace: &WorkspaceId,
 ) -> Result<(ClaimId, ProposalId, MemorySeq)> {
+    let state = state.into();
     let row = state.record(Collection::Claim, id.as_str(), workspace)?;
     if kind(row)? == Some(redaction::VERSION) {
         let value: RedactedVersion = row.decode()?;

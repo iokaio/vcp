@@ -4,6 +4,9 @@ use super::*;
 mod common;
 use crate::{BackendKind, Store};
 use vcp_protocol::{command::CommandResult, event::EventInput};
+
+#[path = "memory_review_contract_history_tests.rs"]
+mod history_tests;
 fn submission() -> Submission {
     let candidate = Proposal {
         id: ProposalId::new(),

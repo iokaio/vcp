@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Narrow typed workspace provenance for aggregate forecast artifacts.
-use crate::{contract::*, Error, Result};
+use crate::{
+    contract::*,
+    historical_facts::{EventFacts, StateEventFacts},
+    CurrentStateView, Error, Result,
+};
 use std::collections::BTreeSet;
 use vcp_domain::{artifact::ArtifactDescriptor, forecast, workspace::Scope};
 use vcp_protocol::{canonical_bytes, digest_bytes};
@@ -39,6 +43,14 @@ pub(crate) fn shape(row: &Record) -> Result<()> {
 }
 
 pub(crate) fn validate(state: &State, row: &Record) -> Result<()> {
+    validate_with_history(state.into(), row, &mut StateEventFacts::new(state))
+}
+
+pub(crate) fn validate_with_history(
+    state: CurrentStateView<'_>,
+    row: &Record,
+    history: &mut impl EventFacts,
+) -> Result<()> {
     if !kind(row) {
         return Ok(());
     }
@@ -95,22 +107,18 @@ pub(crate) fn validate(state: &State, row: &Record) -> Result<()> {
         }
         observed.insert(scope.task);
     }
-    let events: std::collections::BTreeMap<_, _> = state
-        .events
-        .iter()
-        .filter(|e| value.source_events.contains(&e.event.id))
-        .map(|e| (&e.event.id, e))
-        .collect();
     for id in &value.source_events {
-        let event = events
-            .get(id)
+        let event = history
+            .last(id)?
             .ok_or(Error::Corruption("forecast source event absent"))?;
+        if event.id != *id {
+            return Err(Error::Corruption("forecast source event identity"));
+        }
         let task = event
-            .event
             .task
             .as_ref()
             .ok_or(Error::Corruption("forecast event task absent"))?;
-        if event.event.workspace != row.workspace || !value.source_tasks.contains(task) {
+        if event.workspace != row.workspace || !value.source_tasks.contains(task) {
             return Err(Error::Access);
         }
         observed.insert(task.clone());
@@ -120,3 +128,7 @@ pub(crate) fn validate(state: &State, row: &Record) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "forecast_contract_history_tests.rs"]
+mod history_tests;

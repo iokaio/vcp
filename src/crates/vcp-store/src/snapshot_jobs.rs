@@ -941,6 +941,15 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
     Ok(())
 }
 pub(crate) fn insert(state: &crate::contract::State, record: &Record) -> Result<()> {
+    insert_with_digest(state.into(), record, &mut || {
+        crate::legacy_state_stream::digest(state)
+    })
+}
+pub(crate) fn insert_with_digest(
+    state: crate::CurrentStateView<'_>,
+    record: &Record,
+    source_digest: &mut impl FnMut() -> Result<String>,
+) -> Result<()> {
     if !kind(record) {
         return Ok(());
     }
@@ -958,7 +967,7 @@ pub(crate) fn insert(state: &crate::contract::State, record: &Record) -> Result<
     if job.stage != Stage::Captured
         || !job.active
         || job.watermark != state.watermark
-        || job.state_digest != digest_bytes(&canonical_bytes(state)?)
+        || job.state_digest != source_digest()?
         || job.pins != expected
         || job.inventory.is_some()
         || job.finalization.is_some()

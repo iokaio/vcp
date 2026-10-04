@@ -11,6 +11,7 @@ pub mod export_contract;
 mod forecast_contract;
 mod fork_contract;
 mod history;
+mod historical_facts;
 mod history_blob;
 mod history_catalog;
 mod history_index;

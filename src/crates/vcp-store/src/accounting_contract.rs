@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use crate::{contract::*, Error, Result};
+use crate::{contract::*, CurrentStateView, Error, Result};
 use std::collections::BTreeMap;
 use vcp_domain::{
     accounting::*,
@@ -7,26 +7,43 @@ use vcp_domain::{
     ids::*,
     task::Task,
 };
+#[cfg(test)]
+#[path = "../tests/common/mod.rs"]
+mod history_test_common;
 fn sum(left: u64, right: u64) -> Result<u64> {
     left.checked_add(right)
         .ok_or(Error::Corruption("accounting overflow"))
 }
-fn lineage(state: RecordView<'_>, task: &Task) -> Result<Vec<Task>> {
+fn lineage(records: &BTreeMap<String, Record>, task: &Task) -> Result<Vec<Task>> {
     let mut result = vec![task.clone()];
     let mut parent = task.parent.clone();
     while let Some(id) = parent {
         if result.iter().any(|row| row.scope.task == id) {
             return Err(Error::Corruption("task ancestry cycle"));
         }
-        let ancestor: Task = state
-            .record(Collection::Task, id.as_str(), &task.scope.workspace)?
-            .decode()?;
+        let record = records
+            .get(&key(Collection::Task, id.as_str()))
+            .ok_or(Error::Conflict("record not found"))?;
+        if record.workspace != task.scope.workspace {
+            return Err(Error::Access);
+        }
+        let ancestor: Task = record.decode()?;
         parent = ancestor.parent.clone();
         result.push(ancestor);
     }
     Ok(result)
 }
 pub(crate) fn validate(state: &State) -> Result<()> {
+    validate_with_history(
+        state.into(),
+        &mut crate::historical_facts::StateEventFacts::new(state),
+    )
+}
+
+pub(crate) fn validate_with_history(
+    state: CurrentStateView<'_>,
+    history: &mut impl crate::historical_facts::EventFacts,
+) -> Result<()> {
     let mut ledgers = BTreeMap::<TaskId, Ledger>::new();
     let mut reservations = BTreeMap::<ReservationId, Reservation>::new();
     let mut attempts = BTreeMap::<AttemptId, Attempt>::new();
@@ -170,15 +187,7 @@ pub(crate) fn validate(state: &State) -> Result<()> {
             ));
         }
         if let Some(send) = &attempt.send_intent {
-            if !state.events.iter().any(|event| {
-                event.event.id == *send
-                    && event.event.workspace == attempt.scope.workspace
-                    && event.event.session == attempt.scope.session
-                    && event.event.task.as_ref() == Some(&attempt.scope.task)
-                    && event.event.kind == vcp_protocol::event::EventKind::AttemptSubmitted
-            }) {
-                return Err(Error::Corruption("durable send intent missing"));
-            }
+            send_intent(history, send, &attempt.scope)?;
         }
     }
     for reservation in reservations.values() {
@@ -239,6 +248,23 @@ pub(crate) fn validate(state: &State) -> Result<()> {
                 "root aggregate differs from canonical reservations",
             ));
         }
+    }
+    Ok(())
+}
+
+fn send_intent(
+    history: &mut impl crate::historical_facts::EventFacts,
+    send: &EventId,
+    scope: &vcp_domain::workspace::Scope,
+) -> Result<()> {
+    if !history.any(send, &|event| {
+        event.id == *send
+            && event.workspace == scope.workspace
+            && event.session == scope.session
+            && event.task.as_ref() == Some(&scope.task)
+            && event.kind == vcp_protocol::event::EventKind::AttemptSubmitted
+    })? {
+        return Err(Error::Corruption("durable send intent missing"));
     }
     Ok(())
 }
@@ -324,11 +350,12 @@ pub(crate) fn transition(previous: &Record, next: &Record) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn admission(
+pub(crate) fn admission<'a>(
     before: RecordView<'_>,
-    after: &State,
+    after: impl Into<CurrentStateView<'a>>,
     transaction: &Transaction,
 ) -> Result<()> {
+    let after = after.into();
     for mutation in &transaction.mutations {
         if let Mutation::Put {
             expected: None,
@@ -360,7 +387,7 @@ pub(crate) fn admission(
                 {
                     return Err(Error::Conflict("invalid initial accounting admission"));
                 }
-                let ancestors = lineage(before, &task)?;
+                let ancestors = lineage(before.records, &task)?;
                 if ancestors
                     .iter()
                     .any(|row| row.state != vcp_domain::task::TaskState::Running)
@@ -419,7 +446,7 @@ pub(crate) fn admission(
                             &row.scope.workspace,
                         )?
                         .decode()?;
-                    for ancestor in lineage(after.record_view(), &row_task)? {
+                    for ancestor in lineage(after.records, &row_task)? {
                         if ledger.allocations.contains_key(&ancestor.scope.task) {
                             let total = allocated.entry(ancestor.scope.task).or_default();
                             *total = sum(*total, sum(row.charged.get(), row.liability.get())?)?;
@@ -514,11 +541,12 @@ pub(crate) fn admission(
 /// A historical erasure marker cannot be minted or removed by an ordinary Put.
 /// A later observation may update its retained accounting facts only when that
 /// transaction also admits exactly one fresh immutable usage observation.
-pub(crate) fn redacted_attempt_update(
-    before: &State,
+pub(crate) fn redacted_attempt_update<'a>(
+    before: impl Into<CurrentStateView<'a>>,
     transaction: &Transaction,
     record: &Record,
 ) -> Result<bool> {
+    let before = before.into();
     if record.collection != Collection::Attempt {
         return Ok(false);
     }
@@ -596,4 +624,79 @@ pub(crate) fn redacted_attempt_update(
         ));
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::history_test_common as common;
+    use super::*;
+    use crate::historical_facts::{EventFact, EventFacts, StateEventFacts};
+
+    struct Facts {
+        rows: Vec<EventFact>,
+        fail: bool,
+    }
+    impl EventFacts for Facts {
+        fn last(&mut self, _: &EventId) -> Result<Option<EventFact>> {
+            panic!("send intent requires any-match semantics")
+        }
+        fn any(&mut self, id: &EventId, predicate: &dyn Fn(&EventFact) -> bool) -> Result<bool> {
+            if self.fail {
+                return Err(Error::Unavailable("injected history failure"));
+            }
+            Ok(self.rows.iter().filter(|row| &row.id == id).any(predicate))
+        }
+    }
+    #[test]
+    fn send_intent_facts_preserve_exact_scope_kind_and_read_errors() {
+        let (base, _) = State::default().prepare(&common::initial()).unwrap();
+        let scope = common::task().scope;
+        let mut submitted = base.events[0].clone();
+        submitted.event.kind = vcp_protocol::event::EventKind::AttemptSubmitted;
+        let id = submitted.event.id.clone();
+        for variant in 0..8 {
+            let mut state = base.clone();
+            state.events.clear();
+            let mut row = submitted.clone();
+            match variant {
+                1 => row.event.workspace = WorkspaceId::new(),
+                2 => row.event.session = SessionId::new(),
+                3 => row.event.task = Some(TaskId::new()),
+                4 => row.event.kind = vcp_protocol::event::EventKind::TaskCreated,
+                5 => row.event.id = EventId::new(),
+                6 => row.event.task = None,
+                _ => {}
+            }
+            state.events.push(row);
+            if variant == 7 {
+                // Standalone corrupt duplicates keep the original any-match
+                // result; the global event validator separately rejects them.
+                state.events.push(submitted.clone());
+                state.events[0].event.workspace = WorkspaceId::new();
+            }
+            let expected = state.events.iter().any(|event| {
+                event.event.id == id
+                    && event.event.workspace == scope.workspace
+                    && event.event.session == scope.session
+                    && event.event.task.as_ref() == Some(&scope.task)
+                    && event.event.kind == vcp_protocol::event::EventKind::AttemptSubmitted
+            });
+            let mut facts = Facts {
+                rows: state.events.iter().map(EventFact::from).collect(),
+                fail: false,
+            };
+            let actual = send_intent(&mut facts, &id, &scope);
+            assert_eq!(actual.is_ok(), expected);
+            assert_eq!(
+                actual.map_err(|error| error.to_string()),
+                send_intent(&mut StateEventFacts::new(&state), &id, &scope)
+                    .map_err(|error| error.to_string())
+            );
+            facts.fail = true;
+            assert!(matches!(
+                send_intent(&mut facts, &id, &scope),
+                Err(Error::Unavailable("injected history failure"))
+            ));
+        }
+    }
 }
