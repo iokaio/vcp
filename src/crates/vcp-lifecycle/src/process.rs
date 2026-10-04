@@ -40,6 +40,122 @@ struct Control {
     total: u64,
     reason: Option<String>,
 }
+/// Keep the owner's interruption observation attached to the exact native job.
+/// Termination alone cannot distinguish cancellation from an ordinary exit.
+#[derive(Clone)]
+pub(crate) struct OwnedJob {
+    job: Arc<JobObject>,
+    control: Arc<Mutex<Control>>,
+}
+impl OwnedJob {
+    fn new(job: Arc<JobObject>, control: Arc<Mutex<Control>>) -> Self {
+        Self { job, control }
+    }
+    pub(crate) fn active_process_count(&self) -> io::Result<u32> {
+        self.job.active_process_count()
+    }
+    fn interrupt(&self) -> io::Result<()> {
+        let recorded = self
+            .control
+            .lock()
+            .map(|mut control| {
+                control
+                    .reason
+                    .get_or_insert_with(|| "owner interruption requested".into());
+            })
+            .map_err(|_| io::Error::other("poisoned process interruption observation"));
+        // A metadata failure must never prevent the existing safety action.
+        self.job.terminate()?;
+        recorded
+    }
+}
+#[cfg(test)]
+mod interruption_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn native_owner_interruption_records_reason_without_overwriting_prior_limit() {
+        for prior in [None, Some("output limit exceeded")] {
+            let job = Arc::new(JobObject::create_without_breakaway().unwrap());
+            let control = Arc::new(Mutex::new(Control {
+                total: 0,
+                reason: prior.map(str::to_owned),
+            }));
+            let owned = OwnedJob::new(job.clone(), control.clone());
+            let mut command = Command::new(std::env::var_os("ComSpec").unwrap());
+            command
+                .args(["/d", "/c", "set /p=waiting"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let mut child =
+                launch::without_critical_error_dialog(|| job.spawn_contained(&mut command))
+                    .unwrap();
+            // Keep stdin open so the native process waits until this owner stops it.
+            let _input = child.stdin.take().unwrap();
+            assert_eq!(owned.active_process_count().unwrap(), 1);
+            owned.interrupt().unwrap();
+            let status = tokio::time::timeout(Duration::from_secs(5), child.wait())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!status.success());
+            assert_eq!(
+                control.lock().unwrap().reason.as_deref(),
+                Some(prior.unwrap_or("owner interruption requested"))
+            );
+            assert_eq!(owned.active_process_count().unwrap(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn poisoned_interruption_metadata_still_stops_every_native_job() {
+        let (lifecycle, owner) = Lifecycle::new(Duration::from_secs(5));
+        let thread = ThreadId::new();
+        let mut children = Vec::new();
+        let mut inputs = Vec::new();
+        let mut jobs = Vec::new();
+        for index in 0..2 {
+            let job = Arc::new(JobObject::create_without_breakaway().unwrap());
+            let control = Arc::new(Mutex::new(Control::default()));
+            if index == 0 {
+                let poisoned = control.clone();
+                assert!(std::panic::catch_unwind(move || {
+                    let _guard = poisoned.lock().unwrap();
+                    panic!("synthetic interrupted metadata writer");
+                })
+                .is_err());
+            }
+            let mut command = Command::new(std::env::var_os("ComSpec").unwrap());
+            command
+                .args(["/d", "/c", "set /p=waiting"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let mut child =
+                launch::without_critical_error_dialog(|| job.spawn_contained(&mut command))
+                    .unwrap();
+            inputs.push(child.stdin.take().unwrap());
+            children.push(child);
+            jobs.push(OwnedJob::new(job, control));
+        }
+        lifecycle
+            .0
+            .jobs
+            .lock()
+            .unwrap()
+            .insert(thread, jobs.clone());
+        assert_eq!(
+            lifecycle.stop_processes(&[thread]).await,
+            Err(Error::InterruptFailed)
+        );
+        for (job, mut child) in jobs.iter().zip(children) {
+            assert_eq!(job.active_process_count().unwrap(), 0);
+            assert!(!child.wait().await.unwrap().success());
+        }
+        owner.close().await.unwrap();
+    }
+}
 #[derive(Clone, Copy)]
 pub struct Limits {
     pub timeout: Duration,
@@ -367,13 +483,14 @@ impl Lifecycle {
         // then resumes. Assignment failure cannot run an uncontained fallback.
         let mut child =
             launch::without_critical_error_dialog(|| job.spawn_contained(&mut command))?;
+        let control = Arc::new(Mutex::new(Control::default()));
         self.0
             .jobs
             .lock()
             .map_err(|_| io::Error::other("poisoned jobs"))?
             .entry(thread)
             .or_default()
-            .push(job.clone());
+            .push(OwnedJob::new(job.clone(), control.clone()));
         let observer = if limits.is_some() {
             let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
             self.0
@@ -388,7 +505,6 @@ impl Lifecycle {
             None
         };
         drop(state);
-        let control = Arc::new(Mutex::new(Control::default()));
         let timer = limits.map(|limits| {
             let job = job.clone();
             let control = control.clone();
@@ -478,8 +594,11 @@ impl Lifecycle {
                 })
                 .collect()
         };
+        let mut interruption_failed = false;
         for job in &jobs {
-            job.terminate().map_err(|_| Error::InterruptFailed)?;
+            // Metadata or termination failure for one job cannot exempt siblings
+            // from the owner's stop request. Drain after every job was attempted.
+            interruption_failed |= job.interrupt().is_err();
         }
         let observers: Vec<_> = {
             let all = self
@@ -512,6 +631,11 @@ impl Lifecycle {
             }
         })
         .await
-        .map_err(|_| Error::DrainTimeout)?
+        .map_err(|_| Error::DrainTimeout)??;
+        if interruption_failed {
+            Err(Error::InterruptFailed)
+        } else {
+            Ok(())
+        }
     }
 }

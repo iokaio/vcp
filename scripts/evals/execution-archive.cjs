@@ -43,7 +43,7 @@ function readArchive(directory, readBundle) {
   const requestedObservations = bundle.fixture_observation_artifacts ?? [];
   if (!Array.isArray(requestedObservations) || requestedObservations.length > 64 || new Set(requestedObservations).size !== requestedObservations.length || requestedObservations.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id))) throw Error('Invalid fixture observation references');
   const fixtureObservations = [];
-  const repairs = [], allocations = [], checkpoints = [], contextProjections = [], partialCaptures = [];
+  const repairs = [], allocations = [], checkpoints = [], contextProjections = [], partialCaptures = [], processOutcomes = [];
   for (const row of manifest.artifacts) {
     const descriptor = row.descriptor, id = descriptor?.spec?.id;
     if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id) || seen.has(id) || row.path !== `artifacts/${id}.bin`) throw Error('Invalid or duplicate archive artifact identity');
@@ -53,15 +53,25 @@ function readArchive(directory, readBundle) {
     bytesRead += bytes.length;
     if (row.bytes !== bytes.length || descriptor.length !== String(bytes.length) || row.sha256 !== descriptor.sha256 || hash(bytes) !== row.sha256) throw Error('Archive artifact integrity mismatch');
     if (descriptor.state === 'aborted') {
-      partialCaptures.push({artifact:id,schema:descriptor.spec.schema,channel:descriptor.spec.channel,state:'aborted',bytes:bytes.length,sha256:row.sha256,omissions:descriptor.spec.omissions ?? [],meaning:'Retained prefix only; no terminal response or successful operation is inferred.'});
+      const effects = result.analysis.facts.effects.filter(effect => effect.evidence.includes(id)).map(effect => effect.id);
+      partialCaptures.push({artifact:id,schema:descriptor.spec.schema,channel:descriptor.spec.channel,state:'aborted',bytes:bytes.length,sha256:row.sha256,omissions:descriptor.spec.omissions ?? [],effect_references:effects,
+        effect_linkage:effects.length ? 'explicit_observed_changes' : 'not_recorded_in_projected_effects',meaning:'Retained prefix only; no terminal response or successful operation is inferred.'});
       continue;
     }
     if (descriptor.spec.channel === 'request_body') {
       if (!requests.has(row.sha256)) requests.set(row.sha256,[]);
       requests.get(row.sha256).push(id);
     }
-    if (!requestedObservations.includes(id) && !['execution-completion-repair/1','verification-result/1','context-manifest/1','canonical-compaction-projection/1'].includes(descriptor.spec.schema)) continue;
+    if (!requestedObservations.includes(id) && !['execution-completion-repair/1','verification-result/1','context-manifest/1','canonical-compaction-projection/1','vcp-process-outcome-v1'].includes(descriptor.spec.schema)) continue;
     const value = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+    if (descriptor.spec.schema === 'vcp-process-outcome-v1') {
+      const effect=result.analysis.facts.effects.find(effect => effect.id === value.effect);
+      processOutcomes.push({artifact:id,effect:value.effect,execution:value.execution,effect_present:!!effect,
+        execution_matches:!!effect && effect.execution === value.execution,
+        referenced_by_effect:!!effect && effect.evidence.includes(id),exit_code:value.exit_code ?? null,
+        stop_reason:value.stop_reason ?? null,output_complete:value.output_complete,
+        owned_processes_remaining:value.owned_processes_remaining,stdout_bytes:value.stdout_bytes,stderr_bytes:value.stderr_bytes});
+    }
     if (requestedObservations.includes(id)) {
       if (descriptor.spec.schema !== 'retained-output/1' || value.schema_version !== 1 || value.kind !== 'fixture_observed_verification_refresh' || !isDeepStrictEqual(value.scope,manifest.scope) || !['missing_verification','stale_verification'].includes(value.rejection) || (value.prior_verification != null && (typeof value.prior_verification !== 'string' || value.prior_verification.length > 128 || !/^[A-Za-z0-9_-]+$/.test(value.prior_verification))) || ![value.verified_source_sha256,value.current_source_sha256].every(hash => typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash))) throw Error('Invalid fixture refresh observation');
       const verification = result.analysis.facts.verification.find(item => item.id === value.prior_verification);
@@ -91,7 +101,7 @@ function readArchive(directory, readBundle) {
   for (const allocation of allocations) allocation.request_artifacts = requests.get(allocation.request_sha256) ?? [];
   if (fixtureObservations.length !== requestedObservations.length) throw Error('Fixture observation is not a complete verified archived artifact');
   result.archive = {manifest_sha256:manifestHash,backend:manifest.backend,fixture:manifest.fixture,
-    verified_artifacts:seen.size,verified_bytes:bytesRead,repairs,allocations,context_projections:contextProjections,partial_captures:partialCaptures,fixture_observations:fixtureObservations,diagnostic_checkpoints:checkpoints,
+    verified_artifacts:seen.size,verified_bytes:bytesRead,repairs,allocations,context_projections:contextProjections,partial_captures:partialCaptures,process_outcomes:processOutcomes,fixture_observations:fixtureObservations,diagnostic_checkpoints:checkpoints,
     integrity:'Supplied bundle, manifest and artifact digests agree; this is not independent provenance or execution authority.',
     limitations:manifest.limitations,assessment:'Scripted outcome and semantic identity links; independent application quality remains a separate check.'};
   return result;

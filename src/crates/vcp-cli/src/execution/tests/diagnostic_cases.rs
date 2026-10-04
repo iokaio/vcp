@@ -4,17 +4,33 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archives_context_omission_and_interrupted_provider_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        diagnostic_case(backend, false, false).await;
-        diagnostic_case(backend, true, false).await;
+        diagnostic_case(backend, Case::ContextOmission).await;
+        diagnostic_case(backend, Case::InterruptedProvider).await;
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archives_sibling_tool_calls_with_exact_diagnostic_identities() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        diagnostic_case(backend, false, true).await;
+        diagnostic_case(backend, Case::SiblingCalls).await;
     }
 }
-async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archives_interrupted_native_tool_and_preserves_cancelled_reopen() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        diagnostic_case(backend, Case::InterruptedTool).await;
+    }
+}
+#[derive(Clone, Copy)]
+enum Case {
+    ContextOmission,
+    InterruptedProvider,
+    SiblingCalls,
+    InterruptedTool,
+}
+async fn diagnostic_case(backend: BackendKind, case: Case) {
+    let interrupted = matches!(case, Case::InterruptedProvider);
+    let sibling = matches!(case, Case::SiblingCalls);
+    let interrupted_tool = matches!(case, Case::InterruptedTool);
     let temporary = tempfile::tempdir().unwrap();
     let workspace = temporary.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
@@ -158,6 +174,38 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
     host.configure_canonical_tools(Default::default()).unwrap();
     host.configure_provider(snapshot, raw).unwrap();
 
+    if interrupted_tool {
+        let node = temporary.path().join("node.exe");
+        fs::copy(
+            std::env::var_os("VCP_TEST_NODE").expect("explicit native Node fixture"),
+            &node,
+        )
+        .unwrap();
+        host.configure_process_profile(
+            vcp_tools::process::Profile::new(
+                "node".into(),
+                node,
+                vcp_tools::process::Mode::Direct,
+                BTreeMap::from([("SystemRoot".into(), std::env::var("SystemRoot").unwrap())]),
+                BTreeSet::new(),
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            workspace.join("interrupted.cjs"),
+            br#"const fs=require('node:fs');
+fs.appendFileSync('dispatches.txt','started\n');
+fs.writeSync(1,'PARTIAL_STDOUT_BEFORE_CANCEL\n');
+fs.writeSync(2,'PARTIAL_STDERR_BEFORE_CANCEL\n');
+setTimeout(()=>fs.writeFileSync('process-ready','ready'),500);
+setInterval(()=>{},1000);
+"#,
+        )
+        .unwrap();
+    }
+
     fs::write(
         workspace.join("large.txt"),
         format!(
@@ -167,7 +215,9 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
         ),
     )
     .unwrap();
-    let fixture = if sibling {
+    let fixture = if interrupted_tool {
+        "interrupted-native-tool"
+    } else if sibling {
         "sibling-tool-calls"
     } else if interrupted {
         "interrupted-provider"
@@ -187,7 +237,8 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
             json!({"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"partial-item","call_id":"partial-call","name":"vcp_patch","arguments":"","status":"in_progress"}}),
             json!({"type":"response.function_call_arguments.delta","item_id":"partial-item","delta":"{\"patch\":\"*** Begin Patch\n*** Update File: value.txt\n"})]
         } else {
-            let item=if index==0 {json!({"type":"function_call","id":"read-item","call_id":"read-large","name":"vcp_read","arguments":json!({"path":"large.txt","max_bytes":200000,"start_line":null,"end_line":null}).to_string(),"status":"completed"})}
+            let item=if interrupted_tool {json!({"type":"function_call","id":"process-item","call_id":"interrupted-process","name":"vcp_exec","arguments":json!({"profile":"node","arguments":["interrupted.cjs"],"directory":"","timeout_ms":120000,"output_bytes":1048576,"input":null}).to_string(),"status":"completed"})}
+            else if index==0 {json!({"type":"function_call","id":"read-item","call_id":"read-large","name":"vcp_read","arguments":json!({"path":"large.txt","max_bytes":200000,"start_line":null,"end_line":null}).to_string(),"status":"completed"})}
             else {json!({"type":"message","id":"omission-final","role":"assistant","status":"completed","content":[{"type":"output_text","text":"The middle marker is unavailable in this bounded request; consult the retained evidence.","annotations":[]}]})};
             let mut items=vec![item];
             if sibling && index==0 {
@@ -248,6 +299,34 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
     else {
         panic!("submission missing")
     };
+    if interrupted_tool {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while !workspace.join("process-ready").exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let task = current(&host, &scope).unwrap();
+        let command = host
+            .control_envelope(
+                CommandId::new(),
+                scope.task.clone(),
+                task.revision,
+                Command::Transition {
+                    next: TaskState::Cancelled,
+                    reason: "explicit cancellation during native output capture".into(),
+                    verification: None,
+                },
+            )
+            .unwrap();
+        let receipt = host.stop(command.clone()).unwrap();
+        assert_eq!(
+            host.stop(command).unwrap(),
+            receipt,
+            "duplicate cancellation is idempotent"
+        );
+    }
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let event = execution.next_event().await.unwrap();
@@ -264,7 +343,7 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
     })
     .await
     .unwrap();
-    if !interrupted {
+    if !interrupted && !interrupted_tool {
         let task = current(&host, &scope).unwrap();
         host.stop(
             host.control_envelope(
@@ -283,7 +362,14 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
     }
     let state = host.snapshot().unwrap();
     let view = host.project().unwrap();
-    assert_eq!(view.tasks[&scope.task].state, TaskState::Paused);
+    assert_eq!(
+        view.tasks[&scope.task].state,
+        if interrupted_tool {
+            TaskState::Cancelled
+        } else {
+            TaskState::Paused
+        }
+    );
     assert_eq!(
         fs::read_to_string(workspace.join("value.txt")).unwrap(),
         "41\n"
@@ -294,7 +380,69 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
         .filter(|row| row.collection == Collection::Artifact)
         .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
         .collect();
-    if interrupted {
+    if interrupted_tool {
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fs::read_to_string(workspace.join("dispatches.txt")).unwrap(),
+            "started\n"
+        );
+        assert_eq!(view.effects.len(), 1);
+        let effects: Vec<vcp_domain::effect::Effect> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Effect)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        use vcp_domain::effect::EffectState;
+        assert!(matches!(
+            effects[0].state,
+            EffectState::Failed | EffectState::OutcomeUnknown
+        ));
+        assert!(effects[0].execution.is_some());
+        if effects[0].state == EffectState::OutcomeUnknown {
+            assert_eq!(effects[0].exit_code, None);
+            assert!(
+                !artifacts
+                    .iter()
+                    .any(|artifact| artifact.spec.schema == "canonical-coding-pair/1"),
+                "unobserved outcome has no completed pair"
+            );
+        } else {
+            let outcome = artifacts
+                .iter()
+                .find(|artifact| artifact.spec.schema == "vcp-process-outcome-v1")
+                .unwrap();
+            let outcome: Value =
+                serde_json::from_slice(&host.read_artifact(outcome.spec.id.clone()).unwrap())
+                    .unwrap();
+            assert_eq!(outcome["effect"], json!(effects[0].id));
+            assert_eq!(outcome["execution"], json!(effects[0].execution));
+            assert_eq!(outcome["output_complete"], false);
+            assert_eq!(outcome["owned_processes_remaining"], 0);
+            assert!(outcome["stop_reason"].is_string());
+        }
+        for (channel, expected) in [
+            (
+                vcp_domain::artifact::Channel::Stdout,
+                "PARTIAL_STDOUT_BEFORE_CANCEL\n",
+            ),
+            (
+                vcp_domain::artifact::Channel::Stderr,
+                "PARTIAL_STDERR_BEFORE_CANCEL\n",
+            ),
+        ] {
+            let output: Vec<_> = artifacts
+                .iter()
+                .filter(|artifact| artifact.spec.channel == channel)
+                .collect();
+            assert_eq!(output.len(), 1);
+            assert_eq!(output[0].state, vcp_domain::artifact::CaptureState::Aborted);
+            assert_eq!(
+                host.read_artifact(output[0].spec.id.clone()).unwrap(),
+                expected.as_bytes()
+            );
+        }
+    } else if interrupted {
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert!(view.effects.is_empty(), "partial patch cannot execute");
         let partial = artifacts
@@ -339,6 +487,23 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
     }
     let diagnostics = host.execution_diagnostics(scope.clone()).unwrap();
     use vcp_lifecycle::foundation::execution_diagnostics::{Phase, Status};
+    if interrupted_tool {
+        let calls: Vec<_> = diagnostics
+            .observations
+            .iter()
+            .filter(|span| span.phase == Phase::ToolDispatch)
+            .collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].call_id.as_deref(), Some("interrupted-process"));
+        assert!(
+            matches!(
+                calls[0].status,
+                Status::Interrupted | Status::Failed | Status::Succeeded
+            ),
+            "dispatch must be terminal; completed wrapper processing does not imply effect success"
+        );
+        assert!(calls[0].attempt.is_some());
+    }
     if sibling {
         let calls: Vec<_> = diagnostics
             .observations
@@ -374,19 +539,22 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
             );
         }
     }
-    assert!(diagnostics.observations.iter().any(|span| span.phase
-        == if interrupted {
-            Phase::ProviderExchange
-        } else {
-            Phase::ToolDispatch
-        }
-        && span.status
-            == if interrupted {
-                Status::Interrupted
-            } else {
-                Status::Succeeded
-            }
-        && span.attempt.is_some()));
+    assert!(
+        interrupted_tool
+            || diagnostics.observations.iter().any(|span| span.phase
+                == if interrupted {
+                    Phase::ProviderExchange
+                } else {
+                    Phase::ToolDispatch
+                }
+                && span.status
+                    == if interrupted || interrupted_tool {
+                        Status::Interrupted
+                    } else {
+                        Status::Succeeded
+                    }
+                && span.attempt.is_some())
+    );
     let workspace_record: Workspace = state
         .record(
             Collection::Workspace,
@@ -422,4 +590,56 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool)
     drop(execution);
     owner.close().await.unwrap();
     session.thread.shutdown_and_wait().await.unwrap();
+    if interrupted_tool {
+        drop(session);
+        drop(host);
+        let (reopened, reopened_owner) = CanonicalHost::open(config).unwrap();
+        let reopened_view = reopened.project().unwrap();
+        assert_eq!(reopened_view.tasks[&scope.task].state, TaskState::Cancelled);
+        assert_eq!(reopened_view.effects.len(), 1);
+        let prior_effect = state
+            .records
+            .values()
+            .find(|row| row.collection == Collection::Effect)
+            .unwrap();
+        let reopened_state = reopened.snapshot().unwrap();
+        let prior_effect: vcp_domain::effect::Effect = prior_effect.decode().unwrap();
+        let recovered: vcp_domain::effect::Effect = reopened_state
+            .record(
+                Collection::Effect,
+                prior_effect.id.as_str(),
+                &scope.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(recovered.id, prior_effect.id);
+        assert_eq!(recovered.execution, prior_effect.execution);
+        assert_eq!(recovered.state, prior_effect.state);
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            1,
+            "read-only reopen cannot infer again"
+        );
+        assert_eq!(
+            fs::read_to_string(workspace.join("dispatches.txt")).unwrap(),
+            "started\n",
+            "read-only reopen cannot replay the effect"
+        );
+        for artifact in artifacts.iter().filter(|artifact| {
+            matches!(
+                artifact.spec.channel,
+                vcp_domain::artifact::Channel::Stdout | vcp_domain::artifact::Channel::Stderr
+            )
+        }) {
+            assert_eq!(
+                reopened
+                    .read_artifact(artifact.spec.id.clone())
+                    .unwrap()
+                    .len() as u64,
+                artifact.length.get()
+            );
+        }
+        reopened_owner.close().await.unwrap();
+    }
 }

@@ -386,13 +386,14 @@ impl Lifecycle {
             .ok_or_else(|| io::Error::other("duplex stderr unavailable"))?;
         let pid = child.id();
         let done = Arc::new(AtomicBool::new(false));
+        let control = Arc::new(Mutex::new(Control::default()));
         self.0
             .jobs
             .lock()
             .map_err(|_| io::Error::other("poisoned jobs"))?
             .entry(thread)
             .or_default()
-            .push(job.clone());
+            .push(super::OwnedJob::new(job.clone(), control.clone()));
         self.0
             .process_observers
             .lock()
@@ -401,7 +402,6 @@ impl Lifecycle {
             .or_default()
             .push(done.clone());
         drop(state);
-        let control = Arc::new(Mutex::new(Control::default()));
         let timer = tokio::spawn({
             let job = job.clone();
             let control = control.clone();

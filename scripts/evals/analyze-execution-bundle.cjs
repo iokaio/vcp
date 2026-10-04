@@ -3,6 +3,7 @@
 // Offline analysis of already-authorized bundles. No provider/network access.
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const {isDeepStrictEqual} = require('node:util');
 
 function phaseStatistics(snapshot, scope) {
   if (!snapshot) return {available:false,reason:'not_collected',groups:[]};
@@ -75,11 +76,16 @@ function analyze(bundle) {
     outstanding_issues:row.record.outstanding_issues ?? [],unresolved_effects:row.record.unresolved_effects ?? [],
   }));
   const ledgers = records('costs').filter(row => row.collection === 'ledger');
+  const effects = records('tools').filter(row => row.collection === 'effect' && row.visibility === 'available' && row.record).map(row => {
+    if (!isDeepStrictEqual(row.record.scope,scope)) throw Error('Effect scope mismatch');
+    return {id:row.record.id,state:row.record.state,execution:row.record.execution ?? null,
+      exit_code:row.record.exit_code ?? null,evidence:row.record.observed_changes ?? [],reason:row.record.reason ?? null};
+  });
   const accounting = ledgers.map(row => ({root:row.record?.scope?.task,
     settled:row.record?.settled ?? null,active:row.record?.active ?? null,unresolved:row.record?.unresolved ?? null,
     visibility:row.visibility ?? 'unknown'}));
   return {schema_version:1,kind:'execution_bundle_analysis',task:scope.task,source_watermark:bundle.source_watermark,
-    facts:{task_state:bundle.task.state,event_count:events.size,event_kinds:eventKinds,causal_edges:edges,record_observations:recordObservations,verification,accounting,
+    facts:{task_state:bundle.task.state,event_count:events.size,event_kinds:eventKinds,causal_edges:edges,record_observations:recordObservations,verification,accounting,effects,
       store_phases:bundle.store_diagnostics ?? null,lifecycle_phases:bundle.lifecycle_diagnostics ?? null,
       lifecycle_statistics:phaseStatistics(bundle.lifecycle_diagnostics,scope)},
     gaps:filteredGaps,

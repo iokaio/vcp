@@ -11,8 +11,18 @@ function fixture() {
   return {schema_version:1,kind:'inspection_bundle',source_watermark:'9',task:{scope:{workspace:'w',session:'s',task:'t'},state:'completed'},
     history:[{rows:[event('failed',null,'verification')],next_cursor:'next'},
       {rows:[event('repair','failed','effect'),event('passed','repair','verification')],next_cursor:null}],
-    views:{verification:[{items:[]}],costs:[{items:[{collection:'ledger',record:{scope:{task:'t'},settled:'100',active:'0',unresolved:'900'}}]}]}};
+    views:{tools:[{items:[]}],verification:[{items:[]}],costs:[{items:[{collection:'ledger',record:{scope:{task:'t'},settled:'100',active:'0',unresolved:'900'}}]}]}};
 }
+test('uncertain effects retain null outcomes and only explicit output identity links', () => {
+  const bundle=fixture();
+  bundle.views.tools[0].items.push({collection:'effect',visibility:'available',record:{id:'effect-1',scope:bundle.task.scope,state:'outcome_unknown',execution:'execution-1',exit_code:null,observed_changes:['plan-1'],reason:'observation interrupted'}});
+  const effect=analyze(bundle).facts.effects[0];
+  assert.equal(effect.state,'outcome_unknown');
+  assert.equal(effect.exit_code,null);
+  assert.deepEqual(effect.evidence,['plan-1']);
+  bundle.views.tools[0].items[0].record.scope={...bundle.task.scope,task:'foreign'};
+  assert.throws(()=>analyze(bundle),/Effect scope/);
+});
 test('offline report reconstructs explicit edges across pages without declaring quality or settlement', () => {
   const report = analyze(fixture());
   assert.equal(report.facts.event_count,3);
@@ -87,6 +97,8 @@ test('archive analysis verifies scoped retained bytes and rejects corruption or 
     manifest.bundle.bytes = partialBundle.length; manifest.bundle.sha256 = hash(partialBundle); save();
     const partial = read(root);
     assert.equal(partial.archive.partial_captures.length,1);
+    assert.deepEqual(partial.archive.partial_captures[0].effect_references,[]);
+    assert.equal(partial.archive.partial_captures[0].effect_linkage,'not_recorded_in_projected_effects');
     assert.equal(partial.archive.repairs.length,0,'partial JSON cannot establish a completed repair decision');
     assert.equal(partial.archive.partial_captures[0].state,'aborted');
     descriptor.state = 'complete';
@@ -133,4 +145,39 @@ test('skipped tool dispatch stays separate from completed processing and failed 
   delete bundle.lifecycle_diagnostics.observations[0].call_id;
   bundle.lifecycle_diagnostics.observations[0].status='invented_success';
   assert.throws(() => analyze(bundle),/Invalid diagnostic observation/);
+});
+
+test('process receipt joins preserve partial output and do not promote aborted JSON to an outcome', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-process-archive-'));
+  const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+  try {
+    fs.mkdirSync(path.join(root,'artifacts'));
+    const bundle=fixture();
+    const bytes=Buffer.from(JSON.stringify({schema_version:1,effect:'effect-1',execution:'execution-1',exit_code:1,stop_reason:'cancelled',output_complete:false,owned_processes_remaining:0,stdout_bytes:27,stderr_bytes:27}));
+    const descriptor={spec:{id:'outcome',scope:bundle.task.scope,schema:'vcp-process-outcome-v1'},state:'complete',length:String(bytes.length),sha256:hash(bytes)};
+    bundle.views.tools[0].items=[{collection:'artifact',visibility:'available',record:descriptor},
+      {collection:'effect',visibility:'available',record:{id:'effect-1',scope:bundle.task.scope,state:'failed',execution:'execution-1',exit_code:1,observed_changes:['outcome']}}];
+    const save=()=>{
+      const bundleBytes=Buffer.from(JSON.stringify(bundle));
+      fs.writeFileSync(path.join(root,'inspection-bundle.json'),bundleBytes);
+      fs.writeFileSync(path.join(root,'artifacts/outcome.bin'),bytes);
+      const manifest=Buffer.from(JSON.stringify({schema_version:1,scope:bundle.task.scope,bundle:{path:'inspection-bundle.json',bytes:bundleBytes.length,sha256:hash(bundleBytes)},artifacts:[{descriptor,path:'artifacts/outcome.bin',bytes:bytes.length,sha256:hash(bytes)}]}));
+      fs.writeFileSync(path.join(root,'manifest.json'),manifest);
+      fs.writeFileSync(path.join(root,'manifest.sha256'),hash(manifest));
+    };
+    save();
+    const report=read(root);
+    assert.equal(report.archive.process_outcomes[0].execution_matches,true);
+    assert.equal(report.archive.process_outcomes[0].referenced_by_effect,true);
+    assert.equal(report.archive.process_outcomes[0].output_complete,false);
+    assert.equal(report.analysis.facts.effects[0].state,'failed');
+    descriptor.state='aborted'; save();
+    const partial=read(root);
+    assert.deepEqual(partial.archive.process_outcomes,[]);
+    assert.deepEqual(partial.archive.partial_captures[0].effect_references,['effect-1']);
+    assert.equal(partial.archive.partial_captures[0].effect_linkage,'explicit_observed_changes');
+  } finally {
+    if (path.dirname(root) !== fs.realpathSync(os.tmpdir()) && path.dirname(root) !== path.resolve(os.tmpdir())) throw Error('Unexpected fixture cleanup path');
+    fs.rmSync(root,{recursive:true,force:true});
+  }
 });
