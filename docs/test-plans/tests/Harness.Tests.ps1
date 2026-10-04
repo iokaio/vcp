@@ -113,6 +113,8 @@ switch ($Mode) {
     $page = Cost-Page; $page.next_cursor = @{ after = 'more' }
     Check ($null -eq (Get-VcpTaskCost @($page)).Usd) 'Partial pagination accepted'
     Check ($null -eq (Get-VcpTaskCost @()).Usd) 'Empty costs accepted'
+    $partial = Get-VcpTaskCost @(Cost-Page -Settled '1250000' -Unresolved '500000')
+    Check ($null -eq $partial.Usd -and $partial.ObservedUsd -eq [decimal]1.25 -and $partial.UnresolvedUsd -eq [decimal]0.5) 'Partial billing was hidden or reported complete'
 
     $ctx = New-TestContext
     $pages = & $module {
@@ -187,11 +189,11 @@ switch ($Mode) {
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' ([decimal]2) $r } $ctx $record
     Check ($ctx.SpentUsd -eq 2 -and $record.cost_usd -eq 0.75) 'Resume ledger double counted'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' $null $r } $ctx $record
-    Check ($ctx.SpentUsd -eq 3 -and $null -eq $record.cost_usd) 'Unknown cost did not reserve task cap'
+    Check ($ctx.SpentUsd -eq 2 -and $null -eq $record.cost_usd -and $ctx.CostUnknown) 'Unknown cost erased prior observation or uncertainty'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' $null $r } $ctx $record
-    Check ($ctx.SpentUsd -eq 3) 'Repeated missing evidence double counted task cap'
+    Check ($ctx.SpentUsd -eq 2) 'Repeated missing evidence fabricated spend'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-b' ([decimal]0.5) $r } $ctx $record
-    Check ($ctx.SpentUsd -eq 3.5) 'Distinct task not counted'
+    Check ($ctx.SpentUsd -eq 2.5) 'Distinct task not counted'
     $ctx.TurnBudgetUsd = 3
     $ctx.SkipPaidStages = $false
     [void](Invoke-Gate $ctx 'P1-profiles' 'bad' 'fixture invalid profile' { $false })

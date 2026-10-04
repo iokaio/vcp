@@ -23,7 +23,7 @@ try {
         function script:Get-FreshScenarioProfile { param($Ctx, $Stage, $Config) return $Config }
         function script:Invoke-Vcp {
             param($Ctx)
-            if ($Ctx.SpentUsd -ne 5 -or -not $Ctx.CostUnknown) { throw 'Dispatch occurred before full possible spend was held.' }
+            if (-not $Ctx.CostUnknown) { throw 'Dispatch occurred before uncertainty was recorded.' }
             $script:dispatchObserved = $true
             if ($script:mode -eq 'parse') { throw 'Injected output decoding failure after process exit.' }
             return @{ Scope = @{ task = 'task'; session = 'session' }; Result = @{ conditions = @{} }; Frames = @(); ExitCode = 0; TimedOut = $false; DurationSeconds = 1; EventCounts = @{} }
@@ -54,14 +54,14 @@ try {
             catch { $errorText = $_.Exception.Message }
             Check ($errorText -like 'Injected *') "$entry/$failure did not reach injected boundary: $errorText"
             Check ((& $module { $script:dispatchObserved })) 'Process boundary was not exercised'
-            Check ($ctx.SpentUsd -eq 5 -and $ctx.CostUnknown -and $ctx.UnscopedCostUnknown) "$entry/$failure lost or double-counted potential liability"
+            Check ($ctx.SpentUsd -eq $(if ($entry -eq 'run') { 0 } else { 1.25 }) -and $ctx.CostUnknown -and $ctx.UnscopedCostUnknown) "$entry/$failure lost or double-counted observed spend or uncertainty"
             Check ((Complete-VcpScenario $ctx) -eq 1) 'Accounting interruption passed finalization'
             $card = Get-Content -LiteralPath (Join-Path $root 'scorecard.json') -Raw | ConvertFrom-Json
-            Check (-not $card.spend_evidence_complete -and $card.spend_usd -eq 5) 'Final scorecard released interrupted spend'
+            Check (-not $card.spend_evidence_complete -and $card.spend_usd -eq $ctx.SpentUsd) 'Final scorecard released interrupted spend'
         }
     }
-    # Settlement followed by an artifact failure still retains exactly the cap.
-    # Successful settlement removes the temporary hold and counts cumulative
+    # Settlement followed by an artifact failure preserves the observation and unknown outcome.
+    # Successful settlement counts cumulative
     # resumed-task usage once, through the existing accounting implementation.
     foreach ($failure in $false, $true) {
         $ctx = New-Context
@@ -79,10 +79,10 @@ try {
         }
         catch { $caught = $true }
         Check ($caught -eq $failure) 'Unexpected settlement result'
-        if ($failure) { Check ($ctx.SpentUsd -eq 5 -and $ctx.CostUnknown) 'Partial settlement lost or double-counted retained cap' }
+        if ($failure) { Check ($ctx.SpentUsd -eq [decimal]1.5 -and $ctx.CostUnknown -and $ctx.UnscopedCostUnknown) 'Partial settlement was lost or unknown outcome erased' }
         else { Check ($ctx.SpentUsd -eq [decimal]1.5 -and -not $ctx.CostUnknown) 'Successful resume retained a duplicate hold' }
     }
-    Write-Host 'Paid dispatch accounting passed: run/resume/fork parsing and inspection failures retain liability; final scorecard stays incomplete; cumulative settlement counted once.'
+    Write-Host 'Paid dispatch accounting passed: run/resume/fork parsing and inspection failures retain observations and explicit unknowns; unresolved execution cannot pass; cumulative settlement counted once.'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($root)

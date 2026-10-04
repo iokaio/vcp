@@ -152,6 +152,7 @@ try {
         function script:Invoke-Vcp {
             param($Ctx, $Stage, $Label, $Config, [string[]]$Arguments, $TimeoutSeconds, [switch]$Live)
             if (($Arguments -join ' ') -ne 'resume task') { throw 'Unexpected process during continuation fixture' }
+            [void][IO.Directory]::CreateDirectory((Join-Path $Ctx.Logs $Stage))
             return $script:resumedRun
         }
         function script:Get-VcpStageInspection { return $script:resumedBundle.views }

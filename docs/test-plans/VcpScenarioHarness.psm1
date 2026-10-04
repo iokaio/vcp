@@ -865,26 +865,26 @@ function Get-VcpStageInspection {
 }
 
 function Get-VcpTaskCost {
-    <# Settled cost from canonical ledger records (decimal micros strings). Null when evidence is incomplete. #>
+    <# Keep observed settlement separate from a complete final bill. Missing or
+       malformed inspection never fabricates an observed amount. #>
     param($CostPages)
     $items = Get-InspectItems $CostPages
     $ledgers = @($items | Where-Object { $_.collection -eq 'ledger' })
     $attempts = @($items | Where-Object { $_.collection -eq 'attempt' })
     $gaps = @($CostPages | ForEach-Object { $_.gaps } | Where-Object { $_ })
+    $result = [pscustomobject]@{ Usd = $null; ObservedUsd = $null; ActiveUsd = $null; UnresolvedUsd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count }
     $incomplete = $gaps.Count -gt 0 -or @($CostPages).Count -eq 0 -or @($CostPages)[-1].next_cursor -or
         @($items | Where-Object { $_.visibility -and $_.visibility -ne 'available' }).Count -gt 0
-    if ($ledgers.Count -ne 1 -or $incomplete) { return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count } }
-    $micros = [decimal]0
-    foreach ($ledger in $ledgers) {
-        foreach ($field in 'settled', 'active', 'unresolved') {
-            if ([string]$ledger.record.$field -notmatch '^\d+$') { return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count } }
-        }
-        if ([decimal]$ledger.record.active -ne 0 -or [decimal]$ledger.record.unresolved -ne 0) {
-            return [pscustomobject]@{ Usd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count }
-        }
-        $micros += [decimal]::Parse([string]$ledger.record.settled, [System.Globalization.CultureInfo]::InvariantCulture)
+    if ($ledgers.Count -ne 1 -or $incomplete) { return $result }
+    $ledger = $ledgers[0].record
+    foreach ($field in 'settled', 'active', 'unresolved') {
+        if ([string]$ledger.$field -notmatch '^\d+$') { return $result }
     }
-    return [pscustomobject]@{ Usd = [math]::Round($micros / 1000000, 6); Attempts = $attempts.Count; Gaps = $gaps.Count }
+    $result.ObservedUsd = [decimal]::Parse([string]$ledger.settled, [Globalization.CultureInfo]::InvariantCulture) / 1000000
+    $result.ActiveUsd = [decimal]::Parse([string]$ledger.active, [Globalization.CultureInfo]::InvariantCulture) / 1000000
+    $result.UnresolvedUsd = [decimal]::Parse([string]$ledger.unresolved, [Globalization.CultureInfo]::InvariantCulture) / 1000000
+    if ($result.ActiveUsd -eq 0 -and $result.UnresolvedUsd -eq 0) { $result.Usd = $result.ObservedUsd }
+    return $result
 }
 
 function Get-VcpFinalMessage {
@@ -1157,29 +1157,19 @@ function Get-FreshScenarioProfile {
 }
 
 function Invoke-PaidScenarioDispatch {
-    <# Reserve before process dispatch, including exceptions while decoding its
-       output or collecting canonical accounting. The evidence collector keeps
-       its normal cumulative per-task accounting; remove this temporary hold
-       only after that collector returns successfully. #>
+    <# Record uncertainty before dispatch. An unknown bill has no invented upper
+       bound; completed inspection updates cumulative observed spend separately. #>
     param($Ctx, [decimal]$AdditionalBudgetUsd, [scriptblock]$Dispatch)
-    $priorSpent = [decimal]$Ctx.SpentUsd
-    $Ctx.SpentUsd += $AdditionalBudgetUsd
     $Ctx.CostUnknown = $true
     $completed = $false
     try {
         $result = & $Dispatch
-        $Ctx.SpentUsd -= $AdditionalBudgetUsd
         $Ctx.CostUnknown = [bool]$Ctx.UnscopedCostUnknown -or $Ctx.UnknownTaskCosts.Count -gt 0
         $completed = $true
         return $result
     }
     finally {
-        # Evidence collection may have recorded some settlement before a later
-        # operation threw. Retain at least the full possible spend, without
-        # double-counting that settlement or prior spend on a resumed task.
-        # Finally also covers pipeline cancellation, which may bypass catch.
         if (-not $completed) {
-            $Ctx.SpentUsd = [math]::Max($priorSpent + $AdditionalBudgetUsd, $Ctx.SpentUsd - $AdditionalBudgetUsd)
             $Ctx.CostUnknown = $true
             $Ctx.UnscopedCostUnknown = $true
         }
@@ -1190,7 +1180,8 @@ function Invoke-VcpTask {
     <#
     One paid VCP turn: vcp run --file <prompt> with the stage profile, then the
     read-only evidence sweep (tasks status/agents, inspect views, history) and
-    a workspace diff. Respects the scenario spend ceiling.
+    a workspace diff. Legacy budget inputs are retained as requested facts;
+    financial enforcement is suspended for the execution experiment.
     #>
     param(
         [Parameter(Mandatory)]$Ctx,
@@ -1220,15 +1211,9 @@ function Invoke-VcpTask {
     if (-not (Test-PaidExecutionAdmission $Ctx $stageRecord)) { return $null }
     $preflightFailures = @($Ctx.Gates | Where-Object { $_.stage -match '^(P0-|B0-|P1-|G0-)' -and $_.required -and $_.outcome -ne 'pass' })
     if ($preflightFailures.Count) { throw 'Required preflight, baseline, profile or guardrail checks failed; refusing paid execution.' }
-    if (($Ctx.SpentUsd + $BudgetUsd) -gt $Ctx.MaxScenarioUsd) {
-        $stageRecord.skipped = ('scenario ceiling {0} USD would be exceeded (spent {1})' -f (Format-Usd $Ctx.MaxScenarioUsd), (Format-Usd $Ctx.SpentUsd))
-        $Ctx.Stages.Add([pscustomobject]$stageRecord)
-        Write-Step $Ctx "Skipping $Stage; $($stageRecord.skipped)" 'warn'
-        return $null
-    }
     $Config = Get-FreshScenarioProfile $Ctx $Stage $Config
     $stageRecord.profile = $Config
-    Write-Step $Ctx "$Stage :: $Title (autonomy $Autonomy, cap $(Format-Usd $BudgetUsd) USD)" 'phase'
+    Write-Step $Ctx "$Stage :: $Title (autonomy $Autonomy, financial enforcement suspended)" 'phase'
     $stageDir = Join-Path $Ctx.Logs $Stage
     $promptPath = Join-Path $stageDir 'prompt.md'
     Write-Utf8File -Path $promptPath -Content $Prompt
@@ -1312,7 +1297,7 @@ function Complete-VcpStageEvidence {
         $Record.cost_usd = $cost.Usd
         $Record.attempts = $cost.Attempts
         $Record.tool_items = (Get-InspectItems $tools).Count
-        Update-ScenarioCost -Ctx $Ctx -Task $task -Cost $cost.Usd -Record $Record
+        Update-ScenarioCost -Ctx $Ctx -Task $task -Cost $cost.Usd -Record $Record -ObservedCost $cost.ObservedUsd
         [void](Invoke-Gate -Ctx $Ctx -Stage $Stage -Id 'cost-evidence' -Description 'canonical task cost is complete and settled at this checkpoint' -Advisory -Test { $null -ne $cost.Usd })
         # Optional final text is extracted on demand by its consuming gate.
         # Keep the complete outputs view and original response artifacts here.
@@ -1328,9 +1313,7 @@ function Complete-VcpStageEvidence {
         # It does not prove that no provider request was dispatched.
         $Ctx.CostUnknown = $true
         $Ctx.UnscopedCostUnknown = $true
-        $reservation = if ($Record.Contains('additional_budget_usd')) { [decimal]$Record.additional_budget_usd } else { [decimal]$Record.budget_usd }
-        $Ctx.SpentUsd += $reservation
-        $Ctx.Notes.Add("$Stage produced no task scope (exit $($Run.ExitCode)); reserved the possible additional spend and retained unknown accounting. See logs/$Stage/vcp.")
+        $Ctx.Notes.Add("$Stage produced no task scope (exit $($Run.ExitCode)); retained unknown accounting without estimating the missing amount. See logs/$Stage/vcp.")
     }
     if ($null -ne $Before) {
         $after = Get-WorkspaceManifest $Ctx.Workspace
@@ -1350,16 +1333,17 @@ function Complete-VcpStageEvidence {
 
 function Update-ScenarioCost {
     <# Each inspect ledger is cumulative for its task, including after resume. #>
-    param($Ctx, [string]$Task, $Cost, $Record)
+    param($Ctx, [string]$Task, $Cost, $Record, $ObservedCost = $null)
     if ($null -eq $Ctx.UnknownTaskCosts) { $Ctx.UnknownTaskCosts = @{} }
     if ($null -eq $Ctx.TaskBudgetUsd) { $Ctx.TaskBudgetUsd = @{} }
     if (-not $Ctx.TaskBudgetUsd.ContainsKey($Task)) { $Ctx.TaskBudgetUsd[$Task] = [decimal]$Record.budget_usd }
     $priorAccounted = [decimal]$Ctx.AccountedTaskUsd[$Task]
     if ($null -eq $Cost) {
         $Ctx.UnknownTaskCosts[$Task] = $true
-        $accounted = [math]::Max($priorAccounted, [decimal]$Ctx.TaskBudgetUsd[$Task])
+        $accounted = if ($null -ne $ObservedCost) { [decimal]$ObservedCost } else { $priorAccounted }
+        if ($null -ne $ObservedCost) { $Ctx.SettledTaskUsd[$Task] = $accounted }
         $Record.cost_usd = $null
-        $Ctx.Notes.Add("$($Record.stage) cost evidence incomplete; budget guard reserves the full task cap.")
+        $Ctx.Notes.Add("$($Record.stage) cost evidence incomplete; last observed cumulative spend is retained and the missing amount remains unknown.")
     }
     else {
         $accounted = [decimal]$Cost
@@ -1368,6 +1352,7 @@ function Update-ScenarioCost {
         [void]$Ctx.UnknownTaskCosts.Remove($Task)
     }
     $Record.task_cost_usd = $Cost
+    $Record.observed_task_cost_usd = $accounted
     $Ctx.SpentUsd += $accounted - $priorAccounted
     $Ctx.AccountedTaskUsd[$Task] = $accounted
     $Ctx.CostUnknown = [bool]$Ctx.UnscopedCostUnknown -or $Ctx.UnknownTaskCosts.Count -gt 0
@@ -1428,12 +1413,6 @@ function Invoke-VcpContinuation {
     $budget = Get-ContinuationBudget $Ctx $Arguments $Config
     $record.budget_usd = $budget.Cap
     $record.additional_budget_usd = $budget.Additional
-    if (($Ctx.SpentUsd + $budget.Additional) -gt $Ctx.MaxScenarioUsd) {
-        $record.skipped = ('scenario ceiling {0} USD would be exceeded (spent {1})' -f (Format-Usd $Ctx.MaxScenarioUsd), (Format-Usd $Ctx.SpentUsd))
-        $Ctx.Stages.Add([pscustomobject]$record)
-        Write-Step $Ctx "Skipping $Stage; $($record.skipped)" 'warn'
-        return $null
-    }
     # Resume and fork load native task-captured models. Supplying a refreshed
     # profile cannot replace that immutable snapshot; preserve native admission.
     $record.profile = $Config
@@ -1464,11 +1443,11 @@ function Invoke-RepairLoop {
         $failed = Get-FailedGates $Ctx $current
         if ($Ctx.SkipPaidStages) { return $current }
         # A model cannot repair a missing canonical evidence sweep. Preserve its
-        # original failure and full accounting hold for metadata-only recovery,
+        # original failure for metadata-only recovery,
         # including failures discovered after an otherwise successful repair.
         $inspectionFailures = @($failed | Where-Object { $_.id -like 'inspect-*' })
-        if ($Ctx.CostUnknown -or $inspectionFailures.Count -gt 0) {
-            throw "Stage $current has incomplete canonical inspection or accounting; no paid application repair or dependent stage was started. Inspect retained evidence and reconcile accounting first."
+        if ($inspectionFailures.Count -gt 0) {
+            throw "Stage $current has incomplete canonical inspection; no paid application repair or dependent stage was started. Inspect retained evidence first."
         }
         if ($failed.Count -eq 0) { return $current }
         if ($attempt -gt $Ctx.MaxRepairTurns) {
@@ -2105,13 +2084,12 @@ function Complete-VcpScenario {
         [void](Add-GateResult $Ctx 'FINAL-execution' 'paid-execution-stopped' 'paid execution has no unresolved stopping condition' 'fail' `
             ("$($Ctx.PaidExecutionBlock.reasons -join ', '); task $($Ctx.PaidExecutionBlock.task)$diagnostic; inspect $($Ctx.PaidExecutionBlock.inspection)") $true)
     }
+    if ($Ctx.UnscopedCostUnknown) {
+        [void](Add-GateResult $Ctx 'FINAL-execution' 'dispatch-evidence' 'every dispatched execution has complete scoped outcome evidence' 'fail' 'Dispatch or inspection ended without a complete scoped outcome; subsequent financial observations cannot prove that outcome.' $true)
+    }
     if ($Ctx.AccountedTaskUsd.Count -gt 0 -or $Ctx.UnscopedCostUnknown) {
-        [void](Invoke-Gate -Ctx $Ctx -Stage 'FINAL-accounting' -Id 'cost-evidence' -Description 'latest accounting for every paid task is complete and within budget' -Test {
-                Assert-That (-not $Ctx.CostUnknown) 'Unsettled task accounting or an execution without task scope remains.'
-                Assert-That ($Ctx.SpentUsd -le $Ctx.MaxScenarioUsd) 'Observed scenario spend exceeds the configured ceiling.'
-                foreach ($task in $Ctx.TaskBudgetUsd.Keys) {
-                    Assert-That ([decimal]$Ctx.AccountedTaskUsd[$task] -le [decimal]$Ctx.TaskBudgetUsd[$task]) "Task $task exceeded its admitted cap."
-                }
+        [void](Invoke-Gate -Ctx $Ctx -Stage 'FINAL-accounting' -Id 'cost-evidence' -Description 'latest accounting for every paid task is complete' -Advisory -Test {
+                Assert-That (-not $Ctx.CostUnknown) 'Some financial observations remain unknown; execution quality is assessed separately.'
                 $true
             })
     }
@@ -2152,6 +2130,7 @@ function Complete-VcpScenario {
         spend_usd                = [math]::Round($Ctx.SpentUsd, 6)
         spend_evidence_complete  = -not $Ctx.CostUnknown
         max_scenario_usd         = $Ctx.MaxScenarioUsd
+        effective_constraints    = @{ deadline = 'unbounded'; spend = 'unbounded'; automatic_cleanup = 'suspended' }
         dry_run                  = [bool]$Ctx.SkipPaidStages
         skipped_stages           = $skippedStages.Count
         paid_execution_block     = $Ctx.PaidExecutionBlock
@@ -2180,7 +2159,7 @@ function Complete-VcpScenario {
     [void]$md.AppendLine("Project: ``$($Ctx.Workspace)`` (existing files reused: $([bool]$Ctx.ReuseProject)).")
     [void]$md.AppendLine()
     $costSummary = if ($Ctx.CostUnknown) {
-        "budget reservation $(Format-Usd $Ctx.SpentUsd) USD (actual spend unresolved)"
+        "observed spend $(Format-Usd $Ctx.SpentUsd) USD (additional spend unknown)"
     } else {
         "spend $(Format-Usd $Ctx.SpentUsd) USD"
     }

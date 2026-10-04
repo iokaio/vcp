@@ -36,15 +36,14 @@ try {
         }
         function script:Test-StageExit { }
     }
-    foreach ($case in 'inspect-costs', 'inspect-verification', 'inspect-tools', 'inspect-routing', 'inspect-policy', 'inspect-outputs', 'unknown-cost') {
+    foreach ($case in 'inspect-costs', 'inspect-verification', 'inspect-tools', 'inspect-routing', 'inspect-policy', 'inspect-outputs') {
         $ctx = New-Context
-        if ($case -eq 'unknown-cost') { $ctx.CostUnknown = $true }
-        else { Fail-Gate $ctx $case }
+        Fail-Gate $ctx $case
         if ($case -eq 'inspect-costs') { $ctx.CostUnknown = $true }
         $beforeCalls = & $module { $script:repairCalls }
         $errorText = $null
         try { [void](Invoke-RepairLoop $ctx 'T1' 'profile' { }) } catch { $errorText = $_.Exception.Message }
-        Check ($errorText -like '*canonical inspection or accounting*') "$case did not stop with evidence diagnosis: $errorText"
+        Check ($errorText -like '*canonical inspection*') "$case did not stop with evidence diagnosis: $errorText"
         Check ((& $module { $script:repairCalls }) -eq $beforeCalls) "$case launched a paid application repair"
         Check ($ctx.SpentUsd -eq 5) "$case changed the retained possible spend"
         $ctx.Fatal = $errorText
@@ -54,12 +53,14 @@ try {
         if ($ctx.CostUnknown) { Check (-not $card.spend_evidence_complete) "$case cleared accounting uncertainty" }
     }
     $ctx = New-Context
+    $ctx.CostUnknown = $true
     Fail-Gate $ctx 'build'
     $beforeCalls = & $module { $script:repairCalls }
     $final = Invoke-RepairLoop $ctx 'T1' 'profile' { param($stage)
         $ctx.Gates.Add([pscustomobject]@{ stage = $stage; id = 'build'; required = $true; outcome = 'pass'; description = 'build'; detail = '' })
     }
-    Check ($final -eq 'T1-repair1' -and ((& $module { $script:repairCalls }) -eq $beforeCalls + 1)) 'Genuine application failure did not receive its one successful repair'
+    Check ($final -eq 'T1-repair1' -and ((& $module { $script:repairCalls }) -eq $beforeCalls + 1)) 'Financial-only uncertainty blocked the successful application repair'
+    Check $ctx.CostUnknown 'Application repair silently settled unknown accounting'
     $ctx = New-Context
     Fail-Gate $ctx 'build'
     $beforeCalls = & $module { $script:repairCalls }
@@ -67,7 +68,7 @@ try {
     try { Invoke-RepairLoop $ctx 'T1' 'profile' { param($stage)
         $ctx.Gates.Add([pscustomobject]@{ stage = $stage; id = 'inspect-tools'; required = $true; outcome = 'fail'; description = 'inspection'; detail = 'timeout after repair' })
     } } catch { $errorText = $_.Exception.Message }
-    Check ($errorText -like '*canonical inspection or accounting*' -and ((& $module { $script:repairCalls }) -eq $beforeCalls + 1)) 'Inspection failure after a genuine repair admitted another paid repair'
+    Check ($errorText -like '*canonical inspection*' -and ((& $module { $script:repairCalls }) -eq $beforeCalls + 1)) 'Inspection failure after a genuine repair admitted another paid repair'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($root)
