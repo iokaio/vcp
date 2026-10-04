@@ -106,7 +106,11 @@ pub struct Access {
     pub read: bool,
     pub tasks: Option<BTreeSet<TaskId>>,
 }
-pub(crate) fn authorize(state: &State, access: &Access) -> Result<Workspace> {
+pub(crate) fn authorize<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    access: &Access,
+) -> Result<Workspace> {
+    let state = state.into();
     if !access.read {
         return Err(Error::Access);
     }
@@ -163,7 +167,11 @@ pub struct Page {
     pub at_end: bool,
 }
 pub use vcp_domain::retention::RetentionMask;
-pub(crate) fn masks(state: &State, workspace: &WorkspaceId) -> Result<Vec<RetentionMask>> {
+pub(crate) fn masks<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<Vec<RetentionMask>> {
+    let state = state.into();
     let mut result = Vec::new();
     for record in state
         .records

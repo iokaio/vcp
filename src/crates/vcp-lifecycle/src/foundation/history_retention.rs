@@ -81,8 +81,8 @@ pub async fn execute(
 ) -> Result<serde_json::Value, String> {
     let result = match request {
         Request::History { query } => {
-            let page = vcp_audit::history_query::query(
-                store.state(),
+            let page = vcp_audit::history_query::query_store(
+                store,
                 &vcp_audit::history::Access {
                     workspace: access.workspace.clone(),
                     authority: access.authority,
@@ -91,6 +91,7 @@ pub async fn execute(
                 },
                 &query,
             )
+            .await
             .map_err(|e| e.to_string())?;
             let origins = page
                 .rows

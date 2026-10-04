@@ -404,6 +404,33 @@ mod tests {
             for (query, expected) in queries.iter().zip(expected) {
                 assert_eq!(engine.query(&access, query).await.unwrap(), expected);
             }
+            let Query::Task { task } = &queries[2] else {
+                unreachable!()
+            };
+            let scope = vcp_protocol::methods::Scope {
+                workspace: access.workspace.to_string().try_into().unwrap(),
+                session: access.session.to_string().try_into().unwrap(),
+            };
+            let selected = engine
+                .editor_task(&access, &scope, &task.to_string().try_into().unwrap())
+                .unwrap();
+            assert_eq!(&selected.scope.task, task);
+            assert!(
+                crate::editor::buffer_status(engine.store().current(), &selected.scope).is_ok()
+            );
+            assert_eq!(
+                engine
+                    .editor_read(
+                        &access,
+                        &vcp_protocol::editor::EditorChangeRead {
+                            scope,
+                            task: task.to_string().try_into().unwrap(),
+                            change: "missing-editor-change".to_owned().try_into().unwrap(),
+                        }
+                    )
+                    .err(),
+                Some(crate::public::PublicError::Unavailable)
+            );
             assert!(engine.read_controller(&access).unwrap().is_none());
             assert!(
                 crate::policy::optional(engine.store().current(), &access.workspace)

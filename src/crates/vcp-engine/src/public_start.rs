@@ -24,6 +24,7 @@ use vcp_protocol::{
 use vcp_store::contract::{
     key, CanonicalStore, Collection, Mutation, ReceiptInput, Record, State, Transaction,
 };
+use vcp_store::CurrentStateView;
 
 /// Trusted native observations/configuration, never deserialized from the wire.
 pub struct StartFacts {
@@ -245,7 +246,7 @@ fn scope(request: &TurnStart) -> Result<Scope, PublicError> {
         task: TaskId::parse(request.task.as_str()).map_err(invalid)?,
     })
 }
-fn available(state: &State, request: &TurnStart) -> Result<(), PublicError> {
+fn available(state: CurrentStateView<'_>, request: &TurnStart) -> Result<(), PublicError> {
     for (collection, id) in [
         (Collection::Task, request.task.as_str()),
         (Collection::Ledger, request.task.as_str()),
@@ -446,7 +447,7 @@ impl<S: CanonicalStore> Engine<S> {
         {
             return Err(PublicError::StaleState);
         }
-        available(self.store().state(), &request)?;
+        available(self.store().current(), &request)?;
         Ok(PublicStartAdmission::Ready(PreparedPublicStart {
             request,
             actor: access.actor.clone(),
@@ -485,13 +486,20 @@ impl<S: CanonicalStore> Engine<S> {
             }
             PublicStartAdmission::Ready(current) => current.request,
         };
-        let policy = crate::policy::optional(self.store().state(), &access.workspace)
+        let policy = crate::policy::optional(self.store().current(), &access.workspace)
             .map_err(|_| PublicError::Unavailable)?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision);
         if policy != facts.policy {
             return Err(PublicError::StaleState);
         }
-        let transaction = transaction(self.store().state(), &request, access, facts, trigger, now)?;
+        let transaction = transaction(
+            self.store().current(),
+            &request,
+            access,
+            facts,
+            trigger,
+            now,
+        )?;
         let receipt = self
             .store_mut()
             .transact(transaction)
@@ -506,14 +514,15 @@ impl<S: CanonicalStore> Engine<S> {
     }
 }
 
-fn transaction(
-    state: &State,
+fn transaction<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     request: &TurnStart,
     access: &Access,
     facts: &StartFacts,
     trigger: &ArtifactDescriptor,
     now: Timestamp,
 ) -> Result<Transaction, PublicError> {
+    let state = state.into();
     available(state, request)?;
     let selected = scope(request)?;
     let command = CommandId::parse(request.mutation.command_id.as_str()).map_err(invalid)?;

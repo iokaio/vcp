@@ -1743,6 +1743,57 @@ pub trait CanonicalStore {
     fn current(&self) -> crate::CurrentStateView<'_> {
         crate::CurrentStateView::from(self.state())
     }
+    /// Owner-known global event count. Readers keep the same serialized owner
+    /// and current watermark throughout a request; this is not a scoped count.
+    async fn history_event_count(&self) -> Result<u64> {
+        u64::try_from(self.state().events.len()).map_err(|_| Error::Limit("history ordinal"))
+    }
+    /// Unfiltered, contiguous global ordinals after the exclusive zero-based
+    /// boundary (None starts at zero). Pages may split a transaction and are
+    /// bounded by 4096 rows and MAX_COMMIT_BYTES of canonical row bytes.
+    /// A short nonempty page can be byte-bound; only an empty page means end.
+    /// These validated resident-State defaults are migration adapters; durable
+    /// implementations must authenticate every row under the owner's root.
+    async fn history_events(&self, after: Option<u64>, limit: usize) -> Result<Vec<EventEnvelope>> {
+        if limit == 0 || limit > 4096 {
+            return Err(Error::Limit("history page"));
+        }
+        let first = after
+            .map_or(Some(0), |value| value.checked_add(1))
+            .ok_or(Error::Limit("history ordinal"))?;
+        let first = usize::try_from(first).map_err(|_| Error::Limit("history ordinal"))?;
+        let events = &self.state().events;
+        if first > events.len() {
+            return Err(Error::Conflict("history ordinal ahead of owner"));
+        }
+        let mut rows = Vec::new();
+        let mut bytes = 0usize;
+        for event in events.iter().skip(first).take(limit) {
+            let size = encoded_len(event)?;
+            if size > MAX_COMMIT_BYTES {
+                return Err(Error::Limit("history event row"));
+            }
+            if size > MAX_COMMIT_BYTES - bytes {
+                break;
+            }
+            bytes += size;
+            rows.push(event.clone());
+        }
+        Ok(rows)
+    }
+    /// Authenticated exact global ordinal, or absence at/beyond the owner's end.
+    async fn history_event_at(&self, ordinal: u64) -> Result<Option<EventEnvelope>> {
+        let ordinal = usize::try_from(ordinal).map_err(|_| Error::Limit("history ordinal"))?;
+        let event = self.state().events.get(ordinal);
+        if event
+            .map(encoded_len)
+            .transpose()?
+            .is_some_and(|size| size > MAX_COMMIT_BYTES)
+        {
+            return Err(Error::Limit("history event row"));
+        }
+        Ok(event.cloned())
+    }
     /// Exact command-meaning replay remains available after event retention.
     /// This resident-state adapter is replaced by authenticated durable lookup
     /// before history eviction; an unbound mutable database row is insufficient.

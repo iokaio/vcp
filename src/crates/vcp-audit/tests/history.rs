@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+#[path = "support/history_live.rs"]
+mod history_live;
 use vcp_audit::{history::*, projection, Error};
 use vcp_domain::{
     accounting::*, artifact::*, effect::*, ids::*, revision::*, task::*, verification::*,
