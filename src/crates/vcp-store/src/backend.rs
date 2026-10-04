@@ -23,7 +23,7 @@ const HEADER: usize = 8 + 4 + 4 + 64;
 const TRAILER: usize = 64 + 8;
 #[cfg(test)]
 #[path = "backend_current.rs"]
-mod current_publication;
+pub(crate) mod current_publication;
 #[path = "backend_history.rs"]
 mod history;
 
