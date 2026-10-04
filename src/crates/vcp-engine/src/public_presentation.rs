@@ -15,7 +15,10 @@ use vcp_protocol::{
     command::Approval,
     methods::{self, Call},
 };
-use vcp_store::contract::{CanonicalStore, Collection, State};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    CurrentStateView,
+};
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cursor {
@@ -52,7 +55,7 @@ fn criteria(values: &[String]) -> Option<Vec<String>> {
         .then(|| values.to_vec())
 }
 fn reference(
-    state: &State,
+    state: CurrentStateView<'_>,
     scope: &vcp_domain::workspace::Scope,
     artifact: &ArtifactId,
 ) -> Result<Option<methods::EvidenceReference>, QueryError> {
@@ -93,7 +96,7 @@ fn reference(
     }))
 }
 impl<S: CanonicalStore> Engine<S> {
-    pub fn public_presentation(
+    pub async fn public_presentation(
         &self,
         access: &Access,
         request: &methods::Inspect,
@@ -106,7 +109,7 @@ impl<S: CanonicalStore> Engine<S> {
         if request.target.is_some() || task.redaction.is_some() {
             return Err(QueryError::Unavailable);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -132,8 +135,9 @@ impl<S: CanonicalStore> Engine<S> {
                 return Err(QueryError::StaleCursor);
             }
         }
-        let view =
-            crate::rpc::task_view(state, task.clone()).map_err(|_| QueryError::InvalidData)?;
+        let view = crate::rpc::task_view_store(self.store(), task.clone())
+            .await
+            .map_err(|_| QueryError::InvalidData)?;
         let graph = crate::agents::graph(state, &task.scope, &task.root)
             .map_err(|_| QueryError::InvalidData)?;
         let assignment = graph
@@ -335,13 +339,13 @@ impl<S: CanonicalStore> Engine<S> {
 /// Native store enrichment reads only captured child transcript bytes. The spool
 /// verifies the retained identity/hash, including bytes outside the rendered prefix.
 impl Engine<vcp_store::Store> {
-    pub fn public_presentation_with_content(
+    pub async fn public_presentation_with_content(
         &self,
         access: &Access,
         request: &methods::Inspect,
         now: Timestamp,
     ) -> Result<methods::TaskPresentation, QueryError> {
-        let mut page = self.public_presentation(access, request, now)?;
+        let mut page = self.public_presentation(access, request, now).await?;
         let mut preview_bytes = 0u64;
         for row in &mut page.rows {
             let methods::PresentationRow::Evidence {
@@ -354,7 +358,7 @@ impl Engine<vcp_store::Store> {
             };
             let artifact: ArtifactDescriptor = self
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     artifact_id.as_str(),
@@ -606,6 +610,7 @@ mod tests {
             put(&mut engine, Collection::Approval, "question", &approval).await;
             let first = engine
                 .public_presentation(&access(), &request, Timestamp::new(2))
+                .await
                 .unwrap();
             assert_eq!(first.objective.unwrap().text, "public read fixture");
             assert_eq!(first.model.source, methods::PresentationSource::Unavailable);
@@ -636,6 +641,7 @@ mod tests {
             next.cursor = first.next_cursor;
             let last = engine
                 .public_presentation(&access(), &next, Timestamp::new(2))
+                .await
                 .unwrap();
             assert_eq!(last.rows.len(), 1);
             assert!(last.complete);
@@ -644,11 +650,13 @@ mod tests {
             foreign.session = SessionId::new();
             assert!(engine
                 .public_presentation(&foreign, &request, Timestamp::new(2))
+                .await
                 .is_err());
             foreign = access();
             foreign.authority = AuthorityRevision::new(1);
             assert!(engine
                 .public_presentation(&foreign, &next, Timestamp::new(2))
+                .await
                 .is_err());
             let mut forged = next.clone();
             let mut cursor: serde_json::Value =
@@ -656,13 +664,17 @@ mod tests {
             cursor["scope"]["workspace"] = serde_json::json!("foreign");
             forged.cursor = Some(serde_json::to_string(&cursor).unwrap());
             assert!(matches!(
-                engine.public_presentation(&access(), &forged, Timestamp::new(2)),
+                engine
+                    .public_presentation(&access(), &forged, Timestamp::new(2))
+                    .await,
                 Err(QueryError::StaleCursor)
             ));
             let mut other = next.clone();
             other.task = id("other").unwrap();
             assert!(matches!(
-                engine.public_presentation(&access(), &other, Timestamp::new(2)),
+                engine
+                    .public_presentation(&access(), &other, Timestamp::new(2))
+                    .await,
                 Err(QueryError::StaleCursor)
             ));
             let mut changed: Effect = engine
@@ -675,7 +687,9 @@ mod tests {
             changed.id = ToolRunId::parse("effect-c").unwrap();
             put(&mut engine, Collection::Effect, "effect-c", &changed).await;
             assert!(matches!(
-                engine.public_presentation(&access(), &next, Timestamp::new(2)),
+                engine
+                    .public_presentation(&access(), &next, Timestamp::new(2))
+                    .await,
                 Err(QueryError::StaleCursor)
             ));
         }
@@ -731,6 +745,7 @@ mod tests {
             };
             let page = engine
                 .public_presentation_with_content(&access(), &request, Timestamp::new(2))
+                .await
                 .unwrap();
             assert_eq!(page.commentary, methods::PresentationSource::Observed);
             assert!(page.complete);
@@ -749,6 +764,7 @@ mod tests {
             denied.read = false;
             assert!(engine
                 .public_presentation_with_content(&denied, &request, Timestamp::new(2))
+                .await
                 .is_err());
             let mask = RetentionMask {
                 schema_version: 1,
@@ -763,6 +779,7 @@ mod tests {
             put(&mut engine, Collection::Tombstone, "mask", &mask).await;
             let page = engine
                 .public_presentation_with_content(&access(), &request, Timestamp::new(2))
+                .await
                 .unwrap();
             assert!(page.rows.is_empty());
             assert!(!page.complete);
@@ -796,6 +813,7 @@ mod tests {
             .await;
             let page = engine
                 .public_presentation_with_content(&access(), &request, Timestamp::new(2))
+                .await
                 .unwrap();
             assert!(!page.complete);
             assert!(

@@ -27,43 +27,71 @@ pub async fn current_public_turn_store<S: CanonicalStore>(
     store: &S,
     scope: &Scope,
 ) -> Result<Option<Turn>, PublicError> {
-    let mut proof = Chronology::new(store.current(), scope)?;
+    current_public_turn_checked(store, scope)
+        .await
+        .map_err(|error| match error {
+            HistoryVisitError::Read => PublicError::Unavailable,
+            HistoryVisitError::Evidence(error) => error,
+        })
+}
+/// Queries may render absent chronology as unknown, but must not disguise a
+/// failed authenticated read as proven absence.
+pub(crate) enum HistoryVisitError {
+    Read,
+    Evidence(PublicError),
+}
+pub(crate) async fn current_public_turn_checked<S: CanonicalStore>(
+    store: &S,
+    scope: &Scope,
+) -> Result<Option<Turn>, HistoryVisitError> {
+    let mut proof = Chronology::new(store.current(), scope).map_err(HistoryVisitError::Evidence)?;
     if !proof.turns.is_empty() {
-        visit_history(store, |event| proof.observe(event)).await?;
+        try_visit_history(store, |event| proof.observe(event)).await?;
     }
-    proof.finish()
+    proof.finish().map_err(HistoryVisitError::Evidence)
 }
 /// Full proofs must visit every ordinal, including after the first matching row.
 /// Short nonempty pages are byte boundaries, never evidence of absence.
 pub(crate) async fn visit_history<S: CanonicalStore>(
     store: &S,
-    mut visit: impl FnMut(&EventEnvelope) -> Result<(), PublicError>,
+    visit: impl FnMut(&EventEnvelope) -> Result<(), PublicError>,
 ) -> Result<(), PublicError> {
+    try_visit_history(store, visit)
+        .await
+        .map_err(|error| match error {
+            HistoryVisitError::Read => PublicError::Unavailable,
+            HistoryVisitError::Evidence(error) => error,
+        })
+}
+async fn try_visit_history<S: CanonicalStore>(
+    store: &S,
+    mut visit: impl FnMut(&EventEnvelope) -> Result<(), PublicError>,
+) -> Result<(), HistoryVisitError> {
     let watermark = store.current().watermark;
     let end = store
         .history_event_count()
         .await
-        .map_err(|_| PublicError::Unavailable)?;
+        .map_err(|_| HistoryVisitError::Read)?;
     let mut next = 0u64;
     while next < end {
         let limit = (end - next).min(4096) as usize;
         let rows = store
             .history_events(next.checked_sub(1), limit)
             .await
-            .map_err(|_| PublicError::Unavailable)?;
+            .map_err(|_| HistoryVisitError::Read)?;
         if rows.is_empty() || rows.len() > limit {
-            return Err(PublicError::Unavailable);
+            return Err(HistoryVisitError::Read);
         }
         for row in &rows {
             if row.watermark > watermark {
-                return Err(PublicError::Unavailable);
+                return Err(HistoryVisitError::Read);
             }
-            visit(row)?;
+            visit(row).map_err(HistoryVisitError::Evidence)?;
         }
         next += rows.len() as u64;
     }
     if store.current().watermark != watermark {
-        return Err(PublicError::Unavailable);
+        return Err(HistoryVisitError::Read);
     }
     Ok(())
 }

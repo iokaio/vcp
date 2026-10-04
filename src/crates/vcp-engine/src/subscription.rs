@@ -465,7 +465,7 @@ impl<S: CanonicalStore> Engine<S> {
         if self.subscriptions.len() >= MAX_SUBSCRIPTIONS {
             return Err(vcp_protocol::version::Error::Limit.into());
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -583,7 +583,7 @@ impl<S: CanonicalStore> Engine<S> {
         {
             return gap(GapReason::CursorChanged);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -614,12 +614,12 @@ impl<S: CanonicalStore> Engine<S> {
         let mut next = cursor.clone();
         next.end = self
             .store()
-            .state()
+            .current()
             .sequences
             .get(&access.session)
             .copied()
             .unwrap_or_default();
-        next.watermark = self.store().state().watermark;
+        next.watermark = self.store().current().watermark;
         self.subscriptions
             .insert(next.snapshot.clone(), next.clone());
         Ok(next)

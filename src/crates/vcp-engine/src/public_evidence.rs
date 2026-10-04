@@ -11,10 +11,13 @@ use vcp_domain::{
     workspace::Workspace,
 };
 use vcp_protocol::methods::{self, Call};
-use vcp_store::contract::{CanonicalStore, Collection, State};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    CurrentStateView,
+};
 
 fn masked(
-    state: &State,
+    state: CurrentStateView<'_>,
     workspace: &WorkspaceId,
     artifact: &ArtifactId,
 ) -> Result<bool, QueryError> {
@@ -61,24 +64,24 @@ struct Cursor {
 
 impl<S: CanonicalStore> Engine<S> {
     /// Retained manifest references for this exact task. No live context assembly.
-    pub fn public_context(
+    pub async fn public_context(
         &self,
         access: &Access,
         request: &methods::Inspect,
     ) -> Result<methods::EvidencePage, QueryError> {
-        self.public_evidence(access, request, View::Context)
+        self.public_evidence(access, request, View::Context).await
     }
 
     /// Observed routing selections only; a fixed provider has no invented decision.
-    pub fn public_routing(
+    pub async fn public_routing(
         &self,
         access: &Access,
         request: &methods::Inspect,
     ) -> Result<methods::EvidencePage, QueryError> {
-        self.public_evidence(access, request, View::Routing)
+        self.public_evidence(access, request, View::Routing).await
     }
 
-    fn public_evidence(
+    async fn public_evidence(
         &self,
         access: &Access,
         request: &methods::Inspect,
@@ -94,7 +97,7 @@ impl<S: CanonicalStore> Engine<S> {
         if task.redaction.is_some() {
             return Err(QueryError::Unavailable);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -132,12 +135,7 @@ impl<S: CanonicalStore> Engine<S> {
                 Ok(cursor)
             })
             .transpose()?;
-        let mut gap = state.events.iter().any(|event| {
-            event.event.workspace == access.workspace
-                && event.event.session == access.session
-                && event.event.task.as_ref() == Some(&task.scope.task)
-                && event.redaction.is_some()
-        });
+        let mut ranges = Vec::new();
         for record in state.records.values().filter(|row| {
             row.collection == Collection::Tombstone && row.workspace == access.workspace
         }) {
@@ -146,15 +144,25 @@ impl<S: CanonicalStore> Engine<S> {
             if mask.workspace != access.workspace || mask.deletion > workspace.deletion {
                 return Err(QueryError::InvalidData);
             }
-            gap |= mask.session == access.session
-                && state.events.iter().any(|event| {
-                    event.event.workspace == access.workspace
-                        && event.event.session == access.session
-                        && event.event.task.as_ref() == Some(&task.scope.task)
-                        && mask.first <= event.sequence
-                        && event.sequence <= mask.last
-                });
+            if mask.session == access.session {
+                ranges.push((mask.first, mask.last));
+            }
         }
+        let mut gap = false;
+        crate::public::visit_history(self.store(), |event| {
+            if event.event.workspace == access.workspace
+                && event.event.session == access.session
+                && event.event.task.as_ref() == Some(&task.scope.task)
+            {
+                gap |= event.redaction.is_some()
+                    || ranges
+                        .iter()
+                        .any(|(first, last)| *first <= event.sequence && event.sequence <= *last);
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| QueryError::InvalidData)?;
         let mut rows = Vec::with_capacity(request.limit as usize + 1);
         let mut found = false;
         let mut after_found = cursor.is_none();
@@ -484,6 +492,113 @@ mod tests {
         }
     }
 
+    struct PagedEvidence {
+        store: Store,
+        reads: std::cell::Cell<usize>,
+        fail: bool,
+    }
+    impl CanonicalStore for PagedEvidence {
+        fn state(&self) -> &vcp_store::contract::State {
+            panic!("public inspectors requested resident history")
+        }
+        fn current(&self) -> CurrentStateView<'_> {
+            self.store.current()
+        }
+        async fn history_event_count(&self) -> vcp_store::Result<u64> {
+            self.store.history_event_count().await
+        }
+        async fn history_events(
+            &self,
+            after: Option<u64>,
+            limit: usize,
+        ) -> vcp_store::Result<Vec<vcp_protocol::event::EventEnvelope>> {
+            self.reads.set(self.reads.get() + 1);
+            if self.fail && after.is_some() {
+                return Err(vcp_store::Error::Corruption("injected inspector page"));
+            }
+            self.store.history_events(after, limit.min(2)).await
+        }
+        async fn transact(
+            &mut self,
+            _: Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            panic!("public inspector attempted a transaction")
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_inspectors_preserve_projection_and_reject_interior_read_failure() {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut engine = fixture(temp.path(), backend).await;
+            artifact(
+                &mut engine,
+                "context",
+                b"retained context",
+                false,
+                "context-manifest/1",
+                "task",
+                Channel::Evidence,
+            )
+            .await;
+            let expected = engine.public_context(&access(), &request()).await.unwrap();
+            let presentation = engine
+                .public_presentation(&access(), &request(), Timestamp::new(2))
+                .await
+                .unwrap();
+            let count = engine.store().history_event_count().await.unwrap() as usize;
+            let mut engine = Engine::new(PagedEvidence {
+                store: engine.into_store(),
+                reads: Default::default(),
+                fail: false,
+            })
+            .unwrap();
+            assert_eq!(
+                engine.public_context(&access(), &request()).await.unwrap(),
+                expected
+            );
+            assert_eq!(engine.store().reads.get(), count.div_ceil(2));
+            assert_eq!(
+                engine
+                    .public_presentation(&access(), &request(), Timestamp::new(2))
+                    .await
+                    .unwrap(),
+                presentation
+            );
+            let first = engine
+                .snapshot_page(&access(), 1, None, Timestamp::new(2))
+                .await
+                .unwrap();
+            assert_eq!(first.tasks.len(), 1);
+            let cursor: crate::snapshot::SnapshotCursor =
+                serde_json::from_str(first.next_cursor.as_ref().unwrap()).unwrap();
+            let last = engine
+                .snapshot_page(&access(), 1, Some(&cursor), Timestamp::new(3))
+                .await
+                .unwrap();
+            assert_eq!(last.tasks.len(), 1);
+            assert!(last.complete && last.next_cursor.is_none());
+            engine.store_mut().fail = true;
+            let before = engine.store().reads.get();
+            let mut denied = access();
+            denied.read = false;
+            assert!(matches!(
+                engine.public_context(&denied, &request()).await,
+                Err(QueryError::Access)
+            ));
+            assert_eq!(
+                engine.store().reads.get(),
+                before,
+                "authorization must precede history I/O"
+            );
+            assert!(matches!(
+                engine.public_context(&access(), &request()).await,
+                Err(QueryError::InvalidData)
+            ));
+            engine.into_store().store.close().await.unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn secret_exclusions_preserve_public_completeness_but_missing_content_does_not() {
         for backend in [BackendKind::Sqlite, BackendKind::Files] {
@@ -511,9 +626,9 @@ mod tests {
                 let mut selected = request();
                 selected.target = Some(id(name).unwrap());
                 let page = if schema == "context-manifest/1" {
-                    engine.public_context(&access(), &selected)
+                    engine.public_context(&access(), &selected).await
                 } else {
-                    engine.public_routing(&access(), &selected)
+                    engine.public_routing(&access(), &selected).await
                 }
                 .unwrap();
                 assert!(page.complete && page.next_cursor.is_none());
@@ -542,7 +657,7 @@ mod tests {
                 assert_eq!(descriptor.state, CaptureState::Complete);
                 let mut selected = request();
                 selected.target = Some(id(name).unwrap());
-                let page = engine.public_context(&access(), &selected).unwrap();
+                let page = engine.public_context(&access(), &selected).await.unwrap();
                 assert!(!page.complete && page.next_cursor.is_none());
                 assert_eq!(page.rows.len(), 1);
             }
@@ -556,7 +671,7 @@ mod tests {
             let temp = tempfile::tempdir().unwrap();
             let mut engine = fixture(temp.path(), backend).await;
             let mut request = request();
-            let empty = engine.public_context(&access(), &request).unwrap();
+            let empty = engine.public_context(&access(), &request).await.unwrap();
             assert!(empty.rows.is_empty() && !empty.complete && empty.next_cursor.is_none());
             for (name, schema, task, channel) in [
                 (
@@ -598,7 +713,7 @@ mod tests {
                 .await;
             }
             let watermark = engine.store().state().watermark;
-            let first = engine.public_context(&access(), &request).unwrap();
+            let first = engine.public_context(&access(), &request).await.unwrap();
             assert_eq!(first.rows.len(), 1);
             assert_eq!(first.rows[0].id.as_str(), "a-manifest");
             assert_eq!(first.rows[0].content.offset.as_str(), "0");
@@ -612,23 +727,23 @@ mod tests {
                 .contains("private stored content"));
             assert!(!first.complete);
             request.cursor = first.next_cursor.clone();
-            let second = engine.public_context(&access(), &request).unwrap();
+            let second = engine.public_context(&access(), &request).await.unwrap();
             assert_eq!(second.rows[0].id.as_str(), "b-manifest");
             assert!(second.complete && second.next_cursor.is_none());
             assert_eq!(second.watermark, first.watermark);
             let mut other_actor = access();
             other_actor.actor = ActorId::parse("other-actor").unwrap();
             assert_eq!(
-                engine.public_context(&other_actor, &request),
+                engine.public_context(&other_actor, &request).await,
                 Err(QueryError::StaleCursor)
             );
             assert_eq!(
-                engine.public_routing(&access(), &request),
+                engine.public_routing(&access(), &request).await,
                 Err(QueryError::StaleCursor)
             );
             request.limit = 2;
             assert_eq!(
-                engine.public_context(&access(), &request),
+                engine.public_context(&access(), &request).await,
                 Err(QueryError::StaleCursor)
             );
             request.limit = 1;
@@ -636,9 +751,12 @@ mod tests {
             engine.into_store().close().await.unwrap();
             let engine =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
-            assert_eq!(engine.public_context(&access(), &request).unwrap(), second);
+            assert_eq!(
+                engine.public_context(&access(), &request).await.unwrap(),
+                second
+            );
             request.cursor = None;
-            let route = engine.public_routing(&access(), &request).unwrap();
+            let route = engine.public_routing(&access(), &request).await.unwrap();
             assert_eq!(route.rows[0].id.as_str(), "route");
             assert!(route.complete);
             for target in [
@@ -651,21 +769,27 @@ mod tests {
             ] {
                 request.target = Some(id(target).unwrap());
                 assert_eq!(
-                    engine.public_context(&access(), &request),
+                    engine.public_context(&access(), &request).await,
                     Err(QueryError::Unavailable)
                 );
             }
             request.target = Some(id("a-manifest").unwrap());
-            assert!(engine.public_context(&access(), &request).unwrap().complete);
+            assert!(
+                engine
+                    .public_context(&access(), &request)
+                    .await
+                    .unwrap()
+                    .complete
+            );
             let mut denied = access();
             denied.read = false;
             assert_eq!(
-                engine.public_context(&denied, &request),
+                engine.public_context(&denied, &request).await,
                 Err(QueryError::Access)
             );
             request.limit = 129;
             assert_eq!(
-                engine.public_context(&access(), &request),
+                engine.public_context(&access(), &request).await,
                 Err(QueryError::Limit)
             );
             engine.into_store().close().await.unwrap();
@@ -690,9 +814,9 @@ mod tests {
                 )
                 .await;
             }
-            let first = engine.public_context(&access(), &request).unwrap();
+            let first = engine.public_context(&access(), &request).await.unwrap();
             request.cursor = first.next_cursor;
-            let second = engine.public_context(&access(), &request).unwrap();
+            let second = engine.public_context(&access(), &request).await.unwrap();
             assert_eq!(second.rows[0].id.as_str(), "b-aborted");
             assert!(!second.complete && second.next_cursor.is_none());
             let mask = RetentionMask {
@@ -707,31 +831,37 @@ mod tests {
             };
             put(&mut engine, Collection::Tombstone, "mask", &mask).await;
             assert_eq!(
-                engine.public_context(&access(), &request),
+                engine.public_context(&access(), &request).await,
                 Err(QueryError::StaleCursor)
             );
             request.cursor = None;
             request.limit = 128;
-            let masked = engine.public_context(&access(), &request).unwrap();
+            let masked = engine.public_context(&access(), &request).await.unwrap();
             assert_eq!(masked.rows.len(), 1);
             assert_eq!(masked.rows[0].id.as_str(), "b-aborted");
             assert!(!masked.complete);
             request.target = Some(id("a-complete").unwrap());
             assert_eq!(
-                engine.public_context(&access(), &request),
+                engine.public_context(&access(), &request).await,
                 Err(QueryError::Unavailable)
             );
             request.target = Some(id("b-aborted").unwrap());
-            assert!(!engine.public_context(&access(), &request).unwrap().complete);
+            assert!(
+                !engine
+                    .public_context(&access(), &request)
+                    .await
+                    .unwrap()
+                    .complete
+            );
             request.cursor = Some("{\"version\":1}".into());
             assert_eq!(
-                engine.public_context(&access(), &request),
+                engine.public_context(&access(), &request).await,
                 Err(QueryError::StaleCursor)
             );
             let mut revoked = access();
             revoked.authority = AuthorityRevision::new(1);
             assert_eq!(
-                engine.public_context(&revoked, &request),
+                engine.public_context(&revoked, &request).await,
                 Err(QueryError::Access)
             );
             engine.into_store().close().await.unwrap();

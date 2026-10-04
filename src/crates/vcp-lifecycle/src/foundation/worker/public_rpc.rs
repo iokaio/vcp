@@ -519,8 +519,12 @@ impl RpcHost for PublicConnection {
                     }
                     if let Call::TaskPresentation(request) = &request {
                         return Ok(context
-                            .engine
-                            .public_presentation_with_content(&access, request, now())
+                            .runtime
+                            .block_on(context.engine.public_presentation_with_content(
+                                &access,
+                                request,
+                                now(),
+                            ))
                             .and_then(|mut page| {
                                 super::public_presentation::model(
                                     context, &access, request, &mut page,

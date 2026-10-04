@@ -404,3 +404,6 @@ async fn current_turn_uses_creation_history_and_missing_evidence_is_null() {
     assert!(task_view(&state, excessive).is_err());
     engine.into_store().close().await.unwrap();
 }
+
+#[path = "rpc_bounded_task_tests.rs"]
+mod bounded;

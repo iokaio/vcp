@@ -597,7 +597,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     .map_err(query_error)?
                 {
                     QueryResult::Task { task, .. } => {
-                        ResultValue::Task(task_view(engine.store().state(), task)?)
+                        ResultValue::Task(task_view_store(engine.store(), task).await?)
                     }
                     _ => return Err(RpcError::internal_error()),
                 }
@@ -605,17 +605,24 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             Call::TaskPresentation(p) => ResultValue::Presentation(
                 engine
                     .public_presentation(access, p, self.facts.now)
+                    .await
                     .map_err(query_error)?,
             ),
             Call::UsageRead(p) => {
                 ResultValue::Usage(engine.public_usage(access, p).map_err(query_error)?)
             }
-            Call::ContextInspect(p) => {
-                ResultValue::Evidence(engine.public_context(access, p).map_err(query_error)?)
-            }
-            Call::RoutingExplain(p) => {
-                ResultValue::Evidence(engine.public_routing(access, p).map_err(query_error)?)
-            }
+            Call::ContextInspect(p) => ResultValue::Evidence(
+                engine
+                    .public_context(access, p)
+                    .await
+                    .map_err(query_error)?,
+            ),
+            Call::RoutingExplain(p) => ResultValue::Evidence(
+                engine
+                    .public_routing(access, p)
+                    .await
+                    .map_err(query_error)?,
+            ),
             Call::CommandRead(p) => {
                 check_scope(&p.scope, access)?;
                 let command = CommandId::parse(p.command_id.as_str())
@@ -700,14 +707,34 @@ pub(crate) fn session_view(session: Session) -> Result<methods::SessionView, Rpc
 /// be admitted: expiry, ownership and policy are rechecked by approval/respond.
 /// There is no persisted addressable generic Question/Reconciliation input model;
 /// waiting state and unknown effects must not manufacture input identities.
+#[cfg(test)]
 pub(crate) fn task_view(
     state: &vcp_store::contract::State,
     task: vcp_domain::task::Task,
 ) -> Result<methods::TaskView, RpcError> {
-    use vcp_domain::{
-        effect::{Effect, EffectState},
-        task::TaskState,
+    let pending = task_pending(state.into(), &task)?;
+    let turn = crate::public::current_public_turn(state, &task.scope);
+    finish_task_view(state.into(), task, pending, turn)
+}
+pub(crate) async fn task_view_store<S: CanonicalStore>(
+    store: &S,
+    task: vcp_domain::task::Task,
+) -> Result<methods::TaskView, RpcError> {
+    let pending = task_pending(store.current(), &task)?;
+    let turn = match crate::public::current_public_turn_checked(store, &task.scope).await {
+        Ok(turn) => Ok(turn),
+        Err(crate::public::HistoryVisitError::Evidence(error)) => Err(error),
+        Err(crate::public::HistoryVisitError::Read) => {
+            return Err(query_error(QueryError::InvalidData))
+        }
     };
+    finish_task_view(store.current(), task, pending, turn)
+}
+fn task_pending(
+    state: vcp_store::CurrentStateView<'_>,
+    task: &vcp_domain::task::Task,
+) -> Result<(Vec<methods::PendingInput>, u8), RpcError> {
+    use vcp_domain::effect::{Effect, EffectState};
     use vcp_protocol::command::{Approval, ApprovalState};
     use vcp_store::contract::Collection;
     let invalid = || query_error(QueryError::InvalidData);
@@ -782,7 +809,18 @@ pub(crate) fn task_view(
             _ => {}
         }
     }
-    let turn = match crate::public::current_public_turn(state, &task.scope) {
+    Ok((pending_inputs, effect_rank))
+}
+fn finish_task_view(
+    state: vcp_store::CurrentStateView<'_>,
+    task: vcp_domain::task::Task,
+    (pending_inputs, effect_rank): (Vec<methods::PendingInput>, u8),
+    selected: Result<Option<vcp_domain::task::Turn>, PublicError>,
+) -> Result<methods::TaskView, RpcError> {
+    use vcp_domain::task::TaskState;
+    use vcp_store::contract::Collection;
+    let invalid = || query_error(QueryError::InvalidData);
+    let turn = match selected {
         Ok(turn) => turn
             .filter(|turn| turn.steering == task.steering)
             .map(|turn| id(turn.id.as_str()))
@@ -794,12 +832,26 @@ pub(crate) fn task_view(
     };
     let diagnostic = if task.state == TaskState::Paused && task.redaction.is_none() {
         methods::ExecutionPauseReason::decode(&task.reason).filter(|diagnostic| {
-            state.record(Collection::Artifact, diagnostic.evidence.as_str(), &task.scope.workspace)
-                .ok().and_then(|record| record.decode::<vcp_domain::artifact::ArtifactDescriptor>().ok())
-                .is_some_and(|artifact| artifact.spec.scope == task.scope
-                    && artifact.spec.schema == "execution-completion-repair/1")
+            state
+                .record(
+                    Collection::Artifact,
+                    diagnostic.evidence.as_str(),
+                    &task.scope.workspace,
+                )
+                .ok()
+                .and_then(|record| {
+                    record
+                        .decode::<vcp_domain::artifact::ArtifactDescriptor>()
+                        .ok()
+                })
+                .is_some_and(|artifact| {
+                    artifact.spec.scope == task.scope
+                        && artifact.spec.schema == "execution-completion-repair/1"
+                })
         })
-    } else { None };
+    } else {
+        None
+    };
     let reason = if task.redaction.is_some() {
         "Task content was removed.".to_owned()
     } else if let Some(diagnostic) = &diagnostic {

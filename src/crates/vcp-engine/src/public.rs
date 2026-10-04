@@ -17,7 +17,9 @@ use vcp_store::contract::{CanonicalStore, Collection};
 
 mod chronology;
 pub use chronology::{current_public_turn, current_public_turn_store};
-pub(crate) use chronology::{visit_history, Chronology};
+pub(crate) use chronology::{
+    current_public_turn_checked, visit_history, Chronology, HistoryVisitError,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]

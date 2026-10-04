@@ -11,9 +11,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use vcp_domain::{ids::*, revision::*, task::Task, workspace::Workspace};
+#[cfg(test)]
+use vcp_protocol::subscription::EventPage;
 use vcp_protocol::{
     methods,
-    subscription::{Cursor, EventPage, GapReason},
+    subscription::{Cursor, GapReason},
 };
 use vcp_store::contract::{CanonicalStore, Collection};
 
@@ -55,7 +57,7 @@ impl<S: CanonicalStore> Engine<S> {
     /// Capture a typed session/task page and register its after-S replay cursor
     /// under the same serialized engine observation. No mutation or effect is
     /// performed. A caller must discard all partial pages on `Restart`.
-    pub fn snapshot_page(
+    pub async fn snapshot_page(
         &mut self,
         access: &Access,
         limit: u32,
@@ -81,7 +83,7 @@ impl<S: CanonicalStore> Engine<S> {
         if limit == 0 || limit > crate::query::MAX_PAGE_LIMIT {
             return Err(Limit);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let sequence = state
             .sequences
             .get(&access.session)
@@ -116,18 +118,18 @@ impl<S: CanonicalStore> Engine<S> {
             if cursor.replay.deletion != workspace.deletion {
                 return Err(restart(RestartReason::RetentionChanged));
             }
-            match self
-                .events(access, &cursor.replay, now)
+            // Snapshot cursors are required above to have after == end. Their
+            // replay window is empty, so only the same metadata/lease checks
+            // are needed; no event payload can contribute to this validation.
+            if let Some(reason) = self
+                .event_cursor_gap(access, &cursor.replay, now)
                 .map_err(|_| Denied)?
             {
-                EventPage::Gap { reason, .. } => {
-                    return Err(restart(match reason {
-                        GapReason::SnapshotExpired => RestartReason::CursorExpired,
-                        GapReason::RetentionChanged => RestartReason::RetentionChanged,
-                        _ => RestartReason::CursorChanged,
-                    }))
-                }
-                EventPage::Events { .. } => {}
+                return Err(restart(match reason {
+                    GapReason::SnapshotExpired => RestartReason::CursorExpired,
+                    GapReason::RetentionChanged => RestartReason::RetentionChanged,
+                    _ => RestartReason::CursorChanged,
+                }));
             }
             if cursor.replay.watermark != watermark || cursor.replay.end != sequence {
                 return Err(restart(RestartReason::SourceChanged));
@@ -170,7 +172,9 @@ impl<S: CanonicalStore> Engine<S> {
                 break;
             }
             let id = task.scope.task.clone();
-            let view = crate::rpc::task_view(state, task).map_err(|_| InvalidData)?;
+            let view = crate::rpc::task_view_store(self.store(), task)
+                .await
+                .map_err(|_| InvalidData)?;
             let size = serde_json::to_vec(&view).map_err(|_| InvalidData)?.len() + 1;
             if bytes.saturating_add(size) > crate::query::MAX_RESULT_BYTES {
                 if tasks.is_empty() {
@@ -329,6 +333,7 @@ mod tests {
             let before = engine.store().state().clone();
             let first = engine
                 .snapshot_page(&access, 2, None, Timestamp::new(100))
+                .await
                 .unwrap();
             assert!(!first.complete);
             assert_eq!(
@@ -343,6 +348,7 @@ mod tests {
                 serde_json::from_str(first.next_cursor.as_ref().unwrap()).unwrap();
             let second = engine
                 .snapshot_page(&access, 2, Some(&cursor), Timestamp::new(101))
+                .await
                 .unwrap();
             assert!(second.complete);
             assert!(second.next_cursor.is_none());
@@ -353,6 +359,7 @@ mod tests {
             assert_eq!(
                 engine
                     .snapshot_page(&access, 2, Some(&cursor), Timestamp::new(102))
+                    .await
                     .unwrap(),
                 second
             );
@@ -391,36 +398,47 @@ mod tests {
             let (mut engine, access) = fixture(dir.path(), backend).await;
             let first = engine
                 .snapshot_page(&access, 1, None, Timestamp::new(100))
+                .await
                 .unwrap();
             let cursor: SnapshotCursor =
                 serde_json::from_str(first.next_cursor.as_ref().unwrap()).unwrap();
             let mut other = access.clone();
             other.actor = ActorId::new();
             assert!(matches!(
-                engine.snapshot_page(&other, 1, Some(&cursor), Timestamp::new(101)),
+                engine
+                    .snapshot_page(&other, 1, Some(&cursor), Timestamp::new(101))
+                    .await,
                 Err(SnapshotError::Access)
             ));
             other = access.clone();
             other.read = false;
             assert!(matches!(
-                engine.snapshot_page(&other, 1, None, Timestamp::new(101)),
+                engine
+                    .snapshot_page(&other, 1, None, Timestamp::new(101))
+                    .await,
                 Err(SnapshotError::Access)
             ));
             other = access.clone();
             other.authority = AuthorityRevision::new(1);
             assert!(matches!(
-                engine.snapshot_page(&other, 1, Some(&cursor), Timestamp::new(101)),
+                engine
+                    .snapshot_page(&other, 1, Some(&cursor), Timestamp::new(101))
+                    .await,
                 Err(SnapshotError::Access)
             ));
             assert!(matches!(
-                engine.snapshot_page(&access, 2, Some(&cursor), Timestamp::new(101)),
+                engine
+                    .snapshot_page(&access, 2, Some(&cursor), Timestamp::new(101))
+                    .await,
                 Err(SnapshotError::Restart {
                     reason: RestartReason::CursorChanged,
                     ..
                 })
             ));
             assert!(matches!(
-                engine.snapshot_page(&access, 1, Some(&cursor), Timestamp::new(60_100)),
+                engine
+                    .snapshot_page(&access, 1, Some(&cursor), Timestamp::new(60_100))
+                    .await,
                 Err(SnapshotError::Restart {
                     reason: RestartReason::CursorExpired,
                     ..
@@ -430,12 +448,13 @@ mod tests {
             let end = engine.store().state().sequences[&access.session];
             let mark = engine.store().state().watermark;
             assert!(
-                matches!(engine.snapshot_page(&access, 1, Some(&cursor), Timestamp::new(102)),
+                matches!(engine.snapshot_page(&access, 1, Some(&cursor), Timestamp::new(102)).await,
                 Err(SnapshotError::Restart { reason: RestartReason::SourceChanged, sequence, watermark }) if sequence == end && watermark == mark)
             );
             assert_eq!(
                 engine
                     .snapshot_page(&access, 128, None, Timestamp::new(103))
+                    .await
                     .unwrap()
                     .sequence
                     .as_str(),
@@ -451,7 +470,9 @@ mod tests {
             let (mut engine, access) = fixture(dir.path(), backend).await;
             for limit in [0, 129] {
                 assert!(matches!(
-                    engine.snapshot_page(&access, limit, None, Timestamp::new(100)),
+                    engine
+                        .snapshot_page(&access, limit, None, Timestamp::new(100))
+                        .await,
                     Err(SnapshotError::Limit)
                 ));
             }
@@ -459,20 +480,25 @@ mod tests {
             for _ in 0..16 {
                 let page = engine
                     .snapshot_page(&access, 128, None, Timestamp::new(100))
+                    .await
                     .unwrap();
                 first.get_or_insert(serde_json::from_str::<Cursor>(&page.event_cursor).unwrap());
             }
             assert!(matches!(
-                engine.snapshot_page(&access, 128, None, Timestamp::new(100)),
+                engine
+                    .snapshot_page(&access, 128, None, Timestamp::new(100))
+                    .await,
                 Err(SnapshotError::Limit)
             ));
             engine.unsubscribe(&first.unwrap().snapshot);
             assert!(engine
                 .snapshot_page(&access, 128, None, Timestamp::new(100))
+                .await
                 .is_ok());
             // Expired registrations are reclaimed, not an unbounded producer queue.
             assert!(engine
                 .snapshot_page(&access, 128, None, Timestamp::new(60_100))
+                .await
                 .is_ok());
         }
     }
@@ -525,6 +551,7 @@ mod tests {
             loop {
                 let page = engine
                     .snapshot_page(&access, 128, cursor.as_ref(), Timestamp::new(100))
+                    .await
                     .unwrap();
                 pages += 1;
                 assert!(serde_json::to_vec(&page).unwrap().len() <= crate::query::MAX_RESULT_BYTES);
