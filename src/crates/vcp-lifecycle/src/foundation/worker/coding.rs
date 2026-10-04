@@ -294,8 +294,7 @@ impl Context {
                 let actual = response
                     .usage
                     .as_ref()
-                    .and_then(|usage| usage.tokens.as_ref())
-                    .map(|usage| usage.output);
+                    .and_then(|usage| usage.output_tokens);
                 let limited = matches!(
                     response.terminal_diagnostic,
                     Some(vcp_models::stream::TerminalDiagnostic::Incomplete {

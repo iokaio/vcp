@@ -18,6 +18,11 @@ pub struct Call {
 pub struct ObservedUsage {
     pub raw: Value,
     pub tokens: Option<Usage>,
+    /// Explicit provider output count, independently useful for allocation even
+    /// when missing cache/reasoning counts prevent complete accounting usage.
+    /// Absence stays unknown; this never substitutes for `tokens` or cost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<Units>,
     pub cost: Option<Money>,
 }
 /// A final charge observed on a response whose tool arguments were rejected.
@@ -715,6 +720,14 @@ pub fn normalize_usage(raw: &Value) -> Result<ObservedUsage> {
     let total = numeric(&raw["total_tokens"])?;
     let cached = numeric(&raw["input_tokens_details"]["cached_tokens"])?;
     let reasoning = numeric(&raw["output_tokens_details"]["reasoning_tokens"])?;
+    if input
+        .zip(output)
+        .is_some_and(|(i, o)| i.checked_add(o).is_none())
+        || input.zip(total).is_some_and(|(i, t)| i > t)
+        || output.zip(total).is_some_and(|(o, t)| o > t)
+    {
+        return Err(Error::Protocol("inconsistent cumulative usage"));
+    }
     if let (Some(i), Some(o), Some(t)) = (input, output, total) {
         if i.checked_add(o) != Some(t) {
             return Err(Error::Protocol("inconsistent cumulative usage"));
@@ -759,6 +772,7 @@ pub fn normalize_usage(raw: &Value) -> Result<ObservedUsage> {
     Ok(ObservedUsage {
         raw: raw.clone(),
         tokens,
+        output_tokens: output.map(Units::new),
         cost,
     })
 }

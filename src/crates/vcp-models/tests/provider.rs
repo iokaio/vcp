@@ -1078,6 +1078,51 @@ fn invalid_tool_arguments_keep_only_validated_final_accounting_evidence() {
     assert!(stream.rejected_usage().is_none());
 }
 #[test]
+fn partial_usage_retains_only_explicit_consistent_output_observation() {
+    for raw in [
+        json!({"output_tokens":30}),
+        json!({"input_tokens":100,"output_tokens":30,"total_tokens":130}),
+        json!({"output_tokens":0,"output_tokens_details":{"reasoning_tokens":0}}),
+    ] {
+        let observed = normalize_usage(&raw).unwrap();
+        assert_eq!(
+            observed.output_tokens.unwrap().get(),
+            raw["output_tokens"].as_u64().unwrap()
+        );
+        assert_eq!(observed.raw, raw);
+        assert!(observed.tokens.is_none());
+        assert!(observed.cost.is_none());
+        let retained = serde_json::to_vec(&observed).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ObservedUsage>(&retained).unwrap(),
+            observed
+        );
+    }
+    for raw in [
+        json!({}),
+        json!({"output_tokens":null}),
+        json!({"input_tokens":100,"total_tokens":130}),
+    ] {
+        assert!(normalize_usage(&raw).unwrap().output_tokens.is_none());
+    }
+    // Old normalized captures remain decodable without inventing an observation.
+    let old: ObservedUsage =
+        serde_json::from_value(json!({"raw":{"output_tokens":30},"tokens":null,"cost":null}))
+            .unwrap();
+    assert!(old.output_tokens.is_none());
+    for raw in [
+        json!({"output_tokens":-1}),
+        json!({"output_tokens":1.5}),
+        json!({"output_tokens":"30"}),
+        json!({"output_tokens":30,"total_tokens":29}),
+        json!({"input_tokens":100,"total_tokens":99}),
+        json!({"output_tokens":30,"output_tokens_details":{"reasoning_tokens":31}}),
+        json!({"input_tokens":u64::MAX,"output_tokens":1}),
+    ] {
+        assert!(normalize_usage(&raw).is_err(), "{raw}");
+    }
+}
+#[test]
 fn cumulative_usage_preserves_unknown_cost_and_rejects_double_counted_subtotals() {
     let raw = json!({"input_tokens":100,"output_tokens":30,"total_tokens":130,"input_tokens_details":{"cached_tokens":20},"output_tokens_details":{"reasoning_tokens":10},"cost":"0.0001234"});
     let observed = normalize_usage(&raw).unwrap();

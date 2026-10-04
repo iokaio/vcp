@@ -421,7 +421,9 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 if mode == "incomplete_usage" {
                     events.push(serde_json::json!({"type":"response.incomplete","response":{"id":format!("coding-{index}"),"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":output,"usage":{"input_tokens":5950,"output_tokens":512,"total_tokens":6462,"cost":0.0021275}}}));
                 } else if mode == "allocation_reopen" {
-                    events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0},"cost":0.00120975}}}));
+                    // Missing subcounts leave accounting usage unknown, but
+                    // the explicit output count is valid allocation evidence.
+                    events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"cost":0.00120975}}}));
                 } else if mode == "invalid_call_usage" {
                     events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"cost":0.00120975}}}));
                 } else {
@@ -515,6 +517,31 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 assert_eq!(before.effects.len(), 4);
                 assert_eq!(before.tasks[&config.root_task].state, TaskState::Paused);
                 let prior = host.snapshot().unwrap();
+                let normalized: Vec<_> = prior
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                    .filter(|artifact| artifact.spec.schema == "openrouter-normalized-response/1")
+                    .map(|artifact| {
+                        serde_json::from_slice::<vcp_models::stream::ResultBody>(
+                            &host.read_artifact(artifact.spec.id).unwrap(),
+                        )
+                        .unwrap()
+                    })
+                    .collect();
+                assert_eq!(normalized.len(), 4);
+                for response in normalized {
+                    let usage = response.usage.unwrap();
+                    assert_eq!(usage.output_tokens, Some(Units::new(97)));
+                    assert!(
+                        usage.tokens.is_none(),
+                        "missing subcounts remain unknown accounting usage"
+                    );
+                    assert_eq!(usage.cost.unwrap().micros.get(), 1210);
+                    assert!(usage.raw.get("input_tokens_details").is_none());
+                    assert!(usage.raw.get("output_tokens_details").is_none());
+                }
                 let observations: Vec<_> = prior
                     .records
                     .values()
