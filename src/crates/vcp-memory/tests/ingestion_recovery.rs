@@ -374,7 +374,7 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
             }
             assert_eq!(
                 &store.state().events[..barrier.state.events.len()],
-                &barrier.state.events
+                barrier.state.events.as_slice()
             );
             for tag in [
                 "vcp_memory_proposal_v1",

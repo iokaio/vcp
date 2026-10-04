@@ -3,6 +3,8 @@ use vcp_domain::{ids::*, revision::*, task::*, verification::*, workspace::*};
 use vcp_engine::*;
 use vcp_protocol::command::*;
 use vcp_store::{contract::*, BackendKind, Store};
+#[path = "commands/current.rs"]
+mod current_commands;
 fn access() -> Access {
     Access {
         actor: ActorId::parse("human").unwrap(),
@@ -851,8 +853,8 @@ async fn pending_question_survives_reopen_but_old_owner_cannot_supply_new_author
     }
 }
 
-fn command(
-    engine: &Engine<Store>,
+fn command<S: CanonicalStore>(
+    engine: &Engine<S>,
     payload: Command,
     task: Option<TaskId>,
     expected: Revision,

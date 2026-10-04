@@ -167,7 +167,7 @@ impl<S: CanonicalStore> Engine<S> {
         let mut artifacts = Vec::new();
         let mut accepted = command.expected;
         let mut result = None;
-        let state = self.store.state();
+        let state = self.store.current();
         let scope = || -> Result<Scope> {
             Ok(Scope {
                 workspace: command.workspace.clone(),
@@ -252,7 +252,7 @@ impl<S: CanonicalStore> Engine<S> {
                 through_turn,
             } => {
                 let transaction = crate::fork::transaction(
-                    state,
+                    self.store.state(),
                     &command,
                     digest,
                     id,
@@ -290,14 +290,19 @@ impl<S: CanonicalStore> Engine<S> {
                         return Err(Error::Target);
                     }
                     // A stored row alone cannot claim a retained history boundary.
-                    if !state.events.iter().any(|event| {
-                        event.event.id == turn.cause
-                            && event.event.session == command.session
-                            && matches!(
-                                event.event.kind,
-                                EventKind::TurnTransition | EventKind::TaskTransition
-                            )
-                    }) {
+                    if !self
+                        .store
+                        .history_event(&turn.cause)
+                        .await?
+                        .is_some_and(|event| {
+                            event.event.id == turn.cause
+                                && event.event.session == command.session
+                                && matches!(
+                                    event.event.kind,
+                                    EventKind::TurnTransition | EventKind::TaskTransition
+                                )
+                        })
+                    {
                         return Err(Error::Target);
                     }
                 }
