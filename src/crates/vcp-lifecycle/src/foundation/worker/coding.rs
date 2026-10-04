@@ -517,7 +517,11 @@ impl Context {
             task: self.config.root_task.clone(),
         };
         let Some(accepted) =
-            vcp_engine::public_start::retained_start_budget(self.engine.store().state(), &scope)?
+            self.runtime
+                .block_on(vcp_engine::public_start::retained_start_budget_store(
+                    self.engine.store(),
+                    &scope,
+                ))?
         else {
             return Ok(None);
         };
@@ -665,7 +669,11 @@ impl Context {
             task: self.config.root_task.clone(),
         };
         if let Some(accepted) =
-            vcp_engine::public_start::retained_start_budget(self.engine.store().state(), &scope)?
+            self.runtime
+                .block_on(vcp_engine::public_start::retained_start_budget_store(
+                    self.engine.store(),
+                    &scope,
+                ))?
         {
             self.check_public_start_budget()?;
             config.max_requests = config.max_requests.min(accepted.budget.max_requests);

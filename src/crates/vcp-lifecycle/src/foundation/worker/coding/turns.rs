@@ -84,7 +84,7 @@ impl Context {
         input: String,
     ) -> Result<()> {
         self.can_start(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let task: Task = state
             .record(
                 Collection::Task,
@@ -102,7 +102,12 @@ impl Context {
                 &binding.scope.workspace,
             )?
             .decode()?;
-        let current = vcp_engine::public::current_public_turn(state, &binding.scope)?;
+        let current = self
+            .runtime
+            .block_on(vcp_engine::public::current_public_turn_store(
+                self.engine.store(),
+                &binding.scope,
+            ))?;
         if task.scope != binding.scope
             || task.state != TaskState::Running
             || task.redaction.is_some()

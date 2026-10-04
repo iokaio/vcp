@@ -13,100 +13,11 @@ use vcp_protocol::{
     command::{Approval, ApprovalState, Command, CommandEnvelope, CommandReceipt},
     methods::{ApprovalDecision, Call, Counter},
 };
-use vcp_store::contract::{CanonicalStore, Collection, State};
+use vcp_store::contract::{CanonicalStore, Collection};
 
-/// Current turn is ordered by retained canonical creation evidence, never an ID
-/// or the turn's independent revision counter. Missing chronology fails closed.
-pub fn current_public_turn(
-    state: &State,
-    scope: &vcp_domain::workspace::Scope,
-) -> Result<Option<Turn>, PublicError> {
-    let mut turns = std::collections::BTreeMap::new();
-    for row in state
-        .records
-        .values()
-        .filter(|row| row.collection == Collection::Turn && row.workspace == scope.workspace)
-    {
-        let turn: Turn = row.decode().map_err(|_| PublicError::Unavailable)?;
-        if &turn.scope == scope {
-            if turn.id.as_str() != row.id
-                || turn.revision != row.revision
-                || turn.redaction.is_some()
-            {
-                return Err(PublicError::Unavailable);
-            }
-            turns.insert(turn.id.clone(), turn);
-        }
-    }
-    if turns.is_empty() {
-        return Ok(None);
-    }
-    let mut created = std::collections::BTreeMap::new();
-    for envelope in &state.events {
-        let event = &envelope.event;
-        if event.workspace != scope.workspace
-            || event.session != scope.session
-            || event.task.as_ref() != Some(&scope.task)
-            || event.kind != vcp_protocol::event::EventKind::TurnTransition
-            || envelope.redaction.is_some()
-        {
-            continue;
-        }
-        if event
-            .data
-            .get("schema_version")
-            .and_then(serde_json::Value::as_u64)
-            != Some(1)
-        {
-            return Err(PublicError::Unavailable);
-        }
-        let facts = event
-            .data
-            .get("facts")
-            .and_then(serde_json::Value::as_array)
-            .ok_or(PublicError::Unavailable)?;
-        for fact in facts {
-            if fact.get("collection").and_then(serde_json::Value::as_str) != Some("turn") {
-                continue;
-            }
-            let revision: Revision = serde_json::from_value(
-                fact.get("revision")
-                    .cloned()
-                    .ok_or(PublicError::Unavailable)?,
-            )
-            .map_err(|_| PublicError::Unavailable)?;
-            if revision != Revision::ZERO {
-                continue;
-            }
-            let original: Turn =
-                serde_json::from_value(fact.get("value").cloned().ok_or(PublicError::Unavailable)?)
-                    .map_err(|_| PublicError::Unavailable)?;
-            if &original.scope != scope
-                || original.revision != Revision::ZERO
-                || original.state != TurnState::Queued
-                || original.cause != event.id
-                || fact.get("id").and_then(serde_json::Value::as_str) != Some(original.id.as_str())
-            {
-                return Err(PublicError::Unavailable);
-            }
-            if created.insert(original.id, envelope.sequence).is_some() {
-                return Err(PublicError::Unavailable);
-            }
-        }
-    }
-    if turns.keys().any(|id| !created.contains_key(id)) {
-        return Err(PublicError::Unavailable);
-    }
-    let newest = created
-        .iter()
-        .max_by_key(|(_, sequence)| **sequence)
-        .map(|(id, _)| id)
-        .ok_or(PublicError::Unavailable)?;
-    turns
-        .remove(newest)
-        .map(Some)
-        .ok_or(PublicError::Unavailable)
-}
+mod chronology;
+pub use chronology::{current_public_turn, current_public_turn_store};
+pub(crate) use chronology::{visit_history, Chronology};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
@@ -509,8 +420,9 @@ impl<S: CanonicalStore> Engine<S> {
                     return Err(PublicError::StaleState);
                 }
                 if let Some(requested_turn) = requested_turn {
-                    let turn =
-                        current_public_turn(state, &task.scope)?.ok_or(PublicError::Unavailable)?;
+                    let turn = current_public_turn_store(self.store(), &task.scope)
+                        .await?
+                        .ok_or(PublicError::Unavailable)?;
                     if turn.id.as_str() != requested_turn.as_str()
                         || turn.steering != steering
                         || matches!(

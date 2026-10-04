@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+mod history_reader;
 use super::*;
 use crate::HostFacts;
 use vcp_domain::{artifact::ArtifactSpec, controller::Reason, workspace::Binding};
@@ -407,10 +408,40 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             .position(|event| event.event.kind == EventKind::TaskCreated)
             .unwrap();
         let retained = retained_start_budget(&state, &selected).unwrap().unwrap();
+        let current = engine.store().current_state();
+        let reader = history_reader::Paged::new(&state, &current);
+        assert_eq!(
+            retained_start_budget_store(&reader, &selected)
+                .await
+                .unwrap(),
+            Some(retained.clone())
+        );
+        assert_eq!(
+            crate::public::current_public_turn_store(&reader, &selected)
+                .await
+                .unwrap(),
+            crate::public::current_public_turn(&state, &selected).unwrap()
+        );
+        assert!(reader.pages.get() > 1);
+        let mut broken = history_reader::Paged::new(&state, &current);
+        broken.fail = true;
+        assert!(retained_start_budget_store(&broken, &selected)
+            .await
+            .is_err());
+        assert!(crate::public::current_public_turn_store(&broken, &selected)
+            .await
+            .is_err());
         assert_eq!(retained.budget, request().budget);
         assert_eq!(retained.accepted_at, Timestamp::new(100));
         for case in [
-            "missing", "marker", "redacted", "masked", "limit", "receipt", "scope",
+            "missing",
+            "marker",
+            "redacted",
+            "masked",
+            "limit",
+            "receipt",
+            "scope",
+            "duplicate",
         ] {
             let mut changed = state.clone();
             match case {
@@ -460,11 +491,22 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
                 }
                 "receipt" => changed.commands.clear(),
                 "scope" => changed.events[genesis].event.session = SessionId::new(),
+                "duplicate" => {
+                    let duplicate = changed.events[genesis].clone();
+                    changed.events.push(duplicate);
+                }
                 _ => unreachable!(),
             }
             assert!(
                 retained_start_budget(&changed, &selected).is_err(),
                 "{case}"
+            );
+            let reader = history_reader::Paged::new(&changed, &current);
+            assert!(
+                retained_start_budget_store(&reader, &selected)
+                    .await
+                    .is_err(),
+                "paged {case}"
             );
         }
         engine.into_store().close().await.unwrap();
@@ -510,6 +552,12 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             .unwrap();
         assert_eq!(
             retained_start_budget(engine.store().state(), &selected).unwrap(),
+            None
+        );
+        assert_eq!(
+            retained_start_budget_store(engine.store(), &selected)
+                .await
+                .unwrap(),
             None
         );
         let mut missing = engine.store().state().clone();
