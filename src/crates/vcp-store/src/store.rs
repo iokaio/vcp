@@ -878,13 +878,16 @@ impl CanonicalStore for Store {
             ));
         }
         let mut next_size = self.state_size;
-        let (next, commit) =
-            self.state
-                .prepare_observed(&transaction, &mut self.diagnostics, &mut next_size)?;
+        let prepared = PreparedTransition::prepare(
+            &self.state,
+            &transaction,
+            &mut self.diagnostics,
+            &mut next_size,
+        )?;
         if self.state.transactions.contains_key(&transaction.id) {
             self.diagnostics.duplicate_transactions =
                 self.diagnostics.duplicate_transactions.saturating_add(1);
-            return Ok(commit.receipt);
+            return Ok(prepared.into_parts().1.receipt);
         }
         for mutation in &transaction.mutations {
             if let Mutation::Put { record, .. } = mutation {
@@ -908,11 +911,15 @@ impl CanonicalStore for Store {
         // Reopening replays durable receipts and is the only way to clear it.
         self.poisoned = true;
         let append_started = Instant::now();
-        let append = self.backend.append(&commit, &next, &observe).await;
+        let append = self
+            .backend
+            .append(prepared.commit(), prepared.state(), &observe)
+            .await;
         self.diagnostics
             .append
             .record(append_started, append.is_ok());
         append?;
+        let (next, commit) = prepared.into_parts();
         self.state = next;
         self.state_size = next_size;
         self.current.take();

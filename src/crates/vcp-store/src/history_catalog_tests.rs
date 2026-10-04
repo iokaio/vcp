@@ -333,15 +333,20 @@ async fn candidate_append_keeps_old_root_and_rejects_failed_or_changed_content()
     transaction.events[0].id = EventId::parse("next-event").unwrap();
     transaction.events[0].correlation = CommandId::parse("next-command").unwrap();
     transaction.command.as_mut().unwrap().command = transaction.events[0].correlation.clone();
-    let (next, commit) = state.prepare(&transaction).unwrap();
+    let mut diagnostics = crate::StoreDiagnostics::new(crate::BackendKind::Files);
+    let mut size = crate::contract::StateSize::measure(&state).unwrap();
+    let prepared =
+        PreparedTransition::prepare(&state, &transaction, &mut diagnostics, &mut size).unwrap();
+    let next = prepared.state();
+    assert_eq!(diagnostics.validation.completed, 1);
     pages.failed = true;
     assert!(catalog
-        .append_validated_commit(&mut pages, &next, &commit)
+        .append_validated_commit(&mut pages, &prepared)
         .await
         .is_err());
     pages.failed = false;
     let candidate = catalog
-        .append_validated_commit(&mut pages, &next, &commit)
+        .append_validated_commit(&mut pages, &prepared)
         .await
         .unwrap();
     assert_eq!(
@@ -353,7 +358,7 @@ async fn candidate_append_keeps_old_root_and_rejects_failed_or_changed_content()
         *next.events
     );
     assert!(candidate
-        .append_validated_commit(&mut pages, &next, &commit)
+        .append_validated_commit(&mut pages, &prepared)
         .await
         .is_err());
     let missing = pages.objects.keys().next().unwrap().clone();
@@ -411,4 +416,90 @@ async fn event_page_bounds_payload_bytes_and_short_page_keeps_exact_continuation
             .as_ref(),
         Some(receipt)
     );
+}
+
+#[tokio::test]
+async fn persisted_catalog_must_match_every_replayed_row_identity_and_complete_group() {
+    let state = state(5);
+    let mut pages = Memory::default();
+    let catalog = Catalog::from_validated_state(&mut pages, &state)
+        .await
+        .unwrap();
+    let decoded: Catalog = serde_json::from_slice(&canonical_bytes(&catalog).unwrap()).unwrap();
+    decoded
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .unwrap();
+
+    let mut changed_state = state.clone();
+    changed_state.events[2].event.data = serde_json::json!({"silently":"resealed"});
+    let changed = Catalog::from_validated_state(&mut pages, &changed_state)
+        .await
+        .unwrap();
+    assert!(changed
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .is_err());
+
+    let mut changed = catalog.clone();
+    changed.identities = Root::empty(Table::EventIdentity);
+    for (ordinal, event) in state.events.iter().rev().enumerate() {
+        changed.identities = changed
+            .identities
+            .insert(
+                &mut pages,
+                entry(event.event.id.to_string(), &(ordinal as u64)).unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+    assert!(changed
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .is_err());
+
+    let mut changed = catalog.clone();
+    changed.groups = Root::empty(Table::Commit)
+        .insert(
+            &mut pages,
+            entry(
+                ordinal_key(state.watermark.get()),
+                &Group { first: 1, count: 4 },
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(changed
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .is_err());
+
+    let mut changed = catalog.clone();
+    let mut receipt = state.transactions.values().next().unwrap().clone();
+    receipt.digest = "b".repeat(64);
+    changed.transactions = insert_object(
+        &Root::empty(Table::Transaction),
+        &mut pages,
+        receipt.transaction.to_string(),
+        &receipt,
+    )
+    .await
+    .unwrap();
+    assert!(changed
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .is_err());
+
+    let mut changed = catalog.clone();
+    changed.commands = Root::empty(Table::Command);
+    assert!(changed
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .is_err());
+    pages.failed = true;
+    assert!(catalog
+        .verify_replayed_state(&mut pages, &state)
+        .await
+        .is_err());
 }

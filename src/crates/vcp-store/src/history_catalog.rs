@@ -2,7 +2,7 @@
 //! Exact retained history under a root held by the semantically validated owner.
 //! Publishing a decoded catalog never substitutes for mandatory cold replay.
 use crate::{
-    contract::{command_key, Commit, Receipt, State, MAX_COMMIT_BYTES},
+    contract::{command_key, PreparedTransition, Receipt, State, MAX_COMMIT_BYTES},
     history_blob::{self, Blob},
     history_index::{Entry, Pages, Root, Table},
     Error, Result,
@@ -12,6 +12,8 @@ use vcp_domain::{CommandId, EventId, SessionId, TransactionId, Watermark, Worksp
 use vcp_protocol::{canonical_bytes, command::CommandReceipt, event::EventEnvelope};
 
 const PAGE_ROWS: usize = 4096;
+#[path = "history_catalog_encoding.rs"]
+mod encoding;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,16 +86,16 @@ impl Catalog {
     pub(crate) async fn append_validated_commit(
         &self,
         pages: &mut impl Pages,
-        next: &State,
-        commit: &Commit,
+        prepared: &PreparedTransition,
     ) -> Result<Self> {
         self.validate()?;
-        next.validate()?;
-        if next.watermark != self.watermark.next()?
+        let next = prepared.state();
+        let commit = prepared.commit();
+        if prepared.source_watermark() != self.watermark
+            || prepared.source_events() != self.events.count()
+            || next.watermark != self.watermark.next()?
             || commit.receipt.watermark != next.watermark
             || next.transactions.get(&commit.transaction.id) != Some(&commit.receipt)
-            || vcp_protocol::digest_bytes(&canonical_bytes(&commit.transaction)?)
-                != commit.receipt.digest
             || (next.events.len() as u64) < self.events.count()
         {
             return Err(Error::Corruption("history catalog append identity"));
@@ -397,6 +399,9 @@ impl Catalog {
         Ok(Some(receipt))
     }
 }
+
+#[path = "history_catalog_verify.rs"]
+mod verify;
 
 fn ordinal_key(value: u64) -> String {
     format!("{value:016x}")

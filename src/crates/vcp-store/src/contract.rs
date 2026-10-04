@@ -26,6 +26,9 @@ mod search_contract;
 #[path = "state_size.rs"]
 mod state_size;
 pub(crate) use state_size::StateSize;
+#[path = "prepared_transition.rs"]
+mod prepared_transition;
+pub(crate) use prepared_transition::PreparedTransition;
 #[path = "event_history_validation.rs"]
 pub(crate) mod event_history_validation;
 #[path = "record_validation_facts.rs"]
