@@ -233,7 +233,9 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
             let job = retention::apply(&mut f.store, &maintenance, &preview, Timestamp::new(301))
                 .await
                 .unwrap();
-            assert!(review::read(&f.store, &f.access, &input.scope, &input.id).is_err());
+            assert!(review::read(&f.store, &f.access, &input.scope, &input.id)
+                .await
+                .is_err());
             let job = retention::cleanup(&mut f.store, &maintenance, &job.id, Timestamp::new(302))
                 .await
                 .unwrap();
@@ -250,7 +252,9 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
             );
             f.store.close().await.unwrap();
             f.store = Store::open(temp.path(), backend, &[]).await.unwrap();
-            assert!(review::read(&f.store, &f.access, &input.scope, &input.id).is_err());
+            assert!(review::read(&f.store, &f.access, &input.scope, &input.id)
+                .await
+                .is_err());
             let before = f.store.state().clone();
             assert!(review::submit(&mut f.store, &f.access, input.clone())
                 .await
@@ -300,6 +304,7 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
             .is_err());
         f.access.write = false;
         assert!(review::read(&f.store, &f.access, &input.scope, &input.id)
+            .await
             .unwrap()
             .decision
             .is_none());
@@ -345,7 +350,9 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
         assert_eq!(f.store.state(), &before);
         f.store.close().await.unwrap();
         f.store = Store::open(temp.path(), backend, &[]).await.unwrap();
-        let read = review::read(&f.store, &f.access, &input.scope, &input.id).unwrap();
+        let read = review::read(&f.store, &f.access, &input.scope, &input.id)
+            .await
+            .unwrap();
         assert_eq!(read.submission, input);
         assert_eq!(read.decision.unwrap(), done.review.decision.unwrap());
     }
@@ -489,7 +496,9 @@ async fn logical_retention_hides_pending_content_and_denies_replay_before_physic
             .await
             .unwrap();
         let before = f.store.state().clone();
-        assert!(review::read(&f.store, &f.access, &input.scope, &input.id).is_err());
+        assert!(review::read(&f.store, &f.access, &input.scope, &input.id)
+            .await
+            .is_err());
         assert!(review::submit(&mut f.store, &f.access, input.clone())
             .await
             .is_err());
@@ -617,7 +626,9 @@ async fn manual_accept_preserves_dispute_gates_and_hidden_claims_fail_closed() {
         review::submit(&mut f.store, &f.access, narrow.clone())
             .await
             .unwrap();
-        assert!(review::read(&f.store, &f.access, &narrow.scope, &narrow.id).is_ok());
+        assert!(review::read(&f.store, &f.access, &narrow.scope, &narrow.id)
+            .await
+            .is_ok());
         let before = f.store.state().clone();
         let mut request = resolution(&narrow, Choice::Accept);
         request.now = Timestamp::new(212);

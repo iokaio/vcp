@@ -149,14 +149,6 @@ fn proposal_scope_with_history(
     Ok(())
 }
 
-pub(crate) fn resolution_scope(
-    state: &State,
-    access: &Access,
-    resolution: &vcp_domain::memory::Resolution,
-) -> Result<()> {
-    resolution_scope_with_history(state.into(), access, resolution, &mut StateOrigins(state))
-}
-
 fn resolution_scope_with_history(
     state: CurrentStateView<'_>,
     access: &Access,

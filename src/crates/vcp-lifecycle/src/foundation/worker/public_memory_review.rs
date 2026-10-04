@@ -202,12 +202,12 @@ impl PublicConnection {
                         .map_err(|_| unavailable(&call))?;
                     let committed = match &call {
                         Call::MemoryReview(p) => {
-                            let state = review::read(
+                            let state = context.runtime.block_on(review::read(
                                 context.engine.store(),
                                 &memory_access,
                                 &own,
                                 &convert(&p.submission)?,
-                            )
+                            ))
                             .map_err(|e| memory_error(e, &call))?;
                             let result =
                                 bounded(ResultValue::MemoryReview(project(&state)?), &call)?;

@@ -468,7 +468,7 @@ pub(crate) async fn propose_inner(
     let digest = digest_bytes(&canonical_bytes(&proposal)?);
     for _ in 0..3 {
         if let Some((submission, request)) = manual {
-            crate::review::validate_fresh(store, access, submission, request)?;
+            crate::review::validate_fresh(store, access, submission, request).await?;
         }
         let workspace = access::authorize(store.current(), access, true)?;
         if proposal.scope.workspace != access.workspace

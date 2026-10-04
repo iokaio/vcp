@@ -64,10 +64,17 @@ fn task(store: &Store, access: &Access, scope: &Scope, write: bool) -> Result<Ta
     }
     Ok(task)
 }
-fn retained(store: &Store, access: &Access, submission: &Submission) -> Result<()> {
+async fn retained(store: &Store, access: &Access, submission: &Submission) -> Result<()> {
     submission.validate()?;
-    access::proposal_scope(store.state(), access, &submission.candidate)?;
-    if crate::history::proposal_removed(store.state(), &access.workspace, &submission.candidate)? {
+    access::proposal_scope_store(store, access, &submission.candidate, &|| Ok(())).await?;
+    if crate::history::proposal_removed_store_with_check(
+        store,
+        &access.workspace,
+        &submission.candidate,
+        &|| Ok(()),
+    )
+    .await?
+    {
         return Err(Error::Conflict(
             "manual memory submission unavailable after retention",
         ));
@@ -79,7 +86,12 @@ fn retained(store: &Store, access: &Access, submission: &Submission) -> Result<(
 }
 /// A pruned or physically purged review returns an unavailable error, never its
 /// old candidate text. Observers need current source access but no write grant.
-pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> Result<ReviewState> {
+pub async fn read(
+    store: &Store,
+    access: &Access,
+    scope: &Scope,
+    id: &ProposalId,
+) -> Result<ReviewState> {
     task(store, access, scope, false)?;
     let row = store
         .current()
@@ -91,37 +103,44 @@ pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> R
     if submission.scope != *scope {
         return Err(Error::Access);
     }
-    retained(store, access, &submission)?;
+    retained(store, access, &submission).await?;
     let decision_id = memory_review_decision_id(scope, id)?;
-    let decision = store
+    let decision = if let Some(row) = store
         .current()
         .records
         .get(&key(Collection::Projection, &decision_id))
-        .map(|row| -> Result<Decision> {
-            if row.workspace != access.workspace
-                || row.value["document_type"] != memory_review::DECISION
-            {
-                return Err(Error::Conflict("manual memory decision unavailable"));
-            }
-            let value: Decision = row.decode()?;
-            value.validate_submission(&submission)?;
-            access::resolution_scope(store.state(), access, &value.resolution)?;
-            let mut decided_source = submission.candidate.clone();
-            decided_source.command = value.command.clone();
-            if crate::history::proposal_removed(store.state(), &access.workspace, &decided_source)?
-                || crate::retention::purged(
-                    store.state(),
-                    &access.workspace,
-                    &crate::retention::Target::Record(key(Collection::Projection, &value.id)),
-                )?
-            {
-                return Err(Error::Conflict(
-                    "manual memory decision unavailable after retention",
-                ));
-            }
-            Ok(value)
-        })
-        .transpose()?;
+    {
+        if row.workspace != access.workspace
+            || row.value["document_type"] != memory_review::DECISION
+        {
+            return Err(Error::Conflict("manual memory decision unavailable"));
+        }
+        let value: Decision = row.decode()?;
+        value.validate_submission(&submission)?;
+        access::resolution_scope_store(store, access, &value.resolution, &|| Ok(())).await?;
+        let mut decided_source = submission.candidate.clone();
+        decided_source.command = value.command.clone();
+        if crate::history::proposal_removed_store_with_check(
+            store,
+            &access.workspace,
+            &decided_source,
+            &|| Ok(()),
+        )
+        .await?
+            || crate::retention::purged(
+                store.current(),
+                &access.workspace,
+                &crate::retention::Target::Record(key(Collection::Projection, &value.id)),
+            )?
+        {
+            return Err(Error::Conflict(
+                "manual memory decision unavailable after retention",
+            ));
+        }
+        Some(value)
+    } else {
+        None
+    };
     let result = decision
         .as_ref()
         .filter(|d| d.governed_proposal.is_some())
@@ -162,16 +181,21 @@ pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> R
     })
 }
 
-fn receipt(
+async fn receipt(
     store: &Store,
     scope: &Scope,
     command: &CommandId,
     digest: &str,
 ) -> Result<Option<Receipt>> {
     let Some(command_receipt) = store
-        .state()
-        .commands
-        .get(&command_key(&scope.workspace, command))
+        .command_receipt(&scope.workspace, command, digest)
+        .await
+        .map_err(|error| match error {
+            vcp_store::Error::Conflict("command ID reused with different meaning") => {
+                Error::Conflict("manual memory command payload conflict")
+            }
+            error => error.into(),
+        })?
     else {
         return Ok(None);
     };
@@ -179,16 +203,19 @@ fn receipt(
         return Err(Error::Conflict("manual memory command payload conflict"));
     }
     let receipt = store
-        .state()
-        .transactions
-        .get(&command_receipt.transaction)
+        .transaction_receipt(&command_receipt.transaction)
+        .await?
         .ok_or(Error::Conflict("manual memory receipt unavailable"))?;
-    if receipt.command.as_ref() != Some(command_receipt) {
+    if receipt.command.as_ref() != Some(&command_receipt) {
         return Err(Error::Conflict("manual memory receipt integrity"));
     }
-    Ok(Some(receipt.clone()))
+    Ok(Some(receipt))
 }
-fn current_head(store: &Store, access: &Access, claim: &ClaimId) -> Result<Option<ClaimVersionId>> {
+async fn current_head(
+    store: &Store,
+    access: &Access,
+    claim: &ClaimId,
+) -> Result<Option<ClaimVersionId>> {
     let head = store
         .current()
         .records
@@ -219,7 +246,7 @@ fn current_head(store: &Store, access: &Access, claim: &ClaimId) -> Result<Optio
                 if &version.proposal.claim == claim
                     && version.resolution.outcome == Outcome::Accepted
                 {
-                    access::version_scope(store.state(), access, &version)?;
+                    access::version_scope_store(store, access, &version, &|| Ok(())).await?;
                     if accepted
                         .as_ref()
                         .is_none_or(|(seq, _)| version.memory_seq > *seq)
@@ -231,12 +258,14 @@ fn current_head(store: &Store, access: &Access, claim: &ClaimId) -> Result<Optio
             Some(vcp_domain::redaction::VERSION) => {
                 let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
                 if &version.claim == claim && version.outcome == Outcome::Accepted {
-                    access::redacted_scope(
-                        store.state(),
+                    access::redacted_scope_store(
+                        store,
                         access,
                         &version.scope,
                         &version.sources,
-                    )?;
+                        &|| Ok(()),
+                    )
+                    .await?;
                     if accepted
                         .as_ref()
                         .is_none_or(|(seq, _)| version.memory_seq > *seq)
@@ -256,7 +285,7 @@ fn current_head(store: &Store, access: &Access, claim: &ClaimId) -> Result<Optio
     }
     Ok(actual)
 }
-fn guards(
+async fn guards(
     store: &Store,
     access: &Access,
     candidate: &Proposal,
@@ -275,18 +304,18 @@ fn guards(
     {
         return Err(Error::Conflict("manual memory preconditions changed"));
     }
-    if &current_head(store, access, &candidate.claim)? != expected_head {
+    if &current_head(store, access, &candidate.claim).await? != expected_head {
         return Err(Error::Conflict("manual memory claim head changed"));
     }
     Ok(())
 }
-pub(crate) fn validate_fresh(
+pub(crate) async fn validate_fresh(
     store: &Store,
     access: &Access,
     submission: &Submission,
     request: &Resolve,
 ) -> Result<()> {
-    retained(store, access, submission)?;
+    retained(store, access, submission).await?;
     if request.scope != submission.scope
         || request.submission != submission.id
         || request.submission_digest != submission.candidate_digest
@@ -304,7 +333,8 @@ pub(crate) fn validate_fresh(
         request.steering,
         &request.epochs,
         &request.expected_head,
-    )?;
+    )
+    .await?;
     if request.choice == Choice::Accept {
         // Automatic ingestion repairs these projections before evaluating gates.
         // Manual review instead fails closed if any competing accepted claim has
@@ -338,7 +368,7 @@ pub(crate) fn validate_fresh(
             }
         }
         for claim in claims {
-            current_head(store, access, &claim)?;
+            current_head(store, access, &claim).await?;
         }
         let saved = store
             .current()
@@ -461,8 +491,10 @@ pub async fn submit(
         &submission.scope,
         &submission.candidate.command,
         &submission.command_digest,
-    )? {
-        let review = read(store, access, &submission.scope, &submission.id)?;
+    )
+    .await?
+    {
+        let review = read(store, access, &submission.scope, &submission.id).await?;
         if review.submission.candidate.command != submission.candidate.command
             || review.submission.command_digest != submission.command_digest
         {
@@ -473,7 +505,7 @@ pub async fn submit(
     if canonical_bytes(&submission)?.len() > 256 * 1024 {
         return Err(Error::Invalid("manual submission exceeds 256 KiB".into()));
     }
-    retained(store, access, &submission)?;
+    retained(store, access, &submission).await?;
     guards(
         store,
         access,
@@ -482,7 +514,8 @@ pub async fn submit(
         submission.steering,
         &submission.candidate.epochs,
         &submission.expected_head,
-    )?;
+    )
+    .await?;
     let tx = transaction(
         store,
         &submission.scope,
@@ -508,7 +541,7 @@ pub async fn submit(
 }
 pub async fn resolve(store: &mut Store, access: &Access, request: Resolve) -> Result<ReviewCommit> {
     task(store, access, &request.scope, true)?;
-    let review = read(store, access, &request.scope, &request.submission)?;
+    let review = read(store, access, &request.scope, &request.submission).await?;
     if request.submission_digest != review.submission.candidate_digest {
         return Err(Error::Conflict("manual memory candidate digest changed"));
     }
@@ -517,7 +550,9 @@ pub async fn resolve(store: &mut Store, access: &Access, request: Resolve) -> Re
         &request.scope,
         &request.command,
         &request.command_digest,
-    )? {
+    )
+    .await?
+    {
         if review.decision.as_ref().is_none_or(|d| {
             d.command != request.command || d.command_digest != request.command_digest
         }) {
@@ -528,7 +563,7 @@ pub async fn resolve(store: &mut Store, access: &Access, request: Resolve) -> Re
     if review.decision.is_some() {
         return Err(Error::Conflict("manual memory submission already decided"));
     }
-    validate_fresh(store, access, &review.submission, &request)?;
+    validate_fresh(store, access, &review.submission, &request).await?;
     let receipt = match request.choice {
         Choice::Accept => {
             let mut proposal = review.submission.candidate.clone();
@@ -582,6 +617,6 @@ pub async fn resolve(store: &mut Store, access: &Access, request: Resolve) -> Re
             store.transact(tx).await?
         }
     };
-    let review = read(store, access, &request.scope, &request.submission)?;
+    let review = read(store, access, &request.scope, &request.submission).await?;
     Ok(ReviewCommit { receipt, review })
 }
