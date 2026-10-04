@@ -244,6 +244,24 @@ pub(crate) fn preference_matches(
     key: &str,
     value: &str,
 ) -> Result<bool> {
+    preference_matches_event(
+        state.into(),
+        access,
+        state.events.iter().find(|e| &e.event.id == origin),
+        key,
+        value,
+    )
+}
+
+/// The caller resolves the exact canonical origin before invoking this shared
+/// predicate; arbitrary supplied observations are not canonical evidence.
+pub(crate) fn preference_matches_event(
+    state: vcp_store::CurrentStateView<'_>,
+    access: &Access,
+    event: Option<&vcp_protocol::event::EventEnvelope>,
+    key: &str,
+    value: &str,
+) -> Result<bool> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Input {
@@ -255,7 +273,7 @@ pub(crate) fn preference_matches(
         key: String,
         value: String,
     }
-    let Some(event) = state.events.iter().find(|e| &e.event.id == origin) else {
+    let Some(event) = event else {
         return Ok(false);
     };
     if event.event.workspace != access.workspace

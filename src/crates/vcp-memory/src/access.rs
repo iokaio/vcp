@@ -52,7 +52,11 @@ pub(crate) fn authorize<'a>(
     }
     Ok(workspace)
 }
-pub(crate) fn policy(state: &State, workspace: &WorkspaceId) -> Result<PolicyRevision> {
+pub(crate) fn policy<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<PolicyRevision> {
+    let state = state.into();
     use vcp_domain::policy::{AuthorityData, AuthorityDocument};
     let Some(record) = state.records.get(&vcp_store::contract::key(
         Collection::Access,
