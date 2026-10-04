@@ -92,7 +92,8 @@ function analyze(bundle) {
     relationship_semantics:'Record groups are explicit shared identities; only causal_edges assert recorded causation. Retained-with-omissions may describe intentional credential omission, not missing execution evidence.',
     assessment:{quality:'requires_independent_scenario_gates',causal_analysis:'requires_evidence_review',
       timing_comparison:'unqualified_without_matching_candidate_host_backend_workload_and_cache_conditions',
-      accounting:'observations_only_unknown_charges_are_not_zero'},
+      accounting:'observations_only_unknown_charges_are_not_zero',
+      estimates:'Versioned unknown estimates retain known_component and unknown_components. The known component is a priced estimate, not observed spend or a lower bound; component counts are unpriced valuations, not request counts.'},
     next_review:['Compare required outputs with independent scenario gates.','Trace failure, repair and verification through event and artifact identities.',
       'Inspect unavailable evidence and uncertain effects before claiming a cause.','State which change the evidence supports and what remains unknown.']};
 }

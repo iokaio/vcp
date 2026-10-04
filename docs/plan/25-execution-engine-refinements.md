@@ -52,6 +52,8 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 
 ## Phase evidence and commits
 
+- EE-01/00 unknown-estimate diagnostics: the scenario reader accepts the versioned unknown-estimate representation without replacing it with zero or losing known settled spend. Reports distinguish a complete amount, the priced component of an estimate and the count of unpriced valuation terms; malformed or overflowing evidence remains unavailable. The analyzer preserves the exact estimate object and explains its limits. All 74 offline harness checks and eight analyzer contracts passed. Runtime unknown-price admission remains in implementation.
+
 - EE-01d launcher freshness: the scenario launcher now uses the same independent five-minute provider-metadata admission window as per-task profile refresh, rather than deriving freshness from the suspended scenario deadline. All 82 offline launcher checks passed; this changes metadata selection timing, not provider identity or capability validation.
 
 - EE-02c native current checkpoints: Files now has a qualified immutable descriptor/seal binding the exact owner, current projection, original journal chain and physical extent. Verification occurs at the matching cut during mandatory complete replay; acknowledged history cannot be truncated as an incomplete tail. Seven tests passed for repeated publication, altered identities/bytes/extents, collisions, torn seals, ahead checkpoints and missing pages. Independent review found no remaining issue. SQLite retains its checkpoint no-op and legacy checkpoint verification is unchanged. The public owner/format switch remains pending; this checkpoint supplies no replay shortcut.

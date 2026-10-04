@@ -902,18 +902,36 @@ function Get-VcpTaskCost {
     $ledgers = @($items | Where-Object { $_.collection -eq 'ledger' })
     $attempts = @($items | Where-Object { $_.collection -eq 'attempt' })
     $gaps = @($CostPages | ForEach-Object { $_.gaps } | Where-Object { $_ })
-    $result = [pscustomobject]@{ Usd = $null; ObservedUsd = $null; ActiveUsd = $null; UnresolvedUsd = $null; Attempts = $attempts.Count; Gaps = $gaps.Count }
+    $result = [pscustomobject]@{ Usd = $null; ObservedUsd = $null; ActiveUsd = $null; UnresolvedUsd = $null
+        ActiveKnownComponentUsd = $null; UnresolvedKnownComponentUsd = $null; ActiveUnknownComponents = $null; UnresolvedUnknownComponents = $null
+        Attempts = $attempts.Count; Gaps = $gaps.Count }
     $incomplete = $gaps.Count -gt 0 -or @($CostPages).Count -eq 0 -or @($CostPages)[-1].next_cursor -or
         @($items | Where-Object { $_.visibility -and $_.visibility -ne 'available' }).Count -gt 0
     if ($ledgers.Count -ne 1 -or $incomplete) { return $result }
     $ledger = $ledgers[0].record
+    $estimates = @{}
     foreach ($field in 'settled', 'active', 'unresolved') {
-        if ([string]$ledger.$field -notmatch '^\d+$') { return $result }
+        $value = $ledger.$field
+        $known = $value; $unknown = '0'
+        if ($value -isnot [string]) {
+            if ($field -eq 'settled' -or $null -eq $value) { return $result }
+            $keys = if ($value -is [Collections.IDictionary]) { @($value.Keys) } else { @($value.PSObject.Properties.Name) }
+            if ($keys.Count -ne 4 -or @($keys | Where-Object { $_ -cnotin @('kind','version','known_component','unknown_components') }).Count -or
+                $value.kind -cne 'unknown' -or ($value.version -isnot [int] -and $value.version -isnot [long]) -or $value.version -ne 1) { return $result }
+            $known = $value.known_component; $unknown = $value.unknown_components
+            if ($unknown -isnot [string] -or $unknown -notmatch '^[1-9]\d*$') { return $result }
+        }
+        [uint64]$knownMicros = 0; [uint64]$unknownCount = 0
+        if ($known -isnot [string] -or $known -notmatch '^(0|[1-9]\d*)$' -or
+            -not [uint64]::TryParse($known, [ref]$knownMicros) -or -not [uint64]::TryParse($unknown, [ref]$unknownCount)) { return $result }
+        $estimates[$field] = @{known = [decimal]$knownMicros / 1000000; unknown = $unknownCount}
     }
-    $result.ObservedUsd = [decimal]::Parse([string]$ledger.settled, [Globalization.CultureInfo]::InvariantCulture) / 1000000
-    $result.ActiveUsd = [decimal]::Parse([string]$ledger.active, [Globalization.CultureInfo]::InvariantCulture) / 1000000
-    $result.UnresolvedUsd = [decimal]::Parse([string]$ledger.unresolved, [Globalization.CultureInfo]::InvariantCulture) / 1000000
-    if ($result.ActiveUsd -eq 0 -and $result.UnresolvedUsd -eq 0) { $result.Usd = $result.ObservedUsd }
+    $result.ObservedUsd = $estimates.settled.known
+    $result.ActiveKnownComponentUsd = $estimates.active.known; $result.ActiveUnknownComponents = $estimates.active.unknown
+    $result.UnresolvedKnownComponentUsd = $estimates.unresolved.known; $result.UnresolvedUnknownComponents = $estimates.unresolved.unknown
+    if ($estimates.active.unknown -eq 0) { $result.ActiveUsd = $estimates.active.known }
+    if ($estimates.unresolved.unknown -eq 0) { $result.UnresolvedUsd = $estimates.unresolved.known }
+    if ($null -ne $result.ActiveUsd -and $null -ne $result.UnresolvedUsd -and $result.ActiveUsd -eq 0 -and $result.UnresolvedUsd -eq 0) { $result.Usd = $result.ObservedUsd }
     return $result
 }
 

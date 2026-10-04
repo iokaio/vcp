@@ -31,6 +31,16 @@ test('offline report reconstructs explicit edges across pages without declaring 
   assert.equal(report.assessment.quality,'requires_independent_scenario_gates');
   assert.deepEqual(report.gaps,[]);
 });
+
+test('unknown estimates retain their exact shape without hiding observed settlement', () => {
+  const bundle = fixture();
+  const estimate = {kind:'unknown',version:1,known_component:'1200',unknown_components:'2'};
+  bundle.views.costs[0].items[0].record.unresolved = estimate;
+  const report = analyze(bundle);
+  assert.deepEqual(report.facts.accounting[0].unresolved,estimate);
+  assert.equal(report.facts.accounting[0].settled,'100');
+  assert.match(report.assessment.estimates,/not observed spend or a lower bound/);
+});
 test('missing evidence is explicit and duplicate or cross-task events are rejected', () => {
   const bundle = fixture(); bundle.history[1].rows[0].event.event.causation = 'outside';
   bundle.history[1].rows[1].artifact_links = [{id:'a',availability:'purged'}];

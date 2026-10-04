@@ -116,6 +116,27 @@ switch ($Mode) {
     $partial = Get-VcpTaskCost @(Cost-Page -Settled '1250000' -Unresolved '500000')
     Check ($null -eq $partial.Usd -and $partial.ObservedUsd -eq [decimal]1.25 -and $partial.UnresolvedUsd -eq [decimal]0.5) 'Partial billing was hidden or reported complete'
 
+    foreach ($asObject in $false,$true) {
+        $page = Cost-Page -Settled '1250000'
+        $estimate = @{kind='unknown';version=1;known_component='500000';unknown_components='2'}
+        $page.items[0].record.unresolved = if ($asObject) { $estimate | ConvertTo-Json | ConvertFrom-Json } else { $estimate }
+        $unknown = Get-VcpTaskCost @($page)
+        Check ($null -eq $unknown.Usd -and $null -eq $unknown.UnresolvedUsd -and $unknown.ObservedUsd -eq [decimal]1.25) 'Unknown estimate concealed settlement or fabricated a total'
+        Check ($unknown.UnresolvedKnownComponentUsd -eq [decimal]0.5 -and $unknown.UnresolvedUnknownComponents -eq 2) 'Unknown estimate terms were lost'
+    }
+    foreach ($invalid in @(
+        @{kind='unknown';version=1;known_component='0';unknown_components='0'},
+        @{kind='unknown';version=2;known_component='0';unknown_components='1'},
+        @{kind='unknown';version=$true;known_component='0';unknown_components='1'},
+        @{kind='unknown';version=1;known_component='0';unknown_components='1';extra='no'},
+        @{kind='unknown';version=1;known_component='18446744073709551616';unknown_components='1'},
+        '18446744073709551616'
+    )) {
+        $page = Cost-Page; $page.items[0].record.active = $invalid
+        $unknown = Get-VcpTaskCost @($page)
+        Check ($null -eq $unknown.Usd -and $null -eq $unknown.ObservedUsd) 'Malformed estimate was accepted as accounting evidence'
+    }
+
     $ctx = New-TestContext
     $pages = & $module {
         param($context)
