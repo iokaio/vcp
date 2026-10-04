@@ -39,6 +39,22 @@ try {
     Reject { Get-CampaignRepairSource $state 'original' 'T1' 'B' $workspace $prompt } 'Accepted unrelated stage.'
     Reject { Get-CampaignRepairSource $state 'original' 'T2-api' 'A' $workspace $prompt } 'Accepted unrelated scenario.'
     Reject { Get-CampaignRepairSource $state 'original' 'T2-api' 'B' "$workspace-other" $prompt } 'Accepted unrelated workspace.'
+    $observedState = Copy-Value $state
+    $observedState.attempts[0].status = 'observed'
+    $observedState.attempts[0].executable = 'C:\vcp.exe'
+    $observedState.attempts[0].effective_constraints = @{ spend = 'unbounded' }
+    $observedCard = Copy-Value $sourceCard
+    $observedCard.vcp = 'C:\vcp.exe'; $observedCard.paid_execution_block = $null
+    $observedCard.spend_usd = [decimal]0.2; $observedCard.spend_evidence_complete = $false
+    $observedCard.effective_constraints = @{ spend = 'unbounded' }
+    $observedCard.stages[0].session = 'session'; $observedCard.stages[0].exit_code = 1
+    $observedCard.gates = @(@{ stage = 'T2-api'; id = 'jsonl'; required = $true; outcome = 'pass' })
+    Write-JsonFile $cardPath $observedCard
+    $observedBinding = Get-CampaignRepairSource $observedState 'original' 'T2-api' 'B' $workspace $prompt
+    Check ($observedBinding.source_task -eq 'old-task') 'Financial-only unknown blocked a scoped repair'
+    $observedCard.gates[0].outcome = 'fail'; Write-JsonFile $cardPath $observedCard
+    Reject { Get-CampaignRepairSource $observedState 'original' 'T2-api' 'B' $workspace $prompt } 'Uncertain source framing admitted repair'
+    Write-JsonFile $cardPath $sourceCard
     $ctx = @{ Workspace = $workspace; Profiles = "$root/new/profiles"; Temp = "$root/new/tmp"; Env = "$root/new/env"; SnapshotText = '{"selected":"fresh"}'
         Catalog = 'fresh-catalog'; TurnBudgetUsd = 5; DeadlineSeconds = 900; MaxRequests = 48; OutputTokens = 4096 }
     $newPath = New-CampaignRepairProfile $ctx $binding
@@ -72,8 +88,8 @@ try {
     Check ($attempt.status -eq 'accounted' -and $attempt.liability_usd -eq 0.2 -and $attempt.verdict -eq 'repair-pass') 'Repair did not settle or was confused with Full pass.'
     $full = Copy-Value $attempt; $full.mode = 'Full'; $full.liability_usd = 5
     Reject { Complete-CampaignAttempt $full $repairCard 0 $false } 'Repair scorecard satisfied Full.'
-    $huge = Copy-Value $attempt; $huge.liability_usd = 95
-    Reject { Add-CampaignAttempt $state $huge } 'Repair exceeded global USD100.'
+    $huge = Copy-Value $attempt; $huge.liability_usd = 95; $huge.fingerprint = 'next-diagnosed-change'
+    Add-CampaignAttempt $state $huge
     $fingerprint = @{ repository = 'r'; environment = 'e'; buffers = 'b' }; $scope = @{ task = 'new-task'; session = 's'; workspace = 'w' }
     $verification = @{ scope = $scope; fingerprint = $fingerprint; outstanding_issues = @(); unresolved_effects = @(); checks = @(@{ specification = 'App.slnx#test'; exit_code = 0; outcome = @{ status = 'passed' } }) }
     $bundle = @{ kind = 'inspection_bundle'; source_watermark = '1'; task = @{ state = 'completed'; scope = $scope; fingerprint = $fingerprint }

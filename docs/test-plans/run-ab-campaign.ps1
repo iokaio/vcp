@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 <#
 .SYNOPSIS
-Reserve, run, and collect one A/B attempt under the shared USD 100 campaign cap.
+Run and collect one A/B execution-engine refinement attempt.
 .DESCRIPTION
 The supervising agent diagnoses and repairs between attempts. This controller
 never launches an unchanged failed paid attempt automatically. Status is read-only.
-Missing or unsettled evidence retains the entire reservation across restarts.
+Observed spend and unknown additional cost are separate. Financial enforcement
+and execution deadlines are suspended; uncertain execution still blocks retries.
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Status', 'Run', 'Repair', 'Reconcile', 'Quarantine', 'BoundQuarantine')][string]$Action = 'Status',
-    [string]$CampaignRoot = 'C:\vcp-scenarios\ab-campaign-20261004',
+    [string]$CampaignRoot = 'C:\vcp-scenarios\execution-engine-20261004',
     [ValidateSet('A', 'B')][string]$Scenario,
     [ValidateSet('DryRun', 'Full', 'Repair')][string]$Mode = 'DryRun',
     [string]$Vcp,
@@ -24,7 +25,7 @@ param(
     [ValidateRange(1, 2147483647)][int]$MaxRequests = 96,
     [ValidateRange(1, 86100)][int]$DeadlineSeconds = 1800,
     [ValidateRange(1, 86100)][int]$ShortDeadlineSeconds = 150,
-    [ValidateRange(1, 86400)][int]$AttemptTimeoutSeconds = 21600,
+    [int]$AttemptTimeoutSeconds = 21600, # Legacy requested value retained; effective deadline is absent.
     [switch]$AllowProcessPublish,
     [string]$RepairNote,
     [string]$AttemptId,
@@ -44,7 +45,7 @@ if ($Action -eq 'Status') {
     if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { Write-Host "Campaign has no attempts: $statePath"; exit 0 }
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable
     $liability = Get-CampaignLiability $state
-    [pscustomobject]@{ authorized_usd = $state.authorized_usd; liability_usd = $liability; remaining_usd = 100 - $liability; attempts = $state.attempts } | ConvertTo-Json -Depth 32
+    [pscustomobject]@{ historical_authorized_usd = $state.authorized_usd; observations = Get-CampaignObservations $state; attempts = $state.attempts } | ConvertTo-Json -Depth 32
     exit 0
 }
 if ($Action -in 'Reconcile', 'Quarantine', 'BoundQuarantine') {
@@ -229,7 +230,9 @@ try {
     $attempt = @{
         id = $id; scenario = $Scenario; mode = $Mode; status = 'running'; verdict = 'incomplete'
         started = [DateTimeOffset]::UtcNow.ToString('o'); finished = $null; root = $root
-        cap_usd = $MaxAttemptUsd; liability_usd = $(if ($Mode -in 'Full', 'Repair') { $MaxAttemptUsd } else { 0 })
+        cap_usd = $MaxAttemptUsd; liability_usd = $null; observed_spend_usd = $null; spend_evidence_complete = $false
+        effective_constraints = @{ spend = 'unbounded'; deadline = 'unbounded'; automatic_cleanup = 'suspended' }
+        requested_timeout_seconds = $AttemptTimeoutSeconds
         executable = $Vcp; executable_sha256 = Get-Sha256 $Vcp; project = $ProjectPath
         revision = [string]$revision; source_diff_sha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(($sourceDiff -join "`n"))))
         fingerprint = Get-CampaignFingerprint; output_fingerprint = $null; repair_note = $RepairNote
@@ -238,7 +241,8 @@ try {
     $lock = Open-CampaignLock (Join-Path $CampaignRoot 'campaign.lock')
     try {
         $state = if (Test-Path -LiteralPath $statePath) { Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable }
-            else { @{ schema = 'vcp-ab-campaign/1'; authorized_usd = 100; created = [DateTimeOffset]::UtcNow.ToString('o'); attempts = @() } }
+            else { @{ schema = 'vcp-ab-campaign/1'; authorized_usd = $null; effective_constraints = @{ spend = 'unbounded'; deadline = 'unbounded' }; created = [DateTimeOffset]::UtcNow.ToString('o'); attempts = @() } }
+        if (-not $state.Contains('effective_constraints') -or $state.effective_constraints.spend -ne 'unbounded') { throw 'This is a historical finite campaign. Select a fresh CampaignRoot for refinement execution; retained records are unchanged.' }
         Assert-CampaignActiveAttempts $state $CampaignRoot
         if ($Action -eq 'Repair') {
             $repairBinding = Get-CampaignRepairSource $state $SourceAttemptId $SourceStage $Scenario $ProjectPath $RepairPromptPath
@@ -271,10 +275,10 @@ try {
             '-ProviderGeneration', $ProviderGeneration, '-TurnBudgetUsd', $TurnBudgetUsd.ToString([cultureinfo]::InvariantCulture),
             '-OutputTokens', "$OutputTokens", '-MaxRequests', "$MaxRequests", '-DeadlineSeconds', "$DeadlineSeconds", '-AllowProcessPublish')
     }
-    Write-Host "Attempt $id reserved USD $($attempt.liability_usd); campaign remaining USD $(100 - (Get-CampaignLiability $state))."
+    Write-Host "Attempt $id recorded; financial enforcement and execution deadline suspended. Observed spend: $((Get-CampaignObservations $state).observed_spend_usd) USD; additional cost may be unknown."
     $run = Invoke-NativeLogged -FilePath (Get-Process -Id $PID).Path -ArgumentList $arguments -WorkingDirectory $repository `
         -StdoutPath (Join-Path $root 'launcher.stdout.log') -StderrPath (Join-Path $root 'launcher.stderr.log') `
-        -TimeoutSeconds $AttemptTimeoutSeconds -OnLine { param($line) Write-Host $line }
+        -TimeoutSeconds $null -OnLine { param($line) Write-Host $line }
     $cards = @(Get-ChildItem -LiteralPath $root -Filter scorecard.json -File -Recurse)
     $card = $null
     if ($cards.Count -eq 1) {
@@ -292,15 +296,16 @@ try {
     }
     finally { $lock.Dispose(); $lock = $null }
     Write-CampaignState (Join-Path $root 'failure-bundle.json') $attempt
-    Write-Host "Attempt $id`: $($attempt.verdict); accounting $($attempt.status); campaign liability USD $(Get-CampaignLiability $state)."
+    Write-Host "Attempt $id`: $($attempt.verdict); execution $($attempt.status); observed campaign spend USD $((Get-CampaignObservations $state).observed_spend_usd); unknown-spend attempts $((Get-CampaignObservations $state).attempts_with_unknown_spend)."
     if ($run.ExitCode -ne 0 -or $attempt.verdict -notin 'pass', 'dry-run-pass', 'repair-pass') { exit 1 }
 }
 catch {
     if ($reserved) {
         $attempt.status = 'unresolved'
         $attempt.controller_failure = $_.Exception.Message
-        # Never release a cap on controller error, even after partial parsing.
-        $attempt.liability_usd = if ($Mode -in 'Full', 'Repair') { $MaxAttemptUsd } else { 0 }
+        # A controller failure cannot prove either a complete bill or a safe outcome.
+        $attempt.liability_usd = $null
+        $attempt.spend_evidence_complete = $false
         [void][IO.Directory]::CreateDirectory($root)
         Write-CampaignState (Join-Path $root 'failure-bundle.json') $attempt
         $lock = Open-CampaignLock (Join-Path $CampaignRoot 'campaign.lock')

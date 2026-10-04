@@ -6,9 +6,9 @@ function Get-CampaignRepairSource($State, [string]$SourceAttemptId, [string]$Sta
     $sources = @($State.attempts | Where-Object id -eq $SourceAttemptId)
     if ($sources.Count -ne 1) { throw 'Repair requires exactly one retained source attempt.' }
     $source = $sources[0]
-    if ($source.mode -ne 'Full' -or $source.status -ne 'accounted' -or $source.scenario -ne $Scenario -or
+    if ($source.mode -ne 'Full' -or $source.status -notin 'accounted', 'observed' -or $source.scenario -ne $Scenario -or
         $source.project -ine $Project -or $source.timed_out -or $null -eq $source.exit_code) {
-        throw 'Repair requires an exited, accounted Full attempt in the same scenario and workspace.'
+        throw 'Repair requires an exited Full attempt with complete scoped execution evidence in the same scenario and workspace.'
     }
     $cardPath = [IO.Path]::GetFullPath($source.scorecard)
     $root = [IO.Path]::GetFullPath($source.root).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -16,6 +16,12 @@ function Get-CampaignRepairSource($State, [string]$SourceAttemptId, [string]$Sta
     $card = Get-Content -LiteralPath $cardPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100
     $expected = if ($Scenario -eq 'A') { 'a-vue-taskboard' } else { 'b-aspnet-inventory' }
     if ($card.schema -ne 'vcp-practical-scenario/1' -or $card.scenario -ne $expected -or $card.workspace -ine $Project -or $card.dry_run) { throw 'Source scorecard identity mismatch.' }
+    if ($source.status -eq 'observed') {
+        if (-not $source.Contains('effective_constraints')) { throw 'Observed-only source lacks execution policy evidence.' }
+        $checked = @{}; foreach ($key in $source.Keys) { $checked[$key] = $source[$key] }
+        Complete-CampaignAttempt $checked $card $source.exit_code $false
+        if ($checked.status -notin 'observed', 'accounted') { throw 'Source outcome remains uncertain; financial observations cannot authorize a repair.' }
+    }
     if ($card.paid_execution_block -and @($card.paid_execution_block.reasons | Where-Object { $_ -notin 'budget_exhausted', 'durably_paused' }).Count) {
         throw 'Unresolved effects, approval, interruption, or other source stopping conditions prohibit a new repair task.'
     }

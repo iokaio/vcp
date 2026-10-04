@@ -45,10 +45,8 @@ function Assert-CampaignActiveAttempts($State, [string]$Root) {
 }
 
 function Add-CampaignAttempt($State, [hashtable]$Attempt) {
-    if ($State.schema -ne 'vcp-ab-campaign/1' -or [decimal]$State.authorized_usd -ne 100) { throw 'Unsupported campaign or authorization ceiling.' }
-    if ([decimal]$Attempt.liability_usd -lt 0 -or (Get-CampaignLiability $State) + [decimal]$Attempt.liability_usd -gt [decimal]$State.authorized_usd) {
-        throw 'Attempt would exceed the remaining USD 100 campaign authorization.'
-    }
+    if ($State.schema -ne 'vcp-ab-campaign/1') { throw 'Unsupported campaign format.' }
+    if ([decimal]$Attempt.liability_usd -lt 0) { throw 'Negative observed campaign amount.' }
     # Never release a reservation merely because a process vanished or a run failed.
     if (@($State.attempts | Where-Object { $_.status -eq 'unresolved' }).Count) { throw 'An unresolved attempt requires evidence reconciliation before another launch.' }
     if (@($State.attempts | Where-Object { $_.status -eq 'running' -and $_.project -ieq $Attempt.project }).Count) { throw 'This project already has an active attempt.' }
@@ -73,6 +71,10 @@ function Add-CampaignAttempt($State, [hashtable]$Attempt) {
 }
 
 function Complete-CampaignAttempt($Attempt, $Scorecard, [int]$ExitCode, [bool]$TimedOut) {
+    if ($Attempt.Contains('effective_constraints')) {
+        return Complete-ObservedCampaignAttempt $Attempt $Scorecard $ExitCode $TimedOut
+    }
+    # Historical finite attempt reconciliation preserves its original contract.
     if ($Attempt.status -eq 'billing-quarantined') { throw 'A permanent billing quarantine cannot release its retained allocation.' }
     $Attempt.exit_code = $ExitCode
     $Attempt.timed_out = $TimedOut
@@ -104,6 +106,66 @@ function Complete-CampaignAttempt($Attempt, $Scorecard, [int]$ExitCode, [bool]$T
         $Attempt.status = 'accounted'
     }
     elseif ($Attempt.mode -eq 'DryRun' -and -not $TimedOut) { $Attempt.status = 'accounted' }
+}
+
+function Get-CampaignObservations($State) {
+    $observed = [decimal]0; $unknown = 0
+    foreach ($attempt in $State.attempts) {
+        if ($attempt.Contains('observed_spend_usd') -and $null -ne $attempt.observed_spend_usd) {
+            $observed += [decimal]$attempt.observed_spend_usd
+        }
+        elseif ($attempt.status -eq 'accounted') { $observed += [decimal]$attempt.liability_usd }
+        if (-not $attempt.Contains('spend_evidence_complete') -or -not $attempt.spend_evidence_complete) {
+            if ($attempt.status -ne 'accounted') { $unknown++ }
+        }
+    }
+    return @{ observed_spend_usd = $observed; attempts_with_unknown_spend = $unknown; total_spend_known = ($unknown -eq 0) }
+}
+
+function Complete-ObservedCampaignAttempt($Attempt, $Scorecard, [int]$ExitCode, [bool]$TimedOut) {
+    $Attempt.exit_code = $ExitCode; $Attempt.timed_out = $TimedOut
+    $Attempt.finished = [DateTimeOffset]::UtcNow.ToString('o')
+    $Attempt.status = 'unresolved'; $Attempt.verdict = 'incomplete'
+    $Attempt.spend_evidence_complete = $false
+    if ($null -eq $Scorecard) { return }
+    $expected = if ($Attempt.mode -eq 'Repair') { $Attempt.scenario.ToLowerInvariant() + '-targeted-repair' }
+        elseif ($Attempt.scenario -eq 'A') { 'a-vue-taskboard' } else { 'b-aspnet-inventory' }
+    if ($Scorecard.schema -ne 'vcp-practical-scenario/1' -or $Scorecard.scenario -ne $expected -or
+        [bool]$Scorecard.dry_run -ne ($Attempt.mode -eq 'DryRun') -or
+        $Scorecard.workspace -ine $Attempt.project -or $Scorecard.vcp -ine $Attempt.executable -or
+        -not $Scorecard.Contains('effective_constraints') -or $Scorecard.effective_constraints.spend -ne 'unbounded') {
+        throw 'Scorecard identity or effective policy does not match this execution attempt.'
+    }
+    if (-not $Scorecard.Contains('spend_usd') -or $null -eq $Scorecard.spend_usd -or [decimal]$Scorecard.spend_usd -lt 0) {
+        throw 'Scorecard is missing valid observed spend evidence.'
+    }
+    $Attempt.observed_spend_usd = [decimal]$Scorecard.spend_usd
+    $Attempt.spend_evidence_complete = $Scorecard.spend_evidence_complete -eq $true
+    $Attempt.liability_usd = if ($Attempt.spend_evidence_complete) { $Attempt.observed_spend_usd } else { $null }
+    $Attempt.paid_execution_block = $Scorecard.paid_execution_block
+    $Attempt.failed_gates = @($Scorecard.gates | Where-Object { $_.required -and $_.outcome -eq 'fail' } | Select-Object stage, id, detail)
+    $uncertain = @($Attempt.failed_gates | Where-Object { $_.id -eq 'jsonl' -or $_.id -like 'inspect-*' -or $_.id -eq 'dispatch-evidence' })
+    $scoped = $true
+    if ($Attempt.mode -ne 'DryRun') {
+        if (-not $Scorecard.Contains('stages')) { $scoped = $false }
+        else {
+            $launched = @($Scorecard.stages | Where-Object { -not $_.skipped })
+            if (-not $launched.Count) { $scoped = $false }
+            foreach ($stage in $launched) {
+                $proof = @($Scorecard.gates | Where-Object { $_.stage -eq $stage.stage -and $_.id -eq 'jsonl' -and $_.required -and $_.outcome -eq 'pass' })
+                if (-not $stage.task -or -not $stage.session -or $null -eq $stage.exit_code -or $proof.Count -ne 1) { $scoped = $false }
+            }
+        }
+    }
+    if ($TimedOut -or $Scorecard.paid_execution_block -or $uncertain.Count -gt 0 -or -not $scoped) {
+        $Attempt.spend_evidence_complete = $false
+        $Attempt.liability_usd = $null
+        return
+    }
+    $Attempt.status = if ($Attempt.spend_evidence_complete) { 'accounted' } else { 'observed' }
+    $passed = $Scorecard.verdict -in 'pass', 'dry-run-pass' -and $ExitCode -eq 0 -and $Attempt.failed_gates.Count -eq 0
+    $Attempt.verdict = if ($Attempt.mode -eq 'Repair') { if ($passed) { 'repair-pass' } else { 'repair-fail' } }
+        elseif ($passed) { $Scorecard.verdict } else { 'fail' }
 }
 
 function Assert-CampaignBillingQuarantine($Attempt, $Scorecard, [object[]]$Bundles, [string]$Reason, [string]$ScenarioRoot = '') {
@@ -276,4 +338,4 @@ function Assert-NoCampaignNativeProcess([string]$ScenarioRoot, [object[]]$Proces
     }
 }
 
-Export-ModuleMember -Function Write-CampaignState, Get-CampaignLiability, Add-CampaignAttempt, Complete-CampaignAttempt, Open-CampaignLock, Get-CampaignProjectLock, Assert-CampaignActiveAttempts, Assert-CampaignBillingQuarantine, Assert-CampaignQuarantineBound, Assert-NoCampaignNativeProcess
+Export-ModuleMember -Function Write-CampaignState, Get-CampaignLiability, Get-CampaignObservations, Add-CampaignAttempt, Complete-CampaignAttempt, Open-CampaignLock, Get-CampaignProjectLock, Assert-CampaignActiveAttempts, Assert-CampaignBillingQuarantine, Assert-CampaignQuarantineBound, Assert-NoCampaignNativeProcess

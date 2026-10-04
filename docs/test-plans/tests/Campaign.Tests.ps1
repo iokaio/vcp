@@ -45,7 +45,8 @@ $retry.fingerprint = 'repaired'
 Add-CampaignAttempt $state $retry
 Check ((Get-CampaignLiability $state) -eq [decimal]30.48) 'Prior spend missing from next reservation.'
 $retry.status = 'accounted'; $retry.verdict = 'pass'; $retry.liability_usd = 99
-Must-Throw { Add-CampaignAttempt $state (New-Attempt 1) } 'Cumulative USD 100 ceiling was exceeded.'
+Add-CampaignAttempt $state (New-Attempt 1)
+Check ($state.attempts.Count -eq 3) 'Legacy cumulative ceiling blocked approved refinement admission'
 $invalid = New-Card; $invalid.spend_usd = 31
 $attempt = New-Attempt
 Must-Throw { Complete-CampaignAttempt $attempt $invalid 1 $false } 'Over-cap accounting was accepted.'
@@ -54,6 +55,33 @@ $invalid = New-Card; $invalid.Remove('spend_usd')
 Must-Throw { Complete-CampaignAttempt (New-Attempt) $invalid 1 $false } 'Missing spend was treated as zero.'
 $invalid = New-Card; $invalid.workspace = 'C:\other'
 Must-Throw { Complete-CampaignAttempt (New-Attempt) $invalid 1 $false } 'Unrelated workspace scorecard was accepted.'
+# Current refinement observations do not revive historical financial ceilings.
+foreach ($known in $false, $true) {
+    $attempt = New-Attempt
+    $attempt.effective_constraints = @{ spend = 'unbounded'; deadline = 'unbounded' }
+    $card = New-Card
+    $card.effective_constraints = @{ spend = 'unbounded'; deadline = 'unbounded' }
+    $card.spend_usd = [decimal]125.25; $card.spend_evidence_complete = $known; $card.verdict = 'pass'
+    $card.stages = @(@{ stage = 'T1'; task = 'task'; session = 'session'; exit_code = 0; skipped = $null })
+    $card.gates = @(@{ stage = 'T1'; id = 'jsonl'; required = $true; outcome = 'pass' })
+    Complete-CampaignAttempt $attempt $card 0 $false
+    Check ($attempt.verdict -eq 'pass' -and $attempt.observed_spend_usd -eq [decimal]125.25) 'Verified quality or observed spend was changed by legacy caps'
+    Check ($attempt.status -eq $(if ($known) { 'accounted' } else { 'observed' })) 'Billing completeness changed execution classification'
+    $observations = Get-CampaignObservations @{ attempts = @($attempt) }
+    Check ($observations.observed_spend_usd -eq [decimal]125.25 -and $observations.total_spend_known -eq $known) 'Observation total concealed financial uncertainty'
+    foreach ($failure in 'timeout', 'missing-scope', 'missing-jsonl', 'inspection', 'effect', 'missing-card') {
+        $bad = $card | ConvertTo-Json -Depth 20 | ConvertFrom-Json -AsHashtable
+        switch ($failure) {
+            'missing-scope' { $bad.stages[0].task = $null }
+            'missing-jsonl' { $bad.gates = @() }
+            'inspection' { $bad.gates += @{ stage = 'T1'; id = 'inspect-tools'; required = $true; outcome = 'fail'; detail = 'missing' } }
+            'effect' { $bad.paid_execution_block = @{ reasons = @('unresolved_effect') } }
+            'missing-card' { $bad = $null }
+        }
+        Complete-CampaignAttempt $attempt $bad 1 ($failure -eq 'timeout')
+        Check ($attempt.status -eq 'unresolved' -and $attempt.verdict -eq 'incomplete' -and -not $attempt.spend_evidence_complete) "$failure was mistaken for financial-only uncertainty"
+    }
+}
 # Extract only the test gate function, never execute the scenario's paid workflow.
 $tokens = $null; $errors = $null
 $tree = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../scenario-b-aspnet-inventory.ps1'), [ref]$tokens, [ref]$errors)
@@ -132,10 +160,10 @@ finally { $lock.Dispose() }
     }
     foreach ($child in $children) { Check ($child.WaitForExit(15000)) 'Concurrent reservation worker hung.' }
     $codes = @($children | ForEach-Object ExitCode)
-    Check (@($codes | Where-Object { $_ -eq 0 }).Count -eq 3 -and @($codes | Where-Object { $_ -eq 13 }).Count -eq 3) 'Concurrent admission did not admit exactly the affordable attempts.'
+    Check (@($codes | Where-Object { $_ -eq 0 }).Count -eq 6 -and @($codes | Where-Object { $_ -eq 13 }).Count -eq 0) 'Concurrent admission was limited by the suspended financial ceiling.'
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable
-    Check ((Get-CampaignLiability $state) -eq 90 -and $state.attempts.Count -eq 3) 'Concurrent reservations exceeded cap or lost entries.'
-    Check (@($state.attempts | Where-Object completed_marker -eq $true).Count -eq 3) 'Concurrent finalization lost another attempt update.'
+    Check ((Get-CampaignLiability $state) -eq 180 -and $state.attempts.Count -eq 6) 'Concurrent admission lost entries.'
+    Check (@($state.attempts | Where-Object completed_marker -eq $true).Count -eq 6) 'Concurrent finalization lost another attempt update.'
     $active = @{ schema = 'vcp-ab-campaign/1'; authorized_usd = 100; attempts = @(@{ id = 'interrupted'; status = 'running'; project = $temporary }) }
     Must-Throw { Assert-CampaignActiveAttempts $active $temporary } 'An orphan reservation was treated as an active supervisor.'
     $projectLock = Open-CampaignLock (Get-CampaignProjectLock $temporary $temporary) 0

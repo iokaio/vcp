@@ -81,7 +81,8 @@ Add-CampaignAttempt $state $next
 Check ((Get-CampaignLiability $state) -eq 55) 'Fresh admission forgot permanently retained liability.'
 $next.status = 'accounted'; $next.verdict = 'pass'
 $third = @{ scenario = 'A'; mode = 'Full'; status = 'running'; project = 'C:\another'; liability_usd = 46; fingerprint = 'new'; repair_note = '' }
-Reject { Add-CampaignAttempt $state $third } 'Permanent hold did not count against the USD 100 ceiling.'
+Add-CampaignAttempt $state $third
+Check ((Get-CampaignLiability $state) -eq 101) 'Historical hold changed while financial ceiling was suspended.'
 $f = Fixture
 $f.attempt.cap_usd = 3; $f.attempt.liability_usd = 3; $f.card.max_scenario_usd = 3
 $f.bundle.views.costs.items[0].record.cap = '3000000'

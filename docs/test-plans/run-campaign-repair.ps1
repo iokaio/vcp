@@ -55,7 +55,7 @@ try {
         Assert-CampaignRepairVerification $bundle $stage $profile
         $true
     })
-    if ($ctx.CostUnknown -or $ctx.PaidExecutionBlock -or @(Get-FailedGates $ctx 'R1-targeted').Count) { throw 'Repair failed verification or complete accounting; no checkpoint or retry.' }
+    if ($ctx.UnscopedCostUnknown -or $ctx.PaidExecutionBlock -or @(Get-FailedGates $ctx 'R1-targeted').Count) { throw 'Repair failed verification or scoped execution evidence; no checkpoint or retry.' }
     Assert-CampaignRepairInputs $binding
     Save-Checkpoint $ctx ('Verified targeted repair of ' + $binding.source_attempt + '/' + $binding.source_stage)
 }
