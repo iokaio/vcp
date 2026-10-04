@@ -22,6 +22,7 @@ pub(crate) enum Table {
     Command,
     Transaction,
     Commit,
+    ArchiveChunks,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +85,13 @@ impl Root {
     }
     pub(crate) fn count(&self) -> u64 {
         self.head.as_ref().map_or(0, |head| head.count)
+    }
+    pub(crate) fn validate_table(&self, expected: Table) -> Result<()> {
+        self.validate()?;
+        if self.table != expected {
+            return Err(Error::Corruption("history index root domain"));
+        }
+        Ok(())
     }
     fn validate(&self) -> Result<()> {
         if self.version != 3 {
