@@ -187,7 +187,7 @@ fn proposal(
     })
 }
 
-fn add_observation(
+async fn add_observation(
     reader: &mut Reader<'_>,
     workspace: &Workspace,
     event: &EventEnvelope,
@@ -229,10 +229,11 @@ fn add_observation(
         value,
     } = &candidate.value
     {
-        if !crate::repository::preference_matches(
-            reader.store.state(),
+        let origin = reader.store.history_event(explicit_origin).await?;
+        if !crate::repository::preference_matches_event(
+            reader.store.current(),
             reader.access,
-            explicit_origin,
+            origin.as_ref(),
             key,
             value,
         )? {
@@ -298,7 +299,7 @@ struct CheckRequest {
     directory: String,
 }
 
-fn native_verification(
+async fn native_verification(
     reader: &mut Reader<'_>,
     workspace: &Workspace,
     event: &EventEnvelope,
@@ -480,7 +481,8 @@ fn native_verification(
                     correction: None,
                 },
                 result,
-            )?;
+            )
+            .await?;
         }
         if verification.checks.len() > MAX_PROPOSALS || verification.outputs.len() > MAX_ARTIFACTS {
             result.finding(
@@ -506,7 +508,7 @@ impl CheckPlan {
 
 /// Pure discovery over a canonical event. Caller persists jobs, findings and
 /// governed proposal receipts; no worker, model call or mutation starts here.
-pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<Extraction> {
+pub async fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<Extraction> {
     let workspace = access::authorize(store.current(), access, false)?;
     if event.event.workspace != workspace.id
         || event
@@ -517,7 +519,7 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
     {
         return Err(Error::Access);
     }
-    if !store.state().events.iter().any(|saved| saved == event) {
+    if store.history_event(&event.event.id).await?.as_ref() != Some(event) {
         return Err(Error::Invalid(
             "extraction requires an unmodified canonical event".into(),
         ));
@@ -564,7 +566,7 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
         cache: BTreeMap::new(),
     };
     if event.event.kind == EventKind::VerificationRecorded {
-        native_verification(&mut reader, &workspace, event, &task, &mut result)?;
+        native_verification(&mut reader, &workspace, event, &task, &mut result).await?;
     }
     let mut seen = BTreeSet::new();
     for id in event.event.artifacts.iter().take(MAX_ARTIFACTS) {
@@ -604,7 +606,8 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
                     &task,
                     observation,
                     &mut result,
-                )?;
+                )
+                .await?;
             }
         } else if matches!(
             descriptor.spec.schema.as_str(),

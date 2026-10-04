@@ -215,7 +215,7 @@ async fn process(
         .await?
         .ok_or(Error::Conflict("ingestion origin missing"))?;
     let preference = crate::preferences::materialize(store, access, &event).await?;
-    let mut extraction = extractors::extract(store, access, &event)?;
+    let mut extraction = extractors::extract(store, access, &event).await?;
     if let Some(proposal) = preference {
         extraction.proposals.push(proposal);
         extraction

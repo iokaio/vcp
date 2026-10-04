@@ -252,22 +252,6 @@ fn verify_evidence(
 /// citing an arbitrary user event cannot establish an invented preference.
 /// Child commands share the host actor; without a direct-user marker their
 /// objectives cannot establish explicit user intent, even after steering.
-pub(crate) fn preference_matches(
-    state: &State,
-    access: &Access,
-    origin: &EventId,
-    key: &str,
-    value: &str,
-) -> Result<bool> {
-    preference_matches_event(
-        state.into(),
-        access,
-        state.events.iter().find(|e| &e.event.id == origin),
-        key,
-        value,
-    )
-}
-
 /// The caller resolves the exact canonical origin before invoking this shared
 /// predicate; arbitrary supplied observations are not canonical evidence.
 pub(crate) fn preference_matches_event(

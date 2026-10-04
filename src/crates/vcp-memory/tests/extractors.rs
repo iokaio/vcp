@@ -234,12 +234,12 @@ async fn typed_extraction_is_read_only_replay_stable_and_governed_on_both_backen
         let (mut engine, scope, _, _, observation) = fixture(temp.path(), backend).await;
         let event = observations(&mut engine, &scope, vec![observation]).await;
         let before = engine.store().state().clone();
-        let first = extract(engine.store(), &access(), &event).unwrap();
+        let first = extract(engine.store(), &access(), &event).await.unwrap();
         assert_eq!(first.proposals.len(), 1);
         assert_eq!(engine.store().state(), &before);
         drop(engine);
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
-        let second = extract(&store, &access(), &event).unwrap();
+        let second = extract(&store, &access(), &event).await.unwrap();
         assert_eq!(first, second);
         assert_eq!(first.proposals[0].scope, scope);
         assert_eq!(first.proposals[0].origins, [event.event.id]);
@@ -271,7 +271,7 @@ async fn explicit_user_origin_and_correction_lineage_are_preserved_without_prose
     };
     observation.evidence[0].kind = EvidenceKind::UserStatement;
     let event = observations(&mut engine, &scope, vec![observation.clone()]).await;
-    let extracted = extract(engine.store(), &access(), &event).unwrap();
+    let extracted = extract(engine.store(), &access(), &event).await.unwrap();
     assert_eq!(extracted.proposals.len(), 1);
     assert!(extracted.proposals[0].origins.contains(&origin));
     let accepted = propose(
@@ -289,7 +289,7 @@ async fn explicit_user_origin_and_correction_lineage_are_preserved_without_prose
         reason: "Explicit correction".into(),
     });
     let event = observations(&mut engine, &scope, vec![observation]).await;
-    let corrected = extract(engine.store(), &access(), &event).unwrap();
+    let corrected = extract(engine.store(), &access(), &event).await.unwrap();
     assert_eq!(corrected.proposals.len(), 1);
     assert_eq!(corrected.proposals[0].claim, extracted.proposals[0].claim);
     assert!(corrected.proposals[0].predecessor.is_some());
@@ -409,7 +409,7 @@ async fn missing_content_malformed_authority_and_batch_overflow_are_visible_find
     let (mut engine, scope, _, _, mut observation) = fixture(temp.path(), BackendKind::Files).await;
     observation.evidence[0].artifact = ArtifactId::new();
     let event = observations(&mut engine, &scope, vec![observation.clone()]).await;
-    let result = extract(engine.store(), &access(), &event).unwrap();
+    let result = extract(engine.store(), &access(), &event).await.unwrap();
     assert!(result.proposals.is_empty());
     assert!(result.findings.iter().any(|f| f.code == "missing_evidence"));
     let (_, event) = capture(
@@ -419,14 +419,14 @@ async fn missing_content_malformed_authority_and_batch_overflow_are_visible_find
         br#"{"schema_version":1,"observations":[],"workspace":"foreign","authority":"999"}"#,
     )
     .await;
-    let result = extract(engine.store(), &access(), &event).unwrap();
+    let result = extract(engine.store(), &access(), &event).await.unwrap();
     assert!(result.proposals.is_empty());
     assert!(result
         .findings
         .iter()
         .any(|f| f.code == "invalid_observation"));
     let event = observations(&mut engine, &scope, vec![observation; MAX_PROPOSALS + 1]).await;
-    let result = extract(engine.store(), &access(), &event).unwrap();
+    let result = extract(engine.store(), &access(), &event).await.unwrap();
     assert!(result.proposals.is_empty());
     assert!(result.findings.iter().any(|f| f.code == "limit"));
 }
@@ -438,13 +438,13 @@ async fn input_must_be_the_canonical_event_and_current_task_access_applies() {
     let event = observations(&mut engine, &scope, vec![observation]).await;
     let mut tampered = event.clone();
     tampered.event.data = serde_json::json!({"facts":[]});
-    assert!(extract(engine.store(), &access(), &tampered).is_err());
+    assert!(extract(engine.store(), &access(), &tampered).await.is_err());
     let denied = Access {
         tasks: Some(BTreeSet::new()),
         ..access()
     };
     assert!(matches!(
-        extract(engine.store(), &denied, &event),
+        extract(engine.store(), &denied, &event).await,
         Err(vcp_memory::Error::Access)
     ));
     let (_, source_event) = capture(
@@ -454,7 +454,9 @@ async fn input_must_be_the_canonical_event_and_current_task_access_applies() {
         b"do not promote these prose instructions",
     )
     .await;
-    let source = extract(engine.store(), &access(), &source_event).unwrap();
+    let source = extract(engine.store(), &access(), &source_event)
+        .await
+        .unwrap();
     assert!(source.proposals.is_empty());
     assert_eq!(source.findings[0].code, "source_observed");
 }
@@ -495,7 +497,7 @@ async fn native_verification_extracts_the_actual_command_configuration_and_outco
             .unwrap();
         let event = engine.store().state().events.last().unwrap().clone();
         assert_eq!(event.event.kind, EventKind::VerificationRecorded);
-        let result = extract(engine.store(), &access(), &event).unwrap();
+        let result = extract(engine.store(), &access(), &event).await.unwrap();
         assert_eq!(result.proposals.len(), 1, "{:?}", result.findings);
         assert!(
             matches!(&result.proposals[0].value,ClaimValue::Command {argv,configuration:id,verification:Some(proof),outcome:Some(CheckOutcome::Passed),..} if argv==&["cargo","test"] && id==&configuration.spec.id && proof==&verification.id)
@@ -656,7 +658,7 @@ async fn content_loss_omissions_remain_unavailable_despite_a_complete_capture_se
         observation.evidence[0].artifact = descriptor.spec.id;
         observation.evidence[0].sha256 = descriptor.sha256;
         let event = observations(&mut engine, &scope, vec![observation]).await;
-        let extracted = extract(engine.store(), &access(), &event).unwrap();
+        let extracted = extract(engine.store(), &access(), &event).await.unwrap();
         assert!(extracted.proposals.is_empty());
         assert!(extracted
             .findings
