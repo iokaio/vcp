@@ -4,10 +4,10 @@
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use vcp_protocol::{canonical_bytes, digest_bytes};
-#[path = "history_index_io.rs"]
-pub(crate) mod io;
 #[path = "history_index_copy.rs"]
 mod copy;
+#[path = "history_index_io.rs"]
+pub(crate) mod io;
 
 const FANOUT: usize = 32;
 const MAX_KEY_BYTES: usize = 512;
@@ -27,6 +27,8 @@ pub(crate) enum Table {
     CommitPayload,
     ArchiveChunks,
     ArchiveObjects,
+    ArchiveParts,
+    ArchiveInputs,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
