@@ -4,9 +4,13 @@
 use crate::{Error, Result};
 use vcp_domain::{policy::*, *};
 use vcp_protocol::command::{Approval, ApprovalState};
-use vcp_store::contract::{Collection, State};
+use vcp_store::{contract::Collection, CurrentStateView};
 
-pub fn current(state: &State, workspace: &WorkspaceId) -> Result<Policy> {
+pub fn current<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<Policy> {
+    let state = state.into();
     let doc: AuthorityDocument = state
         .record(Collection::Access, workspace.as_str(), workspace)?
         .decode()?;
@@ -15,7 +19,11 @@ pub fn current(state: &State, workspace: &WorkspaceId) -> Result<Policy> {
         _ => Err(Error::Target),
     }
 }
-pub fn optional(state: &State, workspace: &WorkspaceId) -> Result<Option<Policy>> {
+pub fn optional<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<Option<Policy>> {
+    let state = state.into();
     if state.records.contains_key(&vcp_store::contract::key(
         Collection::Access,
         workspace.as_str(),
@@ -25,7 +33,11 @@ pub fn optional(state: &State, workspace: &WorkspaceId) -> Result<Option<Policy>
         Ok(None)
     }
 }
-pub fn grants(state: &State, workspace: &WorkspaceId) -> Result<Vec<Grant>> {
+pub fn grants<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<Vec<Grant>> {
+    let state = state.into();
     let mut grants = vec![];
     for record in state.records.values().filter(|r| {
         r.collection == Collection::Access
@@ -39,11 +51,12 @@ pub fn grants(state: &State, workspace: &WorkspaceId) -> Result<Vec<Grant>> {
     }
     Ok(grants)
 }
-pub fn evaluate(
-    state: &State,
+pub fn evaluate<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     prepared: &vcp_policy::Prepared,
     facts: &vcp_policy::Facts<'_>,
 ) -> Result<vcp_policy::Decision> {
+    let state = state.into();
     let operation = prepared.operation();
     let policy = current(state, &operation.scope.workspace)?;
     // A declined exact operation remains declined at this policy/steering

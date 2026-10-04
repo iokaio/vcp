@@ -39,7 +39,7 @@ impl Context {
         let revision = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(collection, id))
             .map(|r| r.revision)
@@ -51,7 +51,7 @@ impl Context {
             let current: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, id, &self.config.workspace)?
                 .decode()?;
             current.steer(expected, objective.clone())?;
@@ -73,7 +73,7 @@ impl Context {
         let root: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 self.config.root_task.as_str(),
@@ -84,7 +84,7 @@ impl Context {
         let tasks: Vec<Task> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Task)

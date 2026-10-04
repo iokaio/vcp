@@ -90,7 +90,7 @@ pub enum QueryError {
 impl<S: CanonicalStore> Engine<S> {
     pub fn query(&self, access: &Access, query: &Query) -> Result<QueryResult, QueryError> {
         self.authorize(access).map_err(|_| QueryError::Access)?;
-        let state = self.store().state();
+        let state = self.store().current();
         // Bootstrap permits command initialization only, never reads of an
         // unbound workspace/session even when authorize accepts that bootstrap.
         let workspace: Workspace = state
@@ -169,6 +169,10 @@ impl<S: CanonicalStore> Engine<S> {
                 QueryResult::Task { watermark, task }
             }
             Query::Command { command } => {
+                // Historical receipts require their correlated retained events.
+                // Keep this explicit legacy-history dependency out of ordinary
+                // current session/task queries until the fallible reader lands.
+                let state = self.store().state();
                 let receipt = state
                     .commands
                     .get(&command_key(&access.workspace, command))
@@ -234,6 +238,66 @@ mod tests {
     use vcp_domain::{task::Objective, verification::Fingerprint, workspace::Binding};
     use vcp_protocol::command::{Command, CommandEnvelope};
     use vcp_store::{BackendKind, Store};
+
+    struct CurrentOnly(std::sync::Arc<vcp_store::CurrentState>);
+    impl CanonicalStore for CurrentOnly {
+        fn state(&self) -> &vcp_store::contract::State {
+            panic!("current query attempted complete historical materialization")
+        }
+        fn current(&self) -> vcp_store::CurrentStateView<'_> {
+            self.0.as_ref().into()
+        }
+        async fn transact(
+            &mut self,
+            _: vcp_store::contract::Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            panic!("current query attempted a write")
+        }
+    }
+
+    #[tokio::test]
+    async fn current_queries_and_controller_reads_never_request_complete_history() {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            let temporary = tempfile::tempdir().unwrap();
+            let store = Store::open(temporary.path(), backend, &[]).await.unwrap();
+            let mut engine = Engine::new(store).unwrap();
+            let access = access();
+            initialize(&mut engine, &access).await;
+            let (task, _) = create_task(&mut engine, &access, "Current-only fixture".into()).await;
+            let queries = [
+                Query::Sessions {
+                    limit: 10,
+                    cursor: None,
+                },
+                Query::Session {
+                    session: access.session.clone(),
+                },
+                Query::Task { task },
+            ];
+            let expected: Vec<_> = queries
+                .iter()
+                .map(|query| engine.query(&access, query).unwrap())
+                .collect();
+            let current = engine.store().current_state();
+            engine.into_store().close().await.unwrap();
+            let engine = Engine::new(CurrentOnly(current)).unwrap();
+            for (query, expected) in queries.iter().zip(expected) {
+                assert_eq!(engine.query(&access, query).unwrap(), expected);
+            }
+            assert!(engine.read_controller(&access).unwrap().is_none());
+            assert!(
+                crate::policy::optional(engine.store().current(), &access.workspace)
+                    .unwrap()
+                    .is_none()
+            );
+            let mut stale = access.clone();
+            stale.authority = stale.authority.next().unwrap();
+            assert!(engine.query(&stale, &queries[0]).is_err());
+            let mut foreign = access.clone();
+            foreign.session = SessionId::new();
+            assert!(engine.query(&foreign, &queries[0]).is_err());
+        }
+    }
 
     fn access() -> Access {
         Access {

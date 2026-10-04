@@ -111,7 +111,7 @@ impl<S: CanonicalStore> Engine<S> {
             .map_err(|_| ControllerError::InvalidState)?;
         let Some(record) = self
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Access, &id))
         else {
@@ -244,7 +244,7 @@ impl<S: CanonicalStore> Engine<S> {
     fn controller_quiescent(&self, access: &Access) -> Result<()> {
         for record in self
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Task && r.workspace == access.workspace)
@@ -526,7 +526,7 @@ impl<S: CanonicalStore> Engine<S> {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.store().state().watermark,
+            expected_watermark: self.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: previous.map(|lease| lease.revision),
                 record,

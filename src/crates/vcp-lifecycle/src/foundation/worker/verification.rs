@@ -43,7 +43,7 @@ pub(crate) struct Run {
 }
 impl Context {
     pub fn completion_approval_boundary(&self, binding: &ThreadBinding) -> Result<()> {
-        for row in self.engine.store().state().records.values().filter(|row| {
+        for row in self.engine.store().current().records.values().filter(|row| {
             row.collection == Collection::Approval && row.workspace == binding.scope.workspace
         }) {
             let approval: Approval = row.decode()?;
@@ -51,7 +51,11 @@ impl Context {
                 && approval.controller.as_ref() == Some(self.engine.controller())
                 && approval.owner_epoch == Some(self.engine.owner_epoch())
                 && approval.actor == self.config.actor
-                && vcp_engine::questions::actionable(self.engine.store().state(), &approval, now())?
+                && vcp_engine::questions::actionable(
+                    self.engine.store().current(),
+                    &approval,
+                    now(),
+                )?
             {
                 return Err(CompletionFailure::new(
                     CompletionRejection::RequiredApproval,
@@ -275,7 +279,7 @@ impl Context {
     ) -> Result<Vec<std::path::PathBuf>> {
         self.tool_identity(binding, "vcp_verify")?;
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &binding.scope.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &binding.scope.workspace)?;
         // A verification runner can have opaque effects. A named workflow
         // ceiling must not disappear when its process uses the vcp_exec broker.
         if self

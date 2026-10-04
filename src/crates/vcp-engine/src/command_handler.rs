@@ -47,7 +47,7 @@ pub struct Engine<S: CanonicalStore> {
 }
 impl<S: CanonicalStore> Engine<S> {
     pub fn new(store: S) -> Result<Self> {
-        let owner = OwnerEpoch::new(store.state().watermark.get()).next()?;
+        let owner = OwnerEpoch::new(store.current().watermark.get()).next()?;
         Ok(Self {
             store,
             controller: ControllerId::new(),
@@ -74,7 +74,7 @@ impl<S: CanonicalStore> Engine<S> {
         if !access.read {
             return Err(Error::Access);
         }
-        let workspace = self.store.state().record(
+        let workspace = self.store.current().record(
             Collection::Workspace,
             access.workspace.as_str(),
             &access.workspace,
@@ -85,7 +85,7 @@ impl<S: CanonicalStore> Engine<S> {
                 if workspace.authority != access.authority {
                     return Err(Error::Access);
                 }
-                self.store.state().record(
+                self.store.current().record(
                     Collection::Session,
                     access.session.as_str(),
                     &access.workspace,
@@ -1379,7 +1379,11 @@ fn hash(value: &str) -> bool {
             .bytes()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
-pub fn dispatchable(state: &State, task: &Task) -> Result<bool> {
+pub fn dispatchable<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    task: &Task,
+) -> Result<bool> {
+    let state = state.into();
     if !task.can_dispatch(&task.scope, task.steering, true) {
         return Ok(false);
     }
