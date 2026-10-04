@@ -29,6 +29,17 @@ test('execution limits accept explicit unbounded and legacy finite values withou
   }
 });
 
+test('paused tasks preserve legacy reasons and expose versioned diagnostic evidence', () => {
+  const task = {scope:{workspace:'ws',session:'s'},task:'t',root:'t',revision:'2',steering_revision:'0',
+    state:'paused',reason:'Paused by owner',pending_inputs:[],effects:'known'};
+  validateWire('TaskView', task);
+  const diagnostic = {schema_version:1,code:'execution.no_progress',message:'Repeated failed checks',evidence:'artifact',repeats:3,threshold:3};
+  validateWire('TaskView', {...task,diagnostic});
+  for (const invalid of [{schema_version:2},{code:'stalled'},{evidence:'../foreign'},{threshold:0},{message:'x'.repeat(1025)}]) {
+    assert.throws(() => validateWire('TaskView', {...task,diagnostic:{...diagnostic,...invalid}}));
+  }
+});
+
 test('routing quality observations preserve the canonical unsigned 16-bit range', () => {
   const policy = {
     id: 'policy', parent_id: null, profile: 'low', quality_floor_bps: 7000,

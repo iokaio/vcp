@@ -30,6 +30,7 @@
     const value = state.detail;
     if (value) {
       add('Task', value.task.task); add('Root', value.task.root); add('Parent', value.task.parent ?? 'root task'); add('State', value.task.state); add('Reason', value.task.reason); add('Objective', projected(value.objective)); add('Model', projected(value.model?.id)); add('Group', projected(value.model?.group)); add('Model policy', projected(value.model_policy)); add('Role', projected(value.role)); add('Steering revision', value.task.steering_revision); add('Effects', value.task.effects);
+      if (value.task.diagnostic) { const d = value.task.diagnostic; add('Pause diagnostic', d.code); add('Equivalent failures', `${d.repeats} / ${d.threshold}`); add('Diagnostic evidence', d.evidence); }
       add('Commentary', value.commentary === 'observed' ? 'retained evidence below' : 'No retained commentary is available.');
       add('History', value.complete ? 'Complete page' : value.next_cursor ? 'More history is available' : 'Some content is unavailable or requires an evidence read');
       if (state.usage) {

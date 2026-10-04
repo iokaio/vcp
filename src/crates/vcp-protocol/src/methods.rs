@@ -668,7 +668,36 @@ enumeration!(ControllerOwnership {
     Released
 });
 dto!(ControllerView { scope: Scope, revision: Option<Counter>, generation: Counter, ownership: ControllerOwnership, watermark: Counter });
-dto!(TaskView { scope: Scope, task: Id, root: Id, parent: Option<Id>, turn: Option<Id>, revision: Counter, steering_revision: Counter, state: TaskStatus, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] reason: String, pending_inputs: Vec<PendingInput>, effects: EffectStatus });
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum ExecutionReasonCode {
+    #[serde(rename = "execution.no_progress")]
+    NoProgress,
+}
+dto!(ExecutionPauseReason {
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1)))]
+    schema_version: u32,
+    code: ExecutionReasonCode,
+    #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 1024)))]
+    message: String,
+    evidence: Id,
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1000000)))]
+    repeats: u32,
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1000000)))]
+    threshold: u32
+});
+impl ExecutionPauseReason {
+    /// Presentation metadata only. This must never authorize dispatch or resume.
+    pub fn decode(reason: &str) -> Option<Self> {
+        if reason.len() > 4096 { return None; }
+        let value: Self = serde_json::from_str(reason).ok()?;
+        (value.schema_version == 1 && !value.message.trim().is_empty()
+            && value.message.chars().count() <= 1024 && value.threshold > 0
+            && value.threshold <= 1_000_000 && value.repeats >= value.threshold
+            && value.repeats <= 1_000_000).then_some(value)
+    }
+}
+dto!(TaskView { scope: Scope, task: Id, root: Id, parent: Option<Id>, turn: Option<Id>, revision: Counter, steering_revision: Counter, state: TaskStatus, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] reason: String, #[serde(default, skip_serializing_if = "Option::is_none")] diagnostic: Option<ExecutionPauseReason>, pending_inputs: Vec<PendingInput>, effects: EffectStatus });
 dto!(SessionView { scope: Scope, revision: Counter, configuration_revision: Counter, fork_origin: Option<Id>, fork_through: Option<Id> });
 // A completed page sequence describes one canonical boundary. The replay cursor
 // starts after that boundary; it is not a grant or a live producer subscription.
@@ -1115,5 +1144,17 @@ mod tests {
         let call: Call = serde_json::from_value(unbounded).unwrap();
         call.validate().unwrap();
         assert_ne!(call.digest("owner").unwrap(), expected);
+    }
+
+    #[test]
+    fn structured_pause_reason_is_bounded_and_legacy_text_stays_legacy() {
+        let reason = json!({"schema_version":1,"code":"execution.no_progress","message":"Observed repeated failed checks.",
+            "evidence":"artifact","repeats":3,"threshold":3});
+        assert_eq!(ExecutionPauseReason::decode(&reason.to_string()).unwrap().evidence.as_str(), "artifact");
+        for (field, value) in [("schema_version",json!(2)),("repeats",json!(2)),("threshold",json!(0)),("code",json!("invented")),("message",json!("x".repeat(1025)))] {
+            let mut invalid = reason.clone(); invalid[field] = value;
+            assert!(ExecutionPauseReason::decode(&invalid.to_string()).is_none());
+        }
+        assert!(ExecutionPauseReason::decode("Paused by user; resume when ready.").is_none());
     }
 }

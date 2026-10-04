@@ -63,6 +63,41 @@ async fn create_task(engine: &mut Engine<Store>) -> Task {
         _ => unreachable!(),
     }
 }
+
+#[tokio::test]
+async fn pause_diagnostic_requires_same_task_evidence_and_preserves_legacy_fallback() {
+    use vcp_domain::artifact::*;
+    let directory = tempfile::tempdir().unwrap();
+    let mut engine = setup(directory.path(), BackendKind::Files).await;
+    let mut task = create_task(&mut engine).await;
+    let mut state = engine.store().state().clone();
+    task.state = TaskState::Paused;
+    task.reason = "User paused execution.".into();
+    assert!(task_view(&state, task.clone()).unwrap().diagnostic.is_none());
+    let evidence = ArtifactId::new();
+    let reason = methods::ExecutionPauseReason {
+        schema_version: 1, code: methods::ExecutionReasonCode::NoProgress,
+        message: "Repeated observed check failures.".into(), evidence: id(evidence.as_str()).unwrap(),
+        repeats: 3, threshold: 3,
+    };
+    task.reason = serde_json::to_string(&reason).unwrap();
+    assert!(task_view(&state, task.clone()).unwrap().diagnostic.is_none());
+    let mut descriptor = ArtifactDescriptor {
+        spec: ArtifactSpec { id: evidence.clone(), scope: task.scope.clone(), media_type: "application/json".into(),
+            schema: "execution-completion-repair/1".into(), source: "synthetic".into(), channel: Channel::Evidence,
+            retention: "history".into(), omissions: vec![] },
+        state: CaptureState::Complete, length: ByteCount::new(1), sha256: "a".repeat(64),
+        retained: vec![Range { start: ByteCount::ZERO, end: ByteCount::new(1) }],
+    };
+    insert(&mut state, Collection::Artifact, evidence.as_str(), &task, Revision::ZERO, &descriptor);
+    let projected = task_view(&state, task.clone()).unwrap();
+    assert_eq!(projected.reason, reason.message);
+    assert_eq!(projected.diagnostic, Some(reason));
+    descriptor.spec.scope.task = TaskId::new();
+    insert(&mut state, Collection::Artifact, evidence.as_str(), &task, Revision::ZERO, &descriptor);
+    assert!(task_view(&state, task).unwrap().diagnostic.is_none());
+    engine.into_store().close().await.unwrap();
+}
 fn insert<T: Serialize>(
     state: &mut State,
     collection: Collection,

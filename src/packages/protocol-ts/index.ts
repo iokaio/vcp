@@ -168,6 +168,10 @@ export type EvidenceStatus = (("verified" | "observed" | "inferred" | "unverifie
 
 export type ExecutionHost = { "id": string; "platform": string; };
 
+export type ExecutionPauseReason = { "code": ExecutionReasonCode; "evidence": Id; "message": string; "repeats": number; "schema_version": number; "threshold": number; };
+
+export type ExecutionReasonCode = ("execution.no_progress" & string);
+
 export type ExportView = { "artifact": Id; "complete": boolean; "scope": Scope; "visibility_manifest": Id; };
 
 export type FileEdits = { "edits": Array<TextEdit>; "observation": Id; };
@@ -488,7 +492,7 @@ export type TaskRead = { "scope": Scope; "task": Id; };
 
 export type TaskStatus = (("pending" | "running" | "waiting_for_input" | "blocked" | "paused" | "completed" | "failed" | "cancelled") & string);
 
-export type TaskView = { "effects": EffectStatus; "parent"?: (Id | null); "pending_inputs": Array<PendingInput>; "reason": string; "revision": Counter; "root": Id; "scope": Scope; "state": TaskStatus; "steering_revision": Counter; "task": Id; "turn"?: (Id | null); };
+export type TaskView = { "diagnostic"?: (ExecutionPauseReason | null); "effects": EffectStatus; "parent"?: (Id | null); "pending_inputs": Array<PendingInput>; "reason": string; "revision": Counter; "root": Id; "scope": Scope; "state": TaskStatus; "steering_revision": Counter; "task": Id; "turn"?: (Id | null); };
 
 export type TextEdit = { "range": Range2; "text": string; };
 

@@ -789,8 +789,18 @@ pub(crate) fn task_view(
         Err(PublicError::Unavailable) => None,
         Err(error) => return Err(public_error(error, None, false)),
     };
+    let diagnostic = if task.state == TaskState::Paused && task.redaction.is_none() {
+        methods::ExecutionPauseReason::decode(&task.reason).filter(|diagnostic| {
+            state.record(Collection::Artifact, diagnostic.evidence.as_str(), &task.scope.workspace)
+                .ok().and_then(|record| record.decode::<vcp_domain::artifact::ArtifactDescriptor>().ok())
+                .is_some_and(|artifact| artifact.spec.scope == task.scope
+                    && artifact.spec.schema == "execution-completion-repair/1")
+        })
+    } else { None };
     let reason = if task.redaction.is_some() {
         "Task content was removed.".to_owned()
+    } else if let Some(diagnostic) = &diagnostic {
+        diagnostic.message.clone()
     } else {
         task.reason
     };
@@ -826,6 +836,7 @@ pub(crate) fn task_view(
             TaskState::Cancelled => methods::TaskStatus::Cancelled,
         },
         reason,
+        diagnostic,
         pending_inputs,
         effects: match effect_rank {
             3 => methods::EffectStatus::Unknown,

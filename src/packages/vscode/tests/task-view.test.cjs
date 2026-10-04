@@ -49,6 +49,16 @@ test('hostile model/tool markup is bounded text and duplicate clicks emit one op
   assert.deepEqual(posted.slice(1), [{ action: 'task', id: opaque }]);
   const evidence = nodes.get('task-evidence').children[0]; evidence.listeners.click();
   assert.deepEqual(posted.at(-1), { action: 'evidence', id: opaque });
+  received({ data: { type:'tasks', state:{ phase:'current', rows:[], actions:[], commands:[],
+    detail:{task:{task:'root',state:'paused',reason:'Repeated failed checks',diagnostic:{schema_version:1,code:'execution.no_progress',message:'Repeated failed checks',evidence:opaque,repeats:3,threshold:3}},model:{},questions:[],rows:[]} } } });
+  const pauseText = nodes.get('task-detail').children.map(child => child.textContent);
+  assert.ok(pauseText.includes('execution.no_progress'));
+  assert.ok(pauseText.includes('3 / 3'));
+  assert.ok(pauseText.includes(opaque));
+  received({ data: { type:'tasks', state:{ phase:'current', rows:[], actions:[], commands:[],
+    detail:{task:{task:'root',state:'paused',reason:'Legacy pause reason'},model:{},questions:[],rows:[]} } } });
+  assert.ok(nodes.get('task-detail').children.some(child => child.textContent === 'Legacy pause reason'));
+  assert.ok(!nodes.get('task-detail').children.some(child => child.textContent === 'Pause diagnostic'));
   received({ data: { type: 'tasks', state: { phase: 'disconnected', message: 'unknown', owner: 'unknown', rows: [], actions: [{ id: opaque, label: 'run' }], commands: [] } } });
   assert.equal(nodes.get('task-actions').children[0].disabled, true);
   assert.equal(nodes.get('task-detail').children.length, 0);
