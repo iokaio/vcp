@@ -547,7 +547,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     .values()
                     .filter(|row| row.collection == Collection::Artifact)
                     .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
-                    .filter(|artifact| artifact.spec.schema == "coding-allocation-observation/1")
+                    .filter(|artifact| artifact.spec.schema == "coding-allocation-observation/2")
                     .map(|artifact| {
                         serde_json::from_slice::<serde_json::Value>(
                             &host.read_artifact(artifact.spec.id).unwrap(),
@@ -565,6 +565,11 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     "observation precedes fourth result publication"
                 );
                 assert_eq!(last["history"]["underuse_streak"], 3, "{last}");
+                assert_eq!(last["version"], 2);
+                assert_eq!(
+                    last["history"]["candidate"]["model"],
+                    provider_snapshot().0.compatibility.model
+                );
                 owner.close().await.unwrap();
                 test.codex.shutdown_and_wait().await.unwrap();
                 drop(test);
@@ -632,6 +637,28 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     allocation.reason,
                     vcp_domain::request_allocation::Reason::ShrinkAfterRepeatedUnderuse
                 );
+                let (base, raw) = provider_snapshot();
+                let mut catalog: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+                catalog["data"]["id"] = serde_json::json!("fixture/other-model");
+                let mut compatibility = base.compatibility;
+                compatibility.model = "fixture/other-model".into();
+                let other = vcp_models::catalog::Snapshot::from_endpoints(
+                    &serde_json::to_vec(&catalog).unwrap(),
+                    base.observed_at,
+                    base.valid_until,
+                    compatibility,
+                )
+                .unwrap();
+                let fresh = host.qualification_coding_allocation(id, other).unwrap();
+                assert_eq!(
+                    fresh.previous_output, None,
+                    "another model cannot inherit calibrated usage"
+                );
+                assert_eq!(
+                    fresh.reason,
+                    vcp_domain::request_allocation::Reason::ActivityDefault
+                );
+                assert_eq!(fresh.output_limit, Units::new(1024));
                 coding_turn(&test, backend, "allocation-reopen").await;
                 assert_eq!(
                     count.load(Ordering::SeqCst),
@@ -669,7 +696,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         .filter(|artifact| {
                             matches!(
                                 artifact.spec.schema.as_str(),
-                                "coding-output-continuation/1" | "coding-allocation-observation/1"
+                                "coding-output-continuation/1" | "coding-allocation-observation/2"
                             )
                         })
                         .collect();

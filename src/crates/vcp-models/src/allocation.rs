@@ -5,9 +5,21 @@ use vcp_domain::{
     Units,
 };
 
+/// Usage calibration belongs to the exact model endpoint and reasoning mode.
+/// It is observational evidence, never permission to select that endpoint.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Candidate {
+    pub model: String,
+    pub endpoint: String,
+    pub reasoning: Option<crate::reasoning::Effort>,
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct History {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate: Option<Candidate>,
     pub activity: Activity,
     pub previous_limit: Option<Units>,
     pub actual_output: Option<Units>,
@@ -16,6 +28,32 @@ pub struct History {
 }
 
 impl History {
+    /// Legacy observations without candidate identity remain readable, but may
+    /// not calibrate an arbitrary current model. Switching candidates starts
+    /// conservatively; this bounded policy retains only the latest candidate.
+    pub fn for_candidate(&self, candidate: &Candidate) -> std::borrow::Cow<'_, Self> {
+        if self.candidate.as_ref() == Some(candidate) {
+            std::borrow::Cow::Borrowed(self)
+        } else {
+            std::borrow::Cow::Owned(Self::default())
+        }
+    }
+
+    pub fn observe_candidate(
+        &mut self,
+        candidate: Candidate,
+        activity: Activity,
+        limit: Units,
+        actual: Option<Units>,
+        length_limited: bool,
+    ) {
+        if self.candidate.as_ref() != Some(&candidate) {
+            *self = Self::default();
+        }
+        self.candidate = Some(candidate);
+        self.observe(activity, limit, actual, length_limited);
+    }
+
     pub fn observe(
         &mut self,
         activity: Activity,
@@ -122,6 +160,64 @@ pub fn input_target(activity: Activity, capacity: u64, output: Units) -> Units {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn candidate_changes_and_legacy_history_do_not_transfer_calibration() {
+        let candidate = Candidate {
+            model: "model-a".into(),
+            endpoint: "endpoint-a".into(),
+            reasoning: None,
+        };
+        let mut history = History::default();
+        for _ in 0..3 {
+            history.observe_candidate(
+                candidate.clone(),
+                Activity::Editing,
+                Units::new(8192),
+                Some(Units::new(400)),
+                false,
+            );
+        }
+        let select = |history: &History, candidate: &Candidate| {
+            choose(
+                Activity::Editing,
+                Units::new(16384),
+                Units::new(16384),
+                &history.for_candidate(candidate),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            select(&history, &candidate).reason,
+            Reason::ShrinkAfterRepeatedUnderuse
+        );
+        let mut changed = candidate.clone();
+        changed.model = "model-b".into();
+        assert_eq!(select(&history, &changed).reason, Reason::ActivityDefault);
+        changed = candidate.clone();
+        changed.endpoint = "endpoint-b".into();
+        assert_eq!(select(&history, &changed).previous_output, None);
+        changed = candidate.clone();
+        changed.reasoning = Some(crate::reasoning::Effort::High);
+        assert_eq!(select(&history, &changed).reason, Reason::ActivityDefault);
+        history.observe_candidate(
+            changed.clone(),
+            Activity::Editing,
+            Units::new(4096),
+            Some(Units::new(200)),
+            false,
+        );
+        assert_eq!(history.underuse_streak, 1);
+        assert_eq!(select(&history, &candidate).reason, Reason::ActivityDefault);
+        let restored: History =
+            serde_json::from_slice(&serde_json::to_vec(&history).unwrap()).unwrap();
+        assert_eq!(select(&history, &changed), select(&restored, &changed));
+        let mut legacy = serde_json::to_value(history).unwrap();
+        legacy.as_object_mut().unwrap().remove("candidate");
+        let legacy: History = serde_json::from_value(legacy).unwrap();
+        assert_eq!(select(&legacy, &changed).previous_output, None);
+        assert_eq!(select(&legacy, &changed).reason, Reason::ActivityDefault);
+    }
 
     #[test]
     fn length_limit_grows_but_never_exceeds_host_or_candidate() {

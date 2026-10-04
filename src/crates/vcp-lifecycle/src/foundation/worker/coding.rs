@@ -40,6 +40,7 @@ pub(super) struct Loop {
     allocation_history: vcp_models::allocation::History,
     allocation_observations: u64,
     allocation: Option<vcp_domain::request_allocation::Allocation>,
+    allocation_candidate: Option<vcp_models::allocation::Candidate>,
     output_continuation: Option<crate::foundation::coding::OutputContinuation>,
     continuation_feedback: Option<Part>,
     last_continuation: Option<(u64, Units)>,
@@ -254,11 +255,16 @@ impl Context {
                     }
                 })
         };
+        let candidate = vcp_models::allocation::Candidate {
+            model: snapshot.compatibility.model.clone(),
+            endpoint: snapshot.compatibility.endpoint.clone(),
+            reasoning: self.current_reasoning_effort()?,
+        };
         let mut allocation = vcp_models::allocation::choose(
             activity,
             self.current_output_ceiling()?,
             snapshot.max_output,
-            &state.allocation_history,
+            &state.allocation_history.for_candidate(&candidate),
         )?;
         let envelope =
             request::envelope(snapshot, allocation.output_limit, Units::new(512), now())?;
@@ -302,14 +308,19 @@ impl Context {
                     })
                 );
                 let mut history = state.allocation_history.clone();
-                history.observe(
+                let candidate = state
+                    .allocation_candidate
+                    .clone()
+                    .ok_or("coding allocation lacks selected candidate")?;
+                history.observe_candidate(
+                    candidate,
                     allocation.activity,
                     allocation.output_limit,
                     actual,
                     limited,
                 );
                 let observation = AllocationObservation {
-                    version: 1,
+                    version: 2,
                     sequence: state.allocation_observations,
                     completed_pairs: state.pairs,
                     attempt: attempt.clone(),
@@ -319,7 +330,7 @@ impl Context {
                     &binding.scope,
                     Channel::Evidence,
                     &canonical_bytes(&observation)?,
-                    "coding-allocation-observation/1",
+                    "coding-allocation-observation/2",
                 )?;
                 let state = self
                     .coding
@@ -703,11 +714,20 @@ impl Context {
         let mut history_sources = Vec::new();
         for descriptor in descriptors {
             if descriptor.spec.scope == binding.scope
-                && descriptor.spec.schema == "coding-allocation-observation/1"
+                && matches!(
+                    descriptor.spec.schema.as_str(),
+                    "coding-allocation-observation/1" | "coding-allocation-observation/2"
+                )
             {
-                allocation_observations.push(serde_json::from_slice::<AllocationObservation>(
+                let observation = serde_json::from_slice::<AllocationObservation>(
                     &self.coding_artifact(&descriptor.spec.id)?,
-                )?);
+                )?;
+                if descriptor.spec.schema
+                    != format!("coding-allocation-observation/{}", observation.version)
+                {
+                    return Err("allocation observation schema/version mismatch".into());
+                }
+                allocation_observations.push(observation);
             }
             if descriptor.spec.scope == binding.scope
                 && descriptor.spec.schema == "canonical-coding-pair/1"
@@ -721,7 +741,9 @@ impl Context {
         pairs.sort_by_key(|p| p.sequence);
         allocation_observations.sort_by_key(|observation| observation.sequence);
         for (index, observation) in allocation_observations.iter().enumerate() {
-            if observation.version != 1
+            if !matches!(observation.version, 1 | 2)
+                || (observation.version == 1 && observation.history.candidate.is_some())
+                || (observation.version == 2 && observation.history.candidate.is_none())
                 || observation.sequence != index as u64
                 || observation.history.previous_limit == Some(Units::ZERO)
                 || observation.completed_pairs > pairs.len() as u64
@@ -777,6 +799,7 @@ impl Context {
                 allocation_observations: allocation_observations.len() as u64,
                 activity_override: None,
                 allocation: None,
+                allocation_candidate: None,
                 output_continuation: None,
                 continuation_feedback: None,
                 last_continuation: None,
@@ -1038,10 +1061,16 @@ impl Context {
             },
         )?
         .with_allocation(allocation)?;
-        self.coding
+        let state = self
+            .coding
             .get_mut(&binding.scope.task)
-            .ok_or("coding setup missing")?
-            .allocation = sealed.manifest.allocation.clone();
+            .ok_or("coding setup missing")?;
+        state.allocation = sealed.manifest.allocation.clone();
+        state.allocation_candidate = Some(vcp_models::allocation::Candidate {
+            model: snapshot.compatibility.model.clone(),
+            endpoint: snapshot.compatibility.endpoint.clone(),
+            reasoning: reasoning_effort,
+        });
         let mut roots = parents;
         roots.push(root);
         self.capture_coding_handoff(binding, &sealed)?;
