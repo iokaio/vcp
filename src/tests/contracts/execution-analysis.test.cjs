@@ -81,6 +81,17 @@ test('archive analysis verifies scoped retained bytes and rejects corruption or 
     assert.equal(report.archive.repairs[0].verification_present,true);
     assert.equal(report.archive.repairs[0].observed_checks[0].exit_code,1);
     assert.equal(report.analysis.assessment.quality,'requires_independent_scenario_gates');
+    descriptor.state = 'aborted';
+    const partialBundle = Buffer.from(JSON.stringify(bundle));
+    fs.writeFileSync(path.join(root,'inspection-bundle.json'),partialBundle);
+    manifest.bundle.bytes = partialBundle.length; manifest.bundle.sha256 = hash(partialBundle); save();
+    const partial = read(root);
+    assert.equal(partial.archive.partial_captures.length,1);
+    assert.equal(partial.archive.repairs.length,0,'partial JSON cannot establish a completed repair decision');
+    assert.equal(partial.archive.partial_captures[0].state,'aborted');
+    descriptor.state = 'complete';
+    fs.writeFileSync(path.join(root,'inspection-bundle.json'),bundleBytes);
+    manifest.bundle.bytes = bundleBytes.length; manifest.bundle.sha256 = hash(bundleBytes); save();
     fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),'corrupt');
     assert.throws(() => read(root),/integrity mismatch/);
     fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),bytes);
@@ -95,4 +106,16 @@ test('archive analysis verifies scoped retained bytes and rejects corruption or 
     if (path.dirname(root) !== fs.realpathSync(os.tmpdir()) && path.dirname(root) !== path.resolve(os.tmpdir())) throw Error('Unexpected fixture cleanup path');
     fs.rmSync(root,{recursive:true,force:true});
   }
+});
+
+test('skipped tool dispatch stays separate from completed processing and failed dispatch', () => {
+  const bundle = fixture();
+  bundle.lifecycle_diagnostics = {schema_version:1,available:true,owner:'owner-1',window:'current_owner_only',complete_history:false,dropped:0,
+    observations:['skipped','succeeded','failed','interrupted'].map((status,sequence) => ({sequence,status,elapsed_micros:10,phase:'tool_dispatch',scope:bundle.task.scope}))};
+  const report = analyze(bundle);
+  assert.deepEqual(report.facts.lifecycle_statistics.groups.map(group => group.status),['skipped','succeeded','failed','interrupted']);
+  assert.match(report.facts.lifecycle_statistics.interpretation,/not that an effect or verification passed/);
+  assert.equal(report.assessment.quality,'requires_independent_scenario_gates');
+  bundle.lifecycle_diagnostics.observations[0].status='invented_success';
+  assert.throws(() => analyze(bundle),/Invalid diagnostic observation/);
 });

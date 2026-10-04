@@ -33,6 +33,8 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
+mod diagnostic_cases;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_driver_repairs_failed_checks_and_exports_scoped_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
@@ -366,7 +368,15 @@ async fn repaired(backend: BackendKind) {
     .unwrap();
     bundle["lifecycle_diagnostics"] = serde_json::to_value(&diagnostics).unwrap();
     if let Some(directory) = std::env::var_os("VCP_EXECUTION_EVIDENCE_ROOT") {
-        export_fixture_evidence(&host, &state, &scope, backend, &bundle, directory.into());
+        export_fixture_evidence(
+            &host,
+            &state,
+            &scope,
+            backend,
+            &bundle,
+            directory.into(),
+            "shared_driver_repairs_failed_checks_and_exports_scoped_evidence",
+        );
     }
     drop(execution);
     owner.close().await.unwrap();
@@ -410,10 +420,11 @@ fn export_fixture_evidence(
     backend: BackendKind,
     bundle: &Value,
     root: std::path::PathBuf,
+    fixture: &str,
 ) {
     use std::io::Write;
     fs::create_dir_all(&root).unwrap();
-    let directory = root.join(format!("{backend:?}-repair-{}", EventId::new()));
+    let directory = root.join(format!("{backend:?}-{fixture}-{}", EventId::new()));
     fs::create_dir(&directory).unwrap();
     fs::create_dir(directory.join("artifacts")).unwrap();
     let mut total = 0usize;
@@ -446,7 +457,11 @@ fn export_fixture_evidence(
     {
         let descriptor: ArtifactDescriptor = record.decode().unwrap();
         if descriptor.spec.scope != *scope
-            || descriptor.state != vcp_domain::artifact::CaptureState::Complete
+            || !matches!(
+                descriptor.state,
+                vcp_domain::artifact::CaptureState::Complete
+                    | vcp_domain::artifact::CaptureState::Aborted
+            )
         {
             continue;
         }
@@ -457,7 +472,7 @@ fn export_fixture_evidence(
         entry["descriptor"] = serde_json::to_value(descriptor).unwrap();
         artifacts.push(entry);
     }
-    let manifest = serde_json::to_vec_pretty(&json!({"schema_version":1,"fixture":"shared_driver_repairs_failed_checks_and_exports_scoped_evidence","scope":scope,"backend":format!("{backend:?}"),"bundle":bundle_entry,"artifacts":artifacts,"limitations":"Synthetic provider only. Complete same-task captures only; descriptors retain omission declarations. Time ordering is not recorded causation."})).unwrap();
+    let manifest = serde_json::to_vec_pretty(&json!({"schema_version":1,"fixture":fixture,"scope":scope,"backend":format!("{backend:?}"),"bundle":bundle_entry,"artifacts":artifacts,"limitations":"Synthetic provider only. Complete captures and sealed Aborted prefixes from the same task; descriptors retain partial state and omission declarations. Time ordering is not recorded causation."})).unwrap();
     let manifest_entry = write("manifest.json", &manifest);
     write(
         "manifest.sha256",

@@ -40,20 +40,24 @@ function readArchive(directory, readBundle) {
   let bytesRead = 0;
   const seen = new Set();
   const requests = new Map();
-  const repairs = [], allocations = [], checkpoints = [];
+  const repairs = [], allocations = [], checkpoints = [], contextProjections = [], partialCaptures = [];
   for (const row of manifest.artifacts) {
     const descriptor = row.descriptor, id = descriptor?.spec?.id;
     if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id) || seen.has(id) || row.path !== `artifacts/${id}.bin`) throw Error('Invalid or duplicate archive artifact identity');
     seen.add(id);
-    if (descriptor.state !== 'complete' || !isDeepStrictEqual(descriptor.spec.scope,manifest.scope) || !isDeepStrictEqual(descriptors.get(id),descriptor)) throw Error('Artifact differs from authorized bundle descriptor');
+    if (!['complete','aborted'].includes(descriptor.state) || !isDeepStrictEqual(descriptor.spec.scope,manifest.scope) || !isDeepStrictEqual(descriptors.get(id),descriptor)) throw Error('Artifact differs from authorized bundle descriptor');
     const bytes = bounded(row.path,64 * 1024 * 1024 - bytesRead);
     bytesRead += bytes.length;
     if (row.bytes !== bytes.length || descriptor.length !== String(bytes.length) || row.sha256 !== descriptor.sha256 || hash(bytes) !== row.sha256) throw Error('Archive artifact integrity mismatch');
+    if (descriptor.state === 'aborted') {
+      partialCaptures.push({artifact:id,schema:descriptor.spec.schema,channel:descriptor.spec.channel,state:'aborted',bytes:bytes.length,sha256:row.sha256,omissions:descriptor.spec.omissions ?? [],meaning:'Retained prefix only; no terminal response or successful operation is inferred.'});
+      continue;
+    }
     if (descriptor.spec.channel === 'request_body') {
       if (!requests.has(row.sha256)) requests.set(row.sha256,[]);
       requests.get(row.sha256).push(id);
     }
-    if (!['execution-completion-repair/1','verification-result/1','context-manifest/1'].includes(descriptor.spec.schema)) continue;
+    if (!['execution-completion-repair/1','verification-result/1','context-manifest/1','canonical-compaction-projection/1'].includes(descriptor.spec.schema)) continue;
     const value = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
     if (descriptor.spec.schema === 'execution-completion-repair/1') {
       const verification = result.analysis.facts.verification.find(item => item.id === value.verification);
@@ -63,14 +67,19 @@ function readArchive(directory, readBundle) {
     }
     if (descriptor.spec.schema === 'context-manifest/1') allocations.push({artifact:id,request_sha256:value.request_sha256,
       input_estimate:value.input_estimate,estimate_method:value.estimate_method,allocation:value.allocation ?? null,
-      included_count:value.included?.length,excluded_count:value.excluded?.length});
+      included_count:value.included?.length,excluded_count:value.excluded?.length,exclusions:value.excluded ?? []});
+    if (descriptor.spec.schema === 'canonical-compaction-projection/1') contextProjections.push({artifact:id,
+      summary_artifact:value.summary_artifact,before_request_sha256:value.before_request_sha256,
+      after_request_sha256:value.after_request_sha256,estimated:value.estimated,estimate_method:value.estimate_method,
+      input_estimate_before:value.input_estimate_before,input_estimate_after:value.input_estimate_after,gain:value.gain,
+      compacted_pairs:value.projection?.compacted_pairs,sources:value.projection?.sources ?? []});
     if (value.execution_diagnostics) checkpoints.push({artifact:id,owner:value.execution_diagnostics.owner,
       snapshot_micros:value.execution_diagnostics.snapshot_micros ?? null,complete_history:value.execution_diagnostics.complete_history,
       dropped:value.execution_diagnostics.dropped,observations:value.execution_diagnostics.observations?.length});
   }
   for (const allocation of allocations) allocation.request_artifacts = requests.get(allocation.request_sha256) ?? [];
   result.archive = {manifest_sha256:manifestHash,backend:manifest.backend,fixture:manifest.fixture,
-    verified_artifacts:seen.size,verified_bytes:bytesRead,repairs,allocations,diagnostic_checkpoints:checkpoints,
+    verified_artifacts:seen.size,verified_bytes:bytesRead,repairs,allocations,context_projections:contextProjections,partial_captures:partialCaptures,diagnostic_checkpoints:checkpoints,
     integrity:'Supplied bundle, manifest and artifact digests agree; this is not independent provenance or execution authority.',
     limitations:manifest.limitations,assessment:'Scripted outcome and semantic identity links; independent application quality remains a separate check.'};
   return result;

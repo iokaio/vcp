@@ -13,14 +13,14 @@ function phaseStatistics(snapshot, scope) {
     if (!observation.scope || ['workspace','session','task'].some(key => observation.scope[key] !== scope[key])) throw Error('Diagnostic scope mismatch');
     if (!Number.isSafeInteger(observation.sequence) || observation.sequence < 0 || identities.has(observation.sequence)) throw Error('Invalid or duplicate diagnostic sequence');
     identities.add(observation.sequence);
-    if (!Number.isSafeInteger(observation.elapsed_micros) || observation.elapsed_micros < 0 || typeof observation.phase !== 'string' || !['active','succeeded','failed','interrupted'].includes(observation.status)) throw Error('Invalid diagnostic observation');
+    if (!Number.isSafeInteger(observation.elapsed_micros) || observation.elapsed_micros < 0 || typeof observation.phase !== 'string' || !['active','succeeded','failed','interrupted','skipped'].includes(observation.status)) throw Error('Invalid diagnostic observation');
     const key = JSON.stringify([observation.phase,observation.status]);
     if (!groups.has(key)) groups.set(key,{phase:observation.phase,status:observation.status,values:[]});
     groups.get(key).values.push(observation.elapsed_micros);
   }
   return {available:snapshot.available === true,owner:snapshot.owner,window:snapshot.window,
     complete_history:snapshot.complete_history === true,dropped:snapshot.dropped,
-    interpretation:'Per-phase observations may overlap. Active spans are elapsed-so-far; interrupted spans are incomplete. No additive controller-overhead or end-to-end estimate is inferred.',
+    interpretation:'Per-phase observations may overlap. Active spans are elapsed-so-far; interrupted spans are incomplete. Skipped tool dispatches did not execute; succeeded tool dispatch means wrapper processing completed, not that an effect or verification passed. No additive controller-overhead or end-to-end estimate is inferred.',
     groups:[...groups.values()].map(({phase,status,values}) => {
       values.sort((a,b) => a-b);
       const percentile = p => values[Math.max(0,Math.ceil(p * values.length)-1)];
