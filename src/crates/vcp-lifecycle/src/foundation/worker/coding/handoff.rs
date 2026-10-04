@@ -37,11 +37,11 @@ impl Context {
         if ids.len() > 4096 {
             return Err("handoff reference count exceeds bound".into());
         }
-        let records = &self.engine.store().state().records;
+        let records = self.engine.store().current().records;
         let ledger: Ledger = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Ledger,
                 self.config.root_task.as_str(),
@@ -51,7 +51,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -94,7 +94,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &binding.scope.workspace)?
                 .decode()?;
             total_bytes = total_bytes

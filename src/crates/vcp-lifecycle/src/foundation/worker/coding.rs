@@ -461,7 +461,7 @@ impl Context {
                 let turn: Turn = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Turn, id.as_str(), &binding.scope.workspace)?
                     .decode()?;
                 if turn.scope != binding.scope {
@@ -557,7 +557,7 @@ impl Context {
         let ledger: Ledger = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Ledger, scope.task.as_str(), &scope.workspace)?
             .decode()?;
         if ledger.scope != scope
@@ -576,7 +576,7 @@ impl Context {
         let attempts = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Attempt)
@@ -742,7 +742,7 @@ impl Context {
         let descriptors = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -959,7 +959,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),

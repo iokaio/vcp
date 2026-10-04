@@ -615,7 +615,7 @@ impl Context {
             return Err("invalid failed generation header".into());
         }
         let admitted =
-            vcp_budget::attempt(self.engine.store().state(), attempt, &self.config.workspace)?;
+            vcp_budget::attempt(self.engine.store().current(), attempt, &self.config.workspace)?;
         if admitted.root != self.config.root_task || admitted.phase != ReservationState::Submitted {
             return Err("generation header lacks current submitted attempt".into());
         }
@@ -632,7 +632,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &self.config.workspace)?
             .decode()?;
         if descriptor.length.get() > limit {
@@ -656,7 +656,7 @@ impl Context {
         generation: Option<&vcp_models::stream::ObservedGeneration>,
     ) -> Result<()> {
         let admitted =
-            vcp_budget::attempt(self.engine.store().state(), attempt, &self.config.workspace)?;
+            vcp_budget::attempt(self.engine.store().current(), attempt, &self.config.workspace)?;
         if admitted.scope != raw.spec.scope {
             return Err("failed response scope differs".into());
         }
@@ -715,7 +715,7 @@ impl Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -745,7 +745,7 @@ impl Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -759,7 +759,7 @@ impl Context {
             let marker: FailedRequest =
                 serde_json::from_slice(&self.reconciliation_artifact(&descriptor.spec.id, 4096)?)?;
             let attempt = vcp_budget::attempt(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &marker.attempt,
                 &self.config.workspace,
             )?;
@@ -778,7 +778,7 @@ impl Context {
         // Recover only an exact, uniquely linked complete response descriptor;
         // recover_failed_identity still verifies its bytes, framing and headers.
         // This supplies lookup provenance only, never a charge or new marker.
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         for row in state.records.values().filter(|row| {
             row.collection == Collection::Attempt && row.workspace == self.config.workspace
         }) {
@@ -851,7 +851,7 @@ impl Context {
                 continue;
             };
             let admitted = vcp_budget::attempt(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &failed.attempt,
                 &self.config.workspace,
             )?;
@@ -906,7 +906,7 @@ impl Context {
         let raw: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 failed.raw_response.as_str(),
@@ -946,7 +946,7 @@ impl Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -1001,7 +1001,7 @@ impl Context {
         raw: Vec<u8>,
     ) -> Result<ReconciliationStatus> {
         let admitted = vcp_budget::attempt(
-            self.engine.store().state(),
+            self.engine.store().current(),
             &pending.attempt,
             &self.config.workspace,
         )?;
@@ -1018,7 +1018,7 @@ impl Context {
         let observation_id = ObservationId::parse(vcp_protocol::digest_bytes(&canonical_bytes(
             &(&pending.attempt, &receipt.request_id, &receipt.raw_sha256),
         )?))?;
-        if let Some(row) = self.engine.store().state().records.values().find(|row| {
+        if let Some(row) = self.engine.store().current().records.values().find(|row| {
             row.collection == Collection::Settlement && row.id == observation_id.as_str()
         }) {
             let settled: Settlement = row.decode()?;
@@ -1043,7 +1043,7 @@ impl Context {
         let existing = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -1065,7 +1065,7 @@ impl Context {
             &pending.attempt,
         )?;
         let actor = self.actor();
-        let ledger = vcp_budget::ledger(self.engine.store().state(), &pending.scope)?;
+        let ledger = vcp_budget::ledger(self.engine.store().current(), &pending.scope)?;
         self.observe_usage(UsageObservation {
             id: observation_id,
             scope: pending.scope,
@@ -1104,7 +1104,7 @@ impl Context {
         let receipts = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)

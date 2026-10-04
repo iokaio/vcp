@@ -18,7 +18,7 @@ impl Context {
         if input.trim().is_empty() || input.len() > 65_536 || input.contains('\0') {
             return Err("turn input must contain bounded UTF-8 text".into());
         }
-        identity::require_unused(self.engine.store().state(), &id)?;
+        identity::require_unused(self.engine.store().current(), &id)?;
         let previous = self
             .coding
             .get(&binding.scope.task)
@@ -29,7 +29,7 @@ impl Context {
             let previous: Turn = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Turn, id.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if !matches!(
@@ -48,7 +48,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -157,7 +157,7 @@ impl Context {
         let current: Turn = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Turn, id.as_str(), &binding.scope.workspace)?
             .decode()?;
         if current.state == next {
@@ -194,7 +194,7 @@ impl Context {
         let turns: Vec<Turn> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -215,7 +215,7 @@ impl Context {
             let task: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     turn.scope.task.as_str(),
