@@ -225,6 +225,10 @@
       "sha256": "b44703088214423be8469993ed6a80cd2b0570f455680d4bcdcfde9981c2d35f"
     },
     {
+      "path": "src/third_party/patches/codex/0049-async-provider-admission.patch",
+      "sha256": "63cc435963a11adc652eb9e977d25d9b92be2e3c9aac5234c54835fae6844bc8"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
       "sha256": "f69b95992ed382854b71244dbd326eae025645976764be7d671d0e044418d909"
     }

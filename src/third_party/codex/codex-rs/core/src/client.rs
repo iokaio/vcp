@@ -1725,7 +1725,8 @@ impl ModelClientSession {
             let mut host_permit = if let Some(mut predecessor) = host_retry.take() {
                 Some(
                     predecessor
-                        .admit_retry(&mut body)
+                        .admit_retry_async(&mut body)
+                        .await
                         .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
                 )
             } else if let Some(gate) = self.client.host_work.as_ref() {
@@ -1742,7 +1743,8 @@ impl ModelClientSession {
                     .await
                     .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
                 Some(
-                    gate.admit_model(self.client.state.thread_id, &mut body, purpose)
+                    gate.admit_model_async(self.client.state.thread_id, &mut body, purpose)
+                        .await
                         .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?,
                 )
             } else {

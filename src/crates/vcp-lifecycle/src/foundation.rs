@@ -45,6 +45,8 @@ pub mod observers;
 pub mod openrouter;
 #[cfg(windows)]
 mod process;
+#[cfg(windows)]
+mod provider_pacing;
 pub mod routing;
 pub mod routing_state;
 pub mod skills;
@@ -135,6 +137,8 @@ pub struct ThreadBinding {
 }
 #[derive(Clone)]
 pub struct CanonicalHost {
+    #[cfg(windows)]
+    provider_pacing: Arc<Mutex<Option<(provider_pacing::Gate, Duration)>>>,
     local_memory_only: bool,
     memory_owner_alive: Arc<std::sync::atomic::AtomicBool>,
     runtime: Lifecycle,
@@ -317,6 +321,8 @@ impl CanonicalHost {
         };
         Ok((
             Self {
+                #[cfg(windows)]
+                provider_pacing: Arc::new(Mutex::new(None)),
                 local_memory_only: false,
                 memory_owner_alive,
                 runtime,
@@ -505,6 +511,8 @@ impl TurnStartAdmission for CanonicalHost {
     }
 }
 struct ModelPermit {
+    #[cfg(windows)]
+    provider_slot: Option<provider_pacing::Slot>,
     host: CanonicalHost,
     thread: ThreadId,
     purpose: HostModelPurpose,
@@ -536,6 +544,26 @@ impl HostWorkPermit for ModelPermit {
             codex_extension_api::HostModelFailure::Http(status) => Some(*status),
             _ => None,
         };
+        #[cfg(windows)]
+        let cooldown = if http_status == Some(429) {
+            self.provider_slot.as_ref().map_or(Ok(()), |slot| {
+                // The transport uses MAX as an unsupported/overflowing hint.
+                // The retry policy rejects it; share the ordinary cooldown
+                // rather than losing HTTP failure evidence to an overflow.
+                slot.cooldown(Duration::from_millis(
+                    retry_after_ms
+                        .filter(|ms| *ms != u64::MAX)
+                        .unwrap_or(5_000)
+                        .max(5_000),
+                ))
+            })
+        } else {
+            Ok(())
+        };
+        // Headers have ended this transport attempt. Release shared capacity
+        // before waiting; its canonical billing liability remains independent.
+        #[cfg(windows)]
+        self.provider_slot.take();
         let failure = match failure {
             codex_extension_api::HostModelFailure::Http(status) => {
                 vcp_models::retry::http_failure(status)
@@ -565,6 +593,10 @@ impl HostWorkPermit for ModelPermit {
             self.finished = true;
             self.retry_scheduled = true;
         }
+        // Preserve the actual HTTP failure and pending-retry cleanup even if
+        // coordination could not persist. Such an error denies another send.
+        #[cfg(windows)]
+        cooldown?;
         Ok(delay)
     }
     fn retry_current(&self) -> bool {
@@ -587,6 +619,33 @@ impl HostWorkPermit for ModelPermit {
             return Err("provider retry cancelled by current owner/context/deadline".into());
         }
         self.host.admit_model(self.thread, body, self.purpose)
+    }
+    fn admit_retry_async<'a>(
+        &'a mut self,
+        body: &'a mut serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Box<dyn HostWorkPermit>, String>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            if !self.retry_current() {
+                return Err("provider retry cancelled by current owner/context/deadline".into());
+            }
+            #[cfg(windows)]
+            {
+                let slot = self
+                    .host
+                    .acquire_provider_slot(self.thread, self.deadline)
+                    .await?;
+                if !self.retry_current() {
+                    return Err("provider retry cancelled by current owner/context/deadline".into());
+                }
+                return self
+                    .host
+                    .admit_model_with_slot(self.thread, body, self.purpose, slot);
+            }
+            #[cfg(not(windows))]
+            self.admit_retry(body)
+        })
     }
     fn response_deadline(&self) -> Option<std::time::Instant> {
         self.deadline
@@ -643,6 +702,8 @@ impl HostWorkPermit for ModelPermit {
             .inspect_err(|_| self.worker.fence())?;
         self.runtime.complete()?;
         self.finished = true;
+        #[cfg(windows)]
+        self.provider_slot.take();
         Ok(())
     }
 }
@@ -751,6 +812,117 @@ impl HostWorkAdmission for CanonicalHost {
         body: &mut serde_json::Value,
         purpose: HostModelPurpose,
     ) -> Result<Box<dyn HostWorkPermit>, String> {
+        #[cfg(windows)]
+        {
+            if self
+                .provider_pacing
+                .lock()
+                .map_err(|_| "provider pacing poisoned")?
+                .is_some()
+            {
+                return Err("configured provider pacing requires async admission".into());
+            }
+            self.admit_model_with_slot(thread, body, purpose, None)
+        }
+        #[cfg(not(windows))]
+        self.admit_model_unpaced(thread, body, purpose)
+    }
+    fn admit_model_async<'a>(
+        &'a self,
+        thread: ThreadId,
+        body: &'a mut serde_json::Value,
+        purpose: HostModelPurpose,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Box<dyn HostWorkPermit>, String>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            #[cfg(windows)]
+            {
+                let slot = self.acquire_provider_slot(thread, None).await?;
+                return self.admit_model_with_slot(thread, body, purpose, slot);
+            }
+            #[cfg(not(windows))]
+            self.admit_model(thread, body, purpose)
+        })
+    }
+}
+impl CanonicalHost {
+    #[cfg(windows)]
+    pub fn configure_provider_pacing(
+        &self,
+        root: std::path::PathBuf,
+        timeout: Duration,
+    ) -> Result<(), String> {
+        let gate = provider_pacing::Gate::new(root)?;
+        let mut configured = self
+            .provider_pacing
+            .lock()
+            .map_err(|_| "provider pacing poisoned")?;
+        if configured.is_some() {
+            return Err("provider pacing is already configured".into());
+        }
+        *configured = Some((gate, timeout));
+        Ok(())
+    }
+    #[cfg(windows)]
+    async fn acquire_provider_slot(
+        &self,
+        thread: ThreadId,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Option<provider_pacing::Slot>, String> {
+        let configured = self
+            .provider_pacing
+            .lock()
+            .map_err(|_| "provider pacing poisoned")?
+            .clone();
+        let Some((gate, timeout)) = configured else {
+            return Ok(None);
+        };
+        let binding = self.binding(thread)?;
+        let generation = self
+            .runtime
+            .admission_generation(thread)
+            .map_err(|e| format!("{e:?}"))?;
+        let deadline = deadline.unwrap_or_else(|| std::time::Instant::now() + timeout);
+        gate.acquire(deadline, || {
+            self.runtime.admission_generation(thread).ok() == Some(generation)
+                && self
+                    .worker
+                    .run({
+                        let binding = binding.clone();
+                        move |context| context.can_start(&binding)
+                    })
+                    .is_ok()
+        })
+        .await
+        .map(Some)
+    }
+    #[cfg(windows)]
+    fn admit_model_with_slot(
+        &self,
+        thread: ThreadId,
+        body: &mut serde_json::Value,
+        purpose: HostModelPurpose,
+        slot: Option<provider_pacing::Slot>,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        self.admit_model_inner(thread, body, purpose, slot)
+    }
+    #[cfg(not(windows))]
+    fn admit_model_unpaced(
+        &self,
+        thread: ThreadId,
+        body: &mut serde_json::Value,
+        purpose: HostModelPurpose,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
+        self.admit_model_inner(thread, body, purpose)
+    }
+    fn admit_model_inner(
+        &self,
+        thread: ThreadId,
+        body: &mut serde_json::Value,
+        purpose: HostModelPurpose,
+        #[cfg(windows)] slot: Option<provider_pacing::Slot>,
+    ) -> Result<Box<dyn HostWorkPermit>, String> {
         let mut binding = self.binding(thread)?;
         let generation = self
             .runtime
@@ -783,6 +955,8 @@ impl HostWorkAdmission for CanonicalHost {
         };
         *body = prepared;
         Ok(Box::new(ModelPermit {
+            #[cfg(windows)]
+            provider_slot: slot,
             host: self.clone(),
             thread,
             purpose,

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "8b78600dc85cc265d7e7e827f6aa903875405287",
-  "selection_sha256": "43dff95cfdd271438ba2152064cf782d4447faae22078e48bad7e2db35913727",
-  "files_sha256": "93d4af90ec58526c37e05d6b51e5939d18c7c291a1b8dbb7397fb7b3988a5250",
+  "selection_sha256": "f08608114a5e0795561d0512c6921e815d65996c8492b44518a40fe91689df87",
+  "files_sha256": "100bcd31e686d68a1afad67e0f5680ce434b0a883e8b54ba54b0a5b85a6e6249",
   "files": [
     {
       "path": ".bazelignore",
@@ -33655,8 +33655,8 @@
         "sha256": "7013ea18e7c40db547d9677d06ca8d5abd7ac6aec15f2202ac08c0a55ebd28c4"
       },
       "result": {
-        "bytes": 121486,
-        "sha256": "c00b93aef8ea0140f1fb5bd64f3bf28e2a8d5e5546bf629e17dc0979edcf97b3",
+        "bytes": 121560,
+        "sha256": "8508d01a05b56d34b77acb778a8e52f3036d1025c5c427b0b973539eb730d337",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -47735,8 +47735,8 @@
       "path": "codex-rs/ext/extension-api/src/work_admission.rs",
       "original": null,
       "result": {
-        "bytes": 4469,
-        "sha256": "6a78a053c73e19dc061a605cf14dc3a4bcabe22f25d4d4111ff13fb9a3944ba6",
+        "bytes": 5422,
+        "sha256": "9df1cfa8c80721c625289e63a26211795f017a0d6c9d18fe77e11242b565d8d5",
         "mode": "100644"
       },
       "transformation": "patch-series"
