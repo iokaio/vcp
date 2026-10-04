@@ -138,7 +138,7 @@ fn reference(state: &State) -> Result<()> {
 
 fn equivalent(state: &State) {
     assert_eq!(
-        super::super::current_validation_candidate::validate_records(
+        super::super::current_validation::validate_records(
             state.into(),
             &mut crate::historical_facts::StateEventFacts::new(state),
         )

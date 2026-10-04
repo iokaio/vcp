@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Test-only candidate; production keeps its existing complete-State validator.
-//! Establish predicate/error-order equivalence before any activation.
+//! Shared current-record predicates with explicit fallible historical facts.
+//! The frozen complete-State reference remains under differential tests.
 use super::*;
 use crate::CurrentStateView;
 

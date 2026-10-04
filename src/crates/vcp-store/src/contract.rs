@@ -35,9 +35,8 @@ mod mutation_preparation;
 pub(crate) mod event_history_validation;
 #[path = "record_validation_facts.rs"]
 mod record_validation_facts;
-#[cfg(test)]
-#[path = "current_validation_candidate.rs"]
-mod current_validation_candidate;
+#[path = "current_validation.rs"]
+pub(crate) mod current_validation;
 #[path = "shared_state.rs"]
 mod shared_state;
 pub use shared_state::SharedStateValue;
@@ -992,6 +991,7 @@ impl State {
             excluded_transaction: None,
         }
     }
+    #[cfg(test)]
     fn memory_version(
         &self,
         id: &ClaimVersionId,
@@ -999,6 +999,7 @@ impl State {
     ) -> Result<(ClaimId, ProposalId, MemorySeq)> {
         crate::redaction_contract::version_identity(self, id, workspace)
     }
+    #[cfg(test)]
     fn validate_memory(&self, record: &Record) -> Result<()> {
         use vcp_domain::memory::*;
         match record.memory_kind()? {
@@ -1141,14 +1142,11 @@ impl State {
             let result = self.validate_records();
             #[cfg(test)]
             {
-                let candidate = current_validation_candidate::validate_records(
-                    self.into(),
-                    &mut crate::historical_facts::StateEventFacts::new(self),
-                );
+                let reference = self.validate_records_reference();
                 assert_eq!(
                     result.as_ref().map_err(|error| error.to_string()),
-                    candidate.as_ref().map_err(|error| error.to_string()),
-                    "current-only record candidate differs from production validation"
+                    reference.as_ref().map_err(|error| error.to_string()),
+                    "current-only record validator differs from complete-State reference"
                 );
             }
             result
@@ -1189,6 +1187,14 @@ impl State {
         Ok(())
     }
     fn validate_records(&self) -> Result<()> {
+        current_validation::validate_records(
+            self.into(),
+            &mut crate::historical_facts::StateEventFacts::new(self),
+        )
+    }
+    // Frozen complete-State reference retained for differential qualification.
+    #[cfg(test)]
+    fn validate_records_reference(&self) -> Result<()> {
         let mut facts = record_validation_facts::RecordFacts::default();
         for (key, record) in &self.records {
             if &record.key() != key {
