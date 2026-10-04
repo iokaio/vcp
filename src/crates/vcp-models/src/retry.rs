@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::*;
 use serde::{Deserialize, Serialize};
-use vcp_domain::{AttemptId, Timestamp};
+use vcp_domain::{AttemptId, Limit, Timestamp};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Failure {
@@ -95,13 +95,17 @@ pub struct Policy {
     pub max_retries: u32,
     pub base_delay_ms: u64,
     pub max_delay_ms: u64,
-    pub deadline: Timestamp,
+    pub deadline: Limit<Timestamp>,
 }
 impl Policy {
     /// Rate limits need a cooldown, not the short reconnect delay used for
-    /// transient failures. The original request deadline and retry count still
-    /// bound the entire operation; a long server hint is never shortened.
-    pub fn for_failure(max_retries: u32, deadline: Timestamp, failure: Failure) -> Self {
+    /// transient failures. Explicit finite deadlines and retry counts remain
+    /// effective; Unbounded adds no elapsed ceiling or shortened server hint.
+    pub fn for_failure(
+        max_retries: u32,
+        deadline: impl Into<Limit<Timestamp>>,
+        failure: Failure,
+    ) -> Self {
         Self {
             max_retries,
             base_delay_ms: if failure == Failure::RateLimit {
@@ -114,7 +118,7 @@ impl Policy {
             } else {
                 5_000
             },
-            deadline,
+            deadline: deadline.into(),
         }
     }
     /// Scheduling this result requires a fresh attempt/reservation and current
@@ -138,7 +142,10 @@ impl Policy {
         }
         if !owner_current
             || completed_retries >= self.max_retries
-            || now >= self.deadline
+            || self
+                .deadline
+                .finite()
+                .is_some_and(|deadline| now >= *deadline)
             || matches!(
                 failure,
                 Failure::Cancelled
@@ -165,7 +172,11 @@ impl Policy {
             .get()
             .checked_add(delay)
             .ok_or(Error::Limit("retry deadline"))?;
-        if not_before >= self.deadline.get() {
+        if self
+            .deadline
+            .finite()
+            .is_some_and(|deadline| not_before >= deadline.get())
+        {
             return Ok(None);
         }
         Ok(Some(Retry {

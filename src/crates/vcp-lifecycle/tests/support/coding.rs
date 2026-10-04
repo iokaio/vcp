@@ -261,12 +261,18 @@ async fn completed_responses_with_unknown_cost_preserve_liability_without_duplic
     run_coding_modes(&["missing_cost", "missing_cost_unbounded"]).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unbounded_execution_does_not_turn_provider_timeout_into_a_total_response_deadline() {
+    run_coding_modes(&["unbounded_provider_time"]).await;
+}
+
 async fn run_coding_modes(modes: &[&'static str]) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for &requested_mode in modes {
+            let unbounded_time = requested_mode == "unbounded_provider_time";
             let unknown_cost = requested_mode == "missing_cost_unbounded";
             let pending_reopen = requested_mode == "incomplete_pending_reopen";
-            let mode = if unknown_cost {
+            let mode = if unknown_cost || unbounded_time {
                 "complete"
             } else if pending_reopen {
                 "incomplete_usage"
@@ -294,7 +300,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
             let executable = temp.path().join("fixture.exe");
             std::fs::copy(env!("CARGO_BIN_EXE_vcp-process-fixture"), &executable).unwrap();
             let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-            if unknown_cost {
+            if unknown_cost || unbounded_time {
                 config.cap.micros = vcp_domain::Limit::Unbounded;
             }
             if matches!(mode, "incomplete_usage" | "large_patch") {
@@ -307,6 +313,10 @@ async fn run_coding_modes(modes: &[&'static str]) {
             }
             let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
             let binding = task(&host, &config, config.root_task.clone(), None);
+            if unbounded_time {
+                host.configure_execution_constraints(vcp_domain::Limit::Unbounded)
+                    .unwrap();
+            }
             host.command(
                 Command::SetWorkspaceTrust {
                     trust: Trust::Trusted,
@@ -387,7 +397,12 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 compatibility,
             )
             .unwrap();
-            host.configure_provider(snapshot, raw).unwrap();
+            if unbounded_time {
+                host.configure_provider_with_timeout(snapshot, raw, Duration::from_millis(30))
+                    .unwrap();
+            } else {
+                host.configure_provider(snapshot, raw).unwrap();
+            }
             if mode.starts_with("routed_allocation") {
                 let mut routing =
                     super::routing::routing_configuration(vcp_models::routing::Profile::Low, false);
@@ -560,7 +575,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":cost}}}));
                 }
                 let response = ResponseTemplate::new(200).insert_header("content-type", "text/event-stream").set_body_string(sse(events));
-                if mode=="deadline" {response.set_delay(Duration::from_secs(20))}else{response}
+                if mode=="deadline" {response.set_delay(Duration::from_secs(20))}else if unbounded_time { response.set_delay(Duration::from_millis(150)) } else{response}
             }).mount(&server).await;
             let mut registry = ExtensionRegistryBuilder::new();
             registry.turn_start_admission(Arc::new(host.clone()));
@@ -602,10 +617,12 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     },
                     // Leave native capture/startup headroom before submission;
                     // the server then withholds its response beyond this bound.
-                    deadline: Timestamp::new(
-                        now + if mode == "deadline" { 10_000 } else { 300_000 },
-                    )
-                    .into(),
+                    deadline: if unbounded_time {
+                        vcp_domain::Limit::Unbounded
+                    } else {
+                        Timestamp::new(now + if mode == "deadline" { 10_000 } else { 300_000 })
+                            .into()
+                    },
                 },
             )
             .unwrap();
@@ -1423,7 +1440,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 );
                 owner.close().await.unwrap();
             }
-            if mode == "complete" && !unknown_cost {
+            if mode == "complete" && !unknown_cost && !unbounded_time {
                 std::fs::write(
                     workspace.join("AGENTS.md"),
                     "instruction version three after reopen",

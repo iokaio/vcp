@@ -1358,22 +1358,26 @@ impl Context {
                 .streams
                 .insert(attempt.id.clone(), prepared.stream);
         }
-        let deadline = self
-            .provider
-            .as_ref()
-            .map(|provider| std::time::Instant::now() + provider.timeout);
+        let deadline = if self.execution_deadline == Some(vcp_domain::Limit::Unbounded) {
+            None
+        } else {
+            self.provider
+                .as_ref()
+                .map(|provider| std::time::Instant::now() + provider.timeout)
+        };
         #[cfg(windows)]
         let deadline = match (deadline, self.coding_remaining()) {
             (Some(provider), Some(remaining)) => {
                 Some(provider.min(std::time::Instant::now() + remaining))
             }
+            (None, Some(remaining)) => Some(std::time::Instant::now() + remaining),
             (other, _) => other,
         };
         let retry = self
             .provider
             .as_mut()
             .and_then(|p| p.retries.remove(&binding.scope.task));
-        let (deadline, retries) = retry.map_or((deadline, 0), |r| (Some(r.deadline), r.count));
+        let (deadline, retries) = retry.map_or((deadline, 0), |r| (r.deadline, r.count));
         #[cfg(windows)]
         let deadline = match (deadline, self.provider_queue_deadline(binding)) {
             (Some(current), Some(queued)) => Some(current.min(queued)),

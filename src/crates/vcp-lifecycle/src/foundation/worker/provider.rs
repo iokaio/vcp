@@ -19,7 +19,7 @@ pub(super) struct Provider {
 pub(super) struct PendingRetry {
     pub predecessor: AttemptId,
     pub count: u32,
-    pub deadline: std::time::Instant,
+    pub deadline: Option<std::time::Instant>,
     not_before: std::time::Instant,
     /// Owner-approved failover is distinct from an ordinary pinned retry.
     pub switch_owner_model: bool,
@@ -97,16 +97,20 @@ impl Context {
     pub(in crate::foundation) fn provider_queue_remaining(
         &self,
         binding: &ThreadBinding,
-    ) -> Result<Duration> {
+    ) -> Result<Option<Duration>> {
         self.can_start(binding)?;
         let timeout = self
             .provider
             .as_ref()
             .ok_or("provider queue configuration missing")?
             .timeout;
-        Ok(self
-            .coding_remaining()
-            .map_or(timeout, |remaining| remaining.min(timeout)))
+        if self.execution_deadline == Some(vcp_domain::Limit::Unbounded) {
+            return Ok(self.coding_remaining());
+        }
+        Ok(Some(
+            self.coding_remaining()
+                .map_or(timeout, |remaining| remaining.min(timeout)),
+        ))
     }
     #[cfg(windows)]
     pub(in crate::foundation) fn prepare_rotation_routes(
@@ -767,7 +771,7 @@ impl Context {
         let reassembled = false;
         let ready = if let Some(retry) = provider.retries.get(&binding.scope.task) {
             let now = std::time::Instant::now();
-            if now < retry.not_before || now >= retry.deadline {
+            if now < retry.not_before || retry.deadline.is_some_and(|deadline| now >= deadline) {
                 return Err("retry timer is not eligible".into());
             }
             if reassembled {
@@ -879,7 +883,7 @@ impl Context {
         binding: &ThreadBinding,
         attempt: AttemptId,
         count: u32,
-        deadline: std::time::Instant,
+        deadline: Option<std::time::Instant>,
         failure: vcp_models::retry::Failure,
         http_status: Option<u16>,
         retry_after_ms: Option<u64>,
@@ -970,13 +974,24 @@ impl Context {
                 .get(&binding.scope.task)
                 .ok_or("retry source context missing")?,
         )?;
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+        let now_instant = std::time::Instant::now();
+        if deadline.is_some_and(|deadline| now_instant >= deadline) {
             return Ok(None);
-        };
+        }
         let now = now();
+        let effective_deadline = deadline.map_or(vcp_domain::Limit::Unbounded, |deadline| {
+            vcp_domain::Limit::Finite(Timestamp::new(
+                now.get().saturating_add(
+                    deadline
+                        .saturating_duration_since(now_instant)
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64,
+                ),
+            ))
+        });
         let mut policy = vcp_models::retry::Policy::for_failure(
             self.config.max_transport_retries,
-            Timestamp::new(now.get().saturating_add(remaining.as_millis() as u64)),
+            effective_deadline,
             failure,
         );
         let independent_failover = rotation
@@ -1143,7 +1158,11 @@ impl Context {
             .retries
             .get(&binding.scope.task)
             .ok_or("retry cancelled")?;
-        if &retry.predecessor != attempt || std::time::Instant::now() >= retry.deadline {
+        if &retry.predecessor != attempt
+            || retry
+                .deadline
+                .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
             return Err("retry predecessor/deadline changed".into());
         }
         self.validate_retry_sources(

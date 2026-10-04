@@ -1159,7 +1159,7 @@ fn retries_require_fresh_admission_keep_submitted_liability_and_cancel_on_owner_
         max_retries: 2,
         base_delay_ms: 100,
         max_delay_ms: 1000,
-        deadline: Timestamp::new(3000),
+        deadline: Timestamp::new(3000).into(),
     };
     let attempt = AttemptId::new();
     let retry = policy
@@ -1280,6 +1280,38 @@ fn rate_limit_cooldown_honors_server_hint_and_original_deadline() {
     let transient = Policy::for_failure(2, Timestamp::new(120_000), Failure::Transient);
     assert_eq!(transient.base_delay_ms, 100);
     assert_eq!(transient.max_delay_ms, 5_000);
+}
+
+#[test]
+fn unbounded_retry_time_retains_delay_count_owner_and_uncertain_predecessor_fences() {
+    let attempt = AttemptId::new();
+    let policy = Policy::for_failure(2, vcp_domain::Limit::Unbounded, Failure::RateLimit);
+    let late = Timestamp::new(9_000_000_000);
+    let retry = policy
+        .next(
+            attempt.clone(),
+            1,
+            late,
+            Failure::RateLimit,
+            true,
+            Some(30_000),
+            true,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(retry.predecessor, attempt);
+    assert_eq!(retry.not_before, Timestamp::new(late.get() + 30_000));
+    assert!(retry.prior_liability_unresolved);
+    for (count, owner, failure) in [
+        (2, true, Failure::RateLimit),
+        (0, false, Failure::RateLimit),
+        (0, true, Failure::Cancelled),
+    ] {
+        assert!(policy
+            .next(attempt.clone(), count, late, failure, true, None, owner)
+            .unwrap()
+            .is_none());
+    }
 }
 
 #[test]

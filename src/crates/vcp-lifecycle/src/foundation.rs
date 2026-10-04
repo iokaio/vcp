@@ -604,9 +604,7 @@ impl HostWorkPermit for ModelPermit {
             return Ok(None);
         }
         if let Some(span) = self.diagnostic.take() { span.finish(&Err::<(), ()>(())); }
-        let Some(deadline) = self.deadline else {
-            return Ok(None);
-        };
+        let deadline = self.deadline;
         let http_status = match &failure {
             codex_extension_api::HostModelFailure::Http(status) => Some(*status),
             _ => None,
@@ -945,7 +943,7 @@ impl HostWorkAdmission for CanonicalHost {
                     let remaining = self
                         .worker
                         .run(move |context| context.provider_queue_remaining(&binding))?;
-                    Some(std::time::Instant::now() + remaining)
+                    remaining.map(|remaining| std::time::Instant::now() + remaining)
                 } else {
                     None
                 };
@@ -1005,8 +1003,12 @@ impl CanonicalHost {
             let binding = binding.clone();
             move |context| context.provider_queue_remaining(&binding)
         })?;
-        let queue_deadline = std::time::Instant::now() + timeout.min(remaining);
-        let deadline = deadline.map_or(queue_deadline, |value| value.min(queue_deadline));
+        let queue_deadline =
+            remaining.map(|remaining| std::time::Instant::now() + timeout.min(remaining));
+        let deadline = match (deadline, queue_deadline) {
+            (Some(one), Some(two)) => Some(one.min(two)),
+            (one, two) => one.or(two),
+        };
         let routes = if purpose.is_some() {
             self.worker.run({
                 let binding = binding.clone();
@@ -1027,10 +1029,10 @@ impl CanonicalHost {
         };
         let queued = std::time::Instant::now();
         let mut slot = if let Some(mut routes) = routes {
-            routes.deadline = Some(deadline);
+            routes.deadline = deadline;
             loop {
-                let sweep_deadline =
-                    (std::time::Instant::now() + Duration::from_secs(2)).min(deadline);
+                let sweep = std::time::Instant::now() + Duration::from_secs(2);
+                let sweep_deadline = deadline.map_or(sweep, |deadline| sweep.min(deadline));
                 match gate.acquire_routes(&routes, sweep_deadline, &current).await {
                     Ok(mut slot) => {
                         slot.deadline = deadline;
@@ -1038,7 +1040,7 @@ impl CanonicalHost {
                     }
                     Err(error)
                         if error == "provider rotation deadline expired before submission"
-                            && std::time::Instant::now() < deadline =>
+                            && deadline.is_none_or(|deadline| std::time::Instant::now() < deadline) =>
                     {
                         let _ = self.reconcile_pending(thread).await?;
                     }
@@ -1102,7 +1104,7 @@ impl CanonicalHost {
         let input = body.clone();
         let admitted = binding.clone();
         #[cfg(windows)]
-        let queue_deadline = slot.as_ref().map(|slot| slot.deadline);
+        let queue_deadline = slot.as_ref().and_then(|slot| slot.deadline);
         #[cfg(not(windows))]
         let queue_deadline = None;
         let admission = self.worker.run(move |context| {
@@ -1119,7 +1121,9 @@ impl CanonicalHost {
         #[cfg(windows)]
         if let Some(slot) = &slot {
             slot.mark_admitted();
-            deadline = Some(deadline.map_or(slot.deadline, |value| value.min(slot.deadline)));
+            if let Some(queued) = slot.deadline {
+                deadline = Some(deadline.map_or(queued, |value| value.min(queued)));
+            }
         }
         *body = prepared;
         let diagnostic_binding = binding.clone();

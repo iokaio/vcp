@@ -35,7 +35,7 @@ pub struct Slot {
     route: Option<ModelEndpoint>,
     _route_lease: Option<File>,
     sample: Option<u64>,
-    pub(super) deadline: Instant,
+    pub(super) deadline: Option<Instant>,
     selection: Option<Selection>,
     admitted: std::sync::atomic::AtomicBool,
 }
@@ -49,7 +49,7 @@ pub(super) struct Selection {
     pub queued_ms: u64,
     pub decision_reason: String,
     pub recovery_probe: bool,
-    pub remaining_deadline_ms: u64,
+    pub remaining_deadline_ms: Option<u64>,
     pub local_token_target: u64,
     pub local_window_load: u64,
     pub pressure_kind: &'static str,
@@ -401,7 +401,7 @@ impl Gate {
             if Instant::now() >= deadline {
                 if routes
                     .deadline
-                    .is_none_or(|original| Instant::now() >= original)
+                    .is_some_and(|original| Instant::now() >= original)
                 {
                     let _ = self.clear_waiter(&routes.waiter_id);
                 }
@@ -436,8 +436,9 @@ impl Gate {
                 let until = now.saturating_add(
                     routes
                         .deadline
-                        .unwrap_or(deadline)
-                        .saturating_duration_since(Instant::now())
+                        .map_or(Duration::from_secs(10), |deadline| {
+                            deadline.saturating_duration_since(Instant::now())
+                        })
                         .as_millis()
                         .min(10_000) as u64,
                 );
@@ -599,13 +600,13 @@ impl Gate {
                                     }
                                     .into(),
                                     recovery_probe,
-                                    remaining_deadline_ms: routes
-                                        .deadline
-                                        .unwrap_or(deadline)
-                                        .saturating_duration_since(Instant::now())
-                                        .as_millis()
-                                        .min(u128::from(u64::MAX))
-                                        as u64,
+                                    remaining_deadline_ms: routes.deadline.map(|deadline| {
+                                        deadline
+                                            .saturating_duration_since(Instant::now())
+                                            .as_millis()
+                                            .min(u128::from(u64::MAX))
+                                            as u64
+                                    }),
                                     local_token_target,
                                     local_window_load,
                                     pressure_kind: "local estimate; provider token limit unknown",
@@ -616,7 +617,7 @@ impl Gate {
                                     route: Some(selected),
                                     _route_lease: Some(route_lease),
                                     sample: Some(state.sequence),
-                                    deadline,
+                                    deadline: routes.deadline,
                                     selection: Some(selection),
                                     admitted: std::sync::atomic::AtomicBool::new(false),
                                 });
@@ -635,16 +636,21 @@ impl Gate {
     }
 
     /// Wait before canonical reservation/submission. No canonical store lock is
-    /// held; cancellation and the original absolute deadline remain effective.
-    pub async fn acquire<F>(&self, deadline: Instant, current: F) -> Result<Slot, String>
+    /// held; cancellation and any explicit absolute deadline remain effective.
+    pub async fn acquire<F>(
+        &self,
+        deadline: impl Into<Option<Instant>>,
+        current: F,
+    ) -> Result<Slot, String>
     where
         F: Fn() -> bool,
     {
+        let deadline = deadline.into();
         loop {
             if !current() {
                 return Err("provider pacing cancelled by current owner".into());
             }
-            if Instant::now() >= deadline {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 return Err("provider pacing deadline expired before submission".into());
             }
             let (transaction, _) = self.open("transaction.lock")?;
@@ -665,7 +671,9 @@ impl Gate {
                         let (lease, _) = self.open(&format!("slot-{index}.lock"))?;
                         if Self::try_lock(&lease)? {
                             // Check after filesystem work as well as before it.
-                            if !current() || Instant::now() >= deadline {
+                            if !current()
+                                || deadline.is_some_and(|deadline| Instant::now() >= deadline)
+                            {
                                 return Err("provider pacing cancelled before submission".into());
                             }
                             state.not_before_ms = now
@@ -689,7 +697,10 @@ impl Gate {
                 }
             }
             drop(transaction);
-            tokio::time::sleep(POLL.min(deadline.saturating_duration_since(Instant::now()))).await;
+            tokio::time::sleep(deadline.map_or(POLL, |deadline| {
+                POLL.min(deadline.saturating_duration_since(Instant::now()))
+            }))
+            .await;
         }
     }
 }
@@ -1329,6 +1340,46 @@ mod tests {
         drop(one);
         let three = first.acquire(deadline, || true).await.unwrap();
         drop((two, three));
+    }
+
+    #[tokio::test]
+    async fn unbounded_wait_preserves_slots_cancellation_and_route_polling_without_response_deadline(
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let gate = gate(&temp);
+        let one = gate.acquire(None, || true).await.unwrap();
+        let two = gate.acquire(None, || true).await.unwrap();
+        assert!(one.deadline.is_none() && two.deadline.is_none());
+        let began = Instant::now();
+        let cancelled = gate
+            .acquire(None, || began.elapsed() < Duration::from_millis(80))
+            .await
+            .err()
+            .unwrap();
+        assert!(cancelled.contains("cancelled"));
+        let mut request = routes(&[&[("a", "one")]], 1);
+        request.deadline = None;
+        let sweep = gate
+            .acquire_routes(&request, Instant::now() + Duration::from_millis(60), || true)
+            .await
+            .err()
+            .unwrap();
+        assert!(sweep.contains("deadline"));
+        assert!(
+            gate.rotation_state()
+                .unwrap()
+                .1
+                .waiters
+                .contains_key(&request.waiter_id),
+            "a polling sweep must retain an unbounded owner's renewable waiter"
+        );
+        drop((one, two));
+        let slot = gate
+            .acquire_routes(&request, Instant::now() + Duration::from_secs(2), || true)
+            .await
+            .unwrap();
+        assert!(slot.deadline.is_none());
+        assert!(slot.selection().unwrap().remaining_deadline_ms.is_none());
     }
 
     #[tokio::test]
