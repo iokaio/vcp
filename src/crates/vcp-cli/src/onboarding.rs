@@ -27,6 +27,8 @@ pub enum Command {
     },
     /// Refresh public endpoint metadata for retained adapter evidence; no inference.
     ProviderRefresh(crate::provider_setup::refresh::Refresh),
+    /// Capture fresh public metadata for an exact selection with the current adapter.
+    ProviderMetadata(crate::provider_setup::metadata::Metadata),
     /// Create an offline workspace profile from current qualified metadata.
     Profile(Profile),
     /// Validate the selected profile, tools, budgets and expiry without inference.
@@ -95,6 +97,9 @@ pub async fn execute(
         Command::ProviderRefresh(request) => {
             crate::provider_setup::refresh::run(request, &workspace).await
         }
+        Command::ProviderMetadata(request) => {
+            crate::provider_setup::metadata::run(request, &workspace).await
+        }
         Command::Profile(request) => create(request, &workspace),
         Command::Check => {
             let path = config.ok_or("setup check requires an explicit --config profile path; use setup profile for first-run creation")?;
@@ -143,7 +148,7 @@ fn create(request: &Profile, workspace: &Path) -> Result<Value, String> {
     profile
         .prepare(vcp_domain::policy::Autonomy::Plan)
         .map_err(|e| {
-            format!("{e}; require a fresh matching catalog/snapshot from setup provider-refresh or setup provider")
+            format!("{e}; require a fresh matching catalog/snapshot; use setup provider-metadata for the current compiled adapter and exact selected model/endpoint, setup provider-refresh for unchanged adapter evidence, or setup provider for empirical qualification")
         })?;
     let parent = output.parent().ok_or("profile output parent required")?;
     let root = settings::registry_root(parent)?;

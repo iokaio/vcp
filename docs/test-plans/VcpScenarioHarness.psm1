@@ -1572,6 +1572,59 @@ function New-ScenarioProfile {
     return $path
 }
 
+function Update-ScenarioProviderMetadata {
+    # Retained evidence identifies the owner's selection only. The installed
+    # CLI constructs new evidence from its current adapter and a public GET.
+    param($Ctx, [string]$SnapshotPath, [string]$CatalogPath,
+        [string]$ExpectedModel = $Ctx.Model, [string]$ExpectedEndpoint = $Ctx.Endpoint)
+    $prior = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json -Depth 100
+    $catalog = Get-Content -LiteralPath $CatalogPath -Raw | ConvertFrom-Json -Depth 100
+    Assert-That ($ExpectedModel -and $ExpectedEndpoint -and $prior.compatibility.model -ceq $ExpectedModel -and
+        $prior.compatibility.endpoint -ceq $ExpectedEndpoint) 'Retained evidence changed the selected model or endpoint'
+    Assert-That ($prior.compatibility.id -clike 'openrouter-responses-adapter-contract/1/*') 'Metadata recovery requires a retained adapter selection'
+    Assert-That ($prior.raw_sha256 -match '^[0-9a-fA-F]{64}$' -and
+        (Get-FileHash -LiteralPath $CatalogPath -Algorithm SHA256).Hash -ieq $prior.raw_sha256) 'Retained catalog hash mismatch'
+    foreach ($value in [string]$prior.compatibility.model, [string]$prior.compatibility.endpoint) {
+        Assert-That ($value.Length -le 256 -and $value -cmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -and
+            -not @($value.Split('/') | Where-Object { $_ -in '.', '..' }).Count) 'Metadata recovery requires exact model and endpoint identifiers'
+    }
+    Assert-That ($catalog.data.id -ceq $prior.compatibility.model -and
+        @($catalog.data.endpoints | Where-Object { $_.tag -ceq $prior.compatibility.endpoint }).Count -eq 1) 'Retained catalog selection mismatch'
+    $generation = Join-Path $Ctx.Root ('provider-current-' + [guid]::NewGuid().ToString('N'))
+    $evidencePath = Join-Path $Ctx.Results 'provider-adapter-update.json'
+    $evidence = [ordered]@{ status = 'starting'; prior_snapshot = $SnapshotPath; prior_catalog = $CatalogPath
+        generation = $generation; model = $prior.compatibility.model; endpoint = $prior.compatibility.endpoint
+        model_calls = 0; scope = 'Current compiled adapter and fresh public metadata; retained evidence supplies identity only.' }
+    Write-JsonFile $evidencePath $evidence
+    try {
+        Write-Step $Ctx 'Recreating metadata for the selected model and endpoint with the installed adapter; no inference.' 'phase'
+        $run = Invoke-Vcp -Ctx $Ctx -Stage 'provider' -Label 'current-adapter-metadata' -DenyProviderCredentials -TimeoutSeconds 180 -Arguments @(
+            'setup', 'provider-metadata', '--model', $prior.compatibility.model, '--endpoint', $prior.compatibility.endpoint, '--output', $generation)
+        $evidence.exit_code = $run.ExitCode; $evidence.stdout = $run.StdoutPath; $evidence.stderr = $run.StderrPath
+        Assert-That ($run.ExitCode -eq 0 -and -not $run.TimedOut -and $run.InvalidLines -eq 0 -and
+            $run.Result.data.status -eq 'created' -and $run.Result.data.model_calls -eq 0) "Current adapter metadata failed (exit $($run.ExitCode)); the installed CLI must support setup provider-metadata. $($run.Stderr)"
+        $snapshotPath = Join-Path $generation 'snapshot.json'
+        $catalogPath = Join-Path $generation 'endpoints.json'
+        $snapshotText = Get-Content -LiteralPath $snapshotPath -Raw
+        $snapshot = $snapshotText | ConvertFrom-Json -Depth 100
+        Assert-That ($snapshot.compatibility.model -ceq $prior.compatibility.model -and
+            $snapshot.compatibility.endpoint -ceq $prior.compatibility.endpoint) 'Current adapter metadata changed the selected model or endpoint'
+        Assert-That ($snapshot.raw_sha256 -match '^[0-9a-fA-F]{64}$' -and
+            (Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256).Hash -ieq $snapshot.raw_sha256) 'Current adapter catalog hash mismatch'
+        $validUntil = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until)
+        Assert-That ($validUntil -gt [DateTimeOffset]::UtcNow) 'Current adapter metadata is already expired'
+        $evidence.status = 'created'; $evidence.valid_until = $snapshot.valid_until
+        Write-JsonFile $evidencePath $evidence
+        return @{ Generation = $generation; Snapshot = $snapshotPath; Catalog = $catalogPath
+            SnapshotText = $snapshotText; SnapshotValidUntil = $validUntil.ToString('o'); MaxOutput = [int64]$snapshot.max_output }
+    }
+    catch {
+        $evidence.status = 'failed'; $evidence.failure = $_.Exception.Message
+        Write-JsonFile $evidencePath $evidence
+        throw
+    }
+}
+
 function Invoke-CommonPreflight {
     <#
     Zero-spend CLI preflight: version, doctor, setup credential status, the
@@ -1593,10 +1646,23 @@ function Invoke-CommonPreflight {
     $credential = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'credential-status' -Arguments @('setup', 'credential', 'status')
     Write-JsonFile -Path (Join-Path $Ctx.Logs "$stage\credential-status.json") -Value $credential.Result
     $base = Join-Path $Ctx.Profiles ("base-setup-profile-{0}.json" -f $Ctx.RunId)
-    $setup = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'setup-profile' -Arguments @(
+    $setup = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'setup-profile' -DenyProviderCredentials -Arguments @(
         'setup', 'profile', '--snapshot', $Ctx.Snapshot, '--catalog', $Ctx.Catalog, '--output', $base,
         '--trust-workspace', '--budget-usd', (Format-Usd $Ctx.TurnBudgetUsd), '--autonomy', 'ask', '--affected-path', $AffectedPath)
+    $recoveryError = $null
+    if ($setup.ExitCode -eq 2 -and $setup.Stderr -match 'dated compatibility record|adapter contract or fresh metadata window') {
+        try {
+            $current = Update-ScenarioProviderMetadata $Ctx $Ctx.Snapshot $Ctx.Catalog
+            foreach ($key in 'Snapshot', 'Catalog', 'SnapshotText', 'SnapshotValidUntil') { $Ctx[$key] = $current[$key] }
+            if ($current.MaxOutput -gt 0 -and $Ctx.OutputTokens -gt $current.MaxOutput) { $Ctx.OutputTokens = [int]$current.MaxOutput }
+            $setup = Invoke-Vcp -Ctx $Ctx -Stage $stage -Label 'setup-profile-current-adapter' -DenyProviderCredentials -Arguments @(
+                'setup', 'profile', '--snapshot', $Ctx.Snapshot, '--catalog', $Ctx.Catalog, '--output', $base,
+                '--trust-workspace', '--budget-usd', (Format-Usd $Ctx.TurnBudgetUsd), '--autonomy', 'ask', '--affected-path', $AffectedPath)
+        }
+        catch { $recoveryError = $_.Exception.Message }
+    }
     [void](Invoke-Gate -Ctx $Ctx -Stage $stage -Id 'setup-profile' -Description 'vcp setup profile creates a trusted base profile for this workspace' -Test {
+            Assert-That (-not $recoveryError) "Provider adapter recovery failed: $recoveryError"
             Assert-That ($setup.ExitCode -eq 0) "exit $($setup.ExitCode): $($setup.Stderr)"
             Assert-That (Test-Path -LiteralPath $base) 'profile file not written'
             $true
@@ -1856,6 +1922,6 @@ Export-ModuleMember -Function @(
     'Get-VcpTaskCost', 'Get-VcpFinalMessage', 'Get-CompletedTurnIds', 'Get-WorkspaceManifest',
     'Compare-WorkspaceManifest', 'Invoke-VcpTask', 'Invoke-VcpContinuation', 'Invoke-RepairLoop', 'Test-StageExit',
     'Invoke-PlanModeReview', 'New-ProcessProfile', 'New-ScenarioProfile', 'Invoke-CommonPreflight',
-    'Test-ProfileCheck', 'Test-ProcessEnvironment', 'Invoke-GuardrailRun', 'Invoke-WorkspaceDiscover', 'Invoke-FinalEvidenceSweep',
+    'Update-ScenarioProviderMetadata', 'Test-ProfileCheck', 'Test-ProcessEnvironment', 'Invoke-GuardrailRun', 'Invoke-WorkspaceDiscover', 'Invoke-FinalEvidenceSweep',
     'Initialize-GitCheckpoint', 'Save-Checkpoint', 'Add-Asset', 'Complete-VcpScenario'
 )

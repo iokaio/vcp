@@ -28,12 +28,13 @@ use vcp_protocol::{canonical_bytes, command::Command, digest_bytes};
 use vcp_store::{contract::Collection, BackendKind};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub mod connection;
+pub mod metadata;
 #[cfg(feature = "qualification")]
 #[path = "../bin/conformance/native.rs"]
 mod native_probe;
 pub mod production;
-pub mod refresh;
 mod qualify;
+pub mod refresh;
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Spec {

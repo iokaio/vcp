@@ -59,6 +59,16 @@ gap where scenario scripts could only invoke the older paid qualification comman
 See [the scenario A failure review](../test-plans/run-review-20261003-092744.md)
 for the captured expiry, implementation rationale and verification limits.
 
+October 3 adapter-update correction: retained metadata from a prior executable
+can remain unexpired while its source-hashed adapter contract no longer matches.
+`setup provider-metadata` creates current evidence from a fresh public catalog
+for an explicitly selected exact model/endpoint, without inference or inherited
+compatibility claims. Scenario preflight retries offline profile creation once
+after this recovery. Expired-generation discovery uses the same path when strict
+`provider-refresh` rejects a changed compiled contract. Admission and strict
+renewal continue to reject earlier contracts; original profiles and tasks remain
+unchanged. This follows ADR-081's independent current-adapter and metadata claims.
+
 ## Verification evidence
 
 Native Windows MSVC checks used Rust 1.98.0 with locked offline dependencies.
