@@ -2,7 +2,7 @@
 
 Approved October 4, 2026. Branch: `feature/execution-engine-refinements`. Delivery is local phase commits only; no push, PR or release.
 
-The [architecture plan](../architecture/execution-architecture-review.md) owns implementation contracts and acceptance. [ADR-085](../adr/085-existing-execution-refinements.md) records the superseding decisions. This ledger records actual progress; prior P1/P2 completion does not qualify these changes.
+The [architecture plan](../architecture/execution-architecture-review.md) owns implementation contracts and acceptance. [ADR-085](../adr/085-existing-execution-refinements.md) records the superseding decisions. This ledger records actual progress; prior P1/P2 completion does not qualify these changes. The [progress blockers and ways forward](../architecture/execution-engine-progress-blockers.md) record current obstacles, alternatives, continuation actions and the evidence needed to close them.
 
 ## Work items
 
@@ -13,8 +13,8 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-00c | Bundle integration and reconstruction | EE-00a/b | scripted repair, omission and interrupted-provider archives verified; remaining joins in progress |
 | EE-01a | Harness deadline/spend removal | EE-00a/b | in progress; user clarification approved and fresh automatic review accepted |
 | EE-01b | Versioned explicit limit representation | EE-00a | in progress; core/schema slice verified |
-| EE-01c | Financial admission with durable attempt fences | EE-01b | explicit-limit core verified; suspension activation held |
-| EE-01d | Derived bounds and start/resume conversion | EE-01b/c | independent operational bounds implemented; suspension/conversion held |
+| EE-01c | Financial admission with durable attempt fences | EE-01b | unbounded effective cap activated; complete-response missing-cost progression verified; missing-price representation open |
+| EE-01d | Derived bounds and start/resume conversion | EE-01b/c | explicit old-task conversion verified; provider pacing/deadline integration in progress |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | in progress; startup retention and disposition verified |
 | EE-02a | Consolidate opens and reconstruction | EE-00b | in progress; duplicate replay and SQL paging verified |
 | EE-02b | Incremental validation | EE-00b | in progress; exact byte accounting verified |

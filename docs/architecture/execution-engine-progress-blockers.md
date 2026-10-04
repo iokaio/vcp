@@ -1,0 +1,120 @@
+# Execution engine progress: blockers and ways forward
+
+Updated October 4, 2026. Scope: EE-00 through EE-07 on `feature/execution-engine-refinements`. This record supplements the [approved architecture plan](execution-architecture-review.md), [implementation ledger](../plan/25-execution-engine-refinements.md) and [constraint test disposition](../test-plans/execution-constraint-disposition.md). Implementation remains local: commit qualified increments, do not push, open a PR or release.
+
+## Assessment
+
+The current evidence does not establish that VCP's requirements are irreconcilable. It does establish that several public internal interfaces assume the complete execution history stays in memory, and that financial uncertainty is represented using types and transitions originally designed to stop execution. Those assumptions cross storage, snapshots, audit, memory, provider routing and scenario supervision. Changing one caller or disabling one timer cannot complete the approved architecture.
+
+The main progress problem is integration. Many necessary components have passing local tests, but the live Store still owns historical payloads and the complete A/B execution chain has not been qualified. More isolated helpers would increase the distance between tested components and working scenarios. The next storage milestone must replace ownership in the existing Store and exercise real callers; the next execution milestone must run the integrated driver and harness with truthful constraint diagnostics.
+
+There is no current blanket permission or budget hold. The owner's explicit "Approved. Continue." clarification was followed by fresh accepted reviews of the previously blocked suspension changes. A separate rejection of a broad uncertain-liability bypass remains relevant; its narrower accepted replacement is described below. Neither approval nor a passing unit test establishes that A/B works. Fresh full A/B and larger-engagement qualification remain unrun.
+
+## Current dependency map
+
+| Blocker | What it prevents | State | Work that can continue |
+|---|---|---|---|
+| B-01: resident-history API contract | Actual history eviction and bounded steady-state memory | Open; integrated ownership migration underway | Finish remaining callers and durable Store ownership in parallel, then make one coordinated interface change |
+| B-02: snapshot, archive and migration ownership | End-to-end large-history backup/restore and live layout activation | Open; streaming and native-owner prerequisites qualified | Adopt pinned snapshots in existing jobs; implement marker publication and failure recovery |
+| B-03: historical integrity versus cold-open target | Claiming bounded cold reopen with equivalent validation | Open; full semantic replay retained | Deliver fast current access and eviction independently; measure replay phases and remove demonstrated duplicate work |
+| B-04: derived timers and finite-only pricing types | Complete financial/deadline suspension in provider execution | Open; launcher conversion qualified, pacing being integrated | Finish explicit absent deadlines, represent unknown quotes honestly and qualify actual driver behavior |
+| B-05: unsafe conflation of billing and uncertain execution | Broad removal of unresolved-availability stopping logic | Broad proposal rejected; narrow complete-response case qualified | Preserve uncertain-send/effect fences; use typed outcome evidence for any further distinction |
+| B-06: old scenario/campaign policy | A valid sustained A/B run under the approved experiment policy | Partially resolved; harness supervision/accounting qualified | Replace forced-short T5 probes and campaign financial stopping; retain independent application gates |
+| B-07: missing live evidence | Claims of scenario success, robust adaptation or larger-engagement quality | Unrun | Integrate a local candidate, run a small diagnostic execution, then full A/B and larger engagements |
+| B-08: shared-interface and test-environment friction | Fast, reliable integration of parallel changes | Manageable engineering overhead | Commit coherent slices, coordinate shared files, use explicit fixture prerequisites and avoid redundant suites |
+
+## B-01 — Store and caller contracts still require resident history
+
+**Evidence and cause.** [`Store`](../../src/crates/vcp-store/src/store.rs) retains `State`, replay-base state and state-size bookkeeping. [`CanonicalStore`](../../src/crates/vcp-store/src/contract.rs) exposes `state() -> &State`; default history readers use its event and command collections. Borrowed history pages also assume backing payloads remain resident. The implementation cannot release those payloads while continuing to return valid references to them.
+
+Many ordinary callers now use current records or fallible bounded history reads. The latest coherent slice passed 117 memory tests, 19 audit tests, 10 lifecycle authority/retention tests and three actual public RPC/export/artifact tests; CLI test targets compiled. Authenticated artifact-reference lookup passed three targeted tests and the full store library passed 142 tests with one existing ignored case. These results qualify prerequisites, not live history eviction. Remaining examples include audit inspection/projection, memory retention and explicit archive/bundle consumers.
+
+**Recommended way forward.** Make the existing Store own the admitted durable current-state roots, backend, canonical lock and native page capabilities. Keep current-record reads synchronous. Implement history and receipt reads as fallible, owned, bounded results from authenticated indexes. Remove the resident-history requirement only when affected callers compile against those explicit contracts. Preserve named archival operations through an explicit asynchronous complete-state DTO with its documented legacy size limit; ordinary reads must not invoke that fallback.
+
+**Alternatives.** Keeping resident State is a correct temporary checkpoint but does not satisfy EE-02c. Calling full archival reconstruction from every migrated reader would make compilation easier while retaining the memory and replay problem. Returning a partial State, returning empty history, or leaving a production panic behind the old method would violate chronology, authorization or error behavior. A second execution engine or selectable legacy runtime would violate the approved single-path direction.
+
+**Completion evidence.** Exercise the actual Store through both native backends, prove current/history/receipt parity and error ordering, preserve exact original commit bytes, and demonstrate that ordinary reads and appends no longer retain or reconstruct full historical payloads. Use readers that fail on full-State access and injected interior-read failures. Re-run affected lifecycle and CLI boundaries after the coordinated interface change.
+
+## B-02 — Snapshot and publication boundaries still own complete archives
+
+**Evidence and cause.** [`snapshot_jobs.rs`](../../src/crates/vcp-store/src/snapshot_jobs.rs) and portable capture consume `Snapshot.state()`, full-state digests and legacy archive payload maps. Existing format selection and replay-base checkpoints do not yet activate the durable current/history layout. A passing index codec does not establish atomic root publication, snapshot lifetime or restore admission.
+
+Qualified prerequisites now include a factory that owns the real canonical lock and performs complete native replay, durable snapshot pins, exact archival encoding, versioned ciphertext finalization and authenticated closure copying. The existing job now streams finalized ciphertext through create-only private persistence rather than building another whole ciphertext buffer. Its private-file failure test and all seven existing snapshot-job cases passed. Job input capture and restore are still separate unfinished integration work.
+
+**Recommended way forward.** Replace Snapshot's resident ownership with pinned durable roots and native/artifact capabilities. Open read-only history access lazily when an asynchronous reader needs it. Move existing job capture, preparation, encryption and restore through the streamed neutral-history/2 path; bind marker publication to the admitted roots and original-byte history, and test interruption at publication boundaries. Retain explicit legacy archive compatibility where required without making it an ordinary-read fallback.
+
+**Size-limit issue.** Legacy pre-migration State and current aggregate archive/crypto limits still include 64/65 MiB ceilings. A larger streamed blob test does not prove a larger complete backup/restore works. Neutral-history/2 needs bounded frames plus an explicit aggregate admission policy, followed by an actual archive/restore exceeding the old limit without a whole-State allocation.
+
+**Alternatives.** Raising `MAX_STATE_BYTES` alone postpones the limit while increasing allocation. Keeping legacy capture temporarily preserves correctness but leaves the acceptance condition open. Switching publication to unverified roots is not a valid workaround. The useful intermediate delivery is already active ciphertext streaming while integrated snapshot ownership proceeds.
+
+**Completion evidence.** Verify snapshots across owner close, later append and rewrite; exclusive ownership; missing/tampered pages; interrupted migration and publication; restore trust/scope checks; and a real larger-than-legacy-limit round trip. Never treat missing storage or an unreadable origin as an empty store.
+
+## B-03 — A trusted head does not replace historical semantic validation
+
+**Evidence and cause.** The approved integrity contract requires more than matching hashes. Historical cross-record, event, accounting, redaction and ingestion predicates must remain equivalent. The durable cold-open factory currently performs full semantic replay before releasing its archival base. This is correct, but it does not qualify the bounded cold-reopen target.
+
+**Recommended way forward.** Preserve full replay while activating fast current access, bounded readers, single-owner reuse and history eviction. Use the existing phase diagnostics to identify duplicate parsing, materialization and validation work. Introduce only incremental certificates or checkpoint hydration whose equivalence can be demonstrated against the full reference behavior. Record cold and repeat-read measurements separately with sample counts.
+
+**Alternatives.** Full replay is the safe interim behavior and need not block other EE-02 benefits. Trusting only a sealed head and checking historical semantics on demand changes the integrity contract; the approved suspension of billing and deadlines does not authorize it. If equivalent guarantees prove infeasible, document the exact predicate and counterexample, retain replay and present that narrower integrity decision to the owner. Do not call implementation difficulty proof of impossibility.
+
+**Completion evidence.** Match accepted/rejected histories and error behavior across mutation, corruption, redaction, accounting and interrupted-publication fixtures. Meet and measure the cold-open target separately; until then mark it outstanding rather than waiving it.
+
+## B-04 — Unbounded execution must reach every derived boundary
+
+**Evidence and cause.** CLI effective cap/deadline activation is committed in `703fe5cb`. New both-store tests prove intentional resume of an expired finite acceptance without rewriting original facts, and progression after a complete response with missing cost. Existing finite cap/expiry fixtures still pass. However, provider queue, total-response and retry deadlines can impose finite ceilings even when the task deadline is absent. Separately, quote/reservation/ledger types and catalog pricing validation still require finite prices, so removing a routing exclusion alone cannot admit a genuinely unknown quote.
+
+**Recommended way forward.** Propagate explicit absent absolute deadlines through provider admission and retries. Keep operational polling, renewable waiter leases, concurrency, rate limits, cancellation and transport ownership distinct from execution deadlines. For unavailable prices, introduce explicit known/unknown quote and liability representations with legacy decoding, stable attempt identities and separate known totals/unknown observations. Do not encode unknown as zero, a guessed cap or a maximum integer.
+
+**Alternatives.** A currently priced provider can support a narrow diagnostic experiment while unknown-price support is unfinished, provided the gap is stated; it cannot qualify all EE-01 acceptance. Huge timeout sentinels and fake free quotes hide the missing representation rather than solve it. Restoring blanket billing waits would conflict with the approved direction.
+
+**Completion evidence.** Run actual shared-driver tests for queue waiting, response lifetime, retries, cancellation, owner loss and old-task resume. Preserve finite compatibility fixtures. Add missing-price fixtures proving an admitted unique attempt, truthful unknown accounting and unchanged capability/privacy/provider restrictions. Compile schema and client consumers together when the representation changes.
+
+## B-05 — Billing uncertainty cannot erase unknown-send protections
+
+**Review boundary.** Automatic approval review rejected a broad bypass of the unresolved-availability guard for unbounded ledgers because it could permit further sends while prior outcomes/liabilities were uncertain, exceeding duplicate/no-send protections. That broad change was not applied. This is a specific rejected action, not a blanket prohibition on financial suspension.
+
+**Accepted way forward.** A narrower reviewed change permits progression only when the response was captured, normalized as `Completed`, has no terminal diagnostic and has missing cost under an unbounded ledger. It retains unresolved charge evidence. A both-store fixture passes unique-attempt, duplicate-tool denial and reopen-without-send checks. Incomplete/error responses and uncertain sends/effects remain fenced.
+
+**Further alternatives.** Investigate stronger typed evidence that separates a completed exchange with an unknown bill from an unknown execution outcome before broadening any other transition. Continue all independent work meanwhile. If the only remaining proposal genuinely weakens the uncertain-execution boundary, document its concrete effects and request that specific owner decision; do not retry the rejected broad change through another tool, file or flag.
+
+## B-06 — The scenario supervisor still encodes the old experiment policy
+
+**Evidence and cause.** Harness run/resume/fork supervision now accepts an explicit absent deadline (`b14d794c`). Scenario financial ceilings and cap-as-spend estimates were removed in `38f7c28e`. Reporting preserves cumulative observed spend, partial settlement and unknown additional cost; accounting uncertainty is separate from application quality. The revised accounting, dispatch, inspection-repair and deadline-reconciliation tests pass; 63 harness checks and 580 blocked-execution/repair-context checks passed. Incomplete scoped outcomes and inspection failures still stop execution.
+
+The A/B scripts still contain `T5-short` profiles and deadline-driven resume expectations. The campaign module still enforces the original fixed-$100 allocation policy and reconciles attempts using reserved finite caps. Leaving those callers unchanged would reintroduce the restrictions above the improved runtime or misreport an unrestricted run.
+
+**Recommended way forward.** Replace the forced short-deadline probe with an explicit, acknowledged pause/resume exercise in the existing controller path. Update campaign admission/reporting to the approved suspended financial policy while retaining original campaign archives unchanged. Preserve scoped terminal-result proof, protected files, independent application tests, unresolved-effect stopping and process ownership. Keep independent tool/inspection containment bounds; they are not scenario execution deadlines.
+
+**Alternatives.** Run the normal T5 task to completion and qualify explicit stop/resume separately if interrupting that stage would make its quality measurement ambiguous; report the two outcomes separately. Do not turn an unresolved-effect result into a successful pause, accept a killed process as a clean stop, or weaken application gates to get a green scorecard. Old financial-cap test expectations should be replaced with observed/unknown accounting assertions, while their no-duplicate and malformed-evidence protections remain.
+
+**Completion evidence.** Offline tests must show the actual run/continuation entry points ignore legacy spend/deadline ceilings, unknown amounts remain visible, explicit cancellation works and uncertain effects block. Then exercise real A/B pause/resume and prove same-task continuation with no duplicate effect. Update both scenario and campaign reports so quality and financial completeness cannot be confused.
+
+## B-07 — Unit qualification is not scenario execution evidence
+
+**Evidence and cause.** Scripted repair, truncation, interruption and diagnostic archives exist, but there is no fresh complete A/B pass or larger-engagement result for the integrated changes. Adaptive request/response limits have scripted coverage; quality effects with real providers remain unmeasured. Storage component success cannot answer those questions.
+
+**Recommended way forward.** Build a synchronized local candidate after the execution/harness interfaces are coherent. The latest recorded candidate is 0.2.24; a new distributable candidate requires the repository's next synchronized numeric version and verification of actual built artifacts. Run a small real repair first to check diagnostic joins and actual request allocations, then full A/B with independent gates, and then larger engagements. Preserve every run and classify failures by execution, verification, accounting, harness or evidence collection before repairing their cause.
+
+**Alternatives.** A narrowly labeled diagnostic probe can proceed before all storage targets are met if its execution preconditions are satisfied; it must not be presented as full unrestricted or EE-07 qualification. Do not postpone every real measurement until all performance targets are met. Conversely, repeatedly launching full paid campaigns while known launch/harness failures remain unresolved produces little useful evidence.
+
+**Completion evidence.** Link actual executable identity, effective policy, inputs, request/response allocations, attempts, effects, independent checks and terminal outcomes. Record missing observations explicitly. Quality and diagnostics lead; speed/cost improvements can follow, while fast-state implementation continues in parallel.
+
+## B-08 — Integration discipline and environment friction
+
+Shared trait changes affect several crates at once. Starting another API change before a coherent slice is qualified creates avoidable compile churn; waiting for every agent before doing independent work also wastes time. Use bounded file ownership, short interface freezes only for integration, explicit staging and one root-owned commit. Keep the actual production path compiling at each committed checkpoint.
+
+Some failures were environment/setup issues: Windows held test executables can prevent relinking, concurrent Cargo jobs share build locks, and native fixtures require the installed Git/Node paths. One CLI settings assertion also used a deserialization-only fake workspace where runtime preparation required a real workspace and valid metadata; its fixture is being corrected. Record these separately from product defects, fix the fixture/environment and rerun the affected test. A successful compile is not a test execution, and an ignored fixture is not a pass.
+
+The effective workaround is a small repeatable qualification setup: explicit workspace/tool paths, appropriate stack size, one linker owner per target directory, retained logs and the smallest relevant test filter. Broaden checks after shared-boundary changes. Do not repeatedly rerun large suites without a changed risk or new finding.
+
+## Continuation rules
+
+1. For each blocker, name the specific invariant or dependency before changing code. Distinguish a real missing capability from a failing fixture or stale expectation.
+2. Continue independent work immediately. Coordinate only the interface cut that actually requires synchronization; do not let one unresolved target suspend fast-state access, diagnostics or context work as a whole.
+3. Prefer a complete production increment over another unused helper. Give each increment an observable acceptance result and commit it locally with its verified limits.
+4. Preserve complete historical semantics, authorization, explicit stop and uncertain-effect handling. An approved financial/deadline suspension does not authorize weakening these boundaries.
+5. Use a smaller labeled experiment when it can answer a concrete question without pretending downstream acceptance is complete. Analyze its retained evidence before repeating it.
+6. Ask for input only when evidence identifies a decision the owner must make. Currently the listed representation, caller, harness and integration work can continue without another general approval.
+7. Close a blocker only after its stated completion evidence exists. Update this record and the implementation ledger together; preserve prior results as historical evidence.
+
+The immediate implementation order is: finish current runtime/caller qualification, coordinate live Store ownership and API retirement, complete campaign/T5 policy migration, qualify an integrated local candidate, collect a real diagnostic execution, then run full A/B and larger engagements. Storage and execution tracks can progress concurrently. The full plan and A/B outcome remain incomplete until their actual acceptance evidence is collected.

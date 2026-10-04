@@ -426,3 +426,7 @@ The review should approve or amend the existing-path changes, EE ordering, quali
 The source checkpoint and historical campaign results remain in git history and the linked campaign evidence. This document is the proposed implementation contract, not a running session log.
 
 The owner approved implementation on October 4, 2026. Complete phases on this feature branch with local commits and evidence in the work ledger. The plan itself is not proof of implemented behavior or passing qualification. No push, PR, release or publication is authorized.
+
+## Implementation obstacles and continuation
+
+The [progress blocker record](execution-engine-progress-blockers.md) documents concrete implementation dependencies, their evidence, alternatives, safe workarounds and completion conditions. Consult it with the [implementation ledger](../plan/25-execution-engine-refinements.md); neither component test results nor resolved permissions establish full scenario acceptance.
