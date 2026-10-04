@@ -11,6 +11,9 @@ use vcp_repository::{
 };
 use vcp_tools::verification::Plan;
 
+#[path = "verification_history.rs"]
+mod history;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Baseline {
     manifest: Manifest,
@@ -187,31 +190,10 @@ impl Context {
             &candidate.verification.fingerprint,
             failures,
         ))?);
-        let prior = self
-            .engine
-            .store()
-            .state()
-            .events
-            .iter()
-            .rev()
-            .filter(|event| event.event.task.as_ref() == Some(&binding.scope.task))
-            .flat_map(|event| event.event.artifacts.iter())
-            .find_map(|artifact| {
-                self.engine
-                    .store()
-                    .current()
-                    .records
-                    .get(&vcp_store::contract::key(
-                        Collection::Artifact,
-                        artifact.as_str(),
-                    ))
-                    .and_then(|record| record.decode::<ArtifactDescriptor>().ok())
-                    .filter(|descriptor| {
-                        descriptor.spec.scope == binding.scope
-                            && descriptor.spec.schema == "execution-completion-repair/1"
-                    })
-                    .map(|descriptor| descriptor.spec.id)
-            });
+        let prior = self.runtime.block_on(history::prior_repair(
+            self.engine.store(),
+            &binding.scope,
+        ))?;
         let mut repeats = 1u64;
         if let Some(prior) = prior {
             let prior: serde_json::Value =
