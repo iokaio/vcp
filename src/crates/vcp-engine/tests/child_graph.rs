@@ -258,7 +258,7 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> Fixture {
         revision: Revision::ZERO,
         policy: PolicyRevision::ZERO,
         currency: "USD".to_string().try_into().unwrap(),
-        cap: Micros::new(1000),
+        cap: vcp_domain::Limit::Finite(Micros::new(1000)),
         protected: Micros::new(100),
         settled: Micros::ZERO,
         active: Micros::ZERO,

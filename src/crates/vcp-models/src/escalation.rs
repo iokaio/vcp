@@ -140,7 +140,7 @@ pub struct Plan {
     pub revisions: Revisions,
     pub policy: Policy,
     pub ledger_revision: Revision,
-    pub remaining: Micros,
+    pub remaining: vcp_domain::Limit<Micros>,
     pub estimated_request: Micros,
     pub estimated_handoff: Micros,
     /// Prior uncertainty is preserved, never reclassified as available funds.
@@ -320,7 +320,7 @@ pub fn evaluate(
     .iter()
     .try_fold(0u64, |total, amount| total.checked_add(amount.get()))
     .ok_or(Error::Limit("escalation liabilities"))?;
-    let remaining = ledger.cap.get().saturating_sub(held);
+    let remaining = ledger.cap.map(|cap| cap.get().saturating_sub(held));
     let needed = estimate
         .total
         .micros
@@ -331,7 +331,7 @@ pub fn evaluate(
                 .saturating_sub(estimate.handoff.get()),
         )
         .ok_or(Error::Limit("escalation cost"))?;
-    if ledger.overrun || held > ledger.cap.get() || needed > remaining {
+    if ledger.overrun || ledger.cap.exceeds(&Micros::new(held)) || remaining.exceeds(&needed) {
         return blocked(Blocked::Budget);
     }
     let mut after = counters.clone();
@@ -356,7 +356,7 @@ pub fn evaluate(
             revisions: current.clone(),
             policy: policy.clone(),
             ledger_revision: ledger.revision,
-            remaining: Micros::new(remaining),
+            remaining: remaining.map(Micros::new),
             estimated_request: estimate.first_attempt,
             estimated_handoff: estimated_handoff.max(estimate.handoff),
             unresolved: ledger.unresolved,

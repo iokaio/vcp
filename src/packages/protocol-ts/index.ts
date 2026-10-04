@@ -62,7 +62,7 @@ export type BackupPublisherStatusView = { "active_operation"?: (Id | null); "bus
 
 export type Bound = { "inclusive": boolean; "instant": InstantSpec; };
 
-export type Budget = { "cap_micros": Counter; "currency": Currency; "deadline_seconds": number; "max_requests": number; };
+export type Budget = { "cap_micros": Limit_Counter; "currency": Currency; "deadline_seconds": Limit_uint32; "max_requests": number; };
 
 export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("workspace/setTrust" & string); "params": WorkspaceSetTrust; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/presentation" & string); "params": Inspect; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("backup/status" & string); "params": BackupPublisherStatusRequest; } | { "method": ("backup/create" & string); "params": BackupPublisherCreate; } | { "method": ("backup/read" & string); "params": BackupPublisherRead; } | { "method": ("backup/retry" & string); "params": BackupPublisherRetry; } | { "method": ("backup/cancel" & string); "params": BackupPublisherCancel; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("policy/read" & string); "params": PolicyRead; } | { "method": ("routing/status" & string); "params": RoutingStatusRequest; } | { "method": ("routing/reportCapture" & string); "params": RoutingOptimizerReportCapture; } | { "method": ("routing/reportRead" & string); "params": RoutingOptimizerReportRead; } | { "method": ("routing/preview" & string); "params": RoutingOptimizerPreviewRequest; } | { "method": ("routing/apply" & string); "params": RoutingOptimizerApply; } | { "method": ("routing/rollback" & string); "params": RoutingOptimizerRollback; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("history/query" & string); "params": HistoryQuery; } | { "method": ("memory/history" & string); "params": MemoryHistoryRequest; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/prepare" & string); "params": EditorPrepare; } | { "method": ("editor/changeRead" & string); "params": EditorChangeRead; } | { "method": ("editor/dispatch" & string); "params": EditorDispatch; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
 
@@ -225,6 +225,10 @@ export type JsonRpcVersion = ("2.0" & string);
 export type LegacyPropose = { "content": string; "evidence": Array<Id>; "mutation": Mutation; "scope": Scope; "task": Id; };
 
 export type LegacyResolve = { "decision": MemoryDecision; "mutation": Mutation; "proposal": Id; "scope": Scope; "task": Id; };
+
+export type Limit_Counter = (Versioned_for_Counter | Counter);
+
+export type Limit_uint32 = (Versioned_for_uint32 | number);
 
 export type MemoryDecision = (("accept" | "reject") & string);
 
@@ -504,7 +508,11 @@ export type TypedPropose = { "candidate": Candidate; "guards": Guards; "mutation
 
 export type TypedResolve = { "decision": MemoryDecision; "guards": Guards; "mutation": Mutation; "reason": string; "scope": Scope; "submission": Id; "submission_digest": string; "submission_revision": Counter; "task": Id; };
 
-export type UsageView = { "cap_micros": Counter; "currency": Currency; "overrun": boolean; "reserved_micros": Counter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": Counter; };
+export type UsageView = { "cap_micros": Limit_Counter; "currency": Currency; "overrun": boolean; "reserved_micros": Counter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": Counter; };
+
+export type Versioned_for_Counter = ({ "kind": ("finite" & string); "value": Counter; "version": number; } | { "kind": ("unbounded" & string); "version": number; });
+
+export type Versioned_for_uint32 = ({ "kind": ("finite" & string); "value": number; "version": number; } | { "kind": ("unbounded" & string); "version": number; });
 
 export type Visibility = (("retained" | "pruned" | "purged") & string);
 

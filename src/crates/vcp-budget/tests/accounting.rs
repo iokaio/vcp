@@ -10,6 +10,58 @@ fn currency() -> Currency {
 }
 
 #[tokio::test]
+async fn explicit_unbounded_ledger_preserves_history_and_attempt_identity() {
+    for kind in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut store = setup(temporary.path(), kind, 100, 0).await;
+        let scope = common::task().scope;
+        let original = vcp_protocol::canonical_bytes(&store.state().events).unwrap();
+        let count = store.state().events.len();
+        let unlimited = suspend_constraints(&mut store, &scope, &actor())
+            .await
+            .unwrap();
+        assert!(unlimited.cap.is_unbounded());
+        assert_eq!(
+            vcp_protocol::canonical_bytes(&&store.state().events[..count]).unwrap(),
+            original
+        );
+        let watermark = store.state().watermark;
+        assert_eq!(
+            suspend_constraints(&mut store, &scope, &actor())
+                .await
+                .unwrap(),
+            unlimited
+        );
+        assert_eq!(store.state().watermark, watermark);
+
+        let request = capture(&mut store, &scope, b"identity protected request").await;
+        let input = admission(&store, &scope, &request, 500);
+        let (mut corrupt, _) = prepare_admission(store.state(), &input, &actor()).unwrap();
+        corrupt.mutations.retain(|mutation| !matches!(mutation, Mutation::Put {record,..} if record.collection == Collection::Reservation));
+        assert!(store.transact(corrupt).await.is_err());
+        let admitted = reserve(&mut store, input.clone(), &actor()).await.unwrap();
+        let watermark = store.state().watermark;
+        assert_eq!(
+            reserve(&mut store, input, &actor()).await.unwrap(),
+            admitted
+        );
+        assert_eq!(store.state().watermark, watermark);
+        let released = release_before_send(&mut store, &admitted.id, &scope, &actor())
+            .await
+            .unwrap();
+        let watermark = store.state().watermark;
+        assert_eq!(
+            release_before_send(&mut store, &admitted.id, &scope, &actor())
+                .await
+                .unwrap(),
+            released
+        );
+        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(ledger(store.state(), &scope).unwrap().active, Micros::ZERO);
+    }
+}
+
+#[tokio::test]
 async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
     use std::collections::BTreeSet;
     const MARKER: &str = "retained-accounting-narrative-to-purge";

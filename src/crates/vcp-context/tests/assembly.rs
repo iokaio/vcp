@@ -181,7 +181,7 @@ fn handoff_fixture() -> vcp_context::handoff::Packet {
         revision: Revision::ZERO,
         policy: PolicyRevision::ZERO,
         currency: "USD".to_owned().try_into().unwrap(),
-        cap: Micros::new(1000),
+        cap: vcp_domain::Limit::Finite(Micros::new(1000)),
         protected: Micros::new(100),
         settled: Micros::new(200),
         active: Micros::new(50),
@@ -203,7 +203,10 @@ fn handoff_fixture() -> vcp_context::handoff::Packet {
 #[test]
 fn handoff_preserves_complete_pairs_constraints_and_uncertain_budget_on_destination_reassembly() {
     let packet = handoff_fixture();
-    assert_eq!(packet.remaining.get(), 575);
+    assert_eq!(
+        packet.remaining,
+        vcp_domain::Limit::Finite(Micros::new(575))
+    );
     let restored: vcp_context::handoff::Packet =
         serde_json::from_slice(&vcp_protocol::canonical_bytes(&packet).unwrap()).unwrap();
     let mut target = envelope(9000);

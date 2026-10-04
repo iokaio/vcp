@@ -94,7 +94,7 @@ impl<S: CanonicalStore> Engine<S> {
             task: request.task.clone(),
             root: id(root.scope.task.as_str())?,
             currency: methods::Currency::Usd,
-            cap_micros: ledger.cap.get().into(),
+            cap_micros: ledger.cap.map(|cap| cap.get().into()),
             settled_micros: ledger.settled.get().into(),
             reserved_micros: ledger.active.get().into(),
             unresolved_micros: ledger.unresolved.get().into(),
@@ -452,7 +452,7 @@ mod tests {
                 revision: Revision::ZERO,
                 policy: PolicyRevision::ZERO,
                 currency: "USD".to_owned().try_into().unwrap(),
-                cap: Micros::new(u64::MAX),
+                cap: vcp_domain::Limit::Finite(Micros::new(u64::MAX)),
                 protected: Micros::ZERO,
                 settled: Micros::ZERO,
                 active: Micros::ZERO,
@@ -464,7 +464,10 @@ mod tests {
             put(&mut engine, Collection::Ledger, "task", &ledger).await;
             let watermark = engine.store().state().watermark;
             let view = engine.public_usage(&access(), &request).unwrap();
-            assert_eq!(view.cap_micros.as_str(), "18446744073709551615");
+            assert_eq!(
+                view.cap_micros.finite().unwrap().as_str(),
+                "18446744073709551615"
+            );
             assert_eq!(view.settled_micros.as_str(), "0");
             assert_eq!(view.reserved_micros.as_str(), "0");
             assert_eq!(view.unresolved_micros.as_str(), "0");

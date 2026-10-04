@@ -6,9 +6,12 @@ function display(value: unknown): string {
   return JSON.stringify(value, (key, item: unknown) => ['cursor', 'next_cursor', 'preview_id', 'preview', 'reference'].includes(key) ? undefined : item, 2);
 }
 const section = (title: string, value: unknown): InspectorSection => ({title,fields:[],text:display(value)});
+function displayCap(value: string | {kind: 'finite'; value: string; version: number} | {kind: 'unbounded'; version: number}): string {
+  return typeof value === 'string' ? value : value.kind === 'unbounded' ? 'No cap' : value.value;
+}
 export function projectInspector(page: ResultValue): InspectorSection[] {
   const value = page.value;
-  if (page.kind === 'usage') { const v=page.value; return [{title:'Root ledger — exact micro-units; liabilities are not settled charges',fields:[{label:'Root task',value:v.root},{label:'Currency',value:v.currency},{label:'Cap (micros)',value:v.cap_micros},{label:'Settled (micros)',value:v.settled_micros},{label:'Reserved (micros)',value:v.reserved_micros},{label:'Unresolved (micros)',value:v.unresolved_micros},{label:'Overrun',value:String(v.overrun)}]}]; }
+  if (page.kind === 'usage') { const v=page.value; return [{title:'Root ledger — exact micro-units; liabilities are not settled charges',fields:[{label:'Root task',value:v.root},{label:'Currency',value:v.currency},{label:'Cap (micros)',value:displayCap(v.cap_micros)},{label:'Settled (micros)',value:v.settled_micros},{label:'Reserved (micros)',value:v.reserved_micros},{label:'Unresolved (micros)',value:v.unresolved_micros},{label:'Overrun',value:String(v.overrun)}]}]; }
   if (page.kind === 'policy') { const {persisted,effective,rows,...facts}=page.value; return [section('Current task policy observations — not dispatch permission',facts),section('Persisted workspace policy',persisted),section('Task-effective policy / unavailable host facts',effective),section('Scoped historical denials or grants; provenance and current matches',rows)]; }
   if (page.kind === 'routing_preview') { const {prior,persisted,effective,selected,clamped,...pins}=page.value; return [section('Exact optimizer review pins and expiry',pins),section('Exact selected edits',selected),section('Prior policy',prior),section('Resulting persisted policy',persisted),section('Resulting effective policy',effective),section('Host constraints that clamp the proposal',clamped)]; }
   if (page.kind === 'retention_preview') { const {targets,...facts}=page.value; return [section('Exact pruning preview — counts, digest, revisions and expiry',facts),section('Selected and protected targets on this page',targets)]; }

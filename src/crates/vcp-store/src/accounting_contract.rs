@@ -233,7 +233,7 @@ pub(crate) fn validate(state: &State) -> Result<()> {
         if ledger.settled.get() != settled
             || ledger.active.get() != active
             || ledger.unresolved.get() != unresolved
-            || ledger.overrun != (total > ledger.cap.get())
+            || ledger.overrun != ledger.cap.exceeds(&vcp_domain::Micros::new(total))
         {
             return Err(Error::Corruption(
                 "root aggregate differs from canonical reservations",
@@ -426,11 +426,9 @@ pub(crate) fn admission(
                         }
                     }
                 }
-                if ledger
-                    .daily
-                    .as_ref()
-                    .is_some_and(|daily| daily_total > daily.cap.get())
-                {
+                if ledger.daily.as_ref().is_some_and(|daily| {
+                    !ledger.cap.is_unbounded() && daily_total > daily.cap.get()
+                }) {
                     return Err(Error::Conflict("daily admission cap"));
                 }
                 for ancestor in ancestors {
@@ -438,7 +436,9 @@ pub(crate) fn admission(
                         .allocations
                         .get(&ancestor.scope.task)
                         .is_some_and(|cap| {
-                            allocated.get(&ancestor.scope.task).copied().unwrap_or(0) > cap.get()
+                            !ledger.cap.is_unbounded()
+                                && allocated.get(&ancestor.scope.task).copied().unwrap_or(0)
+                                    > cap.get()
                         })
                     {
                         return Err(Error::Conflict("child admission cap"));

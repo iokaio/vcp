@@ -28,10 +28,10 @@ fn request() -> TurnStart {
         constraints: vec!["preserve user work".into()],
         acceptance: vec!["cite evidence".into()],
         budget: methods::Budget {
-            cap_micros: u64::MAX.into(),
+            cap_micros: vcp_domain::Limit::Finite(u64::MAX.into()),
             currency: Currency::Usd,
             max_requests: 3,
-            deadline_seconds: 30,
+            deadline_seconds: vcp_domain::Limit::Finite(30),
         },
     }
 }
@@ -187,7 +187,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             .unwrap()
             .decode()
             .unwrap();
-        assert_eq!(ledger.cap.get(), u64::MAX);
+        assert_eq!(ledger.cap, vcp_domain::Limit::Finite(Micros::new(u64::MAX)));
         assert_eq!(ledger.protected.get(), 7);
         assert_eq!(proof.ledger, ledger);
         assert_eq!(

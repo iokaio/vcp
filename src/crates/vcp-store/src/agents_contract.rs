@@ -274,14 +274,19 @@ fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
     // Count a parent's own spend once, plus direct-child allocations. Nested
     // allocations are already contained in their ancestor's allocation.
     for parent in std::iter::once(&graph.scope.task).chain(graph.children.keys()) {
-        let cap = if parent == &graph.scope.task {
+        let cap = if ledger.cap.is_unbounded() {
+            vcp_domain::Limit::Unbounded
+        } else if parent == &graph.scope.task {
             ledger
                 .cap
-                .get()
-                .checked_sub(ledger.protected.get())
-                .ok_or(Error::Conflict("protected root allocation"))?
+                .map(|cap| {
+                    cap.get()
+                        .checked_sub(ledger.protected.get())
+                        .ok_or(Error::Conflict("protected root allocation"))
+                })
+                .transpose()?
         } else {
-            graph.children[parent].allocation.get()
+            vcp_domain::Limit::Finite(graph.children[parent].allocation.get())
         };
         let mut used = 0u64;
         for (id, allocation) in &ledger.allocations {
@@ -305,7 +310,7 @@ fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
                     .ok_or(Error::Corruption("allocation exposure overflow"))?;
             }
         }
-        if used > cap {
+        if cap.exceeds(&used) {
             return Err(Error::Conflict("child allocations exceed parent capacity"));
         }
     }

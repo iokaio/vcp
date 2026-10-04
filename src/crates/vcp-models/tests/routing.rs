@@ -16,6 +16,18 @@ fn money(amount: u64) -> Money {
         micros: Micros::new(amount),
     }
 }
+
+#[test]
+fn tagged_finite_limits_preserve_historical_routing_identity() {
+    let (catalog, policy, input) = setup(vec![candidate("fixture/model", Group::High, 9000, 10, "0.000001")]);
+    let decision = select(&catalog, &policy, &input).unwrap();
+    let mut legacy = serde_json::to_value(&decision).unwrap();
+    legacy["input"]["available"]["micros"] = serde_json::json!("10000");
+    let restored: RoutingDecision = serde_json::from_value(legacy.clone()).unwrap();
+    restored.validate().unwrap();
+    legacy["id"] = serde_json::json!("");
+    assert_eq!(decision.id, vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&legacy).unwrap()));
+}
 fn provenance() -> Vec<Provenance> {
     vec![Provenance {
         source: "fixture://synthetic-routing-observation".into(),
@@ -28,13 +40,38 @@ fn provenance() -> Vec<Provenance> {
 #[test]
 fn rotation_reference_quote_preserves_cache_classes_and_checked_rounding() {
     use vcp_domain::accounting::{ChargeCategory, Rate};
-    let mut snapshot = candidate("fixture/reference", Group::High, 9000, 100, "0.000001").snapshot.unwrap();
-    for (category, numerator) in [(ChargeCategory::Input, 1), (ChargeCategory::CacheRead, 2), (ChargeCategory::CacheWrite, 4)] {
-        snapshot.price.rates.insert(category, Rate { micros: Micros::new(numerator), per_units: Units::new(3) });
+    let mut snapshot = candidate("fixture/reference", Group::High, 9000, 100, "0.000001")
+        .snapshot
+        .unwrap();
+    for (category, numerator) in [
+        (ChargeCategory::Input, 1),
+        (ChargeCategory::CacheRead, 2),
+        (ChargeCategory::CacheWrite, 4),
+    ] {
+        snapshot.price.rates.insert(
+            category,
+            Rate {
+                micros: Micros::new(numerator),
+                per_units: Units::new(3),
+            },
+        );
     }
-    snapshot.price.rates.insert(ChargeCategory::Output, Rate { micros: Micros::new(1), per_units: Units::new(2) });
-    snapshot.price.rates.insert(ChargeCategory::Request, Rate { micros: Micros::new(1), per_units: Units::new(1) });
-    let quote = vcp_models::rotation::reference_cost(&snapshot, Units::new(7), Units::new(5)).unwrap();
+    snapshot.price.rates.insert(
+        ChargeCategory::Output,
+        Rate {
+            micros: Micros::new(1),
+            per_units: Units::new(2),
+        },
+    );
+    snapshot.price.rates.insert(
+        ChargeCategory::Request,
+        Rate {
+            micros: Micros::new(1),
+            per_units: Units::new(1),
+        },
+    );
+    let quote =
+        vcp_models::rotation::reference_cost(&snapshot, Units::new(7), Units::new(5)).unwrap();
     assert_eq!(quote.micros, Micros::new(14));
     snapshot.price.rates.remove(&ChargeCategory::CacheWrite);
     assert!(vcp_models::rotation::reference_cost(&snapshot, Units::new(7), Units::new(5)).is_err());
@@ -278,7 +315,7 @@ fn input(catalog: &CatalogRevision, policy: &Policy) -> RoutingInput {
         required_capabilities: BTreeSet::from(["tools".into()]),
         input_tokens: Units::new(100),
         output_tokens: Units::new(50),
-        available: money(10_000),
+        available: money(10_000).into(),
         protected_verification: Micros::new(100),
         estimates: catalog.entries.iter().map(estimate).collect(),
     }
@@ -318,11 +355,11 @@ fn unqualified_bytes_require_full_input_admission_without_inflating_expected_tas
         .iter()
         .any(|s| s.contains("unqualified")));
     // Each input/cache bound costs 3000, output 100, request 10, protection 100.
-    input.available = money(9209);
+    input.available = money(9209).into();
     let denied = select(&catalog, &policy, &input).unwrap();
     assert!(denied.selected.is_none());
     excluded(&denied, "unqualified", Exclusion::Budget);
-    input.available = money(9210);
+    input.available = money(9210).into();
     assert!(select(&catalog, &policy, &input)
         .unwrap()
         .selected
@@ -394,11 +431,11 @@ fn owner_order_is_real_selection_without_inventing_quality_and_stays_inside_set(
         .selected
         .is_none());
     input.excluded.clear();
-    input.available = money(1);
+    input.available = money(1).into();
     let denied = select_owner_set(&catalog, &policy, &input, &order).unwrap();
     assert!(denied.selected.is_none());
     excluded(&denied, "first", Exclusion::Budget);
-    input.available = money(10000);
+    input.available = money(10000).into();
     input.now = Timestamp::new(1001);
     excluded(
         &select_owner_set(&catalog, &policy, &input, &order).unwrap(),
@@ -536,7 +573,7 @@ fn expensive_retry_history_and_protected_completion_change_the_winner() {
         Exclusion::InsufficientVerificationReserve,
     );
     input.protected_verification = Micros::new(500);
-    input.available = money(600);
+    input.available = money(600).into();
     let decision = select(&catalog, &policy, &input).unwrap();
     excluded(&decision, "fixture/steady", Exclusion::Budget);
     assert!(decision.selected.is_none());
@@ -865,7 +902,7 @@ fn replay_with_reduced_balance_stops_without_minting_a_reservation() {
     )]);
     let decision = select(&catalog, &policy, &input).unwrap();
     assert!(decision.selected.is_some());
-    input.available = money(339);
+    input.available = money(339).into();
     let retry = select(&catalog, &policy, &input).unwrap();
     assert!(retry.selected.is_none());
     assert_eq!(retry.immediate_reservation, None);
@@ -949,7 +986,7 @@ fn retry_pin_never_changes_endpoint_even_when_alternative_is_better_or_affordabl
     let decision = select(&catalog, &policy, &input).unwrap();
     assert_eq!(decision.selected, Some(prior));
     excluded(&decision, "fixture/cheap", Exclusion::RetryPinned);
-    input.available = money(500);
+    input.available = money(500).into();
     let decision = select(&catalog, &policy, &input).unwrap();
     assert!(decision.selected.is_none());
     excluded(&decision, "fixture/cheap", Exclusion::RetryPinned);

@@ -12,7 +12,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-00b | Phase instrumentation | EE-00a | in progress |
 | EE-00c | Bundle integration and reconstruction | EE-00a/b | in progress |
 | EE-01a | Harness deadline/spend removal | EE-00a/b | planned |
-| EE-01b | Versioned explicit limit representation | EE-00a | planned |
+| EE-01b | Versioned explicit limit representation | EE-00a | in progress; core/schema slice verified |
 | EE-01c | Financial admission with durable attempt fences | EE-01b | planned |
 | EE-01d | Derived bounds and start/resume conversion | EE-01b/c | planned |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | planned |
@@ -57,3 +57,5 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 - Storage verification: 19 unit and 4 diagnostic tests passed; conformance (6), persisted JSON (5) and replay-base (7) tests passed after the checkpoint change. The unrelated OneDrive qualification remains opt-in. Added invalid-interior/later-valid history, forged resealed checkpoint and generated differential trace regressions.
 - Synthetic debug measurement, 65 commits and 3 business records: SQLite open 95.856 ms (replay 79.180 ms, full validation 60.672 ms); files open 82.567 ms (replay 74.436 ms, full validation 59.140 ms). Both validate 65 states and 2,145 event inputs. File checkpoint comparison adds no semantic prefix replay (formerly 33 extra states). This is small synthetic evidence, not A/B latency qualification; historical validation remains the measured dominant work.
 - EE-00c: bundle integration underway. Reconstruction checks and actual scenario analysis remain outstanding.
+- EE-01b/c core checkpoint: explicit versioned finite/unbounded limits across domain, public protocol, accounting, routing, SDK and editor usage projections. Actual costs remain finite observations. Legacy finite public-command and routing-decision hashes remain verifiable; original receipt bytes are preserved. Synthetic unbounded transitions retain reservations, attempt identity and duplicate-operation fences. CLI/lifecycle activation, editor start integration and full phase disposition remain outstanding; no paid execution qualifies this increment.
+- EE-01 checks passed: domain limits (2), legacy protocol hash (1), engine public start (4), budget/accounting (10), model routing (23), escalation (12), protocol generation/provenance (9), SDK validation (9), plus the new two-backend transition and routing hash regressions. SDK and VS Code TypeScript checks passed. These checks prove the tested compatibility boundaries, not full integrated execution.

@@ -215,24 +215,25 @@ fn refresh(state: &State, ledger: &mut Ledger, changed: Option<&Reservation>) ->
     ledger.settled = sum(settled)?;
     ledger.active = sum(active)?;
     ledger.unresolved = sum(unresolved)?;
-    ledger.overrun = sum([
+    ledger.overrun = ledger.cap.exceeds(&sum([
         ledger.settled,
         ledger.active,
         ledger.unresolved,
         ledger.protected,
-    ])? > ledger.cap;
+    ])?);
     Ok(())
 }
 pub async fn initialize<S: CanonicalStore>(
     store: &mut S,
     scope: Scope,
-    cap: Money,
+    cap: impl Into<MonetaryLimit>,
     protected: Micros,
     daily: Option<DailyPolicy>,
     actor: &Actor,
 ) -> Result<Ledger> {
+    let cap = cap.into();
     let root = task(store.state(), &scope)?;
-    if root.parent.is_some() || protected > cap.micros {
+    if root.parent.is_some() || cap.micros.exceeds(&protected) {
         return Err(Error::Denied("invalid root or protected amount"));
     }
     let ledger = Ledger {
@@ -280,12 +281,13 @@ pub async fn configure<S: CanonicalStore>(
     store: &mut S,
     scope: &Scope,
     expected: Revision,
-    cap: Money,
+    cap: impl Into<MonetaryLimit>,
     protected: Micros,
     allocations: BTreeMap<TaskId, Micros>,
     actor: &Actor,
     reason: &str,
 ) -> Result<Ledger> {
+    let cap = cap.into();
     let mut next = ledger(store.state(), scope)?;
     if scope != &next.scope || next.revision != expected || reason.trim().is_empty() {
         return Err(Error::Conflict("budget policy revision or actor scope"));
@@ -323,6 +325,34 @@ pub async fn configure<S: CanonicalStore>(
         ))
         .await?;
     Ok(next)
+}
+
+/// Record the current execution policy without altering the original acceptance
+/// or past attempt evidence. Repeated activation is metadata-idempotent.
+pub async fn suspend_constraints<S: CanonicalStore>(
+    store: &mut S,
+    scope: &Scope,
+    actor: &Actor,
+) -> Result<Ledger> {
+    let current = ledger(store.state(), scope)?;
+    if current.cap.is_unbounded() {
+        return Ok(current);
+    }
+    let cap = MonetaryLimit {
+        currency: current.currency.clone(),
+        micros: vcp_domain::Limit::Unbounded,
+    };
+    configure(
+        store,
+        scope,
+        current.revision,
+        cap,
+        current.protected,
+        current.allocations,
+        actor,
+        "EE-01 execution constraints suspended; original acceptance and financial observations retained",
+    )
+    .await
 }
 
 /// Calculate against one snapshot. The returned transaction still contains all
@@ -380,7 +410,7 @@ pub fn prepare_admission(
         }
     }
     let amount = input.quote.amount.micros;
-    let draw = if input.draw_protected {
+    let draw = if input.draw_protected && !root.cap.is_unbounded() {
         if input.role != RequestRole::Verification || root.protected < amount {
             return Err(Error::Exhausted("protected verification reserve"));
         }
@@ -389,17 +419,19 @@ pub fn prepare_admission(
         Micros::ZERO
     };
     let protected = Micros::new(root.protected.get() - draw.get());
-    if sum([
+    if root.cap.exceeds(&sum([
         root.settled,
         root.active,
         root.unresolved,
         protected,
         amount,
-    ])? > root.cap
-    {
+    ])?) {
         return Err(Error::Exhausted("root cap"));
     }
     for (child, cap) in &root.allocations {
+        if root.cap.is_unbounded() {
+            continue;
+        }
         if !descends(state, &input.scope.task, child, &input.scope.workspace)? {
             continue;
         }
@@ -422,7 +454,7 @@ pub fn prepare_admission(
         input.now,
         root.daily.as_ref().map_or(0, |d| d.utc_offset_minutes),
     )?;
-    if let Some(daily) = &root.daily {
+    if let Some(daily) = root.daily.as_ref().filter(|_| !root.cap.is_unbounded()) {
         let mut today = Vec::new();
         for record in state.records.values().filter(|r| {
             r.collection == Collection::Reservation && r.workspace == input.scope.workspace

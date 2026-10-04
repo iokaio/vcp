@@ -18,6 +18,17 @@ test('Counter is an exact canonical u64 string and request IDs are safe', () => 
   for (const id of [Number.MAX_SAFE_INTEGER + 1, 1.5, true]) assert.throws(() => validateWire('RequestId', id));
 });
 
+test('execution limits accept explicit unbounded and legacy finite values without ambiguous versions', () => {
+  const base = {currency:'USD', max_requests:3};
+  validateWire('Budget', {...base, cap_micros:'100', deadline_seconds:30});
+  const unbounded = {version:1, kind:'unbounded'};
+  validateWire('Budget', {...base, cap_micros:unbounded, deadline_seconds:unbounded});
+  validateWire('Budget', {...base, cap_micros:{version:1,kind:'finite',value:'100'}, deadline_seconds:{version:1,kind:'finite',value:30}});
+  for (const cap_micros of [null, {version:2,kind:'unbounded'}, {version:1,kind:'unbounded',value:'0'}, {version:1,kind:'finite'}, {version:1,kind:'finite',value:100}]) {
+    assert.throws(() => validateWire('Budget', {...base,cap_micros,deadline_seconds:unbounded}));
+  }
+});
+
 test('routing quality observations preserve the canonical unsigned 16-bit range', () => {
   const policy = {
     id: 'policy', parent_id: null, profile: 'low', quality_floor_bps: 7000,

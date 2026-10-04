@@ -309,11 +309,12 @@ impl<S: CanonicalStore> Engine<S> {
         task.validate().map_err(|_| PublicError::Unavailable)?;
         ledger.validate().map_err(|_| PublicError::Unavailable)?;
         trigger.validate().map_err(|_| PublicError::Unavailable)?;
-        let cap: u64 = request
+        let cap = request
             .budget
             .cap_micros
-            .as_str()
-            .parse()
+            .clone()
+            .map(|value| value.as_str().parse::<u64>().map(Micros::new))
+            .transpose()
             .map_err(invalid)?;
         if task.scope != selected
             || task.root != selected.task
@@ -338,8 +339,8 @@ impl<S: CanonicalStore> Engine<S> {
             || ledger.revision != Revision::ZERO
             || ledger.policy != PolicyRevision::ZERO
             || ledger.currency.code() != "USD"
-            || ledger.cap.get() != cap
-            || ledger.protected.get() > cap
+            || ledger.cap != cap
+            || cap.exceeds(&ledger.protected)
             || ledger.settled != Micros::ZERO
             || ledger.active != Micros::ZERO
             || ledger.unresolved != Micros::ZERO
@@ -512,15 +513,16 @@ fn transaction(
     let selected = scope(request)?;
     let command = CommandId::parse(request.mutation.command_id.as_str()).map_err(invalid)?;
     let turn_id = TurnId::parse(request.turn.as_str()).map_err(invalid)?;
-    let cap: u64 = request
+    let cap = request
         .budget
         .cap_micros
-        .as_str()
-        .parse()
+        .clone()
+        .map(|value| value.as_str().parse::<u64>().map(Micros::new))
+        .transpose()
         .map_err(invalid)?;
     facts.fingerprint.validate().map_err(invalid)?;
     trigger.validate().map_err(invalid)?;
-    if facts.protected.get() > cap
+    if cap.exceeds(&facts.protected)
         || request.budget.currency != Currency::Usd
         || trigger.spec.scope != selected
         || trigger.state != CaptureState::Complete
@@ -584,7 +586,7 @@ fn transaction(
         revision: Revision::ZERO,
         policy: PolicyRevision::ZERO,
         currency: "USD".to_owned().try_into().map_err(invalid)?,
-        cap: Micros::new(cap),
+        cap,
         protected: facts.protected,
         settled: Micros::ZERO,
         active: Micros::ZERO,

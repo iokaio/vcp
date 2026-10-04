@@ -208,12 +208,11 @@ dto!(TaskCancel {
     reason: String
 });
 dto!(Budget {
-    cap_micros: Counter,
+    cap_micros: vcp_domain::Limit<Counter>,
     currency: Currency,
     #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1024)))]
     max_requests: u32,
-    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 86400)))]
-    deadline_seconds: u32
+    deadline_seconds: vcp_domain::Limit<u32>
 });
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -456,9 +455,20 @@ impl Call {
     /// Bind the authenticated principal, exact version, scope and semantics;
     /// transport request IDs and reconnecting controller epochs are excluded.
     pub fn digest(&self, authenticated_actor: &str) -> Result<String, serde_json::Error> {
+        let mut call = serde_json::to_value(self)?;
+        // Finite tagged limits have the same meaning as legacy scalar limits.
+        // Keep original command receipts verifiable without rewriting history.
+        if let Self::TurnStart(request) = self {
+            if let Some(value) = request.budget.cap_micros.finite() {
+                call["params"]["budget"]["cap_micros"] = serde_json::to_value(value)?;
+            }
+            if let Some(value) = request.budget.deadline_seconds.finite() {
+                call["params"]["budget"]["deadline_seconds"] = serde_json::to_value(value)?;
+            }
+        }
         Ok(crate::digest_bytes(&crate::canonical_bytes(
             &serde_json::json!({
-                "protocol":"vcp-public/1.0", "actor":authenticated_actor, "call":self
+                "protocol":"vcp-public/1.0", "actor":authenticated_actor, "call":call
             }),
         )?))
     }
@@ -536,11 +546,16 @@ impl Call {
             Self::TurnPause(p) | Self::TurnCancel(p) => text(&p.reason, 4096),
             Self::TurnStart(p) => {
                 objective(&p.objective, &p.constraints, &p.acceptance)?;
-                if p.budget.cap_micros.as_str() == "0"
+                if p.budget
+                    .cap_micros
+                    .finite()
+                    .is_some_and(|value| value.as_str() == "0")
                     || p.budget.max_requests == 0
                     || p.budget.max_requests > 1024
-                    || p.budget.deadline_seconds == 0
-                    || p.budget.deadline_seconds > 86400
+                    || p.budget
+                        .deadline_seconds
+                        .finite()
+                        .is_some_and(|value| *value == 0 || *value > 86400)
                 {
                     return Err("budget bound");
                 }
@@ -757,7 +772,7 @@ dto!(UsageView {
     task: Id,
     root: Id,
     currency: Currency,
-    cap_micros: Counter,
+    cap_micros: vcp_domain::Limit<Counter>,
     settled_micros: Counter,
     reserved_micros: Counter,
     unresolved_micros: Counter,
@@ -1075,5 +1090,30 @@ mod tests {
         .is_err());
         let p = json!({"command_id":"c","host":"h","root":"x".repeat(MAX_METHOD_BYTES)});
         assert!(Call::decode("workspace/open", p).is_err());
+    }
+
+    #[test]
+    fn explicit_limits_preserve_legacy_command_receipt_identity() {
+        let legacy = json!({"method":"turn/start","params":{"scope":{"workspace":"ws","session":"s"},"mutation":{"command_id":"c","expected_revision":"0","steering_revision":"0"},"task":"t","turn":"turn","objective":"inspect","constraints":[],"acceptance":[],"budget":{"cap_micros":"100","currency":"USD","max_requests":3,"deadline_seconds":30}}});
+        let expected = crate::digest_bytes(
+            &crate::canonical_bytes(
+                &json!({"protocol":"vcp-public/1.0","actor":"owner","call":legacy}),
+            )
+            .unwrap(),
+        );
+        let call: Call = serde_json::from_value(legacy).unwrap();
+        call.validate().unwrap();
+        assert_eq!(call.digest("owner").unwrap(), expected);
+        let tagged = serde_json::to_value(&call).unwrap();
+        assert_eq!(
+            tagged["params"]["budget"]["deadline_seconds"],
+            json!({"version":1,"kind":"finite","value":30})
+        );
+        let mut unbounded = tagged;
+        unbounded["params"]["budget"]["deadline_seconds"] = json!({"version":1,"kind":"unbounded"});
+        unbounded["params"]["budget"]["cap_micros"] = json!({"version":1,"kind":"unbounded"});
+        let call: Call = serde_json::from_value(unbounded).unwrap();
+        call.validate().unwrap();
+        assert_ne!(call.digest("owner").unwrap(), expected);
     }
 }

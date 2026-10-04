@@ -7,7 +7,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use vcp_domain::{accounting::Ledger, artifact::ArtifactDescriptor, ArtifactId, Micros};
+use vcp_domain::{accounting::Ledger, artifact::ArtifactDescriptor, ArtifactId, Limit, Micros};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,13 +26,13 @@ pub struct Packet {
     pub manifest: Manifest,
     /// Includes protected, active and uncertain liability, never just spend.
     pub ledger: Ledger,
-    pub remaining: Micros,
+    pub remaining: Limit<Micros>,
     pub current_state: serde_json::Value,
     pub references: Vec<ArtifactDescriptor>,
     pub discarded: Vec<Discarded>,
 }
 
-fn remaining(ledger: &Ledger) -> Result<Micros> {
+fn remaining(ledger: &Ledger) -> Result<Limit<Micros>> {
     let held = [
         ledger.settled,
         ledger.active,
@@ -42,7 +42,9 @@ fn remaining(ledger: &Ledger) -> Result<Micros> {
     .into_iter()
     .try_fold(0u64, |n, x| n.checked_add(x.get()))
     .ok_or(Error::Invalid("handoff accounting overflow"))?;
-    Ok(Micros::new(ledger.cap.get().saturating_sub(held)))
+    Ok(ledger
+        .cap
+        .map(|cap| Micros::new(cap.get().saturating_sub(held))))
 }
 
 impl Packet {

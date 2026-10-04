@@ -314,11 +314,18 @@ fn eligibility_for_state(
 /// Match reservation admission's root and allocated-ancestor exposure, without
 /// reserving a future quote or counting unused sibling allocations as charges.
 fn exhausted_capacity(state: &State, child: &Task, ledger: &Ledger) -> Result<bool> {
+    if ledger.cap.is_unbounded() {
+        return Ok(false);
+    }
     let root_exposure = u128::from(ledger.settled.get())
         + u128::from(ledger.active.get())
         + u128::from(ledger.unresolved.get())
         + u128::from(ledger.protected.get());
-    if root_exposure >= u128::from(ledger.cap.get()) {
+    if ledger
+        .cap
+        .finite()
+        .is_some_and(|cap| root_exposure >= u128::from(cap.get()))
+    {
         return Ok(true);
     }
     let mut remaining = BTreeMap::new();

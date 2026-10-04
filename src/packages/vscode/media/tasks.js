@@ -32,7 +32,11 @@
       add('Task', value.task.task); add('Root', value.task.root); add('Parent', value.task.parent ?? 'root task'); add('State', value.task.state); add('Reason', value.task.reason); add('Objective', projected(value.objective)); add('Model', projected(value.model?.id)); add('Group', projected(value.model?.group)); add('Model policy', projected(value.model_policy)); add('Role', projected(value.role)); add('Steering revision', value.task.steering_revision); add('Effects', value.task.effects);
       add('Commentary', value.commentary === 'observed' ? 'retained evidence below' : 'No retained commentary is available.');
       add('History', value.complete ? 'Complete page' : value.next_cursor ? 'More history is available' : 'Some content is unavailable or requires an evidence read');
-      if (state.usage) add('Root ledger cost (USD micros)', `known ${state.usage.settled_micros}; reserved ${state.usage.reserved_micros}; uncertain ${state.usage.unresolved_micros}; cap ${state.usage.cap_micros}`);
+      if (state.usage) {
+        const cap = state.usage.cap_micros;
+        const display = typeof cap === 'string' ? cap : cap.kind === 'unbounded' ? 'No cap' : cap.value;
+        add('Root ledger cost (USD micros)', `known ${state.usage.settled_micros}; reserved ${state.usage.reserved_micros}; uncertain ${state.usage.unresolved_micros}; cap ${display}`);
+      }
       else add('Cost', 'unavailable');
     }
     get('task-questions').replaceChildren();

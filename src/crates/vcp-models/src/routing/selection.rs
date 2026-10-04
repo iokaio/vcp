@@ -242,6 +242,9 @@ fn evaluate(
                 )
             });
         match maximum {
+            Err(Exclusion::UnknownCost) if input.available.micros.is_unbounded() => row
+                .assumptions
+                .push("Immediate monetary bound unavailable; cost remains unknown.".into()),
             Err(reason) => row.exclusions.push(reason),
             Ok(maximum) => {
                 let protected = if input.role == RequestRole::Verification {
@@ -252,7 +255,7 @@ fn evaluate(
                 if maximum
                     .get()
                     .checked_add(protected)
-                    .is_none_or(|amount| amount > input.available.micros.get())
+                    .is_none_or(|amount| input.available.micros.exceeds(&Micros::new(amount)))
                 {
                     row.exclusions.push(Exclusion::Budget);
                 }
@@ -332,17 +335,25 @@ fn evaluate(
         .iter()
         .find(|estimate| estimate.candidate == candidate.identity)
     {
+        None if input.available.micros.is_unbounded() => row
+            .assumptions
+            .push("Cost estimate unavailable; cost remains unknown.".into()),
         None => row.exclusions.push(Exclusion::MissingCostEstimate),
         Some(estimate) => {
             row.assumptions.extend(estimate.assumptions.clone());
             row.evidence_refs.extend(estimate.evidence_refs.clone());
             match estimate_cost(snapshot, estimate, input) {
+                Err(Exclusion::UnknownCost) if input.available.micros.is_unbounded() => row
+                    .assumptions
+                    .push("Cost estimate incomplete; cost remains unknown.".into()),
                 Err(reason) => row.exclusions.push(reason),
                 Ok(cost) => {
                     if cost.total.currency != input.available.currency {
                         row.exclusions.push(Exclusion::CurrencyMismatch);
                     }
-                    if cost.verification > input.protected_verification {
+                    if !input.available.micros.is_unbounded()
+                        && cost.verification > input.protected_verification
+                    {
                         row.exclusions
                             .push(Exclusion::InsufficientVerificationReserve);
                     }
@@ -354,7 +365,9 @@ fn evaluate(
                     let without_verification = cost.total.micros.get() - cost.verification.get();
                     let required =
                         without_verification.checked_add(protected.max(cost.verification.get()));
-                    if required.is_none_or(|amount| amount > input.available.micros.get()) {
+                    if required
+                        .is_none_or(|amount| input.available.micros.exceeds(&Micros::new(amount)))
+                    {
                         row.exclusions.push(Exclusion::Budget);
                     }
                     row.total_estimate = Some(cost);

@@ -205,7 +205,7 @@ pub struct RoutingInput {
     pub input_tokens: Units,
     pub output_tokens: Units,
     /// Current ledger view supplied by the host; selection does not consume it.
-    pub available: Money,
+    pub available: vcp_domain::accounting::MonetaryLimit,
     pub protected_verification: Micros,
     pub estimates: Vec<CostEstimate>,
 }

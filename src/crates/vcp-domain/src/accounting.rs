@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Provider-neutral integer accounting, separate from local resource metrics.
-use crate::{ids::*, revision::*, workspace::Scope};
+use crate::{ids::*, revision::*, workspace::Scope, Limit};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -31,6 +31,23 @@ impl From<Currency> for String {
 pub struct Money {
     pub currency: Currency,
     pub micros: Micros,
+}
+
+/// Monetary admission configuration; actual charges and quotes remain finite Money.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonetaryLimit {
+    pub currency: Currency,
+    pub micros: Limit<Micros>,
+}
+
+impl From<Money> for MonetaryLimit {
+    fn from(value: Money) -> Self {
+        Self {
+            currency: value.currency,
+            micros: Limit::Finite(value.micros),
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -142,7 +159,7 @@ pub struct Ledger {
     pub revision: Revision,
     pub policy: PolicyRevision,
     pub currency: Currency,
-    pub cap: Micros,
+    pub cap: Limit<Micros>,
     pub protected: Micros,
     pub settled: Micros,
     pub active: Micros,

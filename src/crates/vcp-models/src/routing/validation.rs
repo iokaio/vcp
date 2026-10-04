@@ -357,13 +357,13 @@ impl RoutingDecision {
         catalog: &CatalogRevision,
         policy: &Policy,
         now: Timestamp,
-        available: Money,
+        available: impl Into<vcp_domain::accounting::MonetaryLimit>,
         protected: Micros,
     ) -> Result<()> {
         self.validate()?;
         let mut input = self.input.clone();
         input.now = now;
-        input.available = available;
+        input.available = available.into();
         input.protected_verification = protected;
         let refreshed = super::select(catalog, policy, &input)?;
         if refreshed.candidates.iter().any(|candidate| {
@@ -379,8 +379,14 @@ impl RoutingDecision {
     pub fn digest(&self) -> Result<String> {
         let mut copy = self.clone();
         copy.id.clear();
+        let mut value = serde_json::to_value(&copy)?;
+        // Preserve the semantic identity of decisions recorded before limits
+        // acquired explicit tagged representations.
+        if let Some(finite) = self.input.available.micros.finite() {
+            value["input"]["available"]["micros"] = serde_json::to_value(finite)?;
+        }
         Ok(vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
-            &copy,
+            &value,
         )?))
     }
     pub fn validate(&self) -> Result<()> {
