@@ -66,6 +66,9 @@ impl Profile {
             "PATHEXT",
             "TEMP",
             "TMP",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "PROGRAMFILES(X86)",
             "LANG",
             "LC_ALL",
             "TERM",
@@ -81,9 +84,11 @@ impl Profile {
         for (key, value) in &environment {
             let normalized = key.to_ascii_uppercase();
             if !allowed.contains(&normalized.as_str())
-                || !names.insert(normalized)
+                || !names.insert(normalized.clone())
                 || value.contains('\0')
                 || value.len() > 32 * 1024
+                || (["APPDATA", "LOCALAPPDATA", "PROGRAMFILES(X86)"].contains(&normalized.as_str())
+                    && !Path::new(value).is_absolute())
             {
                 return Err(Error::Invalid(
                     "unsupported or duplicate public environment setting",
