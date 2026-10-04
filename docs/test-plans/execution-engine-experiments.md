@@ -15,6 +15,10 @@ node --test src/tests/contracts/execution-analysis.test.cjs
 
 The report separates recorded causal edges from observations sharing explicit record identities. Neither time ordering nor a shared artifact alone proves causation. It retains missing/redacted evidence and unknown liabilities, and requires independent quality review. `retained_with_omissions` can describe intentional authentication-header/recovery-material omission; it does not automatically mean the execution evidence is missing.
 
+The scenario harness now creates an immutable bundle snapshot, an offline report and a hash-linked `execution-analysis-index-*.json` for each inspection, including failed task outcomes. Stage scorecards reference these indexes. Repeated collection uses new filenames and preserves prior reports. Missing Node, invalid evidence or analyzer failure is recorded as unavailable and added to the scenario notes; it does not change the observed task outcome or authorize another attempt. The collection integration is checked by `pwsh -NoProfile -File docs/test-plans/tests/ExecutionAnalysis.Tests.ps1` without a provider or CLI process.
+
+When lifecycle observations are available, the analyzer reports sample counts and nearest-rank p50/p95 separately for each phase and status. Active durations are elapsed-so-far, interrupted spans are incomplete, and a single sample is labeled accordingly. Dropped observations and owner-window limits remain explicit. Overlapping phase durations are never added into a fabricated controller-overhead or end-to-end total; store cumulative counters cannot supply missing percentiles.
+
 For every material experiment, write the expected behavior, observed result, failed or unrun independent criteria, evidence joins, explanation supported by those joins, competing explanations and the next discriminating change. Compare timing only with candidate, workload, backend, host and cache conditions recorded. Costs and speed do not substitute for correct outputs. A successful tool command does not prove native completion, and native completion does not replace the scenario's independent gates.
 
 ## Retained baseline analysis, October 4, 2026

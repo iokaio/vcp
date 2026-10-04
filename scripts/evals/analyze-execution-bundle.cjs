@@ -4,6 +4,32 @@
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 
+function phaseStatistics(snapshot, scope) {
+  if (!snapshot) return {available:false,reason:'not_collected',groups:[]};
+  if (snapshot.schema_version !== 1 || !Array.isArray(snapshot.observations)) throw Error('Unsupported lifecycle diagnostics');
+  const groups = new Map();
+  const identities = new Set();
+  for (const observation of snapshot.observations) {
+    if (!observation.scope || ['workspace','session','task'].some(key => observation.scope[key] !== scope[key])) throw Error('Diagnostic scope mismatch');
+    if (!Number.isSafeInteger(observation.sequence) || observation.sequence < 0 || identities.has(observation.sequence)) throw Error('Invalid or duplicate diagnostic sequence');
+    identities.add(observation.sequence);
+    if (!Number.isSafeInteger(observation.elapsed_micros) || observation.elapsed_micros < 0 || typeof observation.phase !== 'string' || !['active','succeeded','failed','interrupted'].includes(observation.status)) throw Error('Invalid diagnostic observation');
+    const key = JSON.stringify([observation.phase,observation.status]);
+    if (!groups.has(key)) groups.set(key,{phase:observation.phase,status:observation.status,values:[]});
+    groups.get(key).values.push(observation.elapsed_micros);
+  }
+  return {available:snapshot.available === true,owner:snapshot.owner,window:snapshot.window,
+    complete_history:snapshot.complete_history === true,dropped:snapshot.dropped,
+    interpretation:'Per-phase observations may overlap. Active spans are elapsed-so-far; interrupted spans are incomplete. No additive controller-overhead or end-to-end estimate is inferred.',
+    groups:[...groups.values()].map(({phase,status,values}) => {
+      values.sort((a,b) => a-b);
+      const percentile = p => values[Math.max(0,Math.ceil(p * values.length)-1)];
+      return {phase,status,count:values.length,min_micros:values[0],max_micros:values.at(-1),
+        p50_micros:percentile(0.5),p95_micros:percentile(0.95),percentile_method:'nearest_rank',
+        qualification:values.length === 1 ? 'single_observation' : 'observed_window_only'};
+    })};
+}
+
 function analyze(bundle) {
   if (bundle?.schema_version !== 1 || bundle.kind !== 'inspection_bundle' || !bundle.task?.scope?.task) throw Error('Expected a version 1 inspection bundle');
   const scope = bundle.task.scope;
@@ -52,7 +78,8 @@ function analyze(bundle) {
     visibility:row.visibility ?? 'unknown'}));
   return {schema_version:1,kind:'execution_bundle_analysis',task:scope.task,source_watermark:bundle.source_watermark,
     facts:{task_state:bundle.task.state,event_count:events.size,event_kinds:eventKinds,causal_edges:edges,record_observations:recordObservations,verification,accounting,
-      store_phases:bundle.store_diagnostics ?? null,lifecycle_phases:bundle.lifecycle_diagnostics ?? null},
+      store_phases:bundle.store_diagnostics ?? null,lifecycle_phases:bundle.lifecycle_diagnostics ?? null,
+      lifecycle_statistics:phaseStatistics(bundle.lifecycle_diagnostics,scope)},
     gaps:filteredGaps,
     relationship_semantics:'Record groups are explicit shared identities; only causal_edges assert recorded causation. Retained-with-omissions may describe intentional credential omission, not missing execution evidence.',
     assessment:{quality:'requires_independent_scenario_gates',causal_analysis:'requires_evidence_review',

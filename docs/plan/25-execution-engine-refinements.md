@@ -16,18 +16,18 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-01c | Financial admission with durable attempt fences | EE-01b | planned |
 | EE-01d | Derived bounds and start/resume conversion | EE-01b/c | planned |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | planned |
-| EE-02a | Consolidate opens and reconstruction | EE-00b | planned |
+| EE-02a | Consolidate opens and reconstruction | EE-00b | in progress; duplicate replay and SQL paging verified |
 | EE-02b | Incremental validation | EE-00b | in progress; exact byte accounting verified |
 | EE-02c | Separate hot state and retained history | EE-02b | in progress; shared current-read projection verified |
 | EE-02d | Verified checkpoint/index hydration | EE-02c and documented integrity design | planned |
 | EE-03a | Bounded output, CI fixtures and artifact access | EE-00a | in progress; normal-CI codec fixture passed |
 | EE-03b | File/range working-set index | EE-03a | in progress; core reconstruction tests passed |
-| EE-03c1 | Per-request allocation contract | EE-01b/c, EE-03a | planned |
-| EE-03c2 | Routed allocation and encoding order | EE-03c1 | planned |
-| EE-03c3 | Truncation evidence and continuation | EE-03c1; integrate c2 | planned |
+| EE-03c1 | Per-request allocation contract | EE-01b/c, EE-03a | in progress; allocator and fixed-provider fixtures passed |
+| EE-03c2 | Routed allocation and encoding order | EE-03c1 | in progress; candidate routing/admission fixtures passed |
+| EE-03c3 | Truncation evidence and continuation | EE-03c1; integrate c2 | in progress; retained continuation fixtures passed |
 | EE-03d | Conditional caching/encoding refinements | Measured EE-06 need and applicable EE-03 inputs | planned |
-| EE-04a | Shared-driver completion repair | EE-00a/c; current full requirement set | planned |
-| EE-04b | Focused selection and freshness refinement | EE-04a | planned |
+| EE-04a | Shared-driver completion repair | EE-00a/c; current full requirement set | in progress; same-task lifecycle repair passed |
+| EE-04b | Focused selection and freshness refinement | EE-04a | in progress; focused/full separation fixtures passed |
 | EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | in progress; public reason projection verified |
 | EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | planned |
 | EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | planned |
@@ -69,3 +69,4 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 - EE-04c projection checkpoint: versioned bounded pause diagnostics are optional on public task views, retain readable reasons and link only same-task diagnostic artifact metadata. Legacy strings stay valid. Protocol decoder and engine scope/fallback tests passed (1 each), schema/provenance plus SDK tests passed (19), SDK/extension type checks passed, and extension rendering tests passed (4), including legacy fallback and text-only rendering. Controller pause/repair integration is being verified separately.
 - EE-02c copy-on-write checkpoint: full state snapshots share immutable record, event and receipt collections; mutation detaches only touched components. Current snapshots also share the record map. Canonical persisted JSON and historical digests remain byte-for-byte unchanged, so this increment requires no durable migration. The complete store suite and downstream CLI current-query test passed, including both-backend snapshot isolation, replay/corruption checks and exact serialization. An opt-in debug measurement on 1,060,706 canonical bytes (3 records, 33 events, 1,000 clones) observed deep clones at 240,345 microseconds and shared clones at 408 microseconds; this is one synthetic observation, not an A/B latency result. Durable paging and bounded reopen remain outstanding.
 - EE-02a materialization checkpoint: SQLite compares every event and command receipt with fully validated replay using indexed keyset pages of at most 256 rows. Count, identity, ordering, payload and foreign-key checks remain enforced. A 259-event/259-receipt fixture crosses page boundaries and rejects payload, identity and missing-row corruption in both tables; structural SQL calls decrease from 522 to 10 for this shape. Seventeen targeted regressions passed, followed by a passing rerun after the composite-key query refinement. No schema or cold-open trust change is claimed.
+- EE-00c harness checkpoint: each stage inspection now retains a unique bundle snapshot, hash-linked analysis index and offline report; stage records link the indexes. Successful analysis remains pending independent quality and causal review. Missing/failed analysis stays visible without changing task outcomes or initiating retries. Analyzer tests (3) and the PowerShell integration test passed, covering preservation across repeated collection, failure outcomes and explicit diagnostic failure. Lifecycle timing groups preserve status, sample count, dropped spans and incomplete owner windows without adding overlapping durations.

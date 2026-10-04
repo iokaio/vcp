@@ -798,6 +798,38 @@ function Get-InspectItems {
     return @($Pages | ForEach-Object { $_.items } | Where-Object { $_ })
 }
 
+function Write-VcpExecutionAnalysis {
+    # Offline derivation only. Unique reports preserve every prior observation;
+    # collection failure is visible without changing the task's observed result.
+    param($Ctx, [string]$Stage, [string]$BundlePath)
+    $directory = Join-Path $Ctx.Logs $Stage
+    $id = [guid]::NewGuid().ToString('N')
+    $report = Join-Path $directory "execution-analysis-$id.json"
+    $source = Join-Path $directory "inspection-bundle-$id.json"
+    [IO.File]::Copy($BundlePath, $source, $false)
+    $manifest = [ordered]@{
+        schema_version = 1; kind = 'execution_analysis_reference'; stage = $Stage
+        source = [IO.Path]::GetFileName($source); source_sha256 = Get-Sha256 $source
+        analysis = $null; analysis_sha256 = $null; status = 'unavailable'
+        quality_assessment = 'requires_independent_scenario_gates'
+        causal_assessment = 'requires_evidence_review'
+    }
+    try {
+        $analyzer = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../scripts/evals/analyze-execution-bundle.cjs'))
+        $node = Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        if (-not (Test-Path -LiteralPath $analyzer -PathType Leaf)) { throw 'Analyzer unavailable' }
+        $null = & $node.Source $analyzer '--out' $report $source 2>&1
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $report -PathType Leaf)) { throw 'Analysis failed' }
+        $manifest.analysis = [IO.Path]::GetFileName($report)
+        $manifest.analysis_sha256 = Get-Sha256 $report
+        $manifest.status = 'collected_pending_review'
+    }
+    catch {
+        $Ctx.Notes.Add("$Stage offline execution analysis unavailable; retain the inspection bundle for review.")
+    }
+    Write-JsonFile (Join-Path $directory "execution-analysis-index-$id.json") $manifest
+}
+
 function Get-VcpStageInspection {
     <# One canonical read owner for every page; a failed bundle never silently
        falls back to a costly or potentially inconsistent second evidence sweep. #>
@@ -816,7 +848,9 @@ function Get-VcpStageInspection {
         Write-JsonFile (Join-Path $Ctx.Logs "$Stage/inspect-$view.json") $pages
         $views[$view] = $pages
     }
-    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/inspection-bundle.json") $bundle
+    $bundlePath = Join-Path $Ctx.Logs "$Stage/inspection-bundle.json"
+    Write-JsonFile $bundlePath $bundle
+    Write-VcpExecutionAnalysis $Ctx $Stage $bundlePath
     Write-JsonFile (Join-Path $Ctx.Logs "$Stage/tasks-status.json") $bundle.task
     Write-JsonFile (Join-Path $Ctx.Logs "$Stage/tasks-agents.json") $bundle.agents
     Write-JsonFile (Join-Path $Ctx.Logs "$Stage/history.json") $bundle.history
@@ -1236,6 +1270,8 @@ function Complete-VcpStageEvidence {
       if ($Ctx.SupportsInspectionBundle) {
         $views = Get-VcpStageInspection $Ctx $Stage $task
         $costs = $views.costs; $tools = $views.tools; $outputs = $views.outputs
+        $Record.execution_analysis = @(Get-ChildItem -LiteralPath (Join-Path $Ctx.Logs $Stage) -Filter 'execution-analysis-index-*.json' |
+            ForEach-Object { "logs/$Stage/$($_.Name)" })
       }
       else {
         $status = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'tasks-status' -Arguments @('tasks', 'status', $task)
