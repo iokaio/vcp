@@ -1284,3 +1284,119 @@ async fn coding_budget_denial_is_durable_before_any_provider_send() {
         test.codex.shutdown_and_wait().await.unwrap();
     }
 }
+
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_liability() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(15),
+            1000,
+            false,
+            1,
+            None,
+        )
+        .await;
+        let root = temp.path().join("pacing");
+        std::fs::create_dir(&root).unwrap();
+        for index in 0..2 {
+            std::fs::File::create(root.join(format!("slot-{index}.lock"))).unwrap();
+        }
+        host.configure_provider_pacing(root.clone(), Duration::from_secs(15))
+            .unwrap();
+        let observed = Arc::new(Mutex::new(Vec::<(std::time::Instant, Attempt)>::new()));
+        let submitted = observed.clone();
+        let inspecting = host.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(move |request: &wiremock::Request| {
+                let state = inspecting.snapshot().unwrap();
+                let current: Vec<Attempt> = state
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Attempt)
+                    .map(|row| row.decode::<Attempt>().unwrap())
+                    .filter(|attempt| attempt.phase == ReservationState::Submitted)
+                    .collect();
+                assert_eq!(current.len(), 1, "one send intent per actual HTTP request");
+                let attempt = current.into_iter().next().unwrap();
+                assert!(attempt.send_intent.is_some());
+                assert_eq!(attempt.request_digest, vcp_protocol::digest_bytes(&request.body));
+                let mut previous = submitted.lock().unwrap();
+                assert_eq!(attempt.previous.as_ref(), previous.last().map(|(_, prior)| &prior.id));
+                previous.push((std::time::Instant::now(), attempt));
+                if previous.len() == 1 {
+                    ResponseTemplate::new(429)
+                        .insert_header("retry-after", "0")
+                        .set_body_string("synthetic shared rate limit")
+                } else {
+                    assert_eq!(previous.len(), 2, "only one bounded retry is allowed");
+                    ResponseTemplate::new(200)
+                        .insert_header("content-type", "text/event-stream")
+                        .set_body_string(sse(vec![
+                            ev_assistant_message("paced-retry", "Retried after the shared cooldown."),
+                            serde_json::json!({"type":"response.completed","response":{
+                                "id":"paced-retry","status":"completed","output":[],
+                                "usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}
+                            }}),
+                        ]))
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        turn(&test).await;
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        let observed = observed.lock().unwrap();
+        assert_eq!(observed.len(), 2);
+        assert!(
+            observed[1].0.duration_since(observed[0].0) >= Duration::from_secs(5),
+            "Retry-After: 0 must not bypass the shared minimum cooldown"
+        );
+        let state = host.snapshot().unwrap();
+        assert_eq!(
+            state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Attempt)
+                .count(),
+            2
+        );
+        let prior =
+            vcp_budget::attempt(&state, &observed[0].1.id, &binding.scope.workspace).unwrap();
+        let retry =
+            vcp_budget::attempt(&state, &observed[1].1.id, &binding.scope.workspace).unwrap();
+        assert_eq!(retry.previous.as_ref(), Some(&prior.id));
+        assert_ne!(retry.reservation, prior.reservation);
+        assert_eq!(prior.phase, ReservationState::ReconciliationPending);
+        assert!(prior.uncertain.is_some());
+        assert_eq!(prior.quote.amount.micros, Micros::new(100));
+        assert_eq!(retry.phase, ReservationState::Settled);
+        assert_eq!(retry.charged, Micros::new(100));
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(ledger.active, Micros::ZERO);
+        assert_eq!(ledger.unresolved, prior.quote.amount.micros);
+        assert_eq!(ledger.settled, Micros::new(100));
+        drop(observed);
+        // Probe both leases while keeping them simultaneously locked, so a
+        // leaked transport permit cannot hide behind the other available slot.
+        let slots: Vec<_> = (0..2)
+            .map(|index| {
+                let slot = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(root.join(format!("slot-{index}.lock")))
+                    .unwrap();
+                slot.try_lock()
+                    .expect("completed requests release OS transport slots");
+                slot
+            })
+            .collect();
+        drop(slots);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
