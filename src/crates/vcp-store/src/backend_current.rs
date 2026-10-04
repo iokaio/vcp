@@ -2,7 +2,7 @@
 //! Layout-3 native publication qualification. Original Commit payloads remain
 //! byte-for-byte journal bodies; the new header authenticates the staged root.
 use super::*;
-use crate::{admitted_history::AdmittedCut, contract::current_transition::PreparedCurrent};
+use crate::durable_owner::{DurableOwner, PreparedDurable};
 #[path = "backend_current_replay.rs"]
 mod replay;
 #[path = "backend_current_sqlite.rs"]
@@ -18,25 +18,25 @@ pub(crate) async fn initialize_sqlite(db: &mut SqliteConnection) -> Result<()> {
 
 pub(crate) async fn append_sqlite(
     db: &mut SqliteConnection,
-    source: &AdmittedCut,
-    prepared: &PreparedCurrent,
+    source: &DurableOwner,
+    prepared: &PreparedDurable,
+    payload: &[u8],
     observe: &impl Fn(Barrier),
-) -> Result<AdmittedCut> {
+) -> Result<DurableOwner> {
     let commit = prepared.commit();
-    let payload = canonical_bytes(commit)?;
     if payload.len() > MAX_COMMIT_BYTES {
         return Err(Error::Limit("commit bytes"));
     }
     let mut transaction = db.begin_with("BEGIN IMMEDIATE").await.map_err(sql_error)?;
     let (next, publication) = {
         let mut pages = crate::history_index::io::Sqlite::new(&mut transaction);
-        crate::history_publication::stage(&mut pages, source, prepared, &payload).await?
+        crate::history_publication::stage(&mut pages, source, prepared, payload).await?
     };
     sqlite::insert_rows(
         &mut transaction,
         commit,
-        &payload,
-        &prepared.proposed().events,
+        payload,
+        &prepared.semantic().proposed().events,
     )
     .await?;
     let watermark = i64::try_from(commit.receipt.watermark.get())

@@ -3,8 +3,10 @@
 //! next immutable catalog and exact original commit bytes. No persisted root is
 //! a replacement for mandatory semantic replay.
 use crate::{
-    admitted_history::AdmittedCut, contract::current_transition::PreparedCurrent,
-    history_catalog::Catalog, history_index::Pages, Error, Result,
+    durable_owner::{DurableOwner, PreparedDurable},
+    history_catalog::Catalog,
+    history_index::Pages,
+    Error, Result,
 };
 use serde::{Deserialize, Serialize};
 use vcp_protocol::{canonical_bytes, digest_bytes};
@@ -18,17 +20,22 @@ struct Publication {
     next: String,
     current_projection: String,
     history: Catalog,
+    originals: crate::original_commits::OriginalCommits,
     original_payload: String,
 }
 fn descriptor(
-    source: &AdmittedCut,
-    prepared: &PreparedCurrent,
-    next: &AdmittedCut,
+    source: &DurableOwner,
+    prepared: &PreparedDurable,
+    next: &DurableOwner,
     payload: &[u8],
 ) -> Result<Publication> {
+    if payload.is_empty() || payload.len() > crate::contract::MAX_COMMIT_BYTES {
+        return Err(Error::Limit("commit bytes"));
+    }
+    let original: crate::contract::Commit = serde_json::from_slice(payload)?;
     if source.identity() != prepared.source_identity()
-        || canonical_bytes(prepared.commit())? != payload
-        || prepared.proposed().current != *next.current()
+        || &original != prepared.commit()
+        || prepared.semantic().proposed().current != *next.semantic().current()
     {
         return Err(Error::Corruption("history publication identity"));
     }
@@ -36,20 +43,21 @@ fn descriptor(
         version: 3,
         source: source.identity().to_owned(),
         next: next.identity().to_owned(),
-        current_projection: next.current().projection_digest()?,
-        history: next.catalog().clone(),
+        current_projection: next.semantic().current().projection_digest()?,
+        history: next.semantic().catalog().clone(),
+        originals: next.originals().clone(),
         original_payload: digest_bytes(payload),
     })
 }
 pub(crate) async fn stage(
     pages: &mut impl Pages,
-    source: &AdmittedCut,
-    prepared: &PreparedCurrent,
+    source: &DurableOwner,
+    prepared: &PreparedDurable,
     payload: &[u8],
-) -> Result<(AdmittedCut, String)> {
+) -> Result<(DurableOwner, String)> {
     // Only this actual advancement supplies next roots; callers cannot combine
     // an arbitrary same-watermark catalog with an unrelated prepared current.
-    let next = source.advance(pages, prepared).await?;
+    let next = source.advance(pages, prepared, payload).await?;
     let bytes = canonical_bytes(&descriptor(source, prepared, &next, payload)?)?;
     if bytes.len() > MAX_PUBLICATION_BYTES {
         return Err(Error::Limit("history publication bytes"));
@@ -63,9 +71,9 @@ pub(crate) async fn stage(
 pub(crate) async fn verify(
     pages: &mut impl Pages,
     digest: &str,
-    source: &AdmittedCut,
-    prepared: &PreparedCurrent,
-    next: &AdmittedCut,
+    source: &DurableOwner,
+    prepared: &PreparedDurable,
+    next: &DurableOwner,
     original_payload: &[u8],
 ) -> Result<()> {
     let bytes = pages.read(digest, MAX_PUBLICATION_BYTES).await?;

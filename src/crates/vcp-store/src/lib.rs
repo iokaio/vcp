@@ -14,6 +14,8 @@ pub mod contract;
 mod current_state;
 mod current_size;
 mod diagnostics;
+#[cfg(test)]
+mod durable_owner;
 pub mod export_contract;
 mod forecast_contract;
 mod fork_contract;

@@ -3,7 +3,7 @@
 //! candidate page writes are compared with already-published bytes, never used
 //! to repair missing or corrupt objects during cold-open verification.
 use super::*;
-use crate::{contract::current_transition, history_index::Pages, journal_frame::Frame};
+use crate::{durable_owner, history_index::Pages, journal_frame::Frame};
 
 struct ComparePages<'a, P> {
     source: &'a mut P,
@@ -22,9 +22,9 @@ impl<P: Pages> Pages for ComparePages<'_, P> {
 }
 pub(crate) async fn replay_current(
     pages: &mut impl Pages,
-    source: &AdmittedCut,
+    source: &DurableOwner,
     frame: &Frame,
-) -> Result<AdmittedCut> {
+) -> Result<DurableOwner> {
     let publication = frame
         .publication
         .as_ref()
@@ -33,19 +33,21 @@ pub(crate) async fn replay_current(
     if commit.version != FORMAT_VERSION {
         return Err(Error::Incompatible);
     }
-    if commit.receipt.watermark != source.current().watermark.next()? {
+    if commit.receipt.watermark != source.semantic().current().watermark.next()? {
         return Err(Error::Corruption("replayed current watermark"));
     }
     let mut pages = ComparePages { source: pages };
-    let current_transition::Outcome::Prepared(prepared) =
-        current_transition::prepare(&mut pages, source, &commit.transaction).await?
+    let durable_owner::Outcome::Prepared(prepared) =
+        source.prepare(&mut pages, &commit.transaction).await?
     else {
         return Err(Error::Corruption("duplicate current replay transaction"));
     };
     if prepared.commit() != &commit {
         return Err(Error::Corruption("replayed receipt differs"));
     }
-    let next = source.advance(&mut pages, &prepared).await?;
+    let next = source
+        .advance(&mut pages, &prepared, &frame.payload)
+        .await?;
     crate::history_publication::verify(
         &mut pages,
         publication,

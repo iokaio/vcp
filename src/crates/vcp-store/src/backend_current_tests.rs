@@ -15,7 +15,7 @@ fn journal(root: &Path) -> Journal {
             .unwrap(),
         root: root.to_owned(),
         chain: "0".repeat(64),
-        base: State::default(),
+        base_watermark: Watermark::ZERO,
         initial_chain: "0".repeat(64),
         write_budget: None,
     }
@@ -123,7 +123,11 @@ async fn sqlite_current_publication_is_atomic_with_original_commit_and_every_mat
         let catalog = crate::history_catalog::Catalog::from_validated_state(&mut pages, &source)
             .await
             .unwrap();
-        AdmittedCut::from_replayed(&mut pages, &source, catalog)
+        let originals =
+            crate::original_commits::OriginalCommits::from_validated_base(&mut pages, None)
+                .await
+                .unwrap();
+        DurableOwner::from_replayed(&mut pages, &source, None, catalog, originals)
             .await
             .unwrap()
     };
@@ -131,15 +135,14 @@ async fn sqlite_current_publication_is_atomic_with_original_commit_and_every_mat
     let expected = source.prepare_reference(&transaction).unwrap();
     let prepared = {
         let mut pages = crate::history_index::io::Sqlite::new(db);
-        let crate::contract::current_transition::Outcome::Prepared(prepared) =
-            crate::contract::current_transition::prepare(&mut pages, &cut, &transaction)
-                .await
-                .unwrap()
+        let crate::durable_owner::Outcome::Prepared(prepared) =
+            cut.prepare(&mut pages, &transaction).await.unwrap()
         else {
             panic!("initial transition")
         };
         prepared
     };
+    let original_payload = serde_json::to_vec_pretty(prepared.commit()).unwrap();
     let prior_pages: i64 = sqlx::query_scalar("SELECT count(*) FROM history_index_pages")
         .fetch_one(&mut *db)
         .await
@@ -147,7 +150,11 @@ async fn sqlite_current_publication_is_atomic_with_original_commit_and_every_mat
     // Fail at the final publication-row insert, after catalog pages and all
     // normal canonical rows have been tentatively written in the same native tx.
     sqlx::query("CREATE TRIGGER fail_current_publication BEFORE INSERT ON history_publications BEGIN SELECT RAISE(ABORT, 'injected publication failure'); END").execute(&mut *db).await.unwrap();
-    assert!(append_sqlite(db, &cut, &prepared, &|_| {}).await.is_err());
+    assert!(
+        append_sqlite(db, &cut, &prepared, &original_payload, &|_| {})
+            .await
+            .is_err()
+    );
     for (table, query) in [
         ("commits", "SELECT count(*) FROM commits"),
         ("records", "SELECT count(*) FROM records"),
@@ -166,17 +173,19 @@ async fn sqlite_current_publication_is_atomic_with_original_commit_and_every_mat
         .await
         .unwrap();
     assert_eq!(after_pages, prior_pages);
-    assert_eq!(cut.current().watermark, Watermark::ZERO);
+    assert_eq!(cut.semantic().current().watermark, Watermark::ZERO);
     sqlx::query("DROP TRIGGER fail_current_publication")
         .execute(&mut *db)
         .await
         .unwrap();
-    let next = append_sqlite(db, &cut, &prepared, &|_| {}).await.unwrap();
+    let next = append_sqlite(db, &cut, &prepared, &original_payload, &|_| {})
+        .await
+        .unwrap();
     let payload: Vec<u8> = sqlx::query_scalar("SELECT payload FROM commits WHERE watermark=1")
         .fetch_one(&mut *db)
         .await
         .unwrap();
-    assert_eq!(payload, canonical_bytes(&expected.1).unwrap());
+    assert_eq!(payload, original_payload);
     let publication: String =
         sqlx::query_scalar("SELECT digest FROM history_publications WHERE watermark=1")
             .fetch_one(&mut *db)
@@ -194,7 +203,8 @@ async fn sqlite_current_publication_is_atomic_with_original_commit_and_every_mat
         )
         .await
         .unwrap();
-        next.catalog()
+        next.semantic()
+            .catalog()
             .verify_replayed_state(&mut pages, &expected.0)
             .await
             .unwrap();
@@ -212,7 +222,7 @@ async fn sqlite_current_publication_is_atomic_with_original_commit_and_every_mat
 
 #[tokio::test]
 async fn native_files_cold_replay_checks_each_transition_without_reconstructing_suffix_state() {
-    use crate::{contract::current_transition, history_index::Pages};
+    use crate::{durable_owner, history_index::Pages};
     use vcp_domain::{CommandId, EventId, TransactionId};
     struct ReadOnly<'a, P>(&'a mut P);
     impl<P: Pages> Pages for ReadOnly<'_, P> {
@@ -246,16 +256,22 @@ async fn native_files_cold_replay_checks_each_transition_without_reconstructing_
     let catalog = crate::history_catalog::Catalog::from_validated_state(&mut pages, &legacy)
         .await
         .unwrap();
-    let origin = canonical_bytes(&catalog).unwrap();
+    let originals = crate::original_commits::OriginalCommits::from_validated_base(&mut pages, None)
+        .await
+        .unwrap()
+        .append_verified(&mut pages, &canonical_bytes(&initial).unwrap(), &initial)
+        .await
+        .unwrap();
+    let origin = canonical_bytes(&(&catalog, &originals)).unwrap();
     immutable_file(&root.join("history-origin.json"), &origin).unwrap();
-    let mut cut = AdmittedCut::from_replayed(&mut pages, &legacy, catalog)
+    let mut cut = DurableOwner::from_replayed(&mut pages, &legacy, None, catalog, originals)
         .await
         .unwrap();
     let mut expected = legacy;
     for index in 0..2 {
         let mut transaction = common::initial();
         transaction.id = TransactionId::parse(format!("native-replay-{index}")).unwrap();
-        transaction.expected_watermark = cut.current().watermark;
+        transaction.expected_watermark = cut.semantic().current().watermark;
         transaction.mutations.clear();
         transaction.events[0].id = EventId::parse(format!("native-event-{index}")).unwrap();
         transaction.events[0].correlation =
@@ -263,14 +279,12 @@ async fn native_files_cold_replay_checks_each_transition_without_reconstructing_
         let command = transaction.command.as_mut().unwrap();
         command.command = transaction.events[0].correlation.clone();
         command.digest = format!("{index:064x}");
-        let current_transition::Outcome::Prepared(prepared) =
-            current_transition::prepare(&mut pages, &cut, &transaction)
-                .await
-                .unwrap()
+        let durable_owner::Outcome::Prepared(prepared) =
+            cut.prepare(&mut pages, &transaction).await.unwrap()
         else {
             panic!("new transition")
         };
-        let payload = canonical_bytes(prepared.commit()).unwrap();
+        let payload = serde_json::to_vec_pretty(prepared.commit()).unwrap();
         let (next, publication) =
             crate::history_publication::stage(&mut pages, &cut, &prepared, &payload)
                 .await
@@ -298,10 +312,21 @@ async fn native_files_cold_replay_checks_each_transition_without_reconstructing_
     let initial: Commit = serde_json::from_slice(&first.payload).unwrap();
     let mut legacy = State::default();
     legacy.replay(&initial).unwrap();
-    let catalog =
-        serde_json::from_slice(&fs::read(root.join("history-origin.json")).unwrap()).unwrap();
+    let (catalog, originals): (
+        crate::history_catalog::Catalog,
+        crate::original_commits::OriginalCommits,
+    ) = serde_json::from_slice(&fs::read(root.join("history-origin.json")).unwrap()).unwrap();
+    assert_eq!(
+        originals
+            .get(&mut pages, initial.receipt.watermark)
+            .await
+            .unwrap()
+            .unwrap()
+            .bytes,
+        first.payload
+    );
     let mut read_only = ReadOnly(&mut pages);
-    let mut cut = AdmittedCut::from_replayed(&mut read_only, &legacy, catalog)
+    let mut cut = DurableOwner::from_replayed(&mut read_only, &legacy, None, catalog, originals)
         .await
         .unwrap();
     drop(legacy);
@@ -334,8 +359,12 @@ async fn native_files_cold_replay_checks_each_transition_without_reconstructing_
     cut = replay_current(&mut read_only, &after_second, &third)
         .await
         .unwrap();
-    assert_eq!(cut.current(), &crate::CurrentState::from_state(&expected));
-    cut.catalog()
+    assert_eq!(
+        cut.semantic().current(),
+        &crate::CurrentState::from_state(&expected)
+    );
+    cut.semantic()
+        .catalog()
         .verify_replayed_state(&mut read_only, &expected)
         .await
         .unwrap();

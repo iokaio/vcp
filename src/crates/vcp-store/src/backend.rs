@@ -21,11 +21,11 @@ const MAGIC: &[u8; 8] = b"VCPJ0001";
 const COMMITTED: &[u8; 8] = b"VCPCMIT1";
 const HEADER: usize = 8 + 4 + 4 + 64;
 const TRAILER: usize = 64 + 8;
-#[path = "backend_history.rs"]
-mod history;
 #[cfg(test)]
 #[path = "backend_current.rs"]
 mod current_publication;
+#[path = "backend_history.rs"]
+mod history;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -68,7 +68,7 @@ pub(crate) struct Journal {
     file: File,
     root: PathBuf,
     chain: String,
-    base: State,
+    base_watermark: vcp_domain::Watermark,
     initial_chain: String,
     // Unit-test fault injection only; never a runtime capacity or policy setting.
     #[cfg(test)]
@@ -265,7 +265,7 @@ impl Backend {
                     root: root.to_owned(),
                     chain: initial_chain.clone(),
                     initial_chain,
-                    base: seed,
+                    base_watermark: seed.watermark,
                     #[cfg(test)]
                     write_budget: None,
                 };
@@ -276,7 +276,7 @@ impl Backend {
                     .record(checkpoint_started, checkpoint.is_ok());
                 let checkpoint = checkpoint?;
                 let replay_started = Instant::now();
-                let replay = journal.replay(diagnostics, checkpoint.as_ref(), &mut size);
+                let replay = journal.replay(seed, diagnostics, checkpoint.as_ref(), &mut size);
                 diagnostics.replay.record(replay_started, replay.is_ok());
                 let state = replay?;
                 Ok((Self::Files(journal), state, size))
@@ -533,6 +533,7 @@ impl Backend {
 impl Journal {
     fn replay(
         &mut self,
+        base: State,
         diagnostics: &mut crate::StoreDiagnostics,
         checkpoint: Option<&Checkpoint>,
         size: &mut StateSize,
@@ -565,7 +566,7 @@ impl Journal {
                 return Err(Error::Corruption("acknowledged journal was truncated"));
             }
         }
-        let mut state = self.base.clone();
+        let mut state = base;
         let mut checkpoint_chain = self.initial_chain.clone();
         if let Some(checkpoint) =
             checkpoint.filter(|checkpoint| checkpoint.watermark == state.watermark)
@@ -738,7 +739,7 @@ impl Journal {
                 return Err(Error::Corruption("checkpoint seal"));
             }
             let checkpoint: State = serde_json::from_slice(&bytes)?;
-            if watermark < self.base.watermark {
+            if watermark < self.base_watermark {
                 return Err(Error::Corruption("checkpoint before replay base"));
             }
             return Ok(Some(Checkpoint {

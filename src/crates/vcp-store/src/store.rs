@@ -43,6 +43,7 @@ pub struct Store {
     anchor: PathBuf,
     anchors: Vec<File>,
     root: PathBuf,
+    forbidden_roots: Vec<PathBuf>,
     kind: BackendKind,
     spool: Spool,
     artifact_limit: u64,
@@ -305,6 +306,10 @@ impl Store {
             anchor: root.clone(),
             anchors: Vec::new(),
             root,
+            forbidden_roots: forbidden_roots
+                .iter()
+                .map(|root| root.canonicalize())
+                .collect::<std::io::Result<Vec<_>>>()?,
             kind,
             spool,
             artifact_limit,
@@ -317,6 +322,37 @@ impl Store {
     }
     pub fn root(&self) -> &Path {
         &self.root
+    }
+    /// Only a live admitted Store can derive a canonical child capability.
+    /// Recheck the held native owner identity rather than trusting a pathname.
+    pub(crate) fn validate_canonical_child(&self, child: &Path) -> Result<()> {
+        if self.poisoned || child.parent() != Some(self.root.as_path()) {
+            return Err(Error::Access);
+        }
+        if self
+            .forbidden_roots
+            .iter()
+            .any(|root| child.starts_with(root) || root.starts_with(child))
+        {
+            return Err(Error::Access);
+        }
+        let path = self.root.join("owner.lock");
+        reject_link(&path)?;
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000).share_mode(1 | 2);
+        }
+        let owner = options.open(path)?;
+        if !crate::private_paths::allowed_handle(&owner, false)?
+            || crate::vault_publish::native_identity(&owner)?
+                != crate::vault_publish::native_identity(&self._owner)?
+        {
+            return Err(Error::Corruption("canonical owner identity changed"));
+        }
+        Ok(())
     }
     pub fn kind(&self) -> BackendKind {
         self.kind

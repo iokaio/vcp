@@ -27,7 +27,35 @@ pub(crate) struct Directory {
     // entire lifetime. Child content may still change; file handles fence it.
     _ancestors: Vec<File>,
 }
+#[cfg(test)]
+#[path = "canonical_child_tests.rs"]
+mod canonical_child_tests;
 impl Directory {
+    /// Derive a fixed child from an actual locked Store, not from an arbitrary
+    /// trusted path. Archive/cloud directory admission rules remain unchanged.
+    pub(crate) fn canonical_child(store: &crate::Store, name: &str) -> Result<Self> {
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        {
+            return Err(Error::Access);
+        }
+        // Pin the admitted root and every native ancestor before checking and
+        // creating a child, closing path-replacement races during derivation.
+        let parent = Self::hold(store.root(), false)?;
+        let path = parent.path.join(name);
+        store.validate_canonical_child(&path)?;
+        match fs::create_dir(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let child = Self::hold(&path, false)?;
+        store.validate_canonical_child(&child.path)?;
+        Ok(child)
+    }
     pub(crate) fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Self::open_policy(path, forbidden, false)
     }

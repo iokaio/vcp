@@ -121,6 +121,37 @@ impl OriginalCommits {
     pub(crate) fn root(&self) -> &Root {
         &self.rows
     }
+    /// Pair the retained boundary with the exact base admitted by the existing
+    /// canonical loader; a matching head watermark alone is insufficient.
+    pub(crate) async fn verify_base(
+        &self,
+        pages: &mut impl Pages,
+        expected: Option<&ReplayBase>,
+    ) -> Result<()> {
+        self.validate()?;
+        match (&self.origin, expected) {
+            (Origin::Genesis, None) => Ok(()),
+            (
+                Origin::Legacy {
+                    watermark,
+                    chain,
+                    blob,
+                },
+                Some(base),
+            ) => {
+                if *watermark != base.state.watermark || *chain != base.chain()? {
+                    return Err(Error::Corruption("original replay base differs"));
+                }
+                let bytes =
+                    history_blob::read_bounded(pages, blob, MAX_STATE_BYTES + 1024 * 1024).await?;
+                if bytes != canonical_bytes(base)? {
+                    return Err(Error::Corruption("original replay base differs"));
+                }
+                Ok(())
+            }
+            _ => Err(Error::Corruption("original replay boundary differs")),
+        }
+    }
     pub(crate) fn validate(&self) -> Result<()> {
         self.rows.validate_table(Table::CommitPayload)?;
         if self.version != 1
