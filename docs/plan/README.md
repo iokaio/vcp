@@ -1,5 +1,7 @@
 # VCP implementation and testing plan
 
+Current owner-directed work (October 4, 2026): [execution engine refinements, EE-00–EE-07](25-execution-engine-refinements.md), on the existing feature branch with local phase commits only. Quality, diagnostics and active state/context improvements are governed by [the approved architecture plan](../architecture/execution-architecture-review.md).
+
 Current progression (September 24): P8 is closed by
 [owner direction](../adr/042-owner-directed-p8-closure.md), with its recorded
 qualification gaps retained. P9-01 → P9-02 → P9-03, P4-01 and P4-02 are complete.

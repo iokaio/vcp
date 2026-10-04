@@ -1,5 +1,7 @@
 # 20 — Work-item, requirement and test traceability
 
+The owner-approved [EE execution refinement ledger](25-execution-engine-refinements.md) separately tracks the October 4, 2026 changes to the existing execution path. EE-00–EE-07 require new implementation/qualification evidence; historical P1/P2 completion below does not establish their acceptance. Delivery is local commits only under [ADR-085](../adr/085-existing-execution-refinements.md).
+
 Status: implementation and qualification in progress. Ownership inventory from architecture draft 0.4 and the task headings in this directory, with developer-workflow evidence aligned on September 22, 2026. All 68 architecture items have exactly one implementation owner: 56 first-release items and 12 deferred items (P4, P9 and P10). The evidence-linked rows below record completed P0–P3, P5, P6 and P7 boundaries. P7-04/05/06 completion includes the passing final source-bound native gate; P8 is now closed by owner direction with qualification gaps retained; P9 and P4-01 through P4-05 are complete. Task dependency IDs remain unchanged.
 
 Current owner-directed sequence: **67 of 68 architecture items complete**.
