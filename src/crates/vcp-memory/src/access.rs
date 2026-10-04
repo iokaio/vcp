@@ -6,7 +6,7 @@ use vcp_store::contract::{Collection, State};
 use vcp_store::CurrentStateView;
 
 mod origin_proof;
-pub(crate) use origin_proof::version_scope_store;
+pub(crate) use origin_proof::{origins_scope_store, redacted_scope_store, version_scope_store};
 use origin_proof::{OriginProof, StateOrigins};
 
 /// Issued by the authenticated host. Serialized proposals cannot mint access.

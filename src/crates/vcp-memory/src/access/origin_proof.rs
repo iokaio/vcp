@@ -84,13 +84,48 @@ pub(crate) async fn version_scope_store<S: CanonicalStore>(
     version: &Version,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<()> {
+    resolve(store, check, |current, history| {
+        super::version_scope_with_history(current, access, version, history)
+    })
+    .await
+}
+
+pub(crate) async fn redacted_scope_store<S: CanonicalStore>(
+    store: &S,
+    access: &Access,
+    scope: &vcp_domain::workspace::Scope,
+    sources: &vcp_domain::redaction::Sources,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<()> {
+    resolve(store, check, |current, history| {
+        super::redacted_scope_with_history(current, access, scope, sources, history)
+    })
+    .await
+}
+
+pub(crate) async fn origins_scope_store<S: CanonicalStore>(
+    store: &S,
+    access: &Access,
+    origins: &[EventId],
+    check: &dyn Fn() -> Result<()>,
+) -> Result<()> {
+    resolve(store, check, |_, history| {
+        history.check(access, origins, false)
+    })
+    .await
+}
+
+async fn resolve<S: CanonicalStore>(
+    store: &S,
+    check: &dyn Fn() -> Result<()>,
+    mut evaluate: impl FnMut(vcp_store::CurrentStateView<'_>, &mut ResolvedOrigins) -> Result<()>,
+) -> Result<()> {
     let watermark = store.current().watermark;
     let mut history = ResolvedOrigins::default();
     loop {
         check()?;
         history.needed.clear();
-        let result =
-            super::version_scope_with_history(store.current(), access, version, &mut history);
+        let result = evaluate(store.current(), &mut history);
         if history.needed.is_empty() {
             if store.current().watermark != watermark {
                 return Err(Error::Conflict("origin scope owner changed"));
