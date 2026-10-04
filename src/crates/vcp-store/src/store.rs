@@ -321,6 +321,9 @@ impl Store {
     pub fn kind(&self) -> BackendKind {
         self.kind
     }
+    pub fn artifact_limit(&self) -> u64 {
+        self.artifact_limit
+    }
     pub fn spool(&self) -> &Spool {
         &self.spool
     }

@@ -44,7 +44,7 @@ pub(super) async fn execute(
         key,
     } = locations;
     // Resume policy and task selection share the same validated store owner.
-    // The later canonical host still reopens and checks selected_revision.
+    // Its exclusive owner is transferred to the canonical worker after setup.
     let mut selection_store = None;
     let requested = match &cli.command {
         ValidatedCommand::Run(run) => settings::autonomy(run.autonomy),
@@ -52,10 +52,11 @@ pub(super) async fn execute(
             let entry = entry
                 .as_ref()
                 .ok_or("workspace has no session to resume or fork")?;
-            let store = Store::open(
+            let store = Store::open_with_artifact_limit(
                 &entry.config.canonical_root,
                 entry.config.backend,
                 std::slice::from_ref(&cli.workspace),
+                entry.config.artifact_limit.get(),
             )
             .await
             .map_err(|e| e.to_string())?;
@@ -120,7 +121,7 @@ pub(super) async fn execute(
     };
     if objective.is_none() {
         let store = selection_store
-            .take()
+            .as_ref()
             .ok_or("resume selection owner unavailable")?;
         let selected = match &cli.command {
             ValidatedCommand::Resume(resume) => match &resume.task {
@@ -196,7 +197,6 @@ pub(super) async fn execute(
                 .map_err(|_| "task has no durable budget admission; start a new run")?;
             config.cap.micros = ledger.cap;
         }
-        store.close().await.map_err(|e| e.to_string())?;
         config.session = selected.scope.session;
         config.root_task = selected.scope.task;
     }
@@ -254,7 +254,23 @@ pub(super) async fn execute(
         environment: digest_bytes(b"vcp-cli-explicit-user-profile/1"),
     };
     std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
-    let (mut host, mut owner) = CanonicalHost::open_selected(config.clone(), selected_revision)?;
+    let (mut host, mut owner) = match selected_revision {
+        Some(expected) => CanonicalHost::open_owned_selected(
+            config.clone(),
+            selection_store
+                .take()
+                .ok_or("resume selection owner unavailable")?,
+            expected,
+        )?,
+        None => {
+            // Fork creates a new session/task and retains its existing reopen
+            // semantics; only an unchanged resume selection uses the handoff.
+            if let Some(store) = selection_store.take() {
+                store.close().await.map_err(|error| error.to_string())?;
+            }
+            CanonicalHost::open(config.clone())?
+        }
+    };
     if let Some(boundary) = fork_boundary {
         let session = SessionId::new();
         host.command(

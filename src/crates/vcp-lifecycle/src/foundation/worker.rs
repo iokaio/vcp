@@ -125,23 +125,39 @@ impl Drop for Inner {
 pub struct Worker(Arc<Inner>);
 impl Worker {
     pub fn open(config: Config, expected: Option<Revision>) -> std::result::Result<Self, String> {
+        Self::start(config, expected, None)
+    }
+    pub fn open_owned_selected(
+        config: Config,
+        store: Store,
+        expected: Revision,
+    ) -> std::result::Result<Self, String> {
+        Self::start(config, Some(expected), Some(store))
+    }
+    fn start(
+        config: Config,
+        expected: Option<Revision>,
+        store: Option<Store>,
+    ) -> std::result::Result<Self, String> {
         let (tx, rx) = mpsc::sync_channel::<Job>(32);
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("vcp-canonical-store".into())
-            .spawn(move || match Context::open_selected(config, expected) {
-                Ok(mut context) => {
-                    let _ = ready.send(Ok(()));
-                    while let Ok(job) = rx.recv() {
-                        job(&mut context);
+            .spawn(
+                move || match Context::open_selected(config, expected, store) {
+                    Ok(mut context) => {
+                        let _ = ready.send(Ok(()));
+                        while let Ok(job) = rx.recv() {
+                            job(&mut context);
+                        }
+                        context.close().map_err(|error| error.to_string())
                     }
-                    context.close().map_err(|error| error.to_string())
-                }
-                Err(error) => {
-                    let _ = ready.send(Err(error.to_string()));
-                    Err(error.to_string())
-                }
-            })
+                    Err(error) => {
+                        let _ = ready.send(Err(error.to_string()));
+                        Err(error.to_string())
+                    }
+                },
+            )
             .map_err(|error| error.to_string())?;
         ready_rx.recv().map_err(|_| "canonical worker stopped")??;
         let thread_id = thread.thread().id();
@@ -298,9 +314,13 @@ impl Context {
 
     #[cfg(test)]
     fn open(config: Config) -> Result<Self> {
-        Self::open_selected(config, None)
+        Self::open_selected(config, None, None)
     }
-    fn open_selected(config: Config, expected: Option<Revision>) -> Result<Self> {
+    fn open_selected(
+        config: Config,
+        expected: Option<Revision>,
+        selected_store: Option<Store>,
+    ) -> Result<Self> {
         vcp_policy::validate_host_denials(&config.host_tool_denials)?;
         if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
             return Err("provider ceilings required".into());
@@ -311,12 +331,24 @@ impl Context {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let store = runtime.block_on(Store::open_with_artifact_limit(
-            &config.canonical_root,
-            config.backend,
-            &[],
-            config.artifact_limit.get(),
-        ))?;
+        let store = match selected_store {
+            Some(store) => {
+                if !store.healthy()
+                    || store.kind() != config.backend
+                    || store.artifact_limit() != config.artifact_limit.get()
+                    || store.canonical_anchor() != config.canonical_root.canonicalize()?
+                {
+                    return Err("selected canonical owner does not match configuration".into());
+                }
+                store
+            }
+            None => runtime.block_on(Store::open_with_artifact_limit(
+                &config.canonical_root,
+                config.backend,
+                &[],
+                config.artifact_limit.get(),
+            ))?,
+        };
         if let Some(expected) = expected {
             let task: Task = store
                 .state()

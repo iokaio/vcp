@@ -327,6 +327,20 @@ impl CanonicalHost {
         expected: Option<Revision>,
     ) -> Result<(Self, CanonicalOwner), String> {
         let worker = worker::Worker::open(config, expected)?;
+        Self::from_worker(worker)
+    }
+    /// Transfer the already validated selection store without releasing its
+    /// exclusive lock or replaying history. Recovery uses the normal owner path.
+    pub fn open_owned_selected(
+        config: Config,
+        store: vcp_store::Store,
+        expected: Revision,
+    ) -> Result<(Self, CanonicalOwner), String> {
+        Self::from_worker(worker::Worker::open_owned_selected(
+            config, store, expected,
+        )?)
+    }
+    fn from_worker(worker: worker::Worker) -> Result<(Self, CanonicalOwner), String> {
         // Recovery may fence startup on an acknowledged aborted response. Replay
         // already captured authoritative receipts under the exclusive owner
         // before binding a retained thread; registration cannot precede this
