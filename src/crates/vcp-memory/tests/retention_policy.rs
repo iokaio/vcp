@@ -7,6 +7,8 @@ use vcp_domain::{
 };
 use vcp_memory::{access::Access, retention::Action, retention_policy::*};
 use vcp_store::{contract::CanonicalStore, BackendKind, Store};
+#[path = "retention_policy/bounded.rs"]
+mod bounded;
 fn access() -> Access {
     Access {
         workspace: common::workspace().id,
@@ -43,7 +45,7 @@ async fn startup_driver_records_protection_and_reads_do_not_apply_policy() {
         let before = store.state().watermark;
         assert!(latest_run(&store, &access).unwrap().is_none());
         assert!(show(&store, &access).unwrap().automatic.is_some());
-        assert!(aging(&store, &access, now).unwrap().due);
+        assert!(aging(&store, &access, now).await.unwrap().due);
         assert_eq!(store.state().watermark, before);
         let run = run_due(&mut store, &access, now).await.unwrap().unwrap();
         assert_eq!(run.status, "blocked");
@@ -85,30 +87,33 @@ async fn aging_boundary_repeat_and_notification_only_preserve_retained_history()
         assert!(show(&store, &access).unwrap().automatic.is_none());
         assert!(
             !aging(&store, &access, Timestamp::new(100 + 30 * DAY_MS))
+                .await
                 .unwrap()
                 .due
         );
         let now = Timestamp::new(100 + 31 * DAY_MS);
-        let notice = aging(&store, &access, now).unwrap();
+        let notice = aging(&store, &access, now).await.unwrap();
         assert!(notice.due);
         assert_eq!(notice.oldest, Some(Timestamp::new(100)));
         assert!(queue(&store, &access, now).unwrap().is_none());
         acknowledge_notice(&mut store, &access, now).await.unwrap();
-        assert!(!aging(&store, &access, now).unwrap().due);
+        assert!(!aging(&store, &access, now).await.unwrap().due);
         assert!(
             !aging(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS - 1))
+                .await
                 .unwrap()
                 .due
         );
         assert!(
             aging(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS))
+                .await
                 .unwrap()
                 .due
         );
         assert_eq!(store.state().events[0], original);
         store.close().await.unwrap();
         let store = Store::open(dir.path(), backend, &[]).await.unwrap();
-        assert!(!aging(&store, &access, now).unwrap().due);
+        assert!(!aging(&store, &access, now).await.unwrap().due);
         assert!(show(&store, &access).unwrap().automatic.is_none());
     }
 }

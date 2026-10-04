@@ -187,7 +187,9 @@ pub async fn execute(
                 .map_err(|e| e.to_string())?,
         ),
         Request::Notice => serde_json::to_value(
-            retention_policy::aging(store, access, now).map_err(|e| e.to_string())?,
+            retention_policy::aging(store, access, now)
+                .await
+                .map_err(|e| e.to_string())?,
         ),
         Request::NoticeShown => {
             retention_policy::acknowledge_notice(store, access, now)
