@@ -104,6 +104,13 @@ async fn run(backend: BackendKind, runner: Runner) {
             )
         }
         Runner::Dotnet => {
+            // Generated assemblies and intermediate assets are explicitly
+            // excluded; source and project files remain in the completion fence.
+            fs::write(
+                workspace.join(".gitignore"),
+                "/app/bin/\n/app/obj/\n/tests/bin/\n/tests/obj/\n",
+            )
+            .unwrap();
             let executable: std::path::PathBuf = std::env::var_os("VCP_TEST_DOTNET")
                 .expect("explicit real native dotnet executable")
                 .into();
@@ -283,6 +290,11 @@ async fn run(backend: BackendKind, runner: Runner) {
     );
     assert_eq!(fs::read(&oracle).unwrap(), b"ran");
     assert_ne!(passed.id, failed.id);
+    assert!(
+        passed.outstanding_issues.is_empty(),
+        "{backend:?}/{runner:?}: {:?}",
+        passed.outstanding_issues
+    );
     host.complete_verified(thread, passed.id).unwrap();
     let state = host.snapshot().unwrap();
     assert_eq!(

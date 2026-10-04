@@ -27,8 +27,8 @@ grants. Missing profiles, prerequisites and denied execution remain visible.
 
 The P2-06 .NET increment adds `dotnet` requirements for observed C# project and
 solution manifests. The qualified command uses `dotnet test` with `--no-restore`,
-`--disable-build-servers`, `--nologo` and the normal console logger. Dependencies must be restored separately
-through the configured process authority. Solution checks execute in the solution
+`--disable-build-servers`, `--nologo` and the normal console logger. Dependencies
+must be restored separately through the configured process authority. Solution checks execute in the solution
 directory and cover its observed source scope; a test project check cannot claim
 coverage of sibling application sources. Solution project paths must remain within
 that directory and identify observed C# manifests. Unsupported solution forms
@@ -47,6 +47,14 @@ outside its source tree and resolves the last through the Windows known-folder
 API. Credentials, arbitrary SDK variables and model-supplied environment remain
 excluded. Verification disables build servers so it cannot reuse a worker
 initialized with another invocation's environment.
+
+Build output exclusions must be explicit in the observed project configuration.
+Scenario B's .NET template supplies a `.gitignore`; the qualification fixture
+likewise excludes its specific `bin` and `obj` directories before establishing
+the source baseline. Generic directories with those names remain visible to
+repository discovery. Otherwise regenerated SDK files correctly make check
+evidence stale. The [.NET qualification](../evaluations/p2-dotnet-verification.md)
+records the supported toolchain and both-store evidence.
 
 The configured runner must be direct and nonterminal. It still uses current
 policy, explicit filtered environment, native job ownership, process/time/output
