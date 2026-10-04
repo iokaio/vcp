@@ -21,6 +21,8 @@ const MAGIC: &[u8; 8] = b"VCPJ0001";
 const COMMITTED: &[u8; 8] = b"VCPCMIT1";
 const HEADER: usize = 8 + 4 + 4 + 64;
 const TRAILER: usize = 64 + 8;
+#[path = "backend_history.rs"]
+mod history;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -124,7 +126,7 @@ impl Backend {
     }
 
     #[cfg(test)]
-    pub(crate) async fn open(root: &Path, kind: BackendKind) -> Result<(Self, State, Vec<Commit>)> {
+    pub(crate) async fn open(root: &Path, kind: BackendKind) -> Result<(Self, State)> {
         let base = crate::replay_base::ReplayBase::load(root)?;
         Self::open_observed(
             root,
@@ -133,14 +135,14 @@ impl Backend {
             &mut crate::StoreDiagnostics::new(kind),
         )
         .await
-        .map(|(backend, state, commits, _)| (backend, state, commits))
+        .map(|(backend, state, _)| (backend, state))
     }
     pub(crate) async fn open_observed(
         root: &Path,
         kind: BackendKind,
         base: Option<&crate::replay_base::ReplayBase>,
         diagnostics: &mut crate::StoreDiagnostics,
-    ) -> Result<(Self, State, Vec<Commit>, StateSize)> {
+    ) -> Result<(Self, State, StateSize)> {
         let seed = base.map(|b| b.state.clone()).unwrap_or_default();
         let mut size = StateSize::measure(&seed)?;
         diagnostics.state_size_full_scans = diagnostics.state_size_full_scans.saturating_add(1);
@@ -205,7 +207,6 @@ impl Backend {
                     return Err(Error::Corruption("SQLite integrity check"));
                 }
                 let mut state = seed;
-                let mut commits = Vec::new();
                 let replay_started = Instant::now();
                 // Bound each load and keyset-page the log instead of fetching the history as one SQL result.
                 let replay_result = async {
@@ -230,14 +231,13 @@ impl Backend {
                     diagnostics.replay_payload_bytes = diagnostics
                         .replay_payload_bytes
                         .saturating_add(payload.len() as u64);
-                    commits.push(commit);
                 }
-                Ok::<_, Error>((state, commits))
+                Ok::<_, Error>(state)
                 }.await;
                 diagnostics
                     .replay
                     .record(replay_started, replay_result.is_ok());
-                let (state, commits) = replay_result?;
+                let state = replay_result?;
                 let mut backend = Self::Sqlite(db);
                 let verification_started = Instant::now();
                 let verification = backend.verify_materialized(&state).await;
@@ -249,7 +249,7 @@ impl Backend {
                 diagnostics.materialized_events = state.events.len() as u64;
                 diagnostics.materialized_commands = state.commands.len() as u64;
                 backend.configuration().await?;
-                Ok((backend, state, commits, size))
+                Ok((backend, state, size))
             }
             BackendKind::Files => {
                 let mut journal = Journal {
@@ -275,8 +275,8 @@ impl Backend {
                 let replay_started = Instant::now();
                 let replay = journal.replay(diagnostics, checkpoint.as_ref(), &mut size);
                 diagnostics.replay.record(replay_started, replay.is_ok());
-                let (state, commits) = replay?;
-                Ok((Self::Files(journal), state, commits, size))
+                let state = replay?;
+                Ok((Self::Files(journal), state, size))
             }
         }
     }
@@ -533,7 +533,7 @@ impl Journal {
         diagnostics: &mut crate::StoreDiagnostics,
         checkpoint: Option<&Checkpoint>,
         size: &mut StateSize,
-    ) -> Result<(State, Vec<Commit>)> {
+    ) -> Result<State> {
         // A published durable tip distinguishes truncation of acknowledged data
         // from a writer that died before appending its commit marker.
         let mut tips = fs::read_dir(&self.root)?
@@ -563,7 +563,6 @@ impl Journal {
             }
         }
         let mut state = self.base.clone();
-        let mut commits = Vec::new();
         let mut checkpoint_chain = self.initial_chain.clone();
         if let Some(checkpoint) =
             checkpoint.filter(|checkpoint| checkpoint.watermark == state.watermark)
@@ -631,7 +630,6 @@ impl Journal {
             diagnostics.replay_payload_bytes = diagnostics
                 .replay_payload_bytes
                 .saturating_add(payload.len() as u64);
-            commits.push(commit);
             self.chain = hash;
             if let Some(tip) = &tip {
                 if tip["watermark"] == serde_json::to_value(state.watermark)?
@@ -653,7 +651,7 @@ impl Journal {
         if checkpoint.is_some_and(|checkpoint| checkpoint.watermark > state.watermark) {
             return Err(Error::Corruption("checkpoint pointer"));
         }
-        Ok((state, commits))
+        Ok(state)
     }
     fn quarantine_tail(&mut self, start: u64) -> Result<()> {
         self.file.seek(SeekFrom::Start(start))?;

@@ -717,7 +717,7 @@ impl CopyIdentity {
             && self.native.len() <= 128
     }
 }
-fn native_identity(file: &File) -> Result<String> {
+pub(crate) fn native_identity(file: &File) -> Result<String> {
     #[cfg(windows)]
     {
         use std::os::windows::io::AsRawHandle;

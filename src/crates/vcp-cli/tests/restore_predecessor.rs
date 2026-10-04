@@ -121,7 +121,7 @@ async fn actual_return_preserves_captured_history_and_evidence() {
         .unwrap();
         let job = Jobs::inspect(&before, &operation, &workspace).unwrap();
         assert_eq!(
-            before.prefix_digest(job.watermark).unwrap(),
+            before.prefix_digest(job.watermark).await.unwrap(),
             job.state_digest
         );
         let events: Vec<_> = before

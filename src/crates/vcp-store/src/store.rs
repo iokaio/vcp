@@ -42,7 +42,6 @@ pub struct Store {
     prefixes: Vec<crate::replay_base::PrefixCommitment>,
     anchor: PathBuf,
     anchors: Vec<File>,
-    commits: Vec<Commit>,
     root: PathBuf,
     kind: BackendKind,
     spool: Spool,
@@ -199,7 +198,7 @@ impl Store {
                 .ok_or(Error::Corruption("activated replay base missing"))?;
             if activated_base.source_digest != activation.source_digest
                 || activated_base.state.watermark != activation.watermark
-                || active.prefix_digest(activation.watermark)? != activation.state_digest
+                || active.prefix_digest(activation.watermark).await? != activation.state_digest
             {
                 return Err(Error::Corruption("rewrite activation state"));
             }
@@ -272,7 +271,7 @@ impl Store {
         diagnostics
             .backend_open
             .record(backend_started, opened.is_ok());
-        let (backend, state, commits, state_size) = opened?;
+        let (backend, state, state_size) = opened?;
         let base = loaded_base.map(|b| b.state).unwrap_or_default();
         let artifacts_started = Instant::now();
         let artifacts = (|| {
@@ -305,7 +304,6 @@ impl Store {
             prefixes,
             anchor: root.clone(),
             anchors: Vec::new(),
-            commits,
             root,
             kind,
             spool,
@@ -347,7 +345,14 @@ impl Store {
     }
     /// Verify retained canonical history at an exact cut. This read-only digest
     /// cannot authorize an import or restore history before the retained base.
-    pub fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
+    pub async fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
+        let state = self.reconstruct_at(watermark).await?;
+        Ok(digest_bytes(&canonical_bytes(&state)?))
+    }
+    async fn reconstruct_at(&self, watermark: Watermark) -> Result<State> {
+        if self.poisoned {
+            return Err(Error::Unavailable("reopen after indeterminate commit"));
+        }
         if watermark > self.state.watermark {
             return Err(Error::Corruption("snapshot beyond canonical watermark"));
         }
@@ -355,21 +360,30 @@ impl Store {
             return Err(Error::Unavailable("history precedes retained replay base"));
         }
         let mut state = self.base.clone();
-        for commit in self
-            .commits
-            .iter()
-            .take_while(|c| c.receipt.watermark <= watermark)
-        {
-            state = state.into_replayed(commit)?;
+        let mut history = self
+            .backend
+            .history(&self.root, &self.state, self.base.watermark)
+            .await?;
+        while state.watermark < watermark {
+            let commit = history
+                .next()
+                .await?
+                .ok_or(Error::Corruption("snapshot prefix missing"))?;
+            state = state.into_replayed(&commit)?;
         }
+        history.close().await?;
         if state.watermark != watermark {
             return Err(Error::Corruption("snapshot prefix missing"));
         }
-        Ok(digest_bytes(&canonical_bytes(&state)?))
+        Ok(state)
     }
     /// Outer migration anchors retain opaque boundary commitments across an
     /// explicitly validated content rewrite. This never reconstructs old state.
-    pub(crate) fn remember_prefix(&mut self, watermark: Watermark, digest: &str) -> Result<()> {
+    pub(crate) async fn remember_prefix(
+        &mut self,
+        watermark: Watermark,
+        digest: &str,
+    ) -> Result<()> {
         let prefix = crate::replay_base::PrefixCommitment {
             watermark,
             digest: digest.to_owned(),
@@ -377,7 +391,7 @@ impl Store {
         if self.prefixes.contains(&prefix) {
             return Ok(());
         }
-        if self.prefix_digest(watermark)? != digest {
+        if self.prefix_digest(watermark).await? != digest {
             return Err(Error::Corruption("migration prefix differs"));
         }
         if self.prefixes.len() >= 4096 {
@@ -390,12 +404,15 @@ impl Store {
         self.backend.configuration().await
     }
     pub fn snapshot(&self) -> Result<Snapshot> {
-        self.snapshot_at(self.state.watermark)
+        if self.poisoned {
+            return Err(Error::Unavailable("reopen after indeterminate commit"));
+        }
+        self.pin_snapshot(self.state.clone())
     }
     /// A durable job may reconstruct an exact retained cut after restarting.
     /// A cut predating a rewrite base is explicitly unavailable, never replaced
     /// with a newer state under the old job identity.
-    pub(crate) fn snapshot_at(&self, watermark: Watermark) -> Result<Snapshot> {
+    pub(crate) async fn snapshot_at(&self, watermark: Watermark) -> Result<Snapshot> {
         if self.poisoned {
             return Err(Error::Unavailable("reopen after indeterminate commit"));
         }
@@ -407,19 +424,14 @@ impl Store {
         let state = if watermark == self.state.watermark {
             self.state.clone()
         } else {
-            let mut state = self.base.clone();
-            for commit in self
-                .commits
-                .iter()
-                .take_while(|c| c.receipt.watermark <= watermark)
-            {
-                state = state.into_replayed(commit)?;
-            }
-            state
+            self.reconstruct_at(watermark).await?
         };
         if state.watermark != watermark {
             return Err(Error::Corruption("snapshot cut missing"));
         }
+        self.pin_snapshot(state)
+    }
+    fn pin_snapshot(&self, state: State) -> Result<Snapshot> {
         let root_pin = snapshot_pin::acquire(&self.root)?;
         let mut pins = Vec::new();
         for record in state
@@ -566,12 +578,17 @@ impl Store {
             }
             target.spool.verify(&descriptor)?;
         }
-        for commit in &self.commits {
+        let mut history = self
+            .backend
+            .history(&self.root, &self.state, self.base.watermark)
+            .await?;
+        while let Some(commit) = history.next().await? {
             let receipt = target.transact(commit.transaction.clone()).await?;
             if receipt != commit.receipt {
                 return Err(Error::Corruption("conversion changed receipt"));
             }
         }
+        history.close().await?;
         if target.state != snapshot.state {
             return Err(Error::Corruption("conversion changed logical view"));
         }
@@ -897,7 +914,6 @@ impl CanonicalStore for Store {
         self.state_size = next_size;
         self.current.take();
         self.diagnostics.current_watermark = self.state.watermark.get();
-        self.commits.push(commit.clone());
         self.poisoned = false;
         observe(Barrier::BeforeReply);
         Ok(commit.receipt)

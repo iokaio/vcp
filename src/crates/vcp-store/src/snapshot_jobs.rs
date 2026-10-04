@@ -270,7 +270,7 @@ impl Jobs {
             if job.inputs != inputs || job.key_ref != trust.configuration().selected.key_ref {
                 return Err(Error::Conflict("snapshot retry key changed"));
             }
-            return self.resume_capture(store, &job);
+            return self.resume_capture(store, &job).await;
         }
         let captured = Self::capture_inputs_inner(store, workspace, inputs)?;
         let prepared = Self::prepare_inputs(captured, &|| false)?;
@@ -413,7 +413,7 @@ impl Jobs {
             spool,
         })
     }
-    pub fn resume_capture(&self, store: &Store, job: &Job) -> Result<Capture> {
+    pub async fn resume_capture(&self, store: &Store, job: &Job) -> Result<Capture> {
         self.owns(job)?;
         if job.stage != Stage::Captured {
             return Err(Error::Conflict("snapshot already prepared; inspect stage"));
@@ -423,7 +423,7 @@ impl Jobs {
                 "retained source root reconciliation required",
             ));
         }
-        let snapshot = store.snapshot_at(job.watermark)?;
+        let snapshot = store.snapshot_at(job.watermark).await?;
         if digest_bytes(&canonical_bytes(snapshot.state())?) != job.state_digest {
             return Err(Error::Corruption("snapshot source cut differs"));
         }

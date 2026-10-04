@@ -74,7 +74,7 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
         let wrong = Jobs::open(&wrong_path, &forbidden).unwrap();
         let captured_job = Jobs::inspect(&store, &id, &workspace).unwrap();
         let before_wrong = store.state().clone();
-        assert!(wrong.resume_capture(&store, &captured_job).is_err());
+        assert!(wrong.resume_capture(&store, &captured_job).await.is_err());
         assert!(wrong
             .release(&mut store, &id, &workspace, true)
             .await
@@ -84,7 +84,7 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
         legacy.as_object_mut().unwrap().remove("staging_root");
         let old: vcp_store::snapshot_jobs::Job = serde_json::from_value(legacy.clone()).unwrap();
         assert!(old.staging_root.is_none());
-        assert!(jobs.resume_capture(&store, &old).is_err());
+        assert!(jobs.resume_capture(&store, &old).await.is_err());
         legacy["active"] = false.into();
         legacy["stage"] = "cancelled".into();
         legacy["pins"] = serde_json::json!([]);
@@ -554,7 +554,7 @@ fn snapshot_process_child() {
         };
         barrier("captured");
         let job = if job.stage == Stage::Captured {
-            let capture = jobs.resume_capture(&store, &job).unwrap();
+            let capture = jobs.resume_capture(&store, &job).await.unwrap();
             let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
             jobs.accept_prepared(&mut store, &ws, prepared)
                 .await

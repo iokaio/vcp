@@ -480,6 +480,7 @@ pub async fn execute(
         .map_err(|e| e.to_string())?;
         if store
             .prefix_digest(activation.watermark)
+            .await
             .map_err(|e| e.to_string())?
             != activation.prefix_digest
         {
@@ -601,6 +602,7 @@ pub async fn execute(
         state_digest: imported.state_digest().into(),
         prefix_digest: store
             .prefix_digest(store.state().watermark)
+            .await
             .map_err(|e| e.to_string())?,
         watermark: store.state().watermark,
         entry: next,

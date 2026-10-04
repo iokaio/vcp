@@ -71,7 +71,7 @@ async fn both_backends_reject_semantically_invalid_commits_with_valid_checksums(
         // The physical writer intentionally receives an invalid semantic commit:
         // its envelope, transaction digest, journal checksum and durable marker
         // remain valid, so reopen must reach and reject per-commit validation.
-        let (mut backend, _, _) = Backend::open(temporary.path(), kind).await.unwrap();
+        let (mut backend, _) = Backend::open(temporary.path(), kind).await.unwrap();
         backend.append(&initial, &first, |_| {}).await.unwrap();
         backend.append(&invalid, &second, |_| {}).await.unwrap();
         backend.close().await.unwrap();
@@ -99,7 +99,7 @@ async fn later_valid_state_and_checkpoint_cannot_hide_invalid_interior_transitio
             command: None,
         };
         let (third, final_commit) = second.prepare(&next).unwrap();
-        let (mut backend, _, _) = Backend::open(temporary.path(), kind).await.unwrap();
+        let (mut backend, _) = Backend::open(temporary.path(), kind).await.unwrap();
         backend.append(&initial, &first, |_| {}).await.unwrap();
         backend.append(&invalid, &second, |_| {}).await.unwrap();
         backend.append(&final_commit, &third, |_| {}).await.unwrap();

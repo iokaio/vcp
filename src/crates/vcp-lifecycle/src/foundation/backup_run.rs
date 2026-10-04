@@ -413,7 +413,9 @@ impl CanonicalHost {
             let authority = fence.clone();
             let capture = self.worker.run(move |context| {
                 check_fence(authority.as_ref(), context)?;
-                Ok(caps.jobs.resume_capture(context.engine.store(), &cut)?)
+                Ok(context
+                    .runtime
+                    .block_on(caps.jobs.resume_capture(context.engine.store(), &cut))?)
             })?;
             let caps = capabilities.clone();
             let stop = cancelled.clone();

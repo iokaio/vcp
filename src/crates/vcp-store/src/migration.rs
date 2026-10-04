@@ -108,7 +108,9 @@ impl ActiveRoot {
             if store.state().watermark < activation.watermark {
                 return Err(Error::Corruption("active root regressed"));
             }
-            store.remember_prefix(activation.watermark, &activation.logical_sha256)?;
+            store
+                .remember_prefix(activation.watermark, &activation.logical_sha256)
+                .await?;
             (store, activation)
         } else {
             let kind = preference.unwrap_or(BackendKind::Sqlite);
@@ -127,7 +129,9 @@ impl ActiveRoot {
                 &directory.join("activation-00000000000000000000.json"),
                 &canonical_bytes(&activation)?,
             )?;
-            store.remember_prefix(activation.watermark, &activation.logical_sha256)?;
+            store
+                .remember_prefix(activation.watermark, &activation.logical_sha256)
+                .await?;
             (store, activation)
         };
         Ok(Self {
@@ -196,7 +200,9 @@ impl ActiveRoot {
             logical_sha256: digest_bytes(&canonical_bytes(replacement.state())?),
             previous: digest_bytes(&canonical_bytes(&self.activation)?),
         };
-        replacement.remember_prefix(activation.watermark, &activation.logical_sha256)?;
+        replacement
+            .remember_prefix(activation.watermark, &activation.logical_sha256)
+            .await?;
         self.barrier(Barrier::BeforeActivation);
         self.poisoned = true;
         immutable_file(
