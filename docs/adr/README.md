@@ -129,3 +129,5 @@ Return to the [documentation index](../README.md).
 [ADR-081](081-reusable-provider-compatibility.md) separates reusable adapter compatibility, fresh endpoint metadata and one accounted connection test.
 
 [ADR-082](082-account-setup-and-model-selections.md) defines optional-project account setup, balanced model defaults and retained task selections.
+
+[ADR-083](083-shared-provider-request-pacing.md) coordinates concurrent CLI provider requests before billing admission while retaining unresolved submitted liabilities.

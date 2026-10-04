@@ -49,6 +49,16 @@ pub trait HostWorkPermit: Send {
     ) -> Result<Box<dyn HostWorkPermit>, String> {
         Err("host retry is not enabled".into())
     }
+    /// VCP: await host dispatch availability before creating a retry attempt.
+    /// Existing hosts retain their synchronous admission behavior by default.
+    fn admit_retry_async<'a>(
+        &'a mut self,
+        body: &'a mut serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Box<dyn HostWorkPermit>, String>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.admit_retry(body) })
+    }
     /// VCP: one absolute deadline covers headers and body, including keepalives.
     fn response_deadline(&self) -> Option<std::time::Instant> {
         None
@@ -102,6 +112,18 @@ pub trait HostWorkAdmission: std::fmt::Debug + Send + Sync {
         _purpose: HostModelPurpose,
     ) -> Result<Box<dyn HostWorkPermit>, String> {
         self.admit(thread, HostWorkKind::Model, "responses")
+    }
+    /// VCP: await host dispatch availability before creating a model attempt.
+    /// This grants no permit until the host's admission completes.
+    fn admit_model_async<'a>(
+        &'a self,
+        thread: ThreadId,
+        body: &'a mut serde_json::Value,
+        purpose: HostModelPurpose,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Box<dyn HostWorkPermit>, String>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.admit_model(thread, body, purpose) })
     }
     /// VCP: a host ceiling applies even to tools requested without advertisement.
     fn admit_tool(

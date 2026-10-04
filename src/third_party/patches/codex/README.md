@@ -227,6 +227,10 @@ already include these changes; normal builds never apply patches.
     unrun. See the beta candidate guide for memory/size tradeoffs and evidence.
     The retained Apache-2.0 terms remain unchanged.
 
+49. `0049-async-provider-admission.patch` awaits the host's pre-budget model and
+    retry admission hooks, allowing shared provider pacing without holding a
+    canonical store lock. Default hosts retain their synchronous behavior.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance
