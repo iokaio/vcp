@@ -20,6 +20,8 @@ use vcp_domain::{CommandId, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 pub const FORMAT: &str = "vcp-signed-age/1";
+#[path = "vault_crypto_stream.rs"]
+pub(crate) mod stream;
 const DOMAIN: &[u8] = b"vcp-portable-manifest-signature-v1\0";
 #[derive(Clone, Copy)]
 pub struct Limits {
