@@ -15,6 +15,7 @@ use vcp_domain::{
 use vcp_store::contract::{Collection, State};
 
 mod diagnostics;
+mod constraints;
 
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PAGES: usize = 128;
@@ -146,9 +147,11 @@ pub fn collect(state: &State, access: &Access, task: &TaskId) -> Result<Value, S
         }
     }
     let diagnostic_index = diagnostics::index(&history)?;
+    let effective_constraints = constraints::project(state, access, &task_record, &workspace)?;
     let value = json!({"schema_version":1,"kind":"inspection_bundle","source_watermark":state.watermark,
         "task":task_record,"views":views,"history":history,"agents":agents,
         "diagnostics": diagnostic_index,
+        "effective_constraints": effective_constraints,
         "collection": {"schema_version":1,"elapsed_micros":collection_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
             "timing_source":"monotonic_instant","pages":budget.pages,"projected_bytes":budget.bytes,
             "observation_scope":"this_inspection_only","analysis_status":"required"}});
@@ -167,7 +170,7 @@ mod tests {
     use vcp_protocol::event::{EventEnvelope, EventInput, EventKind};
     use vcp_store::contract::Record;
 
-    fn fixture() -> (State, Access, TaskId) {
+    pub(super) fn fixture() -> (State, Access, TaskId) {
         let workspace = WorkspaceId::new();
         let session = SessionId::new();
         let task = TaskId::new();
