@@ -28,6 +28,8 @@ mod state_size;
 pub(crate) use state_size::StateSize;
 #[path = "event_history_validation.rs"]
 pub(crate) mod event_history_validation;
+#[path = "record_validation_facts.rs"]
+mod record_validation_facts;
 #[path = "shared_state.rs"]
 mod shared_state;
 pub use shared_state::SharedStateValue;
@@ -1166,6 +1168,7 @@ impl State {
         Ok(())
     }
     fn validate_records(&self) -> Result<()> {
+        let mut facts = record_validation_facts::RecordFacts::default();
         for (key, record) in &self.records {
             if &record.key() != key {
                 return Err(Error::Corruption("canonical key"));
@@ -1206,16 +1209,18 @@ impl State {
             }
             crate::snapshot_inputs::component_scope(self, record)?;
             for reference in record.required_references()? {
-                let target = self
+                let (target_key, target) = self
                     .records
-                    .get(&reference)
+                    .get_key_value(&reference)
                     .ok_or(Error::Corruption("missing canonical reference"))?;
                 if target.workspace != record.workspace {
                     return Err(Error::Access);
                 }
                 let backup_provenance =
                     crate::snapshot_inputs::cross_task_provenance(record, target, &reference)?;
-                if let (Some(source), Some(target)) = (record.task_scope()?, target.task_scope()?) {
+                if let (Some(source), Some(target)) =
+                    (facts.scope(key, record)?, facts.scope(target_key, target)?)
+                {
                     // Fork and parent links are explicit task relationships. Data
                     // belonging to another task cannot be reused as this task's
                     // turn input, verification, approval, or effect observation.
@@ -1233,7 +1238,7 @@ impl State {
                     }
                 }
             }
-            if let Some(scope) = record.task_scope()? {
+            if let Some(scope) = facts.scope(key, record)? {
                 let task: Task = self
                     .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
                     .decode()?;

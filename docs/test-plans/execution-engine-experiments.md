@@ -53,6 +53,15 @@ The dominant measured cost is repeated current-record validation, followed by ev
 
 Logs and preserved binaries are `artifacts/execution-engine/retained-b-state-99c651ed-*` and `retained-b-validation-phases-*`. Their executable SHA-256 hashes are `056b62b512506c946ceb852da32c942537783f831cc2185c8395bc9909c75b8e` and `8b849bffbcc8347b75214d5908f9e4e2014a786e2d87347514ffac586c89c004`. The phase receipt confirms the copied database hash remains unchanged. Concurrent builds and uncontrolled cache conditions prevent a stable regression/speedup or p95 claim. These are test executables, with no provider execution or distributable candidate.
 
+The per-pass scope-decoding experiment passed the frozen prior record validator across 32 generated task additions, eight corruption variants at every state, rejected transitions and changed current dependencies. The complete storage suite passed with 118 tests and four existing opt-ins ignored. The first measured open was 8.684 seconds with record validation at 4.577 seconds. To test the mechanism against changing host load, two further alternating runs used the exact saved pre-change and post-change binaries:
+
+| Comparison | Prior open / record validation | Scope reuse open / record validation |
+|---|---|---|
+| 1 | 10.494 s / 6.311 s | 8.726 s / 4.556 s |
+| 2 | 11.325 s / 6.513 s | 9.505 s / 4.728 s |
+
+All reconstructed the same logical state and preserved the database hash. The change caches only successful pure scope decoding inside one immutable pass; it preserves validation order, all dependent-record checks and the full event scan. The saved post-change executable is `retained-b-record-facts-test.exe`, SHA-256 `a13ae4f405a75831e330f2c10c653e84c8239f606162673a55412cc6c53ec8b5`. Comparison logs are `retained-b-scope-comparison-{old,new}-{1,2}.log` under the same artifacts directory. The build includes the unactivated index-codec prerequisite and transitional command-reader interfaces; neither is used by this benchmark. These small, uncontrolled-cache samples support reduced repeated record parsing; they still miss the cold-open target and do not establish p95 or fixed-hot-state scaling.
+
 ## Scripted qualification before live comparison
 
 Use local mock providers and both storage backends where the affected boundary supports them. Relevant cases are missing/stale native verification, actual failed check followed by a source-changing repair and fresh successful completion, instruction refresh before reissuing tools, denied process authority, repeated unchanged failure pause, explicit cancel, stop/reopen with unresolved effects, oversized tool output, changed/deleted file ranges, scoped artifact access and a truncated response whose partial tool call must never execute. Record actual request bodies and retained source/response references; returned helper strings alone do not prove the model received repair guidance.
