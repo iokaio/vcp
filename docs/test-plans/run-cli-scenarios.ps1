@@ -434,7 +434,7 @@ try {
     if ($generation -and $Mode -eq 'Full') {
         $snapshotFile = if (Test-Path -LiteralPath (Join-Path $generation 'qualified/snapshot.json')) { 'qualified/snapshot.json' } else { 'snapshot.json' }
         $selectedSnapshot = Get-Content -LiteralPath (Join-Path $generation $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
-        if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$selectedSnapshot.valid_until) -le [DateTimeOffset]::UtcNow.AddSeconds($DeadlineSeconds + 300)) {
+        if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$selectedSnapshot.valid_until) -le [DateTimeOffset]::UtcNow.AddSeconds(300)) {
             $setupCtx.ExpiredProvider = Get-LauncherRefreshCandidate $generation
             $generation = $null
         }
