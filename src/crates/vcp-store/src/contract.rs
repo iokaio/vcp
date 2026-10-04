@@ -1615,6 +1615,21 @@ pub trait CanonicalStore {
         }
         Ok(found.then(|| receipt.clone()))
     }
+    /// Exact durable transaction identity, including receipt-only retries.
+    /// Durable implementations authenticate this lookup under the owner cut.
+    async fn transaction_receipt(&self, id: &TransactionId) -> Result<Option<Receipt>> {
+        let state = self.state();
+        let Some(receipt) = state.transactions.get(id) else {
+            return Ok(None);
+        };
+        if &receipt.transaction != id || receipt.watermark > state.watermark {
+            return Err(Error::Corruption("history transaction locator identity"));
+        }
+        if encoded_len(receipt)? > MAX_COMMIT_BYTES {
+            return Err(Error::Limit("history transaction row"));
+        }
+        Ok(Some(receipt.clone()))
+    }
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
 }
 

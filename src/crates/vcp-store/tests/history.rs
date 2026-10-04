@@ -7,6 +7,37 @@ use vcp_store::{
 };
 
 #[tokio::test]
+async fn exact_transaction_receipt_survives_reopen_without_repeating_mutation() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temporary.path(), backend, &[]).await.unwrap();
+        let transaction = common::initial();
+        let receipt = store.transact(transaction.clone()).await.unwrap();
+        assert_eq!(
+            store.transaction_receipt(&transaction.id).await.unwrap(),
+            Some(receipt.clone())
+        );
+        assert_eq!(
+            store
+                .transaction_receipt(&TransactionId::new())
+                .await
+                .unwrap(),
+            None
+        );
+        store.close().await.unwrap();
+        let mut reopened = Store::open(temporary.path(), backend, &[]).await.unwrap();
+        assert_eq!(
+            reopened.transaction_receipt(&transaction.id).await.unwrap(),
+            Some(receipt.clone())
+        );
+        let watermark = reopened.current().watermark;
+        assert_eq!(reopened.transact(transaction).await.unwrap(), receipt);
+        assert_eq!(reopened.current().watermark, watermark);
+        reopened.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temporary = tempfile::tempdir().unwrap();

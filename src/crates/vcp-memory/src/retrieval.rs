@@ -294,8 +294,8 @@ impl Capture {
         }
         Ok(())
     }
-    pub(crate) fn captured_state(&self) -> &vcp_store::contract::State {
-        self._snapshot.state()
+    pub(crate) fn captured_current(&self) -> vcp_store::CurrentStateView<'_> {
+        self._snapshot.current()
     }
 }
 /// Opaque candidate IDs and scores; only finish() can turn these into passages.
@@ -391,7 +391,7 @@ pub fn search(
     let mut response = Response {
         fusion: FUSION_VERSION,
         token_accounting: TOKEN_ACCOUNTING,
-        canonical_watermark: capture._snapshot.state().watermark,
+        canonical_watermark: capture._snapshot.current().watermark,
         generation: None,
         generation_watermark: None,
         indexed_sequence: MemorySeq::ZERO,

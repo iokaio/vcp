@@ -59,6 +59,9 @@ pub struct Snapshot {
     _root_pin: File,
 }
 impl Snapshot {
+    pub fn current(&self) -> crate::CurrentStateView<'_> {
+        (&self.state).into()
+    }
     pub fn state(&self) -> &State {
         &self.state
     }
