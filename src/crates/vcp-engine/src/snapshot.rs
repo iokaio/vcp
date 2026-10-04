@@ -372,15 +372,17 @@ mod tests {
             assert_eq!(replay.end, replay.after);
             let receipt = execute(&mut engine, &access, Command::Inspect, None).await;
             assert!(
-                matches!(engine.events(&access, &replay, Timestamp::new(103)).unwrap(),
+                matches!(engine.events(&access, &replay, Timestamp::new(103)).await.unwrap(),
                 EventPage::Events { events, at_end: true, .. } if events.is_empty())
             );
             // A fresh fixed window includes the commit between capture and poll.
             let next = engine
                 .subscribe(&access, replay.after, 128, Timestamp::new(104))
                 .unwrap();
-            let EventPage::Events { events, at_end, .. } =
-                engine.events(&access, &next, Timestamp::new(105)).unwrap()
+            let EventPage::Events { events, at_end, .. } = engine
+                .events(&access, &next, Timestamp::new(105))
+                .await
+                .unwrap()
             else {
                 panic!("gap");
             };

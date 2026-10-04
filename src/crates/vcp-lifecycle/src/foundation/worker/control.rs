@@ -35,9 +35,9 @@ impl CanonicalHost {
         cursor: vcp_protocol::subscription::Cursor,
     ) -> Result<vcp_protocol::subscription::EventPage, String> {
         self.worker.run_cleanup(move |context| {
-            Ok(context
+            Ok(context.runtime.block_on(context
                 .engine
-                .events(&context.access, &cursor, worker::now())?)
+                .events(&context.access, &cursor, worker::now()))?)
         })
     }
 

@@ -425,9 +425,9 @@ fn page(
     owned: &mut Subscription,
     now: Timestamp,
 ) -> std::result::Result<ResultValue, RpcError> {
-    match context
+    match context.runtime.block_on(context
         .engine
-        .projected_events(access, &owned.cursor, now, MAX_BYTES)
+        .projected_events(access, &owned.cursor, now, MAX_BYTES))
         .map_err(engine_error)?
     {
         ProjectedEvents::Gap(reason) => gap(context, access, subscription, public_gap(reason)),

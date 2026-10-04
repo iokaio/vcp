@@ -3,6 +3,11 @@ use crate::{Access, Engine, Error, Result};
 use vcp_domain::{ids::*, revision::*, workspace::Workspace};
 use vcp_protocol::subscription::*;
 use vcp_store::contract::{CanonicalStore, Collection};
+#[cfg(test)]
+#[path = "subscription_bounded_tests.rs"]
+mod bounded_tests;
+#[path = "subscription_window.rs"]
+mod window;
 pub(crate) const MAX_SUBSCRIPTIONS: usize = 16;
 pub enum ProjectedEvents {
     Page {
@@ -28,7 +33,10 @@ mod projection_tests {
         BackendKind, Store,
     };
 
-    async fn fixture(root: &std::path::Path, backend: BackendKind) -> (Engine<Store>, Access) {
+    pub(super) async fn fixture(
+        root: &std::path::Path,
+        backend: BackendKind,
+    ) -> (Engine<Store>, Access) {
         let mut engine = Engine::new(Store::open(root, backend, &[]).await.unwrap()).unwrap();
         let mut access = Access {
             actor: ActorId::new(),
@@ -67,7 +75,11 @@ mod projection_tests {
         access.bootstrap = false;
         (engine, access)
     }
-    async fn append(engine: &mut Engine<Store>, access: &Access, count: usize) -> Vec<EventId> {
+    pub(super) async fn append(
+        engine: &mut Engine<Store>,
+        access: &Access,
+        count: usize,
+    ) -> Vec<EventId> {
         let events: Vec<_> = (0..count)
             .map(|_| EventInput {
                 id: EventId::new(),
@@ -117,6 +129,7 @@ mod projection_tests {
                     at_end,
                 } = engine
                     .projected_events(&access, &cursor, Timestamp::new(101), 16 * 1024)
+                    .await
                     .unwrap()
                 else {
                     panic!("page");
@@ -125,6 +138,7 @@ mod projection_tests {
                     events: duplicate, ..
                 } = engine
                     .projected_events(&access, &cursor, Timestamp::new(101), 16 * 1024)
+                    .await
                     .unwrap()
                 else {
                     panic!("retry");
@@ -154,6 +168,7 @@ mod projection_tests {
             assert!(matches!(
                 engine
                     .projected_events(&access, &original, Timestamp::new(101), 8192)
+                    .await
                     .unwrap(),
                 ProjectedEvents::TooLarge
             ));
@@ -165,6 +180,7 @@ mod projection_tests {
             assert_eq!(next.snapshot, original.snapshot);
             let ProjectedEvents::Page { events, .. } = engine
                 .projected_events(&access, &next, Timestamp::new(104), 256 * 1024)
+                .await
                 .unwrap()
             else {
                 panic!("poll");
@@ -174,6 +190,7 @@ mod projection_tests {
             assert!(matches!(
                 engine
                     .projected_events(&access, &next, Timestamp::new(60_100), 256 * 1024)
+                    .await
                     .unwrap(),
                 ProjectedEvents::Gap(GapReason::SnapshotExpired)
             ));
@@ -248,6 +265,7 @@ mod projection_tests {
             assert!(matches!(
                 engine
                     .projected_events(&access, &cursor, Timestamp::new(101), 256 * 1024)
+                    .await
                     .unwrap(),
                 ProjectedEvents::Gap(GapReason::RetentionChanged)
             ));
@@ -265,6 +283,7 @@ mod projection_tests {
             assert!(matches!(
                 engine
                     .projected_events(&access, &logical, Timestamp::new(101), 256 * 1024)
+                    .await
                     .unwrap(),
                 ProjectedEvents::Gap(GapReason::RetentionChanged)
             ));
@@ -286,6 +305,7 @@ mod projection_tests {
                 .unwrap();
             let ProjectedEvents::Page { events, .. } = engine
                 .projected_events(&access, &fresh, Timestamp::new(103), 256 * 1024)
+                .await
                 .unwrap()
             else {
                 panic!("redacted page");
@@ -298,14 +318,15 @@ mod projection_tests {
             denied.read = false;
             assert!(engine
                 .projected_events(&denied, &fresh, Timestamp::new(103), 256 * 1024)
+                .await
                 .is_err());
         }
     }
 }
 impl<S: CanonicalStore> Engine<S> {
-    /// Project only invalidation/evidence metadata, directly from borrowed
-    /// events. Raw fact payloads are neither cloned nor exposed to subscribers.
-    pub fn projected_events(
+    /// Project only invalidation/evidence metadata from bounded history pages.
+    /// Raw fact payloads are never retained in the subscriber's result.
+    pub async fn projected_events(
         &self,
         access: &Access,
         cursor: &Cursor,
@@ -324,7 +345,7 @@ impl<S: CanonicalStore> Engine<S> {
         let mut bytes = 8192;
         let mut events = Vec::new();
         let mut next = cursor.clone();
-        let state = self.store().state();
+        let state = self.store().current();
         let masks = state
             .records
             .values()
@@ -342,20 +363,11 @@ impl<S: CanonicalStore> Engine<S> {
                 Ok(mask)
             })
             .collect::<Result<Vec<_>>>()?;
-        for event in state
-            .events
-            .iter()
-            .filter(|event| {
-                event.event.workspace == access.workspace
-                    && event.event.session == access.session
-                    && event.sequence > cursor.after
-                    && event.sequence <= cursor.end
-                    && event.watermark <= cursor.watermark
-            })
-            .take(cursor.limit as usize)
-        {
+        let mut stopped = None;
+        window::visit(self.store(), access, cursor, |event| {
             if event.sequence != next.after.next()? {
-                return Ok(ProjectedEvents::Gap(GapReason::SequenceUnavailable));
+                stopped = Some(ProjectedEvents::Gap(GapReason::SequenceUnavailable));
+                return Ok(false);
             }
             // Match audit history: a logical exclusion hides the entire event,
             // even while original bytes still await a physical rewrite.
@@ -364,7 +376,8 @@ impl<S: CanonicalStore> Engine<S> {
                     && event.sequence >= mask.first
                     && event.sequence <= mask.last
             }) {
-                return Ok(ProjectedEvents::Gap(GapReason::RetentionChanged));
+                stopped = Some(ProjectedEvents::Gap(GapReason::RetentionChanged));
+                return Ok(false);
             }
             let mut evidence = Vec::new();
             let mut evidence_complete = event.redaction.is_none();
@@ -431,13 +444,18 @@ impl<S: CanonicalStore> Engine<S> {
             let size = serde_json::to_vec(&projected)?.len() + 1;
             if bytes + size > maximum_bytes {
                 if events.is_empty() {
-                    return Ok(ProjectedEvents::TooLarge);
+                    stopped = Some(ProjectedEvents::TooLarge);
                 }
-                break;
+                return Ok(false);
             }
             bytes += size;
             events.push(projected);
             next.after = event.sequence;
+            Ok(true)
+        })
+        .await?;
+        if let Some(result) = stopped {
+            return Ok(result);
         }
         if events.is_empty() && cursor.after < cursor.end {
             return Ok(ProjectedEvents::Gap(GapReason::SequenceUnavailable));
@@ -504,7 +522,12 @@ impl<S: CanonicalStore> Engine<S> {
     }
     /// Pull-based backpressure: no producer queue is allocated for a slow or
     /// disconnected consumer. Final results remain in canonical ordered events.
-    pub fn events(&self, access: &Access, cursor: &Cursor, now: Timestamp) -> Result<EventPage> {
+    pub async fn events(
+        &self,
+        access: &Access,
+        cursor: &Cursor,
+        now: Timestamp,
+    ) -> Result<EventPage> {
         let gap = |reason| {
             Ok(EventPage::Gap {
                 reason,
@@ -517,20 +540,24 @@ impl<S: CanonicalStore> Engine<S> {
                 restart_from_snapshot: true,
             });
         }
-        let state = self.store().state();
-        let events = state
-            .events
-            .iter()
-            .filter(|e| {
-                e.event.workspace == access.workspace
-                    && e.event.session == access.session
-                    && e.sequence > cursor.after
-                    && e.sequence <= cursor.end
-                    && e.watermark <= cursor.watermark
-            })
-            .take(cursor.limit as usize)
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut events = Vec::new();
+        let mut bytes = 0usize;
+        window::visit(self.store(), access, cursor, |event| {
+            let size = vcp_protocol::canonical_bytes(event)?.len();
+            if size > vcp_store::contract::MAX_COMMIT_BYTES {
+                return Err(Error::Store(vcp_store::Error::Limit(
+                    "subscription event row",
+                )));
+            }
+            // A short result is an explicit continuation, not end-of-history.
+            if size > vcp_store::contract::MAX_COMMIT_BYTES - bytes {
+                return Ok(false);
+            }
+            bytes += size;
+            events.push(event.clone());
+            Ok(true)
+        })
+        .await?;
         let mut expected = cursor.after;
         for event in &events {
             expected = expected.next()?;

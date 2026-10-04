@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 mod history_reader;
+mod acceptance_history;
 use super::*;
 use crate::HostFacts;
 use vcp_domain::{artifact::ArtifactSpec, controller::Reason, workspace::Binding};

@@ -1187,7 +1187,7 @@ async fn bounded_pull_subscription_reconnects_without_duplicates_or_mixed_snapsh
         .await
         .unwrap();
     loop {
-        match engine.events(&access(), &cursor, host.now).unwrap() {
+        match engine.events(&access(), &cursor, host.now).await.unwrap() {
             EventPage::Events {
                 events,
                 next_cursor,
@@ -1210,7 +1210,7 @@ async fn bounded_pull_subscription_reconnects_without_duplicates_or_mixed_snapsh
     assert_eq!(ids.len(), expected);
     assert!(matches!(
         engine
-            .events(&access(), &first, Timestamp::new(60_100))
+            .events(&access(), &first, Timestamp::new(60_100)).await
             .unwrap(),
         EventPage::Gap {
             reason: GapReason::SnapshotExpired,
@@ -1220,7 +1220,7 @@ async fn bounded_pull_subscription_reconnects_without_duplicates_or_mixed_snapsh
     let mut changed = first.clone();
     changed.limit = 128;
     assert!(matches!(
-        engine.events(&access(), &changed, host.now).unwrap(),
+        engine.events(&access(), &changed, host.now).await.unwrap(),
         EventPage::Gap {
             reason: GapReason::CursorChanged,
             ..

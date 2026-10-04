@@ -23,6 +23,8 @@ use vcp_protocol::{
     methods::{self, Call, ResultValue},
 };
 use vcp_store::contract::CanonicalStore;
+#[path = "rpc_acceptance_history.rs"]
+mod acceptance_history;
 
 pub const MAX_BATCH: usize = 64;
 /// Direct canonical reads and mutations; live controls require the lifecycle host.
@@ -941,38 +943,43 @@ pub async fn acceptance<S: CanonicalStore>(
             ))
         }
     };
-    let event = engine
-        .store()
-        .state()
-        .events
-        .iter()
-        .find(|event| {
-            event.watermark == receipt.watermark
+    let unavailable = || {
+        application(
+            Code::CursorGap,
+            Retry::AfterRevalidation,
+            Some(command_id.clone()),
+            "command projection scope evidence unavailable",
+        )
+    };
+    let mut pages = acceptance_history::Pages::open(engine.store())
+        .await
+        .map_err(|_| unavailable())?;
+    let mut first_task = None;
+    'lookup: while let Some(rows) = pages
+        .next(engine.store())
+        .await
+        .map_err(|_| unavailable())?
+    {
+        for event in rows {
+            if event.watermark == receipt.watermark
                 && event.event.correlation == receipt.command
                 && event.event.workspace == access.workspace
                 && event.event.session == access.session
-        })
-        .ok_or_else(|| {
-            application(
-                Code::CursorGap,
-                Retry::AfterRevalidation,
-                Some(command_id.clone()),
-                "command projection scope evidence unavailable",
-            )
-        })?;
+            {
+                first_task = Some(event.event.task);
+                break 'lookup;
+            }
+        }
+    }
+    let task = first_task.ok_or_else(unavailable)?;
     Ok(ResultValue::Acceptance(methods::Acceptance {
         command_id,
         scope: methods::Scope {
             workspace: id(access.workspace.as_str())?,
             session: id(access.session.as_str())?,
         },
-        task: event
-            .event
-            .task
-            .as_ref()
-            .map(|task| id(task.as_str()))
-            .transpose()?,
-        turn: accepted_turn(engine, access, receipt)?,
+        task: task.as_ref().map(|task| id(task.as_str())).transpose()?,
+        turn: accepted_turn(engine, access, receipt).await?,
         revision: revision.get().into(),
         watermark: receipt.watermark.get().into(),
         outcome: methods::OperationOutcome::Accepted,
@@ -982,7 +989,7 @@ pub async fn acceptance<S: CanonicalStore>(
 /// A receipt identifies the turn it created, never whichever turn is current
 /// when a retry is read. Only the original retained Queued genesis fact proves
 /// that identity; subsequent task/turn changes cannot redirect the receipt.
-fn accepted_turn<S: CanonicalStore>(
+async fn accepted_turn<S: CanonicalStore>(
     engine: &Engine<S>,
     access: &Access,
     receipt: &CommandReceipt,
@@ -1001,7 +1008,7 @@ fn accepted_turn<S: CanonicalStore>(
             "accepted turn identity evidence unavailable",
         )
     };
-    let state = engine.store().state();
+    let state = engine.store().current();
     // Public start v1 commits exactly four ordered facts: task, input artifact,
     // root ledger, queued turn. The retained receipt span survives projection
     // pruning and distinguishes it from legacy one-event Start/AdvanceTurn
@@ -1015,82 +1022,101 @@ fn accepted_turn<S: CanonicalStore>(
         return Ok(None);
     }
     let mut expected = None;
-    for genesis in state.events.iter().filter(|event| {
-        event.watermark == receipt.watermark
-            && event.event.correlation == receipt.command
-            && event.event.workspace == access.workspace
-            && event.event.session == access.session
-            && event.event.kind == EventKind::TaskCreated
-    }) {
-        let task = genesis.event.task.as_ref().ok_or_else(unavailable)?;
-        let scope = vcp_domain::workspace::Scope {
-            workspace: access.workspace.clone(),
-            session: access.session.clone(),
-            task: task.clone(),
-        };
-        if expected.is_some()
-            || crate::public_start::retained_start_budget(state, &scope)
-                .map_err(|_| unavailable())?
-                .is_none()
-        {
-            return Err(unavailable());
+    let mut pages = acceptance_history::Pages::open(engine.store())
+        .await
+        .map_err(|_| unavailable())?;
+    while let Some(rows) = pages
+        .next(engine.store())
+        .await
+        .map_err(|_| unavailable())?
+    {
+        for genesis in rows.iter().filter(|event| {
+            event.watermark == receipt.watermark
+                && event.event.correlation == receipt.command
+                && event.event.workspace == access.workspace
+                && event.event.session == access.session
+                && event.event.kind == EventKind::TaskCreated
+        }) {
+            let task = genesis.event.task.as_ref().ok_or_else(unavailable)?;
+            let scope = vcp_domain::workspace::Scope {
+                workspace: access.workspace.clone(),
+                session: access.session.clone(),
+                task: task.clone(),
+            };
+            if expected.is_some()
+                || crate::public_start::retained_start_budget_store(engine.store(), &scope)
+                    .await
+                    .map_err(|_| unavailable())?
+                    .is_none()
+            {
+                return Err(unavailable());
+            }
+            expected = Some(id(genesis.event.data["public_start"]["turn"]
+                .as_str()
+                .ok_or_else(unavailable)?)?);
         }
-        expected = Some(id(genesis.event.data["public_start"]["turn"]
-            .as_str()
-            .ok_or_else(unavailable)?)?);
     }
     let expected = expected.ok_or_else(unavailable)?;
     let mut result = None;
-    for event in state.events.iter().filter(|event| {
-        event.watermark == receipt.watermark
-            && event.event.correlation == receipt.command
-            && event.event.workspace == access.workspace
-            && event.event.session == access.session
-            && event.event.kind == EventKind::TurnTransition
-    }) {
-        if event.redaction.is_some() || event.event.data["schema_version"] != 1 {
-            return Err(unavailable());
-        }
-        for row in state.records.values().filter(|row| {
-            row.collection == Collection::Tombstone && row.workspace == access.workspace
+    let mut pages = acceptance_history::Pages::open(engine.store())
+        .await
+        .map_err(|_| unavailable())?;
+    while let Some(rows) = pages
+        .next(engine.store())
+        .await
+        .map_err(|_| unavailable())?
+    {
+        for event in rows.iter().filter(|event| {
+            event.watermark == receipt.watermark
+                && event.event.correlation == receipt.command
+                && event.event.workspace == access.workspace
+                && event.event.session == access.session
+                && event.event.kind == EventKind::TurnTransition
         }) {
-            let mask: RetentionMask = row.decode().map_err(|_| unavailable())?;
-            mask.validate().map_err(|_| unavailable())?;
-            if mask.workspace != access.workspace
-                || (mask.session == access.session
-                    && mask.first <= event.sequence
-                    && event.sequence <= mask.last)
-            {
+            if event.redaction.is_some() || event.event.data["schema_version"] != 1 {
                 return Err(unavailable());
             }
-        }
-        for fact in event.event.data["facts"]
-            .as_array()
-            .ok_or_else(unavailable)?
-        {
-            if fact["collection"] != "turn" {
-                continue;
+            for row in state.records.values().filter(|row| {
+                row.collection == Collection::Tombstone && row.workspace == access.workspace
+            }) {
+                let mask: RetentionMask = row.decode().map_err(|_| unavailable())?;
+                mask.validate().map_err(|_| unavailable())?;
+                if mask.workspace != access.workspace
+                    || (mask.session == access.session
+                        && mask.first <= event.sequence
+                        && event.sequence <= mask.last)
+                {
+                    return Err(unavailable());
+                }
             }
-            let revision: Revision =
-                serde_json::from_value(fact["revision"].clone()).map_err(|_| unavailable())?;
-            if revision != Revision::ZERO {
-                continue;
-            }
-            let turn: Turn =
-                serde_json::from_value(fact["value"].clone()).map_err(|_| unavailable())?;
-            if turn.scope.workspace != access.workspace
-                || turn.scope.session != access.session
-                || event.event.task.as_ref() != Some(&turn.scope.task)
-                || turn.revision != Revision::ZERO
-                || turn.state != TurnState::Queued
-                || turn.cause != event.event.id
-                || turn.redaction.is_some()
-                || fact["id"] != turn.id.as_str()
-                || result.is_some()
+            for fact in event.event.data["facts"]
+                .as_array()
+                .ok_or_else(unavailable)?
             {
-                return Err(unavailable());
+                if fact["collection"] != "turn" {
+                    continue;
+                }
+                let revision: Revision =
+                    serde_json::from_value(fact["revision"].clone()).map_err(|_| unavailable())?;
+                if revision != Revision::ZERO {
+                    continue;
+                }
+                let turn: Turn =
+                    serde_json::from_value(fact["value"].clone()).map_err(|_| unavailable())?;
+                if turn.scope.workspace != access.workspace
+                    || turn.scope.session != access.session
+                    || event.event.task.as_ref() != Some(&turn.scope.task)
+                    || turn.revision != Revision::ZERO
+                    || turn.state != TurnState::Queued
+                    || turn.cause != event.event.id
+                    || turn.redaction.is_some()
+                    || fact["id"] != turn.id.as_str()
+                    || result.is_some()
+                {
+                    return Err(unavailable());
+                }
+                result = Some(id(turn.id.as_str())?);
             }
-            result = Some(id(turn.id.as_str())?);
         }
     }
     if result.as_ref() != Some(&expected) {
