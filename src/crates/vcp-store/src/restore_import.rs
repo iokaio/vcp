@@ -48,7 +48,7 @@ impl Imported {
     /// checking and publishing the expected workspace descriptor revision.
     pub async fn reopen_verified(&self) -> Result<Store> {
         let store = Store::open(&self.root, self.backend, &self.forbidden).await?;
-        if digest_bytes(&canonical_bytes(store.state())?) != self.state_digest {
+        if crate::legacy_state_stream::digest(store.state())? != self.state_digest {
             return Err(Error::Conflict("prepared restore root changed"));
         }
         for row in store
@@ -93,13 +93,14 @@ pub(crate) async fn prepare(
         fs::create_dir(root)?;
     }
     let directory = Directory::open(root, forbidden)?;
+    let source_digest = crate::legacy_state_stream::digest(source)?;
     let base = crate::replay_base::ReplayBase {
         version: 1,
-        source_digest: digest_bytes(&canonical_bytes(source)?),
+        source_digest: source_digest.clone(),
         state: source.clone(),
         prefixes: vec![crate::replay_base::PrefixCommitment {
             watermark: source.watermark,
-            digest: digest_bytes(&canonical_bytes(source)?),
+            digest: source_digest,
         }],
     };
     let bytes = canonical_bytes(&base)?;
@@ -139,7 +140,7 @@ pub(crate) async fn prepare(
     Ok(Imported {
         root: root.to_owned(),
         workspace: archive.workspace().clone(),
-        state_digest: digest_bytes(&canonical_bytes(&expected)?),
+        state_digest: crate::legacy_state_stream::digest(&expected)?,
         source_manifest: digest_bytes(&canonical_bytes(&validated.proof.restored().manifest)?),
         checkpoint: archive.inputs().checkpoint.clone(),
         backend,

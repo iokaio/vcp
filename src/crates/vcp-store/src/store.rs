@@ -347,7 +347,7 @@ impl Store {
     /// cannot authorize an import or restore history before the retained base.
     pub async fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
         let state = self.reconstruct_at(watermark).await?;
-        Ok(digest_bytes(&canonical_bytes(&state)?))
+        crate::legacy_state_stream::digest(&state)
     }
     async fn reconstruct_at(&self, watermark: Watermark) -> Result<State> {
         if self.poisoned {
@@ -593,7 +593,7 @@ impl Store {
             return Err(Error::Corruption("conversion changed logical view"));
         }
         target.checkpoint()?;
-        let evidence = serde_json::json!({"version":1,"watermark":self.state.watermark,"logical_sha256":digest_bytes(&canonical_bytes(&self.state)?),"source_backend":self.kind,"target_backend":kind});
+        let evidence = serde_json::json!({"version":1,"watermark":self.state.watermark,"logical_sha256":crate::legacy_state_stream::digest(&self.state)?,"source_backend":self.kind,"target_backend":kind});
         immutable_file(
             &target.root.join("conversion.json"),
             &canonical_bytes(&evidence)?,
@@ -761,7 +761,7 @@ impl Store {
         immutable_file(
             &destination.join("private-rewrite.json"),
             &canonical_bytes(
-                &serde_json::json!({"version":1,"root":id,"source":digest_bytes(&canonical_bytes(&self.state)?)}),
+                &serde_json::json!({"version":1,"root":id,"source":crate::legacy_state_stream::digest(&self.state)?}),
             )?,
         )?;
         crate::replay_base::ReplayBase::write(
@@ -819,8 +819,8 @@ impl Store {
             root: id,
             backend: self.kind,
             watermark: baseline.watermark,
-            source_digest: digest_bytes(&canonical_bytes(&self.state)?),
-            state_digest: digest_bytes(&canonical_bytes(&baseline)?),
+            source_digest: crate::legacy_state_stream::digest(&self.state)?,
+            state_digest: crate::legacy_state_stream::digest(&baseline)?,
             previous: history
                 .last()
                 .map(canonical_bytes)

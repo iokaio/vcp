@@ -424,7 +424,7 @@ impl Jobs {
             ));
         }
         let snapshot = store.snapshot_at(job.watermark).await?;
-        if digest_bytes(&canonical_bytes(snapshot.state())?) != job.state_digest {
+        if crate::legacy_state_stream::digest(snapshot.state())? != job.state_digest {
             return Err(Error::Corruption("snapshot source cut differs"));
         }
         Ok(Capture {

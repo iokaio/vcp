@@ -198,7 +198,10 @@ impl Archive {
         })?;
         scoped(snapshot.state(), workspace)?;
         let mut objects = BTreeMap::new();
-        let canonical = add(&mut objects, canonical_bytes(snapshot.state())?)?;
+        let canonical = add(
+            &mut objects,
+            crate::legacy_state_stream::bytes(snapshot.state())?,
+        )?;
         let mut parts = Vec::new();
         for row in snapshot
             .state()
@@ -423,7 +426,11 @@ impl Archive {
         if coverage != inventory.coverage {
             return Err(Error::Corruption("archive coverage differs"));
         }
-        if self.objects.get(&inventory.canonical) != Some(&canonical_bytes(&self.state)?) {
+        let canonical = self
+            .objects
+            .get(&inventory.canonical)
+            .ok_or(Error::Corruption("canonical archive bytes"))?;
+        if !crate::legacy_state_stream::matches(&self.state, canonical)? {
             return Err(Error::Corruption("canonical archive bytes"));
         }
         let mut referenced = BTreeSet::from([inventory.canonical.clone()]);
@@ -538,7 +545,7 @@ impl Archive {
         let directory = crate::private_paths::Directory::open(&root, forbidden)?;
         crate::private_paths::write_private(
             &root.join("canonical-history.json"),
-            &canonical_bytes(&self.state)?,
+            &crate::legacy_state_stream::bytes(&self.state)?,
         )?;
         if cancelled() {
             return Err(Error::Unavailable(

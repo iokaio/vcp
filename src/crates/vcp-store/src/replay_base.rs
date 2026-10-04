@@ -88,9 +88,10 @@ impl ReplayBase {
         // seam cannot change ordering, retry commitments or command outcomes.
         crate::redaction_contract::validate_rewrite(source, state)?;
         let mut prefixes = prefixes.to_vec();
+        let source_digest = crate::legacy_state_stream::digest(source)?;
         let source_prefix = PrefixCommitment {
             watermark: source.watermark,
-            digest: digest_bytes(&canonical_bytes(source)?),
+            digest: source_digest.clone(),
         };
         if !prefixes.contains(&source_prefix) {
             prefixes.push(source_prefix);
@@ -100,7 +101,7 @@ impl ReplayBase {
         }
         let value = Self {
             version: 1,
-            source_digest: digest_bytes(&canonical_bytes(source)?),
+            source_digest,
             state: state.clone(),
             prefixes,
         };
