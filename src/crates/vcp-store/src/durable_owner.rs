@@ -118,6 +118,22 @@ impl DurableOwner {
     pub(crate) fn identity(&self) -> &str {
         &self.identity
     }
+    /// Materialize a complete legacy DTO only at an explicit archival boundary.
+    /// The ordinary owner retains current records and authenticated roots.
+    pub(crate) async fn archive_state(&self, pages: &mut impl Pages) -> Result<State> {
+        let bytes = self
+            .semantic
+            .catalog()
+            .legacy_bytes(
+                pages,
+                self.semantic.current().into(),
+                crate::contract::MAX_STATE_BYTES,
+            )
+            .await?;
+        let state: State = serde_json::from_slice(&bytes)?;
+        state.validate()?;
+        Ok(state)
+    }
     pub(crate) async fn prepare(
         &self,
         pages: &mut impl Pages,

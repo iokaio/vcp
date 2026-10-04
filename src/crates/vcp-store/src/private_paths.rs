@@ -31,6 +31,14 @@ pub(crate) struct Directory {
 #[path = "canonical_child_tests.rs"]
 mod canonical_child_tests;
 impl Directory {
+    /// Pin the admitted physical root for a read-only snapshot. This does not
+    /// grant writes to arbitrary descendants or bypass child-path restrictions.
+    #[cfg(test)]
+    pub(crate) fn canonical_root(store: &crate::Store) -> Result<Self> {
+        let root = Self::hold(store.root(), false)?;
+        store.validate_canonical_owner()?;
+        Ok(root)
+    }
     /// Derive a fixed child from an actual locked Store, not from an arbitrary
     /// trusted path. Archive/cloud directory admission rules remain unchanged.
     pub(crate) fn canonical_child(store: &crate::Store, name: &str) -> Result<Self> {

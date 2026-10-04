@@ -16,6 +16,24 @@ trait Sink {
     async fn write(&mut self, bytes: &[u8]) -> Result<()>;
 }
 struct HashSink(Sha256);
+struct BoundedSink {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+impl Sink for BoundedSink {
+    async fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        if self
+            .bytes
+            .len()
+            .checked_add(bytes.len())
+            .is_none_or(|length| length > self.limit)
+        {
+            return Err(Error::Limit("explicit archival State bytes"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
+    }
+}
 impl Sink for HashSink {
     async fn write(&mut self, bytes: &[u8]) -> Result<()> {
         self.0.update(bytes);
@@ -33,6 +51,25 @@ impl<P: Pages> Sink for BlobSink<'_, P> {
 }
 
 impl Catalog {
+    /// Explicit legacy archival materialization only. Live current/history
+    /// consumers must use authenticated bounded reads. Exceeding this legacy
+    /// DTO bound requires the streaming neutral archive, not a partial State.
+    pub(crate) async fn legacy_bytes(
+        &self,
+        pages: &mut impl Pages,
+        current: CurrentStateView<'_>,
+        limit: usize,
+    ) -> Result<Vec<u8>> {
+        if limit == 0 || limit > crate::contract::MAX_STATE_BYTES {
+            return Err(Error::Limit("explicit archival State bytes"));
+        }
+        let mut sink = BoundedSink {
+            bytes: Vec::new(),
+            limit,
+        };
+        self.write_legacy(pages, current, &mut sink).await?;
+        Ok(sink.bytes)
+    }
     pub(crate) async fn legacy_digest(
         &self,
         pages: &mut impl Pages,
@@ -209,6 +246,25 @@ mod tests {
                 .unwrap();
             let current = CurrentStateView::from(&state);
             let expected = crate::legacy_state_stream::bytes(&state).unwrap();
+            let pages_before = source.0.len();
+            assert_eq!(
+                catalog
+                    .legacy_bytes(&mut source, current, expected.len())
+                    .await
+                    .unwrap(),
+                expected
+            );
+            assert!(matches!(
+                catalog
+                    .legacy_bytes(&mut source, current, expected.len() - 1)
+                    .await,
+                Err(Error::Limit("explicit archival State bytes"))
+            ));
+            assert_eq!(
+                source.0.len(),
+                pages_before,
+                "archive read cannot create canonical objects"
+            );
             assert_eq!(
                 catalog.legacy_digest(&mut source, current).await.unwrap(),
                 vcp_protocol::digest_bytes(&expected)

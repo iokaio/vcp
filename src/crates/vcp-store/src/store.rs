@@ -342,6 +342,12 @@ impl Store {
         {
             return Err(Error::Access);
         }
+        self.validate_canonical_owner()
+    }
+    pub(crate) fn validate_canonical_owner(&self) -> Result<()> {
+        if self.poisoned {
+            return Err(Error::Access);
+        }
         let path = self.root.join("owner.lock");
         reject_link(&path)?;
         let mut options = OpenOptions::new();

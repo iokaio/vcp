@@ -9,6 +9,8 @@ use crate::{
     private_paths::Directory,
 };
 use sqlx::Connection;
+#[path = "store_current_snapshot.rs"]
+pub(crate) mod snapshot;
 
 /// The mutable borrow prevents commits, close, rewrite or cleanup through the
 /// source while staging/validation is in progress. Dropping it leaves the old
