@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #[path = "../../vcp-store/tests/common/mod.rs"]
 mod common;
+#[path = "accounting/current.rs"]
+mod current;
 use std::collections::BTreeMap;
 use vcp_budget::{arithmetic::*, *};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, task::*, workspace::*};
