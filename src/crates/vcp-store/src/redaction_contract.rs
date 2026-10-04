@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Exact typed rewrite contract. Ordinary Put never admits these transformations.
 use crate::{contract::*, Error, Result};
-use std::collections::BTreeSet;
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, BTreeSet},
+};
 use vcp_domain::{
     accounting::*, artifact::ArtifactDescriptor, effect::Effect, task::Task, workspace::Workspace,
     *,
@@ -16,6 +19,9 @@ use vcp_domain::{
     workspace::Scope,
 };
 use vcp_protocol::command::{CommandReceipt, CommandResult};
+#[cfg(test)]
+#[path = "redaction_history_tests.rs"]
+mod history_tests;
 
 pub(crate) fn kind(row: &Record) -> Result<Option<&str>> {
     let Some(tag) = row.value["document_type"].as_str() else {
@@ -338,11 +344,22 @@ pub(crate) fn validate(state: &State) -> Result<()> {
             return Err(Error::Corruption("redaction exceeds deletion epoch"));
         }
     }
-    for event in &state.events {
+    validate_event_rows(&state.records, state.events.iter().map(Ok))
+}
+
+/// Validate every supplied row against current workspace deletion state without
+/// retaining history payloads. Reader failures remain errors, never end-of-data.
+pub(crate) fn validate_event_rows<E: Borrow<vcp_protocol::event::EventEnvelope>>(
+    records: &BTreeMap<String, Record>,
+    rows: impl IntoIterator<Item = Result<E>>,
+) -> Result<()> {
+    for event in rows {
+        let event = event?;
+        let event = event.borrow();
         vcp_protocol::redaction::validate_event(event)
             .map_err(|_| Error::Corruption("explicit event redaction"))?;
         if let Some(redaction) = &event.redaction {
-            if redaction.deletion > epoch(state, &event.event.workspace)? {
+            if redaction.deletion > record_epoch(records, &event.event.workspace)? {
                 return Err(Error::Corruption("event redaction exceeds deletion epoch"));
             }
         }
@@ -654,9 +671,19 @@ pub(crate) fn unprotected(
     Ok(())
 }
 fn epoch(state: &State, workspace: &WorkspaceId) -> Result<DeletionEpoch> {
-    let workspace: Workspace = state
-        .record(Collection::Workspace, workspace.as_str(), workspace)?
-        .decode()?;
+    record_epoch(&state.records, workspace)
+}
+fn record_epoch(
+    records: &BTreeMap<String, Record>,
+    workspace: &WorkspaceId,
+) -> Result<DeletionEpoch> {
+    let record = records
+        .get(&key(Collection::Workspace, workspace.as_str()))
+        .ok_or(Error::Conflict("record not found"))?;
+    if &record.workspace != workspace {
+        return Err(Error::Access);
+    }
+    let workspace: Workspace = record.decode()?;
     if workspace.deletion == DeletionEpoch::ZERO {
         return Err(Error::Conflict(
             "retention rewrite needs committed deletion epoch",
