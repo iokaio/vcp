@@ -63,6 +63,12 @@ async fn owner_completion_distinguishes_instruction_refresh_and_required_approva
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_completion_refreshes_changed_existing_guidance_at_final() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        run(backend, "owner_changed_instructions").await;
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn owner_completion_pauses_exact_repeated_failure_without_progress() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         run(backend, "owner_failed").await;
@@ -77,11 +83,12 @@ async fn owner_completion_repairs_then_reverifies_same_task() {
 async fn run(backend: BackendKind, mode: &'static str) {
     let owner_recheck = mode.starts_with("owner_");
     let scope_refresh = mode == "owner_refresh";
+    let changed_instructions = mode == "owner_changed_instructions";
     let approval_required = mode == "owner_approval";
     let repair_pass = mode == "owner_repaired";
     let mode = mode.strip_prefix("owner_").unwrap_or(mode);
     let mode = if repair_pass { "failed" } else { mode };
-    let mode = if scope_refresh || approval_required {
+    let mode = if scope_refresh || changed_instructions || approval_required {
         "missing"
     } else {
         mode
@@ -467,6 +474,12 @@ async fn run(backend: BackendKind, mode: &'static str) {
         );
         assert_eq!(host.project().unwrap().effects.len(), 3);
     }
+    const REFRESHED_GUIDANCE: &str = "Current owner guidance changed after the final answer: verify the configured changed_value check before completion.\n";
+    if changed_instructions {
+        assert!(!oracle.exists());
+        fs::write(workspace.join("AGENTS.md"), REFRESHED_GUIDANCE).unwrap();
+    }
+    let effects_before_completion = host.project().unwrap().effects;
     let complete = host.complete_coding_turn(thread);
     if owner_recheck {
         use vcp_lifecycle::foundation::verification::{CompletionAttempt, CompletionRejection};
@@ -653,7 +666,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
         } else {
             assert_eq!(
                 failure.kind,
-                if scope_refresh {
+                if scope_refresh || changed_instructions {
                     CompletionRejection::InstructionScopeRefresh
                 } else if mode == "missing" {
                     CompletionRejection::MissingVerification
@@ -661,6 +674,13 @@ async fn run(backend: BackendKind, mode: &'static str) {
                     CompletionRejection::StaleVerification
                 }
             );
+            if changed_instructions {
+                assert_eq!(host.project().unwrap().effects, effects_before_completion);
+                assert!(
+                    !oracle.exists(),
+                    "typed refresh must not replay any accounted call"
+                );
+            }
             let focused = host
                 .verify_focused(thread, vec!["value.txt".into()], vec![])
                 .await
@@ -686,6 +706,25 @@ async fn run(backend: BackendKind, mode: &'static str) {
                 .checks
                 .iter()
                 .all(|check| check.outcome == CheckOutcome::Passed));
+            if changed_instructions {
+                let captured_current_guidance = host
+                    .snapshot()
+                    .unwrap()
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                    .filter(|artifact| artifact.spec.schema == "verification-source/1")
+                    .any(|artifact| {
+                        host.read_artifact(artifact.spec.id).unwrap()
+                            == REFRESHED_GUIDANCE.as_bytes()
+                    });
+                assert!(
+                    captured_current_guidance,
+                    "fresh verification must capture current instructions"
+                );
+                assert!(oracle.exists());
+            }
             assert!(matches!(
                 host.try_complete_verified(thread, verified.id).unwrap(),
                 CompletionAttempt::Completed(_)
