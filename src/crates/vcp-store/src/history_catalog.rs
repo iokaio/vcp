@@ -304,7 +304,7 @@ impl Catalog {
             value => Ok(value),
         }
     }
-    async fn command_unchecked_meaning(
+    pub(crate) async fn command_unchecked_meaning(
         &self,
         pages: &mut impl Pages,
         workspace: &WorkspaceId,

@@ -2,6 +2,8 @@
 #[cfg(test)]
 extern crate self as vcp_store;
 mod accounting_contract;
+#[cfg(test)]
+mod admitted_history;
 pub mod artifact;
 mod backend;
 pub mod contract;
@@ -25,6 +27,8 @@ pub mod portable_snapshot;
 mod private_paths;
 mod redaction_contract;
 mod replay_base;
+#[cfg(test)]
+mod resolved_history;
 mod restore_authority;
 pub mod restore_import;
 pub mod restore_stage;
