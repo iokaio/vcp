@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+// Frozen pre-extraction reference used only by differential tests.
 use super::*;
-use crate::CurrentStateView;
 use vcp_domain::agents::*;
 pub(super) fn kind(record: &Record) -> Result<bool> {
     if record.value["document_type"] == GRAPH {
@@ -123,9 +123,6 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
     Ok(())
 }
 pub(super) fn validate(state: &State) -> Result<()> {
-    validate_current(state.into())
-}
-pub(super) fn validate_current(state: CurrentStateView<'_>) -> Result<()> {
     for record in state.records.values() {
         if !kind(record)? {
             continue;
@@ -264,7 +261,7 @@ pub(super) fn validate_current(state: CurrentStateView<'_>) -> Result<()> {
     }
     Ok(())
 }
-fn capacity(state: CurrentStateView<'_>, graph: &TaskGraph) -> Result<()> {
+fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
     let ledger: Ledger = state
         .record(
             Collection::Ledger,
@@ -321,24 +318,13 @@ fn capacity(state: CurrentStateView<'_>, graph: &TaskGraph) -> Result<()> {
     Ok(())
 }
 pub(super) fn publication(before: RecordView<'_>, after: &State) -> Result<()> {
-    publication_records(before.records, after.into())
-}
-pub(super) fn publication_current(
-    before: CurrentStateView<'_>,
-    after: CurrentStateView<'_>,
-) -> Result<()> {
-    publication_records(before.records, after)
-}
-fn publication_records(
-    before: &BTreeMap<String, Record>,
-    after: CurrentStateView<'_>,
-) -> Result<()> {
     for record in after.records.values() {
         if !kind(record)? {
             continue;
         }
         let graph: TaskGraph = record.decode()?;
         let previous = before
+            .records
             .get(&key(Collection::Projection, &record.id))
             .map(Record::decode::<TaskGraph>)
             .transpose()?;
@@ -355,14 +341,16 @@ fn publication_records(
                 .decode()?;
             let prior = previous.as_ref().and_then(|g| g.children.get(id));
             if prior.is_none() {
-                let parent = before
-                    .get(&key(Collection::Task, spec.parent.as_str()))
-                    .ok_or(Error::Conflict("record not found"))?;
-                if parent.workspace != graph.scope.workspace {
-                    return Err(Error::Access);
-                }
-                let parent: Task = parent.decode()?;
-                if before.contains_key(&key(Collection::Task, id.as_str()))
+                let parent: Task = before
+                    .record(
+                        Collection::Task,
+                        spec.parent.as_str(),
+                        &graph.scope.workspace,
+                    )?
+                    .decode()?;
+                if before
+                    .records
+                    .contains_key(&key(Collection::Task, id.as_str()))
                     || child.state != vcp_domain::task::TaskState::Pending
                     || parent.state != vcp_domain::task::TaskState::Running
                     || (!parent.editing && spec.mode == ChildMode::IsolatedWrite)
@@ -386,7 +374,3 @@ fn publication_records(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "agents_contract_current_tests.rs"]
-mod current_tests;

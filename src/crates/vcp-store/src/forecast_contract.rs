@@ -107,6 +107,7 @@ pub(crate) fn validate_with_history(
         }
         observed.insert(scope.task);
     }
+    history.prepare_last(&value.source_events);
     for id in &value.source_events {
         let event = history
             .last(id)?

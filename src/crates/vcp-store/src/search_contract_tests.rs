@@ -11,6 +11,9 @@ use vcp_domain::{
 use vcp_store::{contract::*, Error, Result};
 #[path = "../tests/common/mod.rs"]
 mod common;
+#[path = "search_contract_reference.rs"]
+#[allow(dead_code)]
+mod reference;
 #[path = "search_contract.rs"]
 #[allow(dead_code)]
 mod search_contract;
@@ -255,4 +258,195 @@ fn exact_covered_intents_require_same_transaction_acknowledgements() {
         &inflated
     )
     .is_err());
+}
+
+struct ReceiptFacts {
+    values: BTreeMap<TransactionId, Watermark>,
+    reads: Vec<TransactionId>,
+    fail: Option<TransactionId>,
+}
+impl crate::historical_facts::TransactionFacts for ReceiptFacts {
+    fn watermark(&mut self, id: &TransactionId) -> Result<Option<Watermark>> {
+        self.reads.push(id.clone());
+        if self.fail.as_ref() == Some(id) {
+            return Err(Error::Unavailable("search history read failed"));
+        }
+        Ok(self.values.get(id).copied())
+    }
+}
+fn receipt_facts(state: &State) -> ReceiptFacts {
+    ReceiptFacts {
+        values: state
+            .transactions
+            .iter()
+            .map(|(id, receipt)| (id.clone(), receipt.watermark))
+            .collect(),
+        reads: vec![],
+        fail: None,
+    }
+}
+
+#[test]
+fn current_search_validation_and_publication_match_frozen_reference() {
+    let base = initial();
+    for variant in 0..8 {
+        let mut value = manifest(&base);
+        match variant {
+            1 => value.authority = AuthorityRevision::new(1),
+            2 => value.deletion = DeletionEpoch::new(1),
+            3 => value.previous = Some(GenerationId::new()),
+            4 => value.canonical_watermark = base.watermark.next().unwrap(),
+            5 => value.memory_seq = MemorySeq::new(1),
+            _ => (),
+        }
+        let mut transaction = tx(&base, &value);
+        if variant == 6 {
+            transaction.mutations.pop();
+        }
+        let mut next = after(&base, &transaction);
+        next.transactions.insert(
+            transaction.id.clone(),
+            Receipt {
+                transaction: transaction.id.clone(),
+                digest: "a".repeat(64),
+                watermark: base.watermark.next().unwrap(),
+                command: None,
+            },
+        );
+        if variant == 7 {
+            next.transactions.remove(&transaction.id);
+        }
+        let before_current = crate::CurrentState::from_state(&base);
+        let after_current = crate::CurrentState::from_state(&next);
+        assert_eq!(
+            format!(
+                "{:?}",
+                search_contract::publication_with_history(
+                    (&before_current).into(),
+                    (&after_current).into(),
+                    &transaction,
+                    &mut receipt_facts(&base)
+                )
+            ),
+            format!(
+                "{:?}",
+                reference::publication(base.record_view(), &next, &transaction)
+            ),
+            "publication variant {variant}"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                search_contract::validate_with_history(
+                    (&after_current).into(),
+                    &mut receipt_facts(&next)
+                )
+            ),
+            format!("{:?}", reference::validate(&next)),
+            "validation variant {variant}"
+        );
+    }
+}
+
+#[test]
+fn search_receipt_failure_and_absence_stay_distinct_in_validation_and_publication() {
+    let mut base = initial();
+    let memory_transaction = TransactionId::new();
+    let result = vcp_domain::redaction::RedactedResult {
+        document_type: vcp_domain::redaction::RESULT.into(),
+        schema_version: 1,
+        id: CommandId::new(),
+        scope: common::task().scope,
+        revision: Revision::ZERO,
+        deletion: DeletionEpoch::new(1),
+        original_digest: "a".repeat(64),
+        proposal: ProposalId::new(),
+        payload_digest: "b".repeat(64),
+        transaction: memory_transaction.clone(),
+        version: None,
+        intent: None,
+        outcome: vcp_domain::memory::Outcome::Rejected,
+        memory_seq: MemorySeq::new(1),
+    };
+    let record = Record::typed(
+        Collection::Projection,
+        result.id.as_str(),
+        result.scope.workspace.clone(),
+        Revision::ZERO,
+        &result,
+    )
+    .unwrap();
+    base.records.insert(record.key(), record);
+    base.transactions.insert(
+        memory_transaction.clone(),
+        Receipt {
+            transaction: memory_transaction.clone(),
+            digest: "c".repeat(64),
+            watermark: base.watermark,
+            command: None,
+        },
+    );
+    let mut value = manifest(&base);
+    value.memory_seq = MemorySeq::new(1);
+    let transaction = tx(&base, &value);
+    let mut next = after(&base, &transaction);
+    next.transactions.insert(
+        transaction.id.clone(),
+        Receipt {
+            transaction: transaction.id.clone(),
+            digest: "d".repeat(64),
+            watermark: base.watermark.next().unwrap(),
+            command: None,
+        },
+    );
+    reference::validate(&next).unwrap();
+    reference::publication(base.record_view(), &next, &transaction).unwrap();
+    let before = crate::CurrentState::from_state(&base);
+    let after = crate::CurrentState::from_state(&next);
+    for failed in [transaction.id.clone(), memory_transaction.clone()] {
+        let mut facts = receipt_facts(&next);
+        facts.fail = Some(failed.clone());
+        assert!(matches!(
+            search_contract::validate_with_history((&after).into(), &mut facts),
+            Err(Error::Unavailable("search history read failed"))
+        ));
+        assert_eq!(facts.reads.last(), Some(&failed));
+    }
+    let mut facts = receipt_facts(&base);
+    facts.fail = Some(memory_transaction.clone());
+    assert!(matches!(
+        search_contract::publication_with_history(
+            (&before).into(),
+            (&after).into(),
+            &transaction,
+            &mut facts
+        ),
+        Err(Error::Unavailable("search history read failed"))
+    ));
+    facts.fail = None;
+    facts.values.remove(&memory_transaction);
+    assert!(matches!(
+        search_contract::publication_with_history(
+            (&before).into(),
+            (&after).into(),
+            &transaction,
+            &mut facts
+        ),
+        Err(Error::Corruption("memory result receipt missing"))
+    ));
+    // The prior view must exclude the newly admitted receipt even when the
+    // underlying map already contains it during owned preparation.
+    let prior = RecordView {
+        watermark: base.watermark,
+        records: &base.records,
+        transactions: &next.transactions,
+        excluded_transaction: Some(&transaction.id),
+    };
+    use crate::historical_facts::TransactionFacts;
+    let mut facts = crate::historical_facts::RecordTransactionFacts::new(prior);
+    assert_eq!(facts.watermark(&transaction.id).unwrap(), None);
+    assert_eq!(
+        facts.watermark(&memory_transaction).unwrap(),
+        Some(base.watermark)
+    );
 }
