@@ -246,6 +246,16 @@ async fn completed_tool_pairs_preserve_adaptive_usage_across_owner_reopen() {
     run_coding_modes(&["allocation_reopen"]).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn routed_candidate_usage_does_not_shrink_a_smaller_fresh_candidate() {
+    run_coding_modes(&["routed_allocation", "routed_allocation_fallback"]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn output_limit_recovery_applies_one_complete_large_patch_with_exact_admission() {
+    run_coding_modes(&["large_patch"]).await;
+}
+
 async fn run_coding_modes(modes: &[&'static str]) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for &requested_mode in modes {
@@ -276,10 +286,13 @@ async fn run_coding_modes(modes: &[&'static str]) {
             let executable = temp.path().join("fixture.exe");
             std::fs::copy(env!("CARGO_BIN_EXE_vcp-process-fixture"), &executable).unwrap();
             let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-            if mode == "incomplete_usage" {
+            if matches!(mode, "incomplete_usage" | "large_patch") {
                 // The host ceiling may exceed this fixed provider's 8000-token
                 // capacity; every actual request/reservation must still fit.
                 config.output_ceiling = Units::new(16_000);
+            }
+            if mode.starts_with("routed_allocation") {
+                config.output_ceiling = Units::new(4096);
             }
             let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
             let binding = task(&host, &config, config.root_task.clone(), None);
@@ -336,7 +349,13 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 .unwrap(),
             )
             .unwrap();
-            let (snapshot, raw) = provider_snapshot();
+            // The large-edit scenario declares its larger input capacity before
+            // any admission. Output remains the same qualified 8000-token bound.
+            let (snapshot, raw) = if mode == "large_patch" {
+                provider_snapshot_capacity(128_000, 120_000)
+            } else {
+                provider_snapshot()
+            };
             // This fixture exercises two correlated parallel calls. Optional
             // request parameters must be qualified by both endpoint metadata
             // and the compatibility record before the encoder enables them.
@@ -358,16 +377,94 @@ async fn run_coding_modes(modes: &[&'static str]) {
             )
             .unwrap();
             host.configure_provider(snapshot, raw).unwrap();
+            if mode.starts_with("routed_allocation") {
+                let mut routing =
+                    super::routing::routing_configuration(vcp_models::routing::Profile::Low, false);
+                let smaller = routing
+                    .catalog
+                    .entries
+                    .iter_mut()
+                    .find(|entry| entry.identity.model == "fixture/stronger")
+                    .unwrap();
+                let prior = smaller.snapshot.as_ref().unwrap();
+                let mut raw: serde_json::Value =
+                    serde_json::from_str(&routing.raw_catalogs.remove(&prior.id).unwrap()).unwrap();
+                raw["data"]["endpoints"][0]["max_completion_tokens"] = serde_json::json!(1500);
+                let raw = serde_json::to_string(&raw).unwrap();
+                let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
+                    raw.as_bytes(),
+                    prior.observed_at,
+                    prior.valid_until,
+                    prior.compatibility.clone(),
+                )
+                .unwrap();
+                routing.raw_catalogs.insert(snapshot.id.clone(), raw);
+                smaller.snapshot = Some(snapshot);
+                routing.catalog.id = routing.catalog.digest().unwrap();
+                for estimate in &mut routing.estimates {
+                    estimate.first_attempt.output =
+                        Units::new(if estimate.candidate.model == "fixture/stronger" {
+                            1500
+                        } else {
+                            4096
+                        });
+                }
+                if mode == "routed_allocation_fallback" {
+                    routing.owner_assignments =
+                        vec![vcp_lifecycle::foundation::routing::OwnerAssignment {
+                            role: vcp_domain::accounting::RequestRole::Main,
+                            candidates: ["fixture/economical", "fixture/stronger"]
+                                .into_iter()
+                                .map(|model| {
+                                    routing
+                                        .catalog
+                                        .entries
+                                        .iter()
+                                        .find(|entry| entry.identity.model == model)
+                                        .unwrap()
+                                        .identity
+                                        .clone()
+                                })
+                                .collect(),
+                        }];
+                }
+                host.configure_routing(routing).unwrap();
+            }
             let count = Arc::new(AtomicUsize::new(0));
             let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
             let requests = observed.clone();
+            let wire_bytes = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let captured_bytes = wire_bytes.clone();
             let calls = count.clone();
             let directory = workspace.clone();
+            let routing_owner = host.clone();
+            let large_contents = (0..512)
+                .map(|line| {
+                    format!("line {line:04}: complete patch preserves every distinct row\n")
+                })
+                .collect::<String>();
+            let complete_patch = format!(
+                "*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n{}*** End Patch",
+                large_contents
+                    .lines()
+                    .map(|line| format!("+{line}\n"))
+                    .collect::<String>()
+            );
+            let expected_large_contents = large_contents;
             let server = start_mock_server().await;
             Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request: &wiremock::Request| {
                 let index = calls.fetch_add(1, Ordering::SeqCst);
                 let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
-                requests.lock().unwrap().push(body);
+                requests.lock().unwrap().push(body.clone());
+                captured_bytes.lock().unwrap().push(request.body.clone());
+                if mode == "routed_allocation_fallback" && index == 5 {
+                    return ResponseTemplate::new(429).insert_header("retry-after", "0").set_body_string("local candidate unavailable");
+                }
+                if mode == "routed_allocation" && index == 4 {
+                    super::routing_output::select_edits(&routing_owner, vec![vcp_lifecycle::foundation::routing_state::Edit::Pin(Some(vcp_models::routing::Pin {
+                        candidate: vcp_models::routing::ModelEndpoint { model:"fixture/stronger".into(), endpoint:"fixture/stronger-region".into() }, fallback_candidates: Default::default(),
+                    }))]);
+                }
                 let mut events = vec![];
                 let mut output = vec![];
                 if mode == "invalid_call_usage" {
@@ -383,14 +480,32 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     let sibling = serde_json::json!({"type":"function_call","id":"valid-patch","call_id":"valid-patch-call","name":"vcp_patch","arguments":serde_json::json!({"patch":"*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** End Patch"}).to_string(),"status":"completed"});
                     events.push(serde_json::json!({"type":"response.output_item.done","output_index":1,"item":sibling}));
                     output.push(sibling);
-                } else if mode == "incomplete_usage" {
+                } else if mode == "incomplete_usage" || (mode == "large_patch" && index == 0) {
                     let mut item = serde_json::json!({"type":"function_call","id":"truncated-item","call_id":"truncated-call","name":"vcp_patch","arguments":"","status":"in_progress"});
                     events.push(serde_json::json!({"type":"response.output_item.added","output_index":0,"item":item}));
-                    events.push(serde_json::json!({"type":"response.function_call_arguments.done","item_id":"truncated-item","arguments":""}));
+                    let partial_arguments = if mode == "large_patch" {
+                        let arguments = serde_json::json!({"patch":complete_patch}).to_string();
+                        arguments[..4096].to_owned()
+                    } else { String::new() };
+                    if !partial_arguments.is_empty() { events.push(serde_json::json!({"type":"response.function_call_arguments.delta","item_id":"truncated-item","delta":partial_arguments})); }
+                    events.push(serde_json::json!({"type":"response.function_call_arguments.done","item_id":"truncated-item","arguments":partial_arguments}));
                     item["status"] = serde_json::json!("incomplete");
+                    if mode == "large_patch" { item["arguments"] = serde_json::json!(partial_arguments); }
                     events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
-                    item["arguments"] = serde_json::json!("{}");
+                    if mode != "large_patch" { item["arguments"] = serde_json::json!("{}"); }
                     output.push(item);
+                } else if mode == "large_patch" && index == 1 {
+                    let item = serde_json::json!({"type":"function_call","id":"large-patch-item","call_id":"large-patch-call","name":"vcp_patch","arguments":serde_json::json!({"patch":complete_patch}).to_string(),"status":"completed"});
+                    events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
+                    output.push(item);
+                } else if mode == "large_patch" {
+                    events.push(ev_assistant_message("large-patch-done", "The complete large patch was applied."));
+                } else if mode.starts_with("routed_allocation") && index < if mode == "routed_allocation_fallback" {7} else {6} {
+                    let item = serde_json::json!({"type":"function_call","id":format!("read-item-{index}"),"call_id":format!("read-call-{index}"),"name":"vcp_read","arguments":serde_json::json!({"path":"file.txt","max_bytes":1024,"start_line":null,"end_line":null}).to_string(),"status":"completed"});
+                    events.push(serde_json::json!({"type":"response.output_item.done","output_index":0,"item":item}));
+                    output.push(item);
+                } else if mode.starts_with("routed_allocation") {
+                    events.push(ev_assistant_message("routed-done", "The candidate-specific trace is complete."));
                 } else if mode == "empty" {
                     events.push(ev_assistant_message("empty-answer", " \n\t "));
                 } else if index < 4 {
@@ -416,9 +531,13 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         output.push(sibling);
                     }
                 } else { events.push(ev_assistant_message("done", "Observed the file change.")); }
-                let cost = if mode=="missing_cost" {serde_json::Value::Null}else{serde_json::json!(0.0001)};
+                let cost = if mode=="missing_cost" {serde_json::Value::Null}else if body["model"] == "fixture/stronger" {serde_json::json!(0.0002)}else{serde_json::json!(0.0001)};
                 if mode=="stale_instructions" { std::fs::write(directory.join("AGENTS.md"), "concurrent human guidance").unwrap(); }
-                if mode == "incomplete_usage" {
+                if mode == "large_patch" && index == 0 {
+                    events.push(serde_json::json!({"type":"response.incomplete","response":{"id":format!("coding-{index}"),"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":output,"usage":{"input_tokens":1000,"output_tokens":4096,"total_tokens":5096,"cost":cost}}}));
+                } else if mode == "large_patch" && index == 1 {
+                    events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":1000,"output_tokens":6000,"total_tokens":7000,"cost":cost}}}));
+                } else if mode == "incomplete_usage" {
                     events.push(serde_json::json!({"type":"response.incomplete","response":{"id":format!("coding-{index}"),"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":output,"usage":{"input_tokens":5950,"output_tokens":512,"total_tokens":6462,"cost":0.0021275}}}));
                 } else if mode == "allocation_reopen" {
                     // Missing subcounts leave accounting usage unknown, but
@@ -510,6 +629,172 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 .is_err());
             assert_eq!(host.snapshot().unwrap(), before_duplicate);
             coding_turn(&test, backend, mode).await;
+            if mode == "large_patch" {
+                assert_eq!(count.load(Ordering::SeqCst), 1);
+                assert!(host.project().unwrap().effects.is_empty());
+                assert_eq!(
+                    std::fs::read_to_string(workspace.join("file.txt")).unwrap(),
+                    "before\n"
+                );
+                let continuation = host.take_output_continuation(id).unwrap().unwrap();
+                assert!(!continuation.evidence.is_empty());
+                assert!(
+                    continuation
+                        .evidence
+                        .iter()
+                        .any(|artifact| String::from_utf8_lossy(
+                            &host.read_artifact(artifact.clone()).unwrap()
+                        )
+                        .contains("line 0000")),
+                    "retain the actual incomplete patch prefix"
+                );
+                host.begin_coding_turn(id, continuation.feedback).unwrap();
+                coding_turn(&test, backend, mode).await;
+                assert_eq!(count.load(Ordering::SeqCst), 3);
+                assert_eq!(
+                    std::fs::read_to_string(workspace.join("file.txt")).unwrap(),
+                    expected_large_contents
+                );
+                assert_eq!(
+                    host.project().unwrap().effects.len(),
+                    1,
+                    "the incomplete patch must not execute or duplicate the complete patch"
+                );
+                assert!(!host.has_output_continuation(id).unwrap());
+                let bodies = observed.lock().unwrap().clone();
+                assert_eq!(bodies[0]["max_output_tokens"], 4096);
+                assert_eq!(bodies[1]["max_output_tokens"], 8000);
+                assert_eq!(
+                    bodies[2]["max_output_tokens"], 4096,
+                    "editing selects its own activity baseline"
+                );
+                let allocations = assert_adaptive_admission_trace(
+                    &host,
+                    &bodies,
+                    &wire_bytes.lock().unwrap(),
+                    None,
+                );
+                assert_eq!(
+                    allocations[1].reason,
+                    vcp_domain::request_allocation::Reason::ProviderCapacity
+                );
+                assert_eq!(allocations[1].previous_output_limit, Some(Units::new(4096)));
+                assert_eq!(allocations[1].previous_output, Some(Units::new(4096)));
+                owner.close().await.unwrap();
+                test.codex.shutdown_and_wait().await.unwrap();
+                continue;
+            }
+            if mode.starts_with("routed_allocation") {
+                let fallback = mode == "routed_allocation_fallback";
+                let bodies = observed.lock().unwrap().clone();
+                assert_eq!(
+                    bodies.len(),
+                    if fallback { 8 } else { 7 },
+                    "routing stopped: {:?}",
+                    host.project().unwrap().tasks[&config.root_task]
+                );
+                let outputs = if fallback {
+                    vec![4096, 2048, 2048, 2048, 1024, 1024, 1500, 2048]
+                } else {
+                    vec![4096, 2048, 2048, 2048, 1024, 1500, 1500]
+                };
+                let fresh_index = if fallback { 6 } else { 5 };
+                for (index, output) in outputs.into_iter().enumerate() {
+                    assert_eq!(
+                        bodies[index]["max_output_tokens"], output,
+                        "request {index} in {mode}"
+                    );
+                    assert_eq!(
+                        bodies[index]["model"],
+                        if index < fresh_index || (fallback && index == 7) {
+                            "fixture/economical"
+                        } else {
+                            "fixture/stronger"
+                        }
+                    );
+                }
+                assert_eq!(host.project().unwrap().effects.len(), 6);
+                let allocations = assert_adaptive_admission_trace(
+                    &host,
+                    &bodies,
+                    &wire_bytes.lock().unwrap(),
+                    fallback.then_some(5),
+                );
+                assert_eq!(
+                    allocations[4].reason,
+                    vcp_domain::request_allocation::Reason::ShrinkAfterRepeatedUnderuse
+                );
+                assert_eq!(
+                    allocations[fresh_index].reason,
+                    vcp_domain::request_allocation::Reason::ActivityDefault
+                );
+                assert_eq!(allocations[fresh_index].previous_output, None);
+                let state = host.snapshot().unwrap();
+                if fallback {
+                    let attempts: Vec<Attempt> = state
+                        .records
+                        .values()
+                        .filter(|row| row.collection == Collection::Attempt)
+                        .map(|row| row.decode().unwrap())
+                        .collect();
+                    let wire = wire_bytes.lock().unwrap();
+                    let primary = attempts
+                        .iter()
+                        .find(|attempt| {
+                            attempt.request_digest == vcp_protocol::digest_bytes(&wire[5])
+                        })
+                        .unwrap();
+                    let alternative = attempts
+                        .iter()
+                        .find(|attempt| {
+                            attempt.request_digest == vcp_protocol::digest_bytes(&wire[6])
+                        })
+                        .unwrap();
+                    assert_eq!(alternative.previous.as_ref(), Some(&primary.id));
+                    let ledger: vcp_domain::accounting::Ledger = state
+                        .record(
+                            Collection::Ledger,
+                            config.root_task.as_str(),
+                            &config.workspace,
+                        )
+                        .unwrap()
+                        .decode()
+                        .unwrap();
+                    assert_eq!(ledger.unresolved, Micros::new(100));
+                    assert_eq!(ledger.settled, Micros::new(800));
+                    assert_eq!(ledger.active, Micros::ZERO);
+                    assert!(!ledger.overrun);
+                    assert_eq!(
+                        allocations[7].previous_output, None,
+                        "a new primary request cannot inherit the fallback's calibration"
+                    );
+                }
+                let mut observations: Vec<serde_json::Value> = state
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                    .filter(|artifact| artifact.spec.schema == "coding-allocation-observation/2")
+                    .map(|artifact| {
+                        serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap())
+                            .unwrap()
+                    })
+                    .collect();
+                observations.sort_by_key(|value| value["sequence"].as_u64().unwrap());
+                assert_eq!(observations.len(), 7);
+                assert_eq!(observations[4]["history"]["underuse_streak"], 4);
+                assert_eq!(
+                    observations[5]["history"]["underuse_streak"], 1,
+                    "new candidate starts fresh calibration"
+                );
+                assert_eq!(
+                    observations[5]["history"]["candidate"]["endpoint"],
+                    "fixture/stronger-region"
+                );
+                owner.close().await.unwrap();
+                test.codex.shutdown_and_wait().await.unwrap();
+                continue;
+            }
             #[cfg(feature = "qualification")]
             if mode == "allocation_reopen" {
                 assert_eq!(count.load(Ordering::SeqCst), 4);
@@ -893,7 +1178,13 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 let diagnostics = host.execution_diagnostics(scope).unwrap();
                 use vcp_lifecycle::foundation::execution_diagnostics::{Phase, Status};
                 for status in [Status::Skipped, Status::Succeeded] {
-                    assert!(diagnostics.observations.iter().any(|span| span.phase == Phase::ToolDispatch && span.status == status), "scope refresh must be skipped before a later independently admitted dispatch");
+                    assert!(
+                        diagnostics
+                            .observations
+                            .iter()
+                            .any(|span| span.phase == Phase::ToolDispatch && span.status == status),
+                        "scope refresh must be skipped before a later independently admitted dispatch"
+                    );
                 }
                 assert!(item["output"]
                     .as_str()
@@ -1282,6 +1573,105 @@ fn assert_allowance(
     );
 }
 
+fn assert_adaptive_admission_trace(
+    host: &CanonicalHost,
+    bodies: &[serde_json::Value],
+    wire: &[Vec<u8>],
+    unresolved_index: Option<usize>,
+) -> Vec<vcp_domain::request_allocation::Allocation> {
+    let state = host.snapshot().unwrap();
+    let attempts: Vec<Attempt> = state
+        .records
+        .values()
+        .filter(|row| row.collection == Collection::Attempt)
+        .map(|row| row.decode().unwrap())
+        .collect();
+    let manifests: Vec<vcp_context::manifest::Manifest> = state
+        .records
+        .values()
+        .filter(|row| row.collection == Collection::Artifact)
+        .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+        .filter(|artifact| artifact.spec.schema == "context-manifest/1")
+        .map(|artifact| {
+            serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap()).unwrap()
+        })
+        .collect();
+    assert_eq!(attempts.len(), bodies.len());
+    assert_eq!(wire.len(), bodies.len());
+    bodies
+        .iter()
+        .zip(wire)
+        .enumerate()
+        .map(|(index, (body, bytes))| {
+            let digest = vcp_protocol::digest_bytes(bytes);
+            let matching: Vec<_> = attempts
+                .iter()
+                .filter(|attempt| attempt.request_digest == digest)
+                .collect();
+            assert_eq!(
+                matching.len(),
+                1,
+                "each exact transmitted request has one admission"
+            );
+            let attempt = matching[0];
+            assert_eq!(host.read_artifact(attempt.request.clone()).unwrap(), *bytes);
+            assert_eq!(
+                attempt.phase,
+                if unresolved_index == Some(index) {
+                    ReservationState::ReconciliationPending
+                } else {
+                    ReservationState::Settled
+                }
+            );
+            let output = Units::new(body["max_output_tokens"].as_u64().unwrap());
+            assert_eq!(attempt.quote.bounds.output, output);
+            assert_eq!(attempt.quote.price.model, body["model"].as_str().unwrap());
+            let reservation: vcp_domain::accounting::Reservation = state
+                .record(
+                    Collection::Reservation,
+                    attempt.reservation.as_str(),
+                    &attempt.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(reservation.attempt, attempt.id);
+            assert_eq!(reservation.amount, attempt.quote.amount);
+            let manifest = manifests
+                .iter()
+                .find(|manifest| manifest.request_sha256 == digest)
+                .unwrap();
+            assert_eq!(manifest.envelope.output, output);
+            let allocation = manifest.allocation.clone().unwrap();
+            assert_eq!(allocation.output_limit, output);
+            assert!(output <= allocation.host_output_ceiling);
+            if let Some(record) = state.records.values().find(|row| {
+                row.value["document_type"] == "vcp_routing_decision_v1"
+                    && row.value["attempt"] == serde_json::json!(attempt.id)
+            }) {
+                assert_eq!(record.value["request_digest"], digest);
+                let decision: vcp_models::routing::RoutingDecision =
+                    serde_json::from_value(record.value["decision"].clone()).unwrap();
+                decision.validate().unwrap();
+                let selected = decision.selected.as_ref().unwrap();
+                assert_eq!(selected.model, attempt.quote.price.model);
+                assert_eq!(selected.endpoint, attempt.quote.price.provider);
+                assert_eq!(
+                    body["provider"]["only"],
+                    serde_json::json!([selected.endpoint])
+                );
+                assert_eq!(decision.input.request_for(selected).unwrap().1, output);
+            } else {
+                assert!(
+                    body["model"] != "fixture/economical" && body["model"] != "fixture/stronger",
+                    "routed request requires decision evidence"
+                );
+            }
+            allocation
+        })
+        .collect()
+}
+
 async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str) {
     test.codex
         .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
@@ -1300,6 +1690,11 @@ async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: Backend
     let result = tokio::time::timeout(Duration::from_secs(120), async {
         loop {
             let event = thread.next_event().await.unwrap();
+            if mode == "routed_allocation" {
+                if let EventMsg::Error(error) = &event.msg {
+                    panic!("routed allocation request rejected: {error:?}");
+                }
+            }
             if matches!(event.msg, EventMsg::TurnComplete(_)) {
                 break;
             }
