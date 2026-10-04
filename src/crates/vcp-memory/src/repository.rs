@@ -173,7 +173,7 @@ fn verify_evidence(
     reference: &EvidenceRef,
     id: &VerificationId,
 ) -> Result<bool> {
-    let state = store.state();
+    let state = store.current();
     let Some(record) = state
         .records
         .get(&key(Collection::Verification, id.as_str()))
@@ -342,8 +342,8 @@ pub(crate) fn preference_matches_event(
     Ok(false)
 }
 
-fn validate_origins(
-    state: &State,
+async fn validate_origins<S: CanonicalStore>(
+    store: &S,
     access: &Access,
     proposal: &Proposal,
     workspace: &Workspace,
@@ -362,7 +362,7 @@ fn validate_origins(
         )));
     }
     for origin in &proposal.origins {
-        let Some(event) = state.events.iter().find(|e| &e.event.id == origin) else {
+        let Some(event) = store.history_event(origin).await? else {
             return Ok(Some(rejection(
                 "vcp.origin",
                 "origin event is not retained",
@@ -390,7 +390,8 @@ fn validate_origins(
                 "explicit user statement must be an origin event",
             )));
         }
-        if !preference_matches(state, access, explicit_origin, key, value)? {
+        let event = store.history_event(explicit_origin).await?;
+        if !preference_matches_event(store.current(), access, event.as_ref(), key, value)? {
             return Ok(Some(rejection(
                 "vcp.preference",
                 "preference differs from exact typed user task/steering evidence",
@@ -602,7 +603,7 @@ pub(crate) async fn propose_inner(
             evidence: evidence(store, access, &proposal)?,
             head: head.as_ref().and_then(|h| h.current.clone()),
         };
-        let resolution = match validate_origins(store.state(), access, &proposal, &workspace)? {
+        let resolution = match validate_origins(store, access, &proposal, &workspace).await? {
             Some(rejected) => rejected,
             None => gates::evaluate(&proposal, &context).map_err(Error::Invalid)?,
         };
