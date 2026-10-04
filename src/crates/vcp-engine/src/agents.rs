@@ -4,8 +4,14 @@ use crate::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{accounting::Ledger, agents::*, policy::*, task::*, workspace::*, *};
 use vcp_store::contract::*;
+use vcp_store::CurrentStateView;
 
-pub fn graph(state: &State, scope: &Scope, root: &TaskId) -> Result<Option<TaskGraph>> {
+pub fn graph<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    scope: &Scope,
+    root: &TaskId,
+) -> Result<Option<TaskGraph>> {
+    let state = state.into();
     state
         .records
         .get(&key(Collection::Projection, &graph_id(root)))
@@ -22,7 +28,7 @@ pub fn graph(state: &State, scope: &Scope, root: &TaskId) -> Result<Option<TaskG
         })
         .transpose()
 }
-fn task(state: &State, scope: &Scope, id: &TaskId) -> Result<Task> {
+fn task(state: CurrentStateView<'_>, scope: &Scope, id: &TaskId) -> Result<Task> {
     let task: Task = state
         .record(Collection::Task, id.as_str(), &scope.workspace)?
         .decode()?;
@@ -33,12 +39,13 @@ fn task(state: &State, scope: &Scope, id: &TaskId) -> Result<Task> {
 }
 /// Validate only a declared ceiling. A grant for one exact operation cannot
 /// authorize arbitrary operations by a child; the broker still checks every use.
-pub fn inherited_grant(
-    state: &State,
+pub fn inherited_grant<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     parent: &Task,
     grant: &Grant,
     now: Timestamp,
 ) -> Result<bool> {
+    let state = state.into();
     if !matches!(grant.target, GrantTarget::Configured { .. })
         || grant.revoked
         || grant.expires_at <= now
@@ -73,12 +80,13 @@ pub fn inherited_grant(
         cursor = owner;
     }
 }
-pub fn current_scope(
-    state: &State,
+pub fn current_scope<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     parent: &Task,
     child: &ChildSpec,
     now: Timestamp,
 ) -> Result<bool> {
+    let state = state.into();
     let workspace: Workspace = state
         .record(
             Collection::Workspace,
@@ -161,26 +169,26 @@ pub enum Blocker {
     Budget,
     Cleanup,
 }
-pub fn eligibility(
-    state: &State,
+pub fn eligibility<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     child_task: &Task,
     now: Timestamp,
     owner_current: bool,
 ) -> Result<Vec<Blocker>> {
-    eligibility_for_state(state, child_task, now, owner_current, false)
+    eligibility_for_state(state.into(), child_task, now, owner_current, false)
 }
 /// Explicit resume admission only. A paused child remains blocked in ordinary
 /// scheduling/UI projections; domain transition still requires resume evidence.
-pub fn eligibility_for_resume(
-    state: &State,
+pub fn eligibility_for_resume<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     child_task: &Task,
     now: Timestamp,
     owner_current: bool,
 ) -> Result<Vec<Blocker>> {
-    eligibility_for_state(state, child_task, now, owner_current, true)
+    eligibility_for_state(state.into(), child_task, now, owner_current, true)
 }
 fn eligibility_for_state(
-    state: &State,
+    state: CurrentStateView<'_>,
     child_task: &Task,
     now: Timestamp,
     owner_current: bool,
@@ -313,7 +321,7 @@ fn eligibility_for_state(
 
 /// Match reservation admission's root and allocated-ancestor exposure, without
 /// reserving a future quote or counting unused sibling allocations as charges.
-fn exhausted_capacity(state: &State, child: &Task, ledger: &Ledger) -> Result<bool> {
+fn exhausted_capacity(state: CurrentStateView<'_>, child: &Task, ledger: &Ledger) -> Result<bool> {
     if ledger.cap.is_unbounded() {
         return Ok(false);
     }
@@ -364,8 +372,8 @@ fn exhausted_capacity(state: &State, child: &Task, ledger: &Ledger) -> Result<bo
     Ok(remaining.values().any(|(cap, used)| used >= cap))
 }
 
-pub(crate) fn create(
-    state: &State,
+pub(crate) fn create<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     parent: &Task,
     child_id: &TaskId,
     spec: &ChildSpec,
@@ -374,6 +382,7 @@ pub(crate) fn create(
     expected_ledger: Revision,
     now: Timestamp,
 ) -> Result<(TaskGraph, Ledger)> {
+    let state = state.into();
     spec.validate()?;
     let mut ancestor = parent.parent.clone();
     while let Some(id) = ancestor {
@@ -474,9 +483,9 @@ impl<S: CanonicalStore> crate::Engine<S> {
         {
             return Err(Error::Access);
         }
-        let parent = task(self.store().state(), scope, &scope.task)?;
-        let child = task(self.store().state(), scope, &evidence.child)?;
-        let mut graph = graph(self.store().state(), scope, &parent.root)?.ok_or(Error::Target)?;
+        let parent = task(self.store().current(), scope, &scope.task)?;
+        let child = task(self.store().current(), scope, &evidence.child)?;
+        let mut graph = graph(self.store().current(), scope, &parent.root)?.ok_or(Error::Target)?;
         if graph.revision != evidence.expected_graph {
             return Err(vcp_domain::Error::Stale.into());
         }
@@ -514,7 +523,7 @@ impl<S: CanonicalStore> crate::Engine<S> {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.store().state().watermark,
+            expected_watermark: self.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: Some(evidence.expected_graph),
                 record: Record::typed(
@@ -545,18 +554,18 @@ impl<S: CanonicalStore> crate::Engine<S> {
         {
             return Err(Error::Access);
         }
-        let parent = task(self.store().state(), scope, &scope.task)?;
-        let mut graph = graph(self.store().state(), scope, &parent.root)?.ok_or(Error::Target)?;
+        let parent = task(self.store().current(), scope, &scope.task)?;
+        let mut graph = graph(self.store().current(), scope, &parent.root)?.ok_or(Error::Target)?;
         if graph.revision != evidence.expected_graph {
             return Err(vcp_domain::Error::Stale.into());
         }
         let spec = graph.children.get(&evidence.child).ok_or(Error::Target)?;
-        let child = task(self.store().state(), scope, &evidence.child)?;
+        let child = task(self.store().current(), scope, &evidence.child)?;
         if spec.parent != scope.task
             || spec.actor != access.actor
             || parent.state != TaskState::Running
             || child.state != TaskState::Pending
-            || !current_scope(self.store().state(), &parent, spec, host.now)?
+            || !current_scope(self.store().current(), &parent, spec, host.now)?
         {
             return Err(Error::Access);
         }
@@ -584,7 +593,7 @@ impl<S: CanonicalStore> crate::Engine<S> {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.store().state().watermark,
+            expected_watermark: self.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: Some(evidence.expected_graph),
                 record: Record::typed(

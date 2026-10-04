@@ -7,6 +7,19 @@ use vcp_engine::{agents::*, *};
 use vcp_protocol::command::*;
 use vcp_store::{artifact::ArtifactWriter, contract::*, BackendKind, Store};
 
+struct CurrentOwner(Store);
+impl CanonicalStore for CurrentOwner {
+    fn state(&self) -> &State {
+        panic!("child current projection attempted historical State access")
+    }
+    fn current(&self) -> vcp_store::CurrentStateView<'_> {
+        self.0.current()
+    }
+    async fn transact(&mut self, transaction: Transaction) -> vcp_store::Result<Receipt> {
+        self.0.transact(transaction).await
+    }
+}
+
 fn fingerprint() -> Fingerprint {
     Fingerprint {
         repository: "a".repeat(64),
@@ -383,6 +396,69 @@ async fn child_registration_is_atomic_bounded_and_durable_on_both_backends() {
             .unwrap()
             .ready
             .contains_key(&first));
+    }
+}
+
+#[tokio::test]
+async fn native_child_workspace_and_eligibility_require_only_current_records() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let mut f = fixture(temp.path(), backend).await;
+        let id = TaskId::new();
+        let spec = f.child(600);
+        let deadline = spec.deadline;
+        let command = f.create(id.clone(), spec);
+        f.issue(Some(f.scope.task.clone()), Revision::new(1), command)
+            .await
+            .unwrap();
+        let child = f.task(&id);
+        let prior = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+            .unwrap()
+            .unwrap();
+        let before =
+            eligibility(f.engine.store().state(), &child, Timestamp::new(10), true).unwrap();
+        let mut engine = Engine::new(CurrentOwner(f.engine.into_store())).unwrap();
+        assert_eq!(
+            graph(engine.store().current(), &f.scope, &f.scope.task).unwrap(),
+            Some(prior.clone())
+        );
+        assert_eq!(
+            eligibility(engine.store().current(), &child, Timestamp::new(10), true).unwrap(),
+            before
+        );
+        engine
+            .record_child_workspace(
+                &f.scope,
+                NativeWorkspaceEvidence {
+                    child: id.clone(),
+                    expected_graph: prior.revision,
+                    ready: WorkspaceReady {
+                        snapshot_digest: f.digest,
+                        registration_digest: None,
+                        native_identity: "fixture-volume:file".into(),
+                    },
+                },
+                &f.access,
+                &Fixture::facts(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            eligibility(engine.store().current(), &child, Timestamp::new(10), true)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            eligibility(engine.store().current(), &child, deadline, true)
+                .unwrap()
+                .contains(&Blocker::Deadline)
+        );
+        assert!(
+            eligibility(engine.store().current(), &child, Timestamp::new(10), false)
+                .unwrap()
+                .contains(&Blocker::Owner)
+        );
+        engine.into_store().0.close().await.unwrap();
     }
 }
 #[tokio::test]
