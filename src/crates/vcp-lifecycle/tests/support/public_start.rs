@@ -335,3 +335,46 @@ async fn expired_accepted_run_replays_but_cannot_construct_via_start_or_resume()
         owner.close().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn accepted_start_preserves_explicit_unbounded_limits_but_rejects_finite_cap_widening() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for mode in ["unbounded", "larger-finite-profile", "unbounded-profile"] {
+            let temp = tempfile::tempdir().unwrap();
+            let workspace = temp.path().join("workspace");
+            std::fs::create_dir(&workspace).unwrap();
+            let workspace = workspace.canonicalize().unwrap();
+            let mut config = config(&temp.path().join("canonical"), &workspace, backend);
+            if mode != "larger-finite-profile" {
+                config.cap.micros = vcp_domain::Limit::Unbounded;
+            }
+            let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+            let current = access(&config);
+            let mut connection = host.public_connection(current.clone()).unwrap();
+            connection.acquire(CommandId::new(), None).unwrap();
+            let mut request = request(&config);
+            request.budget.deadline_seconds = vcp_domain::Limit::Unbounded;
+            if mode != "unbounded" {
+                request.budget.cap_micros = vcp_domain::Limit::Finite(1.into());
+            }
+            let (_, mut ticket) = accept(&connection, request, &current);
+            let before = host.snapshot().unwrap();
+            let startup = connection.authorize_start_startup(&mut ticket, &current);
+            assert_eq!(startup.is_ok(), mode == "unbounded", "{mode}");
+            drop(startup);
+            let after = host.snapshot().unwrap();
+            assert_eq!(before.watermark, after.watermark);
+            assert!(after.records.values().all(|row| {
+                !matches!(row.collection, Collection::Attempt | Collection::Effect)
+            }));
+            connection
+                .disconnect()
+                .unwrap()
+                .wait()
+                .await
+                .unwrap()
+                .unwrap();
+            owner.close().await.unwrap();
+        }
+    }
+}

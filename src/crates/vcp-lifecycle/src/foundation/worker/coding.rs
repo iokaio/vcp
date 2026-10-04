@@ -506,8 +506,8 @@ impl Context {
         }
         Ok(())
     }
-    /// Retained admission identity survives reconstruction. Historical elapsed
-    /// and monetary limits are evidence, not a restored execution restriction.
+    /// Explicit finite acceptance limits survive reconstruction and cannot be
+    /// widened by a later profile. Explicit unbounded dimensions stay unbounded.
     pub(super) fn check_public_start_window(
         &self,
     ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>> {
@@ -521,14 +521,45 @@ impl Context {
         else {
             return Ok(None);
         };
+        if let vcp_domain::Limit::Finite(seconds) = accepted.budget.deadline_seconds {
+            let deadline = accepted
+                .accepted_at
+                .get()
+                .checked_add(
+                    u64::from(seconds)
+                        .checked_mul(1000)
+                        .ok_or("deadline overflow")?,
+                )
+                .ok_or("deadline overflow")?;
+            if now().get() >= deadline {
+                return Err("original public run budget expired or widened".into());
+            }
+        }
+        let cap = accepted
+            .budget
+            .cap_micros
+            .finite()
+            .map(|value| value.as_str().parse::<u64>())
+            .transpose()?;
+        if cap.is_some_and(|cap| {
+            self.config
+                .cap
+                .micros
+                .finite()
+                .is_none_or(|amount| amount.get() > cap)
+        }) {
+            return Err("original public run budget expired or widened".into());
+        }
         let ledger: Ledger = self
             .engine
             .store()
             .state()
             .record(Collection::Ledger, scope.task.as_str(), &scope.workspace)?
             .decode()?;
-        if ledger.scope != scope {
-            return Err("public run ledger scope mismatch".into());
+        if ledger.scope != scope
+            || cap.is_some_and(|cap| ledger.cap.finite().is_none_or(|amount| amount.get() > cap))
+        {
+            return Err("public run ledger exceeds original cap".into());
         }
         Ok(Some(accepted))
     }
