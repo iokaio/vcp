@@ -428,25 +428,74 @@ impl Backend {
                     return Err(Error::Corruption("SQLite projection count"));
                 }
             }
-            for event in &state.events {
-                let bytes: Vec<u8> = sqlx::query_scalar("SELECT payload FROM events WHERE id=?")
-                    .bind(event.event.id.as_str())
-                    .fetch_one(&mut *db)
-                    .await?;
-                if bytes != canonical_bytes(event)? {
-                    return Err(Error::Corruption("SQLite event content"));
+            // Every retained row is still compared against fully validated
+            // replay state. Keyset pages avoid one database round trip per row
+            // without loading another complete copy of historical payloads.
+            let events: std::collections::BTreeMap<_, _> = state
+                .events
+                .iter()
+                .map(|event| (event.event.id.as_str(), event))
+                .collect();
+            let mut last_id = String::new();
+            let mut verified = 0usize;
+            loop {
+                let rows =
+                    sqlx::query("SELECT id,payload FROM events WHERE id>? ORDER BY id LIMIT 256")
+                        .bind(&last_id)
+                        .fetch_all(&mut *db)
+                        .await?;
+                if rows.is_empty() {
+                    break;
+                }
+                for row in rows {
+                    let id: String = row.try_get("id")?;
+                    let event = events
+                        .get(id.as_str())
+                        .ok_or(Error::Corruption("SQLite unexpected event"))?;
+                    let bytes: Vec<u8> = row.try_get("payload")?;
+                    if id <= last_id || bytes != canonical_bytes(event)? {
+                        return Err(Error::Corruption("SQLite event content"));
+                    }
+                    last_id = id;
+                    verified += 1;
                 }
             }
-            for receipt in state.commands.values() {
-                let bytes: Vec<u8> =
-                    sqlx::query_scalar("SELECT payload FROM commands WHERE workspace=? AND id=?")
-                        .bind(receipt.workspace.as_str())
-                        .bind(receipt.command.as_str())
-                        .fetch_one(&mut *db)
-                        .await?;
-                if bytes != canonical_bytes(receipt)? {
-                    return Err(Error::Corruption("SQLite receipt content"));
+            if verified != state.events.len() {
+                return Err(Error::Corruption("SQLite projection count"));
+            }
+            let mut last_workspace = String::new();
+            let mut last_id = String::new();
+            let mut verified = 0usize;
+            loop {
+                let rows = sqlx::query("SELECT workspace,id,payload FROM commands WHERE (workspace,id)>(?,?) ORDER BY workspace,id LIMIT 256")
+                    .bind(&last_workspace).bind(&last_id)
+                    .fetch_all(&mut *db).await?;
+                if rows.is_empty() {
+                    break;
                 }
+                for row in rows {
+                    let workspace: String = row.try_get("workspace")?;
+                    let id: String = row.try_get("id")?;
+                    let key = format!("{workspace}:{id}");
+                    let receipt = state
+                        .commands
+                        .get(&key)
+                        .ok_or(Error::Corruption("SQLite unexpected receipt"))?;
+                    let bytes: Vec<u8> = row.try_get("payload")?;
+                    if (&workspace, &id) <= (&last_workspace, &last_id)
+                        || receipt.workspace.as_str() != workspace
+                        || receipt.command.as_str() != id
+                        || bytes != canonical_bytes(receipt)?
+                    {
+                        return Err(Error::Corruption("SQLite receipt content"));
+                    }
+                    last_workspace = workspace;
+                    last_id = id;
+                    verified += 1;
+                }
+            }
+            if verified != state.commands.len() {
+                return Err(Error::Corruption("SQLite projection count"));
             }
             let fk = sqlx::query("PRAGMA foreign_key_check")
                 .fetch_optional(&mut *db)
