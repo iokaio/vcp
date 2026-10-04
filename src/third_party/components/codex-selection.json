@@ -229,6 +229,10 @@
       "sha256": "63cc435963a11adc652eb9e977d25d9b92be2e3c9aac5234c54835fae6844bc8"
     },
     {
+      "path": "src/third_party/patches/codex/0050-dotnet-verification-lock.patch",
+      "sha256": "17c2e32650c6c1ff83317f4d6710ab981826e5fab6a518f7ac72855c6f247b23"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
       "sha256": "90e2faedb1b8eece295870cdc1aa1b66b105c3ab8958f1a47c8173983e00b306"
     }

@@ -9,6 +9,7 @@ workspace = "../../third_party/codex/codex-rs"
 
 [features]
 qualification = ["vcp-store/qualification", "vcp-models/qualification"]
+dotnet-qualification = ["qualification"]
 
 [dependencies]
 vcp-domain = { path = "../vcp-domain" }

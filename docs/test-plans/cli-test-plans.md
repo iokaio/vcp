@@ -291,16 +291,25 @@ Design notes, each based on the current source:
 - **Process profiles** are `.exe` only, in `Direct` mode with no shell, and use a filtered
   public environment. `npm`, `mvn` and the `dotnet-ef` tool are reached through `node.exe`,
   `java.exe` and `dotnet.exe`; each task prompt gives the exact argument forms. The
-  environment allowlist (`SYSTEMROOT`, `PATH`, `TEMP`, ...) has no `USERPROFILE`, `APPDATA`
-  or `JAVA_HOME`. Tools are expected to resolve user folders through Windows APIs, and the
-  first run will confirm this (section 8).
+  environment allowlist (`SYSTEMROOT`, `PATH`, `TEMP`, ...) excludes `USERPROFILE`
+  and `JAVA_HOME`. B also explicitly supplies `ProgramFiles(x86)` from the Windows
+  known-folder API, plus `APPDATA` and `LOCALAPPDATA` pointing to fresh directories
+  owned by this run. These paths let NuGet initialize without copying ambient
+  configuration or credential variables. Other user folders resolve through
+  Windows APIs where supported.
 - **`reduced_isolation: true` with no required isolation** mirrors the repository's own
   execution fixtures. Toolchains need to read SDK, cache and package locations outside the
   workspace. This is an explicit owner choice for a test machine; review it before reusing
   these profiles anywhere else.
-- **Checks.** The VCP verification runner supports `node` (`node --test <files>`) and `cargo`
-  only. Scenario A adds a per-turn `node` check with the cumulative expected test names.
-  Scenarios B, C and D use `checks: []` and rely on the harness gates.
+- **Checks.** The VCP verification runner supports `node`, `cargo` and `dotnet`.
+  Scenario A adds a per-turn `node` check with cumulative expected test names.
+  Scenario B requires a solution-level `dotnet test` check with cumulative fully
+  qualified acceptance-test names. Its configured normal console logger must show
+  a complete, nonempty successful run without skipped tests. The model restores
+  dependencies separately before invoking `vcp_verify`; the qualified check uses
+  `--no-restore --disable-build-servers`. Independent build, migrations, database and HTTP gates still
+  assess the inventory behavior. Scenarios C and D use `checks: []` and rely on
+  the harness gates. Review profiles remain read-only.
 - **The read-only review profile** has `maximum_autonomy: plan`, `automatic_effects: ["read"]`
   and no processes.
 
