@@ -11,6 +11,9 @@ pub(crate) struct AdmittedCut {
     catalog: Catalog,
     identity: String,
 }
+
+#[path = "admitted_history_tests.rs"]
+mod tests;
 impl AdmittedCut {
     /// The caller must have completed mandatory semantic replay of every
     /// retained transition. Final-state validity alone cannot establish that
@@ -44,5 +47,27 @@ impl AdmittedCut {
     }
     pub(crate) fn identity(&self) -> &str {
         &self.identity
+    }
+
+    /// Stage the exact certificate's append without changing this source cut.
+    /// The returned cut is still tentative: only the canonical backend's
+    /// durable publication boundary may install it as the owner's live cut.
+    pub(crate) async fn advance(
+        &self,
+        pages: &mut impl Pages,
+        prepared: &crate::contract::current_transition::PreparedCurrent,
+    ) -> Result<Self> {
+        let catalog = self.catalog.append_current(pages, self, prepared).await?;
+        let current = prepared.proposed().current.clone();
+        let identity = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&(
+            "vcp-admitted-history-cut/1",
+            &catalog,
+            current.projection_digest()?,
+        ))?);
+        Ok(Self {
+            current,
+            catalog,
+            identity,
+        })
     }
 }

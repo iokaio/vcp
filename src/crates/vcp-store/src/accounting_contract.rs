@@ -355,7 +355,54 @@ pub(crate) fn admission<'a>(
     after: impl Into<CurrentStateView<'a>>,
     transaction: &Transaction,
 ) -> Result<()> {
-    let after = after.into();
+    admission_records(
+        PriorRecords {
+            records: before.records,
+        },
+        after.into(),
+        transaction,
+    )
+}
+pub(crate) fn admission_current(
+    before: CurrentStateView<'_>,
+    after: CurrentStateView<'_>,
+    transaction: &Transaction,
+) -> Result<()> {
+    admission_records(
+        PriorRecords {
+            records: before.records,
+        },
+        after,
+        transaction,
+    )
+}
+// Admission needs prior records only. Do not manufacture historical fields or
+// sequence metadata to adapt the existing archival publication view.
+struct PriorRecords<'a> {
+    records: &'a BTreeMap<String, Record>,
+}
+impl<'a> PriorRecords<'a> {
+    fn record(
+        &self,
+        collection: Collection,
+        id: &str,
+        workspace: &WorkspaceId,
+    ) -> Result<&'a Record> {
+        let record = self
+            .records
+            .get(&key(collection, id))
+            .ok_or(Error::Conflict("record not found"))?;
+        if &record.workspace != workspace {
+            return Err(Error::Access);
+        }
+        Ok(record)
+    }
+}
+fn admission_records(
+    before: PriorRecords<'_>,
+    after: CurrentStateView<'_>,
+    transaction: &Transaction,
+) -> Result<()> {
     for mutation in &transaction.mutations {
         if let Mutation::Put {
             expected: None,

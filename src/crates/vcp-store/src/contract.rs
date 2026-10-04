@@ -32,6 +32,12 @@ pub(crate) use prepared_transition::PreparedTransition;
 #[path = "current_preparation.rs"]
 pub(crate) mod current_preparation;
 #[cfg(test)]
+#[path = "current_transition.rs"]
+pub(crate) mod current_transition;
+#[cfg(test)]
+#[path = "current_transition_domain_tests.rs"]
+mod current_transition_domain_tests;
+#[cfg(test)]
 #[path = "current_preparation_reference.rs"]
 mod current_preparation_reference;
 #[path = "current_validation.rs"]

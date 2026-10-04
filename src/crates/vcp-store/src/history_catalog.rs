@@ -14,6 +14,9 @@ use vcp_protocol::{canonical_bytes, command::CommandReceipt, event::EventEnvelop
 const PAGE_ROWS: usize = 4096;
 #[path = "history_catalog_encoding.rs"]
 mod encoding;
+#[cfg(test)]
+#[path = "history_catalog_current.rs"]
+mod current_append;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
