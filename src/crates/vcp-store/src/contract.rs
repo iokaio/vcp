@@ -26,6 +26,8 @@ mod search_contract;
 #[path = "state_size.rs"]
 mod state_size;
 pub(crate) use state_size::StateSize;
+#[path = "event_history_validation.rs"]
+pub(crate) mod event_history_validation;
 #[path = "shared_state.rs"]
 mod shared_state;
 pub use shared_state::SharedStateValue;
@@ -1253,63 +1255,13 @@ impl State {
         Ok(())
     }
     fn validate_event_history(&self) -> Result<()> {
-        let mut event_ids = BTreeSet::new();
-        let mut sequences = BTreeMap::<SessionId, SessionSeq>::new();
-        let mut previous_watermark = Watermark::ZERO;
-        for event in &self.events {
-            if event.version != 1
-                || event.watermark > self.watermark
-                || event.watermark < previous_watermark
-                || !event_ids.insert(event.event.id.clone())
-            {
-                return Err(Error::Corruption("event identity"));
-            }
-            previous_watermark = event.watermark;
-            self.record(
-                Collection::Session,
-                event.event.session.as_str(),
-                &event.event.workspace,
-            )?;
-            if let Some(task) = &event.event.task {
-                let task: Task = self
-                    .record(Collection::Task, task.as_str(), &event.event.workspace)?
-                    .decode()?;
-                if task.scope.session != event.event.session {
-                    return Err(Error::Access);
-                }
-            }
-            for artifact in &event.event.artifacts {
-                let artifact: ArtifactDescriptor = self
-                    .record(
-                        Collection::Artifact,
-                        artifact.as_str(),
-                        &event.event.workspace,
-                    )?
-                    .decode()?;
-                if artifact.spec.scope.session != event.event.session
-                    || event
-                        .event
-                        .task
-                        .as_ref()
-                        .is_some_and(|t| t != &artifact.spec.scope.task)
-                {
-                    return Err(Error::Access);
-                }
-            }
-            let expected = sequences
-                .get(&event.event.session)
-                .copied()
-                .unwrap_or_default()
-                .next()?;
-            if event.sequence != expected {
-                return Err(Error::Corruption("event sequence gap or duplicate"));
-            }
-            sequences.insert(event.event.session.clone(), expected);
-        }
-        if sequences != self.sequences {
-            return Err(Error::Corruption("session watermark"));
-        }
-        Ok(())
+        let mut validator = event_history_validation::EventHistoryValidator::new(
+            self.watermark,
+            &self.records,
+            &self.sequences,
+        );
+        validator.extend(self.events.iter().map(Ok))?;
+        validator.finish()
     }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
         Self::prepare_from(Preparation::Borrowed(self), transaction, None, None)
