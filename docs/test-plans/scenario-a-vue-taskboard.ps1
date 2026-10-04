@@ -938,6 +938,10 @@ $uiIds = @('column-todo', 'column-doing', 'column-done', 'task-card', 'task-form
     Save-Checkpoint $ctx 'T4: regression fixes'
 
     # --- T5: explicit acknowledged pause, then same-task resume -----------
+    $checkpointPrompt = New-ScenarioPauseCheckpoint $ctx
+    $protected[(Split-Path -Leaf $ctx.PauseCheckpoint.script)] = $ctx.PauseCheckpoint.sha256
+    $promptT5 = $checkpointPrompt + "`n`n" + $promptT5
+    Save-Checkpoint $ctx 'T5 setup: recorded native process pause checkpoint'
     $gatesT5 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT5; Test-UnitAndBuild $s ($uiIds + @('stats-bar')) 5; Test-Production $s; Test-ProtectedUnchanged $s $protected }
     $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-production' -Title 'Production serving and stats with explicit pause' -Prompt $promptT5 `
         -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)

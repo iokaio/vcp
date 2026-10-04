@@ -840,6 +840,9 @@ listing at most 10 findings ordered by severity.
     # --- Profiles ------------------------------------------------------------
     $stage = 'P1-profiles'
     $dotnetProcess = New-ProcessProfile -Name 'dotnet' -Executable $dotnet -Ctx $ctx -MaxTimeoutMs 1200000
+    $checkpointNode = Find-Executable -Name 'node'
+    Assert-That ([bool]$checkpointNode) 'Node is required for the recorded T5 pause checkpoint.'
+    $checkpointProcess = New-ProcessProfile -Name 'pause-checkpoint' -Executable $checkpointNode -Ctx $ctx -MaxTimeoutMs 300000
     # NuGet requires machine installation paths and writable user-state locations.
     # Use fresh run-owned state rather than inheriting account NuGet config or credentials.
     foreach ($pair in @(@('ProgramFiles', 'ProgramFiles'), @('ProgramFiles(x86)', 'ProgramFilesX86'))) {
@@ -865,7 +868,9 @@ listing at most 10 findings ordered by severity.
     }
     $profiles = @{}
     foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT2), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
-        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $pair[1] $ctx.DeadlineSeconds)
+        $processes = @($dotnetProcess)
+        if ($pair[0] -eq 'T5') { $processes += $checkpointProcess }
+        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes $processes -Checks @(New-DotnetCheck $pair[1] $ctx.DeadlineSeconds)
     }
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false -Guardrail
@@ -916,6 +921,10 @@ listing at most 10 findings ordered by severity.
     Save-Checkpoint $ctx 'T4: regression fixes'
 
     # --- T5: explicit acknowledged pause, then same-task resume -----------
+    $checkpointPrompt = New-ScenarioPauseCheckpoint $ctx -Profile 'pause-checkpoint'
+    $protected[(Split-Path -Leaf $ctx.PauseCheckpoint.script)] = $ctx.PauseCheckpoint.sha256
+    $promptT5 = $checkpointPrompt + "`n`n" + $promptT5
+    Save-Checkpoint $ctx 'T5 setup: recorded native process pause checkpoint'
     $gatesT5 = { param($s) Test-Build $s; Test-Tests $s 22 $namesT5; Test-Migrations $s @('InitialCreate', 'AddProductRowVersion'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-Concurrency $s $p; Test-ApiContract $s $p; Test-RazorPages $s $p } }
     $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-concurrency' -Title 'Optimistic concurrency with explicit pause' -Prompt $promptT5 -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)
     if ($t5) {

@@ -68,6 +68,40 @@ try {
         $evidence = Get-Content (Join-Path $root 'T5/explicit-pause.json') -Raw | ConvertFrom-Json
         Check (-not $evidence.acknowledged -and $evidence.error) "$mode failed to retain diagnostic evidence."
     }
+    & $module { $script:pauseMode = 'success' }
+    $ctx = @{ Logs=$root; Workspace=$root }
+    $instruction = New-ScenarioPauseCheckpoint $ctx
+    Check ($instruction.Contains('vcp_exec') -and (Test-Path $ctx.PauseCheckpoint.script)) 'Recorded checkpoint did not create its owned fixture.'
+    $pause = New-Pause
+    function ObserveCheckpoint($Frame) { & $module { param($c,$f,$p) Invoke-ScenarioPauseOnProgress $c 'checkpoint' $f $p } $ctx $Frame $pause }
+    ObserveCheckpoint @{type='accepted';scope=$scope}
+    ObserveCheckpoint (Progress)
+    Check (-not $pause.attempted) 'Completed file effect was mistaken for the recorded process checkpoint.'
+    $frame = Progress
+    $frame.event.event.data.facts[0].value = @{id='process-effect';state='running';execution='execution';observed_changes=@('process-start');reason='arbitrary diagnostic wording'}
+    ObserveCheckpoint $frame
+    Check (-not $pause.running_processes.Count) 'Running effect without typed process-start evidence was accepted.'
+    ObserveCheckpoint @{type='event';scope=$scope;event=@{event=@{id='start-event';kind='artifact_attached';data=@{facts=@(
+        @{collection='artifact';id='process-start';value=@{state='complete';spec=@{schema='vcp-process-start-v1';scope=$scope}}}
+    )}}}}
+    ObserveCheckpoint $frame
+    Check (-not $pause.attempted) 'Running process without checkpoint marker triggered pause.'
+    Write-JsonFile $ctx.PauseCheckpoint.marker @{version=1;token='wrong';pid=$PID}
+    ObserveCheckpoint $null
+    Check (-not $pause.attempted) 'Foreign checkpoint token triggered pause.'
+    Write-JsonFile $ctx.PauseCheckpoint.marker @{version=1;token=$ctx.PauseCheckpoint.token;pid=$PID}
+    ObserveCheckpoint $null
+    Check ($pause.acknowledged -and $pause.checkpoint.token -eq $ctx.PauseCheckpoint.token) 'Idle polling did not acknowledge the recorded checkpoint.'
+    $before = & $module { $script:pauseCalls }
+    ObserveCheckpoint $null
+    Check ((& $module { $script:pauseCalls }) -eq $before) 'Checkpoint polling repeated the stop command.'
+
+    # Exercise the actual quiet-process polling hook: stdout has no progress lines.
+    $poll = @{count=0}
+    $node = Find-Executable -Name 'node'
+    $quiet = Invoke-NativeLogged -FilePath $node -ArgumentList @('-e','setTimeout(()=>{},400)') -WorkingDirectory $root `
+        -StdoutPath (Join-Path $root 'quiet.out') -StderrPath (Join-Path $root 'quiet.err') -TimeoutSeconds 5 -OnTick { $poll.count++ }
+    Check ($quiet.ExitCode -eq 0 -and $poll.count -ge 2) 'Quiet native process did not receive periodic checkpoint supervision.'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($root)

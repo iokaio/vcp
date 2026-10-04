@@ -8,7 +8,8 @@ param(
     [string]$RunRoot = 'C:\vcp-scenarios\execution-engine-probes',
     [string]$ProjectPath = ('D:\clitests\execution-engine-probe-' + [guid]::NewGuid().ToString('N')),
     [switch]$SkipPaidStages,
-    [switch]$PauseAfterProgress
+    [switch]$PauseAfterProgress,
+    [switch]$PauseAtCheckpoint
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force -DisableNameChecking
@@ -43,6 +44,13 @@ test('inputs unchanged', () => {
     Write-SeedFiles $ctx.Workspace $seed
     $protected = @{}
     foreach ($name in 'cart.test.js','package.json','README.md') { $protected[$name] = Get-Sha256 (Join-Path $ctx.Workspace $name) }
+    $checkpointPrompt = ''
+    if ($PauseAtCheckpoint) {
+        Assert-That (-not $PauseAfterProgress) 'Choose the arbitrary-progress probe or the recorded checkpoint, not both.'
+        $checkpointPrompt = New-ScenarioPauseCheckpoint $ctx
+        $protected[(Split-Path -Leaf $ctx.PauseCheckpoint.script)] = $ctx.PauseCheckpoint.sha256
+        $PauseAfterProgress = $true
+    }
     Initialize-GitCheckpoint $ctx
     $node = Find-Executable -Name 'node'
     Assert-That ([bool]$node) 'Node is required for independent acceptance checks.'
@@ -54,7 +62,7 @@ test('inputs unchanged', () => {
     $profile = New-ScenarioProfile -Ctx $ctx -Name 'repair' -AffectedPaths @('cart.js') -Processes @($process) -Checks @($check)
     [void](Test-ProfileCheck $ctx 'P1-profile' $profile 'repair')
     $accepted = if ($PauseAfterProgress) { @(8) } else { @(0) }
-    $result = Invoke-VcpTask -Ctx $ctx -Stage 'repair' -Title 'Repair integer cart arithmetic' -Config $profile -PauseAfterProgress:$PauseAfterProgress -AcceptExit $accepted -Prompt 'Implement the requirements in README.md by changing only cart.js. Preserve tests and package configuration. Use the configured verification check to confirm all six required tests pass; repair any failure before finishing.'
+    $result = Invoke-VcpTask -Ctx $ctx -Stage 'repair' -Title 'Repair integer cart arithmetic' -Config $profile -PauseAfterProgress:$PauseAfterProgress -AcceptExit $accepted -Prompt ($checkpointPrompt + ' Implement the requirements in README.md by changing only cart.js. Preserve tests and package configuration. Use the configured verification check to confirm all six required tests pass; repair any failure before finishing.')
     if ($result) {
         Test-StageExit $ctx $result 'repair'
         if ($PauseAfterProgress) {

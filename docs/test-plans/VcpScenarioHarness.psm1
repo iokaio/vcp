@@ -167,6 +167,7 @@ function Invoke-NativeLogged {
         [hashtable]$Environment = @{},
         [switch]$ClearEnvironment,
         [scriptblock]$OnLine,
+        [scriptblock]$OnTick,
         [string]$HeartbeatLabel,
         $Ctx
     )
@@ -202,6 +203,7 @@ function Invoke-NativeLogged {
     try {
         $lineTask = $process.StandardOutput.ReadLineAsync()
         while ($true) {
+            if ($OnTick) { & $OnTick }
             # Check every iteration, including continuously available output and
             # a child that closed stdout but is still running.
             if ($null -ne $TimeoutSeconds -and $clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
@@ -661,18 +663,87 @@ function Write-VcpCommandCompletion {
     Add-Content -LiteralPath $AuditPath -Encoding utf8NoBOM -Value ($Record | ConvertTo-Json -Depth 12 -Compress)
 }
 
+function New-ScenarioPauseCheckpoint {
+    <# An explicit test fixture, not a deadline or a second execution path.
+       VCP owns the waiting native process; the normal pause must contain it. #>
+    param($Ctx, [string]$Profile = 'node')
+    $token = [guid]::NewGuid().ToString('N')
+    $name = ".vcp-pause-checkpoint-$token.cjs"
+    $path = Join-Path $Ctx.Workspace $name
+    $source = @'
+// Owner-authored scenario checkpoint. Preserve this fixture.
+const fs = require('node:fs');
+const path = require('node:path');
+const token = '__TOKEN__';
+const marker = path.resolve(__filename + '.reached.json');
+if (fs.existsSync(marker)) {
+  const previous = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  if (previous.version !== 1 || previous.token !== token) throw Error('Checkpoint marker changed');
+  console.log('Checkpoint already reached; continue the original task.');
+} else {
+  fs.writeFileSync(marker, JSON.stringify({version:1, token, pid:process.pid}), {flag:'wx'});
+  console.log('Checkpoint reached; waiting for the explicit owner pause.');
+  setTimeout(() => { console.error('Owner pause checkpoint was not exercised.'); process.exitCode = 1; }, 180000);
+}
+'@
+    $source = $source.Replace('__TOKEN__', $token)
+    $file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $bytes = $script:Utf8NoBom.GetBytes($source); $file.Write($bytes, 0, $bytes.Length) } finally { $file.Dispose() }
+    $Ctx.PauseCheckpoint = @{ token=$token; script=$path; marker=($path + '.reached.json'); sha256=(Get-Sha256 $path) }
+    $arguments = @{profile=$Profile;arguments=@($name);directory='';timeout_ms=240000;output_bytes=4096;input=$null} | ConvertTo-Json -Compress
+    return "Before any other tool work, call vcp_exec exactly once with these arguments: $arguments . This owner-authored native-process checkpoint waits for an explicit pause. Do not edit or bypass it. After deliberate resume, the existing marker means the checkpoint has already been reached; continue the original task requirements."
+}
+
 function Invoke-ScenarioPauseOnProgress {
-    <# Trigger once from a completed root effect, using the existing scoped CLI
-       control channel. A receipt proves acknowledgement, not quiescence. #>
+    <# Trigger once at the configured process checkpoint, or a completed root
+       effect for the arbitrary-progress negative probe. Use existing scoped CLI
+       control; a receipt proves acknowledgement, not quiescence. #>
     param($Ctx, [string]$Stage, $Frame, $Pause)
     if ($Frame.type -eq 'accepted' -and $Frame.scope) { $Pause.scope = $Frame.scope; return }
-    if ($Pause.attempted -or -not $Pause.scope -or $Frame.type -ne 'event' -or
-        $Frame.scope.task -ne $Pause.scope.task -or $Frame.scope.session -ne $Pause.scope.session -or
-        $Frame.scope.workspace -ne $Pause.scope.workspace -or $Frame.event.event.kind -ne 'effect_transition') { return }
-    $completed = @($Frame.event.event.data.facts | Where-Object { $_.collection -eq 'effect' -and $_.value.state -eq 'succeeded' })
-    if (-not $completed.Count) { return }
+    if ($Pause.attempted -or -not $Pause.scope) { return }
+    if ($Ctx.PauseCheckpoint) {
+        if (-not $Pause.running_processes) { $Pause.running_processes = @{} }
+        if (-not $Pause.process_starts) { $Pause.process_starts = @{} }
+        if ($Frame.type -eq 'event' -and $Frame.scope.task -eq $Pause.scope.task -and
+            $Frame.scope.session -eq $Pause.scope.session -and $Frame.scope.workspace -eq $Pause.scope.workspace) {
+            foreach ($fact in @($Frame.event.event.data.facts)) {
+                if ($Frame.event.event.kind -eq 'artifact_attached' -and $fact.collection -eq 'artifact' -and
+                    $fact.value.state -eq 'complete' -and $fact.value.spec.schema -eq 'vcp-process-start-v1' -and
+                    $fact.value.spec.scope.workspace -eq $Pause.scope.workspace -and
+                    $fact.value.spec.scope.session -eq $Pause.scope.session -and $fact.value.spec.scope.task -eq $Pause.scope.task) {
+                    if ($Pause.process_starts.Count -ge 256) { $Pause.error = 'Checkpoint process-start evidence bound exceeded'; return }
+                    $Pause.process_starts[$fact.id] = $true
+                }
+                if ($Frame.event.event.kind -ne 'effect_transition') { continue }
+                if ($fact.collection -ne 'effect' -or -not $fact.value.execution) { continue }
+                $start = @($fact.value.observed_changes | Where-Object { $Pause.process_starts.ContainsKey($_) })
+                if ($fact.value.state -eq 'running' -and $start.Count -eq 1) {
+                    $Pause.running_processes[$fact.value.id] = $Frame.event.event.id
+                } elseif ($fact.value.state -in 'succeeded','failed','cancelled','outcome_unknown') {
+                    $Pause.running_processes.Remove($fact.value.id)
+                }
+            }
+        }
+        if (-not $Pause.running_processes.Count -or -not (Test-Path -LiteralPath $Ctx.PauseCheckpoint.marker -PathType Leaf)) { return }
+        try {
+            Assert-That ((Get-Item -LiteralPath $Ctx.PauseCheckpoint.marker).Length -le 4096) 'Checkpoint marker exceeds bound'
+            Assert-That ((Get-Sha256 $Ctx.PauseCheckpoint.script) -ceq $Ctx.PauseCheckpoint.sha256) 'Checkpoint script changed'
+            $marker = Get-Content -LiteralPath $Ctx.PauseCheckpoint.marker -Raw | ConvertFrom-Json
+            Assert-That ($marker.version -eq 1 -and $marker.token -ceq $Ctx.PauseCheckpoint.token -and $marker.pid -gt 0) 'Checkpoint marker identity mismatch'
+            if (-not (Get-Process -Id $marker.pid -ErrorAction SilentlyContinue)) { return }
+            $Pause.checkpoint = @{ token=$marker.token; pid=$marker.pid; script_sha256=$Ctx.PauseCheckpoint.sha256; marker=$Ctx.PauseCheckpoint.marker }
+            $Pause.trigger_event = @($Pause.running_processes.Values)[-1]
+            $Pause.error = $null
+        } catch { $Pause.error = $_.Exception.Message; return }
+    } else {
+        if ($Frame.type -ne 'event' -or
+            $Frame.scope.task -ne $Pause.scope.task -or $Frame.scope.session -ne $Pause.scope.session -or
+            $Frame.scope.workspace -ne $Pause.scope.workspace -or $Frame.event.event.kind -ne 'effect_transition') { return }
+        $completed = @($Frame.event.event.data.facts | Where-Object { $_.collection -eq 'effect' -and $_.value.state -eq 'succeeded' })
+        if (-not $completed.Count) { return }
+        $Pause.trigger_event = $Frame.event.event.id
+    }
     $Pause.attempted = $true
-    $Pause.trigger_event = $Frame.event.event.id
     try {
         $control = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'explicit-pause' -DenyProviderCredentials `
             -Arguments @('tasks', 'pause', [string]$Pause.scope.task) -TimeoutSeconds 30
@@ -739,6 +810,7 @@ function Invoke-Vcp {
     $invocationClock = [Diagnostics.Stopwatch]::StartNew()
     $counts = @{}
     $onLine = $null
+    $onTick = $null
     $pause = @{ attempted = $false; acknowledged = $false; scope = $null; trigger_event = $null; receipt = $null; error = $null }
     if ($Live -or $PauseAfterProgress) {
         # Invoked from Invoke-NativeLogged, so $Ctx and $counts resolve through
@@ -759,6 +831,9 @@ function Invoke-Vcp {
                 Write-Step $Ctx ("  {0}" -f $frame.type)
             }
         }
+        if ($PauseAfterProgress -and $Ctx.PauseCheckpoint) {
+            $onTick = { Invoke-ScenarioPauseOnProgress $Ctx $Stage $null $pause }
+        }
     }
     try {
         $environment = @{}
@@ -768,7 +843,7 @@ function Invoke-Vcp {
             $environment['VCP_DENY_PROVIDER_CREDENTIALS'] = '1'
         }
         $result = Invoke-NativeLogged -FilePath $Ctx.Vcp -ArgumentList $all -WorkingDirectory $Ctx.Workspace -StdoutPath $stdout `
-        -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -OnLine $onLine -HeartbeatLabel "$Stage/$Label" -Ctx $Ctx `
+        -StderrPath $stderr -TimeoutSeconds $TimeoutSeconds -OnLine $onLine -OnTick $onTick -HeartbeatLabel "$Stage/$Label" -Ctx $Ctx `
         -Environment $environment
         $record.exit_code = $result.ExitCode; $record.timed_out = $result.TimedOut; $record.duration_seconds = $result.DurationSeconds
         $parsed = ConvertFrom-JsonLines ([System.IO.File]::ReadAllText($stdout))
@@ -2272,5 +2347,5 @@ Export-ModuleMember -Function @(
     'Compare-WorkspaceManifest', 'Invoke-VcpTask', 'Invoke-VcpContinuation', 'Invoke-RepairLoop', 'Test-StageExit', 'Invoke-DeadlineCostReconciliation',
     'Invoke-PlanModeReview', 'New-ProcessProfile', 'New-ScenarioProfile', 'Invoke-CommonPreflight',
     'Update-ScenarioProviderMetadata', 'Test-ProfileCheck', 'Test-ProcessEnvironment', 'Invoke-GuardrailRun', 'Invoke-WorkspaceDiscover', 'Invoke-FinalEvidenceSweep',
-    'Initialize-GitCheckpoint', 'Save-Checkpoint', 'Add-Asset', 'Complete-VcpScenario'
+    'Initialize-GitCheckpoint', 'Save-Checkpoint', 'Add-Asset', 'Complete-VcpScenario', 'New-ScenarioPauseCheckpoint'
 )
