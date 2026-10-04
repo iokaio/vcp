@@ -108,6 +108,17 @@ snapshot through this path. No usable matching metadata or invalid evidence stop
 actionable error. An installed CLI without `setup provider-refresh` must be updated; there
 is no paid fallback or expiry bypass.
 
+Expiry alone does not establish that retained evidence matches the installed
+adapter. The scenario preflight validates it through `setup profile`. If that
+rejects an adapter contract, `setup provider-metadata` obtains a new catalog for
+the same exact model and endpoint and validates it with the current compiled
+adapter. Preflight then retries offline profile creation once. The launcher also
+uses this recovery when expired metadata renewal rejects an earlier adapter.
+Both paths preserve original files and account selections, deny credentials,
+make zero inference calls, and retain `provider-adapter-update.json` plus command
+logs. Recovery failures keep the setup gate failed; the installed CLI must support
+`setup provider-metadata`. No earlier contract is admitted for task execution.
+
 The harness uses `inspect-bundle <task>` when supported to collect all standard evidence
 views and history in one canonical-store open. Original validation, access control, cursors
 and omission records remain enforced. Older builds use individual inspection commands.

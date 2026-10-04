@@ -13,7 +13,7 @@ function New-Metadata([string]$Path, [int]$Minutes, [string]$Endpoint = 'fixture
     @{ data = @{ id = 'fixture/model'; endpoints = @(@{ tag = $Endpoint }) } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Path 'endpoints.json')
     @{ valid_until = [DateTimeOffset]::UtcNow.AddMinutes($Minutes).ToUnixTimeMilliseconds()
         raw_sha256 = (Get-FileHash -LiteralPath (Join-Path $Path 'endpoints.json')).Hash.ToLowerInvariant()
-        compatibility = @{ model = 'fixture/model'; endpoint = $Endpoint; request_price_limit = '0.001' }
+        compatibility = @{ id = 'openrouter-responses-adapter-contract/1/retained'; model = 'fixture/model'; endpoint = $Endpoint; request_price_limit = '0.001' }
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $Path 'snapshot.json')
 }
 $saved = @{}
@@ -33,35 +33,50 @@ try {
 function Invoke-NativeLogged {
     param($FilePath, [string[]]$ArgumentList, $WorkingDirectory, $StdoutPath, $StderrPath, $TimeoutSeconds, $Environment, $OnLine, $HeartbeatLabel, $Ctx)
     $index = [Array]::IndexOf($ArgumentList, 'setup')
-    $code = 0
+    $code = 0; $stderr = ''
     if ($ArgumentList[-1] -eq 'models') { $data = @{ effective = @{ set = @{ roles = @{ main = @('fixture/model') } } } } }
     elseif (($ArgumentList[-3..-1] -join ' ') -eq 'setup credential status') { $data = @{ environment = 'VCP_REFRESH_KEY' } }
-    elseif ($index -ge 0 -and $ArgumentList[$index + 1] -eq 'provider-refresh') {
+    elseif ($index -ge 0 -and $ArgumentList[$index + 1] -in 'provider-refresh', 'provider-metadata') {
         if ($Environment.VCP_DENY_PROVIDER_CREDENTIALS -ne '1') { throw 'Metadata refresh must deny provider credentials' }
         $command = $ArgumentList[$index + 1]
         $generation = $ArgumentList[-1]
         if (Test-Path -LiteralPath $generation) { throw 'Refresh must create a unique new directory' }
-        if ($ArgumentList -notcontains '--snapshot' -or $ArgumentList -notcontains '--catalog' -or $ArgumentList -contains '--budget-usd') { throw 'Refresh requires retained evidence and no inference budget' }
-        $prior = Get-Content -LiteralPath $ArgumentList[([Array]::IndexOf($ArgumentList, '--snapshot') + 1)] -Raw | ConvertFrom-Json
-        if ($prior.compatibility.model -ne 'fixture/model' -or $prior.compatibility.endpoint -ne 'fixture/endpoint') { throw 'Refresh changed selected identity' }
+        if ($ArgumentList -contains '--budget-usd') { throw 'Metadata commands must not receive an inference budget' }
+        if ($command -eq 'provider-refresh') {
+            if ($ArgumentList -notcontains '--snapshot' -or $ArgumentList -notcontains '--catalog') { throw 'Refresh requires retained evidence' }
+            $prior = Get-Content -LiteralPath $ArgumentList[([Array]::IndexOf($ArgumentList, '--snapshot') + 1)] -Raw | ConvertFrom-Json
+            if ($prior.compatibility.model -cne 'fixture/model' -or $prior.compatibility.endpoint -cne 'fixture/endpoint') { throw 'Refresh changed selected identity' }
+        }
+        else {
+            if ($ArgumentList -contains '--snapshot' -or $ArgumentList -contains '--catalog' -or
+                $ArgumentList[([Array]::IndexOf($ArgumentList, '--model') + 1)] -cne 'fixture/model' -or
+                $ArgumentList[([Array]::IndexOf($ArgumentList, '--endpoint') + 1)] -cne 'fixture/endpoint') { throw 'Current adapter metadata must use the exact retained identity without adopting retained adapter capabilities' }
+        }
         New-Item -ItemType Directory -Path $generation | Out-Null
-        if ($env:VCP_REFRESH_CASE -in 'failure', 'unsupported') {
+        if ($command -eq 'provider-refresh' -and $env:VCP_REFRESH_CASE -like 'adapter-*') {
+            $code = 2; $data = @{ status = 'failed' }; $stderr = 'vcp: provider refresh requires the current compiled adapter contract'
+        }
+        elseif ($env:VCP_REFRESH_CASE -in 'failure', 'unsupported', 'adapter-unsupported') {
             $code = 1; $data = @{ status = 'failed' }
         }
         else {
-            $endpoint = if ($env:VCP_REFRESH_CASE -eq 'wrong-endpoint') { 'different/endpoint' } else { 'fixture/endpoint' }
+            $endpoint = switch ($env:VCP_REFRESH_CASE) {
+                'wrong-endpoint' { 'different/endpoint' }
+                'adapter-wrong-endpoint' { 'different/endpoint' }
+                default { 'fixture/endpoint' }
+            }
             @{ data = @{ id = 'fixture/model'; endpoints = @(@{ tag = $endpoint }) } } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $generation 'endpoints.json')
             @{ valid_until = [DateTimeOffset]::UtcNow.AddHours(12).ToUnixTimeMilliseconds()
                 raw_sha256 = (Get-FileHash -LiteralPath (Join-Path $generation 'endpoints.json')).Hash.ToLowerInvariant()
-                compatibility = @{ model = 'fixture/model'; endpoint = $endpoint; request_price_limit = '0.001' }
+                compatibility = @{ id = 'openrouter-responses-adapter-contract/1/current'; model = 'fixture/model'; endpoint = $endpoint; request_price_limit = '0.001' }
             } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $generation 'snapshot.json')
-            $data = @{ status = 'refreshed'; model_calls = 0 }
+            $data = @{ status = $(if ($command -eq 'provider-metadata') { 'created' } else { 'refreshed' }); model_calls = 0 }
         }
     }
     else { throw ('Unexpected native command: ' + ($ArgumentList -join ' ')) }
     $line = @{ type = 'result'; exit_code = $code; data = $data } | ConvertTo-Json -Depth 20 -Compress
     [IO.File]::WriteAllText($StdoutPath, $line + "`n")
-    [IO.File]::WriteAllText($StderrPath, '')
+    [IO.File]::WriteAllText($StderrPath, $stderr)
     if ($OnLine) { & $OnLine $line }
     return [pscustomobject]@{ ExitCode = $code; TimedOut = $false; DurationSeconds = 0.01 }
 }
@@ -141,6 +156,41 @@ exit 0
     New-Metadata $connection 10
     $near = Invoke-Fixture 'near-expiry'
     Check ($near.Code -eq 0 -and @($near.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Metadata expiring within next task window was reused'
+    # Expiration renewal can reveal that the installed CLI has a newer adapter.
+    # Recovery constructs fresh metadata from the same retained identity only.
+    foreach ($minutes in -60, 10) {
+        New-Metadata $connection $minutes
+        $retainedHashes = @{}; foreach ($path in $completion, (Join-Path $connection 'snapshot.json'), (Join-Path $connection 'endpoints.json')) { $retainedHashes[$path] = (Get-FileHash -LiteralPath $path).Hash }
+        $adapter = Invoke-Fixture "adapter-success-$minutes" -Case 'adapter-success'
+        Check ($adapter.Code -eq 0 -and $adapter.Output.Contains('REFRESH_CHILD_STARTED')) "Changed adapter renewal failed for validity ${minutes}: $($adapter.Output)"
+        Check (@($adapter.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1 -and
+            @($adapter.Commands | Where-Object label -eq 'current-adapter-metadata').Count -eq 1) 'Changed adapter did not make exactly one renewal and one current metadata call'
+        Check (@($adapter.Commands | Where-Object label -notin 'models', 'credential-status', 'refresh-provider-metadata', 'current-adapter-metadata').Count -eq 0) 'Changed adapter recovery ran qualification or an unexpected native command'
+        $adapterChild = Get-Content -LiteralPath (Join-Path $adapter.Root 'b-aspnet-inventory/fixture-run/arguments.json') -Raw | ConvertFrom-Json
+        Check ($adapterChild.generation.StartsWith((Join-Path $adapter.Root 'setup/provider-current-')) -and [decimal]$adapterChild.cap -eq 10) 'Changed adapter did not hand the child isolated current metadata with the original task budget'
+        $adapterSelection = Get-Content -LiteralPath (Join-Path $adapter.Root 'setup/results/provider-selection.json') -Raw | ConvertFrom-Json
+        $adapterEvidence = Get-Content -LiteralPath (Join-Path $adapter.Root 'setup/results/provider-adapter-update.json') -Raw | ConvertFrom-Json
+        $adapterRenewal = Get-Content -LiteralPath (Join-Path $adapter.Root 'setup/results/provider-refresh.json') -Raw | ConvertFrom-Json
+        Check ($adapterSelection.generation -eq $adapterChild.generation -and $adapterSelection.model_calls -eq 0 -and
+            $adapterEvidence.status -eq 'created' -and $adapterEvidence.model_calls -eq 0 -and
+            $adapterRenewal.status -eq 'refreshed' -and $adapterRenewal.adapter_updated -and $adapterRenewal.model_calls -eq 0) 'Changed adapter lost metadata-only success evidence'
+        Check ($adapterEvidence.prior_snapshot -eq (Join-Path $connection 'snapshot.json') -and
+            $adapterEvidence.prior_catalog -eq (Join-Path $connection 'endpoints.json')) 'Changed adapter recovery used a different retained source'
+        foreach ($path in $retainedHashes.Keys) { Check ((Get-FileHash -LiteralPath $path).Hash -eq $retainedHashes[$path]) 'Changed adapter recovery modified original source bytes or account metadata' }
+        foreach ($case in 'adapter-unsupported', 'adapter-wrong-endpoint') {
+            $failedAdapter = Invoke-Fixture "$case-$minutes" -Case $case
+            Check ($failedAdapter.Code -ne 0 -and -not $failedAdapter.Output.Contains('REFRESH_CHILD_STARTED')) "$case started the child with invalid current adapter metadata"
+            Check (@($failedAdapter.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1 -and
+                @($failedAdapter.Commands | Where-Object label -eq 'current-adapter-metadata').Count -eq 1) "$case repeated recovery metadata calls"
+            Check (@($failedAdapter.Commands | Where-Object label -notin 'models', 'credential-status', 'refresh-provider-metadata', 'current-adapter-metadata').Count -eq 0) "$case fell back to paid qualification"
+            $failedEvidence = Get-Content -LiteralPath (Join-Path $failedAdapter.Root 'setup/results/provider-adapter-update.json') -Raw | ConvertFrom-Json
+            $failedSelection = Get-Content -LiteralPath (Join-Path $failedAdapter.Root 'setup/results/provider-selection.json') -Raw | ConvertFrom-Json
+            Check ($failedEvidence.status -eq 'failed' -and $failedEvidence.model_calls -eq 0 -and
+                $failedSelection.status -eq 'failed' -and $failedSelection.refresh_attempted -and $failedSelection.model_calls -eq 0) "$case lost failure evidence"
+            if ($case -eq 'adapter-unsupported') { Check ($failedAdapter.Output.Contains('installed CLI must support setup provider-metadata')) 'Unsupported current metadata omitted the installed command requirement' }
+            foreach ($path in $retainedHashes.Keys) { Check ((Get-FileHash -LiteralPath $path).Hash -eq $retainedHashes[$path]) "$case modified original source bytes or account metadata" }
+        }
+    }
     '{}' | Set-Content -LiteralPath (Join-Path $connection 'endpoints.json')
     $bad = Invoke-Fixture 'tampered'
     Check ($bad.Code -eq 1 -and @($bad.Commands | Where-Object label -like 'refresh-provider*').Count -eq 0) 'Tampered metadata authorized a refresh target'
