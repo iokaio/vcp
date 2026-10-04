@@ -225,6 +225,10 @@ async fn canonical_coding_loop_assembles_current_sources_and_dispatches_prepared
 async fn registered_directory_tools_reject_quoted_root_then_accept_empty_root() {
     run_coding_modes(&["quoted_root"]).await;
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn instruction_refresh_retains_typed_unexecuted_call_before_reissue() {
+    run_coding_modes(&["nested"]).await;
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn output_limit_continuation_preserves_partial_evidence_and_stops_without_progress() {
@@ -825,6 +829,18 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     .iter()
                     .find(|item| item["type"] == "function_call_output")
                     .unwrap();
+                let refreshed: serde_json::Value =
+                    serde_json::from_str(item["output"].as_str().unwrap()).unwrap();
+                assert_eq!(refreshed["executed"], false);
+                assert_eq!(refreshed["code"], "instruction_scope_refresh");
+                let scope = host.project().unwrap().tasks[&config.root_task]
+                    .scope
+                    .clone();
+                let diagnostics = host.execution_diagnostics(scope).unwrap();
+                use vcp_lifecycle::foundation::execution_diagnostics::{Phase, Status};
+                for status in [Status::Skipped, Status::Succeeded] {
+                    assert!(diagnostics.observations.iter().any(|span| span.phase == Phase::ToolDispatch && span.status == status), "scope refresh must be skipped before a later independently admitted dispatch");
+                }
                 assert!(item["output"]
                     .as_str()
                     .unwrap()

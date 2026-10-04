@@ -42,6 +42,26 @@ pub(crate) struct Run {
     environment: String,
 }
 impl Context {
+    pub fn completion_approval_boundary(&self, binding: &ThreadBinding) -> Result<()> {
+        for row in self.engine.store().state().records.values().filter(|row| {
+            row.collection == Collection::Approval && row.workspace == binding.scope.workspace
+        }) {
+            let approval: Approval = row.decode()?;
+            if approval.scope == binding.scope
+                && approval.controller.as_ref() == Some(self.engine.controller())
+                && approval.owner_epoch == Some(self.engine.owner_epoch())
+                && approval.actor == self.config.actor
+                && vcp_engine::questions::actionable(self.engine.store().state(), &approval, now())?
+            {
+                return Err(CompletionFailure::new(
+                    CompletionRejection::RequiredApproval,
+                    "current owner approval is required before completion",
+                )
+                .into());
+            }
+        }
+        Ok(())
+    }
     /// An accounted read-only final answer needs an observed integrity proof,
     /// not a model-invented empty check result. Called only under the quiescent
     /// completion fence; never dispatches processes or replaces failed checks.
@@ -1140,6 +1160,7 @@ impl Context {
         binding: &ThreadBinding,
         id: &VerificationId,
     ) -> Result<CommandReceipt> {
+        self.completion_approval_boundary(binding)?;
         let revisions = self.context_revisions(binding)?;
         if self.editor_verification_buffers(binding)?.1 {
             return Err(

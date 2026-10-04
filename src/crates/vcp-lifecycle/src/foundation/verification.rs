@@ -5,13 +5,15 @@ use vcp_domain::verification::{CheckOutcome, Verification};
 use vcp_tools::verification::{Plan, Requirement};
 
 /// Scheduling information produced at the failing canonical boundary, never
-/// inferred from diagnostic text. Only missing/stale proof permits rechecking.
+/// inferred from diagnostic text. Only explicit recoverable categories recheck.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionRejection {
     MissingVerification,
     StaleVerification,
     FailedChecks,
+    InstructionScopeRefresh,
+    RequiredApproval,
     UnresolvedEffects,
     Boundary,
 }
@@ -454,6 +456,7 @@ impl CanonicalHost {
             // Select final-response evidence under the same owner/admission
             // fence as completion. A new turn cannot clear it between lookups.
             let result = (|| {
+                context.completion_approval_boundary(&binding)?;
                 let verification = match verification {
                     Some(id) => id,
                     None => context.coding_completion(&binding)?,

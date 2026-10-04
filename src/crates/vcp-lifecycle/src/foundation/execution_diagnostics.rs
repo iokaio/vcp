@@ -15,6 +15,8 @@ pub enum Phase {
     ContextAssembly,
     PolicyAdmission,
     ProviderExchange,
+    /// Wrapper dispatch lifetime; canonical effects record physical outcomes.
+    ToolDispatch,
     Verification,
     Repair,
     Resume,
@@ -26,6 +28,7 @@ pub enum Status {
     Succeeded,
     Failed,
     Interrupted,
+    Skipped,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Observation {
@@ -182,6 +185,9 @@ impl Span {
     }
     pub(crate) fn failed(mut self) {
         self.close(Status::Failed);
+    }
+    pub(crate) fn skipped(mut self) {
+        self.close(Status::Skipped);
     }
     fn close(&mut self, status: Status) {
         let Some(id) = self.id.take() else {

@@ -8,7 +8,7 @@ mod request_allowance;
 mod tool_ceiling;
 mod turns;
 use super::*;
-use crate::foundation::coding::CodingConfig;
+use crate::foundation::coding::{CodingConfig, CodingPathSelection};
 use codex_extension_api::{AllowedTools, ToolName};
 use std::collections::BTreeMap;
 use vcp_context::{
@@ -1163,6 +1163,21 @@ impl Context {
         for source in sources {
             self.coding_artifact(source)?;
         }
+        let instructions = self.task_root(&binding.scope.task)?.instructions(
+            &self.verification_paths(binding)?,
+            &self.instruction_parents(binding)?,
+            256 * 1024,
+        )?;
+        if !instructions
+            .probes
+            .iter()
+            .all(|probe| state.probes.contains(probe))
+        {
+            return Err(crate::foundation::verification::CompletionFailure::new(
+                crate::foundation::verification::CompletionRejection::InstructionScopeRefresh,
+                "completion verification selects newly observed instruction scope; build a fresh owner check plan",
+            ).into());
+        }
         let sources = sources.clone();
         match self.latest_verification(binding) {
             Ok(id) => Ok(id),
@@ -1399,10 +1414,14 @@ impl Context {
             call.sources,
         )
     }
-    pub fn select_coding_paths(&mut self, binding: &ThreadBinding, call: &Call) -> Result<bool> {
+    pub fn select_coding_paths(
+        &mut self,
+        binding: &ThreadBinding,
+        call: &Call,
+    ) -> Result<CodingPathSelection> {
         // vcp_skill read touches no workspace path; only materialize selects one.
         if call.name == "vcp_skill" && call.arguments["action"] == "read" {
-            return Ok(true);
+            return Ok(CodingPathSelection::Ready);
         }
         match call.name.as_str() {
             "vcp_read" => self.child_tool_request(
@@ -1482,7 +1501,7 @@ impl Context {
                 vcp_tools::validate_directory_path(directory)?;
                 vec![std::path::PathBuf::from(directory).join(".vcp-context-scope")]
             }
-            _ => return Ok(true),
+            _ => return Ok(CodingPathSelection::Ready),
         };
         self.validate_coding_sources(binding)?;
         let instructions = self.task_root(&binding.scope.task)?.instructions(
@@ -1518,7 +1537,11 @@ impl Context {
         state.config.affected_paths = affected;
         // Newly discovered nested guidance must reach the model before a
         // reissued operation. The rejected call is still retained as history.
-        Ok(covered)
+        Ok(if covered {
+            CodingPathSelection::Ready
+        } else {
+            CodingPathSelection::InstructionScopeRefresh
+        })
     }
     pub fn record_coding_result(
         &mut self,

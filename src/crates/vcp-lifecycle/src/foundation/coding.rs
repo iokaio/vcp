@@ -57,6 +57,13 @@ pub struct CodingConfig {
     /// Explicit absolute bound or suspended elapsed-time enforcement.
     pub deadline: vcp_domain::Limit<Timestamp>,
 }
+/// Selection is not execution authority. A new scope must reach the model
+/// before a model-proposed operation is reissued under the usual admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodingPathSelection {
+    Ready,
+    InstructionScopeRefresh,
+}
 impl CodingConfig {
     pub(crate) fn validate(&self, now: Timestamp) -> Result<(), String> {
         if self.operating.trim().is_empty()
@@ -413,6 +420,7 @@ impl Wrapper {
         self.host
             .worker
             .run(move |context| context.select_coding_paths(&binding, &selected))
+            .map(|selection| selection == CodingPathSelection::Ready)
     }
     async fn completed_hooks(
         &self,
@@ -531,10 +539,23 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 .worker
                 .run(move |context| context.consume_coding_call(&scoped, &id, &name, &input))
                 .map_err(FunctionCallError::RespondToModel)?;
+            let diagnostic_binding = binding.clone();
+            let diagnostic_attempt = attempt.clone();
+            let diagnostic = self
+                .host
+                .worker
+                .run_cleanup(move |context| {
+                    Ok(context.begin_diagnostic(
+                        &diagnostic_binding,
+                        super::execution_diagnostics::Phase::ToolDispatch,
+                        Some(diagnostic_attempt),
+                    ))
+                })
+                .ok();
             let result: Result<Value, String> = async {
                 let scoped = binding.clone();
                 let selected = normalized.clone();
-                if !self.host.worker.run(move |context| context.select_coding_paths(&scoped, &selected))? {
+                if self.host.worker.run(move |context| context.select_coding_paths(&scoped, &selected))? == CodingPathSelection::InstructionScopeRefresh {
                     return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
                 }
                 if self.name == "vcp_mcp" {
@@ -591,7 +612,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     sources.extend(before_hooks.iter().map(|o| o.artifact.clone()));
                     if !self.rewritten_paths_ready(&normalized, &before_hooks)? {
                         self.host.cancel_queued_effect(binding.clone(), proposal.effect().clone(), "rewritten instruction scope needs refresh".into())?;
-                        return Ok(json!({"executed":false,"reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
+                        return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
                     }
                     let before_hooks = super::hooks::adapters::presentation(&before_hooks);
                     if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
@@ -632,7 +653,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 sources.extend(before_hooks.iter().map(|o| o.artifact.clone()));
                 if !self.rewritten_paths_ready(&normalized, &before_hooks)? {
                     self.host.cancel_queued_effect(binding.clone(), proposal.effect().clone(), "rewritten instruction scope needs refresh".into())?;
-                    return Ok(json!({"executed":false,"reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
+                    return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
                 }
                 let before_hooks = super::hooks::adapters::presentation(&before_hooks);
                 if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
@@ -650,6 +671,16 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 }
                 Ok(response)
             }.await;
+            if let Some(diagnostic) = diagnostic {
+                if result
+                    .as_ref()
+                    .is_ok_and(|value| value["executed"] == false)
+                {
+                    diagnostic.skipped();
+                } else {
+                    diagnostic.finish(&result);
+                }
+            }
             let mut result = match result {
                 Ok(result) => result,
                 Err(error) => json!({"error":error,"complete":false}),

@@ -51,6 +51,7 @@ pub enum Completion {
     Completed,
     Rejected(String),
     Repair,
+    RequiredApproval,
 }
 
 /// A bounded lifecycle operation owns no event receiver. The caller retains its
@@ -174,6 +175,9 @@ async fn complete(
     scope: &Scope,
 ) -> Result<Completion, String> {
     let outcome = Outcome::read(host, scope)?;
+    if !outcome.approvals.is_empty() {
+        return Ok(Completion::RequiredApproval);
+    }
     if outcome.task.state != TaskState::Running
         || outcome.conditions.required_input
         || outcome.conditions.budget_exhausted
@@ -201,6 +205,7 @@ async fn complete(
                 CompletionRejection::MissingVerification
                     | CompletionRejection::StaleVerification
                     | CompletionRejection::FailedChecks
+                    | CompletionRejection::InstructionScopeRefresh
             ) =>
         {
             // Exactly one fresh verification attempt per completion request.
@@ -208,11 +213,22 @@ async fn complete(
             // reissue is needed merely to produce current acceptance evidence.
             let verification = match host.verify_for_completion(session.id).await {
                 Ok(verification) => verification,
-                Err(error) => return Ok(Completion::Rejected(error)),
+                Err(error) => {
+                    return Ok(if Outcome::read(host, scope)?.approvals.is_empty() {
+                        Completion::Rejected(error)
+                    } else {
+                        Completion::RequiredApproval
+                    })
+                }
             };
             Ok(
                 match host.try_complete_verified(session.id, verification.id)? {
                     CompletionAttempt::Completed(_) => Completion::Completed,
+                    CompletionAttempt::Rejected(failure)
+                        if failure.kind == CompletionRejection::RequiredApproval =>
+                    {
+                        Completion::RequiredApproval
+                    }
                     CompletionAttempt::Rejected(failure)
                         if failure.kind == CompletionRejection::FailedChecks =>
                     {
@@ -223,6 +239,11 @@ async fn complete(
                     }
                 },
             )
+        }
+        CompletionAttempt::Rejected(failure)
+            if failure.kind == CompletionRejection::RequiredApproval =>
+        {
+            Ok(Completion::RequiredApproval)
         }
         CompletionAttempt::Rejected(failure) => Ok(Completion::Rejected(failure.to_string())),
     }

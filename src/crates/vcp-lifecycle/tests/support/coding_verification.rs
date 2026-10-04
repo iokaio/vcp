@@ -55,6 +55,14 @@ async fn owner_completion_rechecks_missing_and_stale_proof_without_inference() {
     }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_completion_distinguishes_instruction_refresh_and_required_approval() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for mode in ["owner_refresh", "owner_approval"] {
+            run(backend, mode).await;
+        }
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn owner_completion_pauses_exact_repeated_failure_without_progress() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         run(backend, "owner_failed").await;
@@ -68,9 +76,16 @@ async fn owner_completion_repairs_then_reverifies_same_task() {
 }
 async fn run(backend: BackendKind, mode: &'static str) {
     let owner_recheck = mode.starts_with("owner_");
+    let scope_refresh = mode == "owner_refresh";
+    let approval_required = mode == "owner_approval";
     let repair_pass = mode == "owner_repaired";
     let mode = mode.strip_prefix("owner_").unwrap_or(mode);
     let mode = if repair_pass { "failed" } else { mode };
+    let mode = if scope_refresh || approval_required {
+        "missing"
+    } else {
+        mode
+    };
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
@@ -83,6 +98,19 @@ async fn run(backend: BackendKind, mode: &'static str) {
     .unwrap();
     let oracle = temp.path().join("assertion-observed");
     fs::write(workspace.join("value.txt"), b"41\n").unwrap();
+    if scope_refresh {
+        fs::create_dir(workspace.join("nested")).unwrap();
+        fs::write(
+            workspace.join("nested/AGENTS.md"),
+            "Nested guidance must be observed before operation reissue.",
+        )
+        .unwrap();
+        fs::write(
+            workspace.join("nested/source.txt"),
+            "Additional verification scope",
+        )
+        .unwrap();
+    }
     fs::write(
         workspace.join("AGENTS.md"),
         b"Verify the changed value with the configured acceptance check.\n",
@@ -137,7 +165,11 @@ async fn run(backend: BackendKind, mode: &'static str) {
             policy: Policy {
                 workspace: config.workspace.clone(),
                 revision: PolicyRevision::ZERO,
-                mode: Autonomy::Autonomous,
+                mode: if approval_required {
+                    Autonomy::Workspace
+                } else {
+                    Autonomy::Autonomous
+                },
                 denials: vec![],
                 workspace_roots: BTreeSet::from([
                     RootId::parse(config.workspace.as_str()).unwrap(),
@@ -443,6 +475,41 @@ async fn run(backend: BackendKind, mode: &'static str) {
         else {
             panic!("completion must need current proof");
         };
+        if approval_required {
+            assert_eq!(failure.kind, CompletionRejection::MissingVerification);
+            let _observed = host.verify_for_completion(thread).await;
+            let CompletionAttempt::Rejected(held) = host.try_complete_coding_turn(thread).unwrap()
+            else {
+                panic!("approval cannot complete")
+            };
+            assert_eq!(held.kind, CompletionRejection::RequiredApproval);
+            assert!(host.completion_repair_feedback(thread).is_err());
+            let state = host.snapshot().unwrap();
+            let questions: Vec<vcp_protocol::command::Approval> = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Approval)
+                .map(|row| row.decode().unwrap())
+                .collect();
+            assert_eq!(questions.len(), 1);
+            assert_eq!(questions[0].scope.task, config.root_task);
+            assert_eq!(
+                questions[0].state,
+                vcp_protocol::command::ApprovalState::Pending
+            );
+            assert!(
+                !oracle.exists(),
+                "an approval question cannot authorize the check"
+            );
+            assert_eq!(
+                count.load(Ordering::SeqCst),
+                expected,
+                "approval cannot dispatch a model retry"
+            );
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+            return;
+        }
         if mode == "failed" {
             assert_eq!(failure.kind, CompletionRejection::FailedChecks);
             for round in 1..=3 {
@@ -586,7 +653,9 @@ async fn run(backend: BackendKind, mode: &'static str) {
         } else {
             assert_eq!(
                 failure.kind,
-                if mode == "missing" {
+                if scope_refresh {
+                    CompletionRejection::InstructionScopeRefresh
+                } else if mode == "missing" {
                     CompletionRejection::MissingVerification
                 } else {
                     CompletionRejection::StaleVerification
