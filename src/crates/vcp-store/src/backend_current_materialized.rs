@@ -4,6 +4,8 @@
 use super::*;
 use crate::history_index::io::Sqlite;
 use vcp_domain::{CommandId, EventId, WorkspaceId};
+#[path = "backend_current_materialized_pages.rs"]
+mod pages;
 
 pub(super) async fn verify(db: &mut SqliteConnection, owner: &DurableOwner) -> Result<()> {
     let current = owner.semantic().current();
@@ -18,38 +20,60 @@ pub(super) async fn verify(db: &mut SqliteConnection, owner: &DurableOwner) -> R
             return Err(Error::Corruption("SQLite projection count"));
         }
     }
-    for (key, expected) in current.records.iter() {
-        let row=sqlx::query("SELECT CASE WHEN typeof(payload)='blob' AND length(payload) BETWEEN 1 AND ? THEN payload ELSE NULL END AS payload,digest,workspace,revision,collection FROM records WHERE key=?")
-            .bind(MAX_RECORD_BYTES as i64).bind(key).fetch_optional(&mut *db).await?.ok_or(Error::Corruption("SQLite expected record missing"))?;
-        let payload = payload(&row)?;
-        if payload != canonical_bytes(expected)?
-            || digest_bytes(&payload) != row.try_get::<String, _>("digest")?
-            || expected.workspace.as_str() != row.try_get::<String, _>("workspace")?
-            || expected.revision.get().to_string() != row.try_get::<String, _>("revision")?
-            || expected.collection.name() != row.try_get::<String, _>("collection")?
-        {
-            return Err(Error::Corruption("SQLite materialized record"));
+    let mut after = String::new();
+    let mut records = 0usize;
+    loop {
+        let rows = pages::records(db, &after).await?;
+        if rows.is_empty() {
+            break;
         }
+        for row in rows {
+            let key: String = row.try_get("key")?;
+            let expected = current
+                .records
+                .get(&key)
+                .ok_or(Error::Corruption("SQLite unexpected record"))?;
+            if key <= after {
+                return Err(Error::Corruption("SQLite record order"));
+            }
+            let payload = payload(&row)?;
+            if payload != canonical_bytes(expected)?
+                || digest_bytes(&payload) != row.try_get::<String, _>("digest")?
+                || expected.workspace.as_str() != row.try_get::<String, _>("workspace")?
+                || expected.revision.get().to_string() != row.try_get::<String, _>("revision")?
+                || expected.collection.name() != row.try_get::<String, _>("collection")?
+            {
+                return Err(Error::Corruption("SQLite materialized record"));
+            }
+            after = key;
+            records += 1;
+        }
+    }
+    if records != current.records.len() {
+        return Err(Error::Corruption("SQLite projection count"));
     }
     let mut after = String::new();
     let mut count = 0u64;
     loop {
-        let row=sqlx::query("SELECT id,CASE WHEN typeof(payload)='blob' AND length(payload) BETWEEN 1 AND ? THEN payload ELSE NULL END AS payload FROM events WHERE id>? ORDER BY id LIMIT 1")
-            .bind(MAX_COMMIT_BYTES as i64).bind(&after).fetch_optional(&mut *db).await?;
-        let Some(row) = row else { break };
-        let id: String = row.try_get("id")?;
-        let payload = payload(&row)?;
-        let event = catalog
-            .event(&mut Sqlite::new(db), &EventId::parse(&id)?)
-            .await?
-            .ok_or(Error::Corruption("SQLite unexpected event"))?;
-        if id <= after || payload != canonical_bytes(&event)? {
-            return Err(Error::Corruption("SQLite event content"));
+        let rows = pages::events(db, &after).await?;
+        if rows.is_empty() {
+            break;
         }
-        after = id;
-        count = count
-            .checked_add(1)
-            .ok_or(Error::Limit("SQLite event count"))?;
+        for row in rows {
+            let id: String = row.try_get("id")?;
+            let payload = payload(&row)?;
+            let event = catalog
+                .event(&mut Sqlite::new(db), &EventId::parse(&id)?)
+                .await?
+                .ok_or(Error::Corruption("SQLite unexpected event"))?;
+            if id <= after || payload != canonical_bytes(&event)? {
+                return Err(Error::Corruption("SQLite event content"));
+            }
+            after = id;
+            count = count
+                .checked_add(1)
+                .ok_or(Error::Limit("SQLite event count"))?;
+        }
     }
     if count != catalog.event_count() {
         return Err(Error::Corruption("SQLite projection count"));
@@ -58,29 +82,33 @@ pub(super) async fn verify(db: &mut SqliteConnection, owner: &DurableOwner) -> R
     let mut id = String::new();
     let mut count = 0u64;
     loop {
-        let row=sqlx::query("SELECT workspace,id,CASE WHEN typeof(payload)='blob' AND length(payload) BETWEEN 1 AND ? THEN payload ELSE NULL END AS payload FROM commands WHERE (workspace,id)>(?,?) ORDER BY workspace,id LIMIT 1")
-            .bind(MAX_COMMIT_BYTES as i64).bind(&workspace).bind(&id).fetch_optional(&mut *db).await?;
-        let Some(row) = row else { break };
-        let next_workspace: String = row.try_get("workspace")?;
-        let next_id: String = row.try_get("id")?;
-        let payload = payload(&row)?;
-        let receipt = catalog
-            .command_unchecked_meaning(
-                &mut Sqlite::new(db),
-                &WorkspaceId::parse(&next_workspace)?,
-                &CommandId::parse(&next_id)?,
-            )
-            .await?
-            .ok_or(Error::Corruption("SQLite unexpected receipt"))?;
-        if (&next_workspace, &next_id) <= (&workspace, &id) || payload != canonical_bytes(&receipt)?
-        {
-            return Err(Error::Corruption("SQLite receipt content"));
+        let rows = pages::commands(db, &workspace, &id).await?;
+        if rows.is_empty() {
+            break;
         }
-        workspace = next_workspace;
-        id = next_id;
-        count = count
-            .checked_add(1)
-            .ok_or(Error::Limit("SQLite receipt count"))?;
+        for row in rows {
+            let next_workspace: String = row.try_get("workspace")?;
+            let next_id: String = row.try_get("id")?;
+            let payload = payload(&row)?;
+            let receipt = catalog
+                .command_unchecked_meaning(
+                    &mut Sqlite::new(db),
+                    &WorkspaceId::parse(&next_workspace)?,
+                    &CommandId::parse(&next_id)?,
+                )
+                .await?
+                .ok_or(Error::Corruption("SQLite unexpected receipt"))?;
+            if (&next_workspace, &next_id) <= (&workspace, &id)
+                || payload != canonical_bytes(&receipt)?
+            {
+                return Err(Error::Corruption("SQLite receipt content"));
+            }
+            workspace = next_workspace;
+            id = next_id;
+            count = count
+                .checked_add(1)
+                .ok_or(Error::Limit("SQLite receipt count"))?;
+        }
     }
     if count != catalog.command_count() {
         return Err(Error::Corruption("SQLite projection count"));
