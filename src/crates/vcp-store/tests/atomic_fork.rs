@@ -15,7 +15,7 @@ use vcp_protocol::{
 };
 use vcp_store::{artifact::ArtifactWriter, contract::*, BackendKind, Store};
 
-async fn fixture(store: &mut Store) -> Transaction {
+pub(crate) async fn fixture(store: &mut Store) -> Transaction {
     store.transact(common::initial()).await.unwrap();
     let mut writer = store.spool().create(common::spec()).unwrap();
     writer.write_chunk(b"synthetic turn input").unwrap();
