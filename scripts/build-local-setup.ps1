@@ -8,7 +8,10 @@ param(
     [string]$Launcher,
     [string]$CompilerInstaller,
     [string]$OutputRoot,
-    [ValidateRange(1,16)][int]$Jobs = 4
+    # Leave a logical processor free and budget 4 GiB per job for Rust/C++.
+    [ValidateRange(1,256)][int]$Jobs = [int][Math]::Max(1, [Math]::Min(32, [Math]::Min(
+        [Environment]::ProcessorCount - 1,
+        [Math]::Floor([GC]::GetGCMemoryInfo().TotalAvailableMemoryBytes / 4GB))))
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Native Windows setup construction required' }
@@ -64,6 +67,22 @@ function Assert-SetupProductVersion([string]$Actual,[string]$Expected) {
     # Inno's PE string resource pads ProductVersion with spaces.
     if ($Actual.Trim() -cnotin @($Expected,($Expected + '.0'))) { throw 'Built setup product version differs from the selected candidate' }
 }
+function Invoke-LocalProductionBuild([string]$BuildScript,[string]$BuildRoot,[int]$BuildJobs) {
+    $inheritedFlags = [Environment]::GetEnvironmentVariable('CARGO_ENCODED_RUSTFLAGS','Process')
+    $recipeFlags = @('-C','link-arg=/STACK:8388608','-C','target-feature=+crt-static') -join [char]31
+    # Older in-process builds left these exact flags in the calling shell.
+    # Other overrides still reach, and are rejected by, the production recipe.
+    $retainedRecipe = $inheritedFlags -ceq $recipeFlags
+    try {
+        if ($retainedRecipe) {
+            [Environment]::SetEnvironmentVariable('CARGO_ENCODED_RUSTFLAGS',[NullString]::Value,'Process')
+            Write-Information 'Clearing retained VCP compiler flags for this local build' -InformationAction Continue
+        }
+        & $BuildScript -OutputRoot $BuildRoot -Jobs $BuildJobs
+    } finally {
+        if ($retainedRecipe) { [Environment]::SetEnvironmentVariable('CARGO_ENCODED_RUSTFLAGS',$inheritedFlags,'Process') }
+    }
+}
 function Open-LocalBuildLock([string]$Repository) {
     $directory = Join-Path $Repository 'artifacts'
     for ($cursor = $directory; $cursor; $cursor = [IO.Path]::GetDirectoryName($cursor)) {
@@ -113,7 +132,7 @@ if ($provided -eq 0) {
 $out = Join-Path $versionRoot ([guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $out | Out-Null
 if ($provided -eq 0) {
-    $buildOutput = & (Join-Path $PSScriptRoot 'build-production.ps1') -OutputRoot (Join-Path $out 'build') -Jobs $Jobs
+    $buildOutput = Invoke-LocalProductionBuild (Join-Path $PSScriptRoot 'build-production.ps1') (Join-Path $out 'build') $Jobs
     $BuildReceipt = @($buildOutput)[-1]
     $built = Get-Content -LiteralPath $BuildReceipt -Raw | ConvertFrom-Json -Depth 100
     $Launcher = $built.launcher

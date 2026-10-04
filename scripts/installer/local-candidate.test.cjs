@@ -21,6 +21,14 @@ test('dirty local production receipt is accepted without fabricating release evi
   const { receipt, selected, source } = fixture();
   assert.doesNotThrow(() => validateReceipt(receipt, selected, source, 'engine', 'launcher'));
 });
+for (const jobs of ['1', '16', '17', '23', '32', '64', '256']) test('accepts recorded local build with ' + jobs + ' jobs', () => {
+  const { receipt, selected, source } = fixture(); receipt.command[18] = jobs;
+  assert.doesNotThrow(() => validateReceipt(receipt, selected, source, 'engine', 'launcher'));
+});
+for (const jobs of ['0', '257', '1000', '-1', '01', '+4', '4.0', '1e2', '4\n', '1.5', '23junk', 23, null]) test('rejects invalid recorded job count ' + JSON.stringify(jobs), () => {
+  const { receipt, selected, source } = fixture(); receipt.command[18] = jobs;
+  assert.throws(() => validateReceipt(receipt, selected, source, 'engine', 'launcher'), /Unexpected local production build command/);
+});
 for (const [name, change] of [
   ['stale input bytes', r => { r.inputs = []; }], ['wrong engine', r => { r.executable_sha256 = 'other'; }],
   ['wrong launcher', r => { r.launcher_sha256 = 'other'; }], ['qualification flag', r => { r.qualification_build = true; }],

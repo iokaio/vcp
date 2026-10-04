@@ -75,6 +75,16 @@ test('strict receipt refuses dirty, stale, unverified, wrong-version and qualifi
     assert.throws(() => p.validateReceipt(changed, selected, source, hash));
   }
 });
+
+test('qualified release receipts retain their 16-job limit when local parallelism increases', () => {
+  const { selected, source, receipt } = fixture();
+  receipt.command[18] = '16';
+  assert.doesNotThrow(() => p.validateReceipt(receipt, selected, source, hash));
+  for (const jobs of ['17', '23', '32', '256']) {
+    receipt.command[18] = jobs;
+    assert.throws(() => p.validateReceipt(receipt, selected, source, hash), /Unqualified build command/);
+  }
+});
 test('release source binds every tracked byte and rejects unselected or dirty source', t => {
   const root = temporary(t), git = args => execFileSync('git', ['-c', 'safe.directory=' + root.replaceAll('\\', '/'), ...args],
     { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();

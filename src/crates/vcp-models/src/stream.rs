@@ -37,12 +37,81 @@ pub enum Status {
     Incomplete,
     Failed,
 }
+/// Only enumerated terminal causes cross into task/accounting status. Error
+/// messages, metadata and unknown codes remain in the captured raw response.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "termination", rename_all = "snake_case")]
+pub enum TerminalDiagnostic {
+    Failed { code: Option<TerminalErrorCode> },
+    Incomplete { reason: Option<IncompleteReason> },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalErrorCode {
+    ServerError,
+    RateLimitExceeded,
+    InvalidPrompt,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IncompleteReason {
+    MaxOutputTokens,
+    ContentFilter,
+}
+impl TerminalDiagnostic {
+    fn observe(status: &Status, response: &Value) -> Option<Self> {
+        match status {
+            Status::Completed => None,
+            Status::Failed => Some(Self::Failed {
+                code: match response.pointer("/error/code").and_then(Value::as_str) {
+                    Some("server_error") => Some(TerminalErrorCode::ServerError),
+                    Some("rate_limit_exceeded") => Some(TerminalErrorCode::RateLimitExceeded),
+                    Some("invalid_prompt") => Some(TerminalErrorCode::InvalidPrompt),
+                    _ => None,
+                },
+            }),
+            Status::Incomplete => Some(Self::Incomplete {
+                reason: match response
+                    .pointer("/incomplete_details/reason")
+                    .and_then(Value::as_str)
+                {
+                    Some("max_output_tokens") => Some(IncompleteReason::MaxOutputTokens),
+                    Some("content_filter") => Some(IncompleteReason::ContentFilter),
+                    _ => None,
+                },
+            }),
+        }
+    }
+    pub fn summary(&self) -> &'static str {
+        match self {
+            Self::Failed {
+                code: Some(TerminalErrorCode::ServerError),
+            } => "provider response.failed (server_error)",
+            Self::Failed {
+                code: Some(TerminalErrorCode::RateLimitExceeded),
+            } => "provider response.failed (rate_limit_exceeded)",
+            Self::Failed {
+                code: Some(TerminalErrorCode::InvalidPrompt),
+            } => "provider response.failed (invalid_prompt)",
+            Self::Failed { code: None } => "provider response.failed (cause unknown)",
+            Self::Incomplete {
+                reason: Some(IncompleteReason::MaxOutputTokens),
+            } => "provider response.incomplete (max_output_tokens)",
+            Self::Incomplete {
+                reason: Some(IncompleteReason::ContentFilter),
+            } => "provider response.incomplete (content_filter)",
+            Self::Incomplete { reason: None } => "provider response.incomplete (cause unknown)",
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResultBody {
     pub response_id: String,
     pub served_model: Option<String>,
     pub served_provider: Option<String>,
     pub status: Status,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_diagnostic: Option<TerminalDiagnostic>,
     pub usage: Option<ObservedUsage>,
     pub calls: Vec<Call>,
     /// Non-whitespace visible text from completed assistant items. Deltas and
@@ -413,6 +482,7 @@ impl Stream {
                     response_id: identity(response, "id")?,
                     served_model: optional_identity(response, "model")?,
                     served_provider: optional_identity(response, "provider")?,
+                    terminal_diagnostic: TerminalDiagnostic::observe(&status, response),
                     status,
                     usage,
                     calls,

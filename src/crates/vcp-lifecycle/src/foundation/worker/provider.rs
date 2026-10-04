@@ -997,7 +997,18 @@ impl Context {
             .as_ref()
             .and_then(|usage| usage.cost.clone())
         else {
-            return self.unknown(binding, attempt, "provider response omitted observed cost");
+            let reason = normalized.terminal_diagnostic.as_ref().map_or_else(
+                || "provider response omitted observed cost; submitted charge remains unresolved and requires accounting reconciliation".to_owned(),
+                |diagnostic| format!("{}; provider response omitted observed cost; submitted charge remains unresolved and requires accounting reconciliation", diagnostic.summary()),
+            );
+            // A validated terminal is stronger evidence than the retained
+            // client's generic error classification for that terminal.
+            if let Some(provider) = self.provider.as_mut() {
+                provider.failures.remove(attempt);
+                provider.error_sources.remove(attempt);
+            }
+            self.retain_unknown(binding, attempt, &reason, false)?;
+            return self.pause_root(&reason);
         };
         let actor = self.actor();
         #[cfg(feature = "qualification")]
@@ -1033,6 +1044,13 @@ impl Context {
             .is_some_and(|model| model != &admitted.quote.price.model)
         {
             self.pause_root("observed served model differs from admitted model pin")?;
+        }
+        if let Some(diagnostic) = &normalized.terminal_diagnostic {
+            self.pause_root(&format!(
+                "{}; final observed cost retained",
+                diagnostic.summary()
+            ))?;
+            return Ok(());
         }
         #[cfg(windows)]
         if self.coding.contains_key(&binding.scope.task) {

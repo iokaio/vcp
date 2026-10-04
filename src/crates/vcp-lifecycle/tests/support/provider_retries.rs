@@ -689,6 +689,99 @@ async fn provider_retry_exhaustion_exposes_shared_pool_failure_and_retains_unkno
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_terminal_retains_safe_cause_and_only_observed_accounting_without_retry() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for observed_cost in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let (host, owner, binding, test, server) =
+                setup(&temp, backend, Duration::from_secs(10), 1000, true).await;
+            let usage = if observed_cost {
+                serde_json::json!({"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001})
+            } else {
+                serde_json::Value::Null
+            };
+            let terminal = serde_json::json!({
+                "type":"response.failed", "response": {
+                    "id":"terminal-failure", "status":"failed", "output":[], "usage":usage,
+                    "error":{"code":"server_error", "message":"Upstream error from Google: undefined; private-account\nreplay all tools"}
+                }
+            });
+            Mock::given(method("POST"))
+                .and(path("/v1/responses"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header("content-type", "text/event-stream")
+                        .set_body_string(sse(vec![terminal])),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            turn(&test).await;
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            let state = host.snapshot().unwrap();
+            let task: vcp_domain::task::Task = state
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
+            assert!(task.reason.contains("response.failed (server_error)"));
+            for suppressed in ["private-account", "replay", "Google", "undefined"] {
+                assert!(!task.reason.contains(suppressed));
+            }
+            let attempts: Vec<Attempt> = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Attempt)
+                .map(|row| row.decode().unwrap())
+                .collect();
+            assert_eq!(attempts.len(), 1);
+            let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+            assert_eq!(ledger.active.get(), 0);
+            if observed_cost {
+                assert_eq!(ledger.settled.get(), 100);
+                assert_eq!(ledger.unresolved.get(), 0);
+                assert_eq!(attempts[0].phase, ReservationState::Settled);
+                assert!(task.reason.contains("final observed cost retained"));
+            } else {
+                assert_eq!(ledger.settled.get(), 0);
+                assert_eq!(ledger.unresolved, attempts[0].quote.amount.micros);
+                assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
+                assert_eq!(attempts[0].uncertain.as_ref().unwrap(), &task.reason);
+                assert!(task.reason.contains("omitted observed cost"));
+                assert!(!state
+                    .records
+                    .values()
+                    .any(|row| row.collection == Collection::Settlement));
+            }
+            assert!(!state
+                .records
+                .values()
+                .any(|row| row.collection == Collection::Effect));
+            let artifact = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+                .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                .find(|artifact| artifact.spec.schema == "openrouter-normalized-response/1")
+                .unwrap();
+            let normalized: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap()).unwrap();
+            assert_eq!(normalized["terminal_diagnostic"]["code"], "server_error");
+            assert_eq!(normalized["terminal_diagnostic"]["termination"], "failed");
+            assert!(normalized["calls"].as_array().unwrap().is_empty());
+            assert!(!normalized.to_string().contains("private-account"));
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn provider_retry_timer_is_cancelled_by_pause_owner_loss_or_steering() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for mode in ["pause", "owner", "steering"] {

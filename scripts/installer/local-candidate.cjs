@@ -8,7 +8,7 @@ const inventory = require('../package-inventory.cjs');
 const check = (ok, message) => { if (!ok) throw Error(message); };
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const extras = [
-  'scripts/build-production.ps1', 'scripts/build-local-setup.ps1', 'scripts/build-setup.ps1',
+  'scripts/build-production.ps1', 'scripts/build-local-setup.ps1', 'scripts/build-local-deploy.ps1', 'scripts/build-setup.ps1',
   'scripts/release', 'scripts/installer', 'scripts/upstream', 'scripts/package.ps1', 'scripts/package-install.ps1',
   'scripts/package-inventory.cjs', 'scripts/package-models.ps1', 'scripts/skills',
   'src/third_party/upstreams.toml', 'src/third_party/components', 'src/skills/builtin',
@@ -42,7 +42,8 @@ function validateReceipt(receipt, selected, source, executableHash, launcherHash
   }
   check(receipt.compiler_artifact.package_id === receipt.launcher_compiler_artifact.package_id, 'Launcher package differs');
   const args = receipt.command;
-  check(Array.isArray(args) && /^[1-9]\d?$/.test(args[18]) && Number(args[18]) <= 16 &&
+  check(Array.isArray(args) && typeof args[18] === 'string' && /^[1-9]\d{0,2}$/.test(args[18]) &&
+    String(Number(args[18])) === args[18] && Number(args[18]) <= 256 &&
     typeof args[16] === 'string' && /[\\/]codex-target$/.test(args[16]) &&
     equal(args, ['cargo', '+1.95.0', 'build', '--locked', '--offline', '--release', '--no-default-features',
       '-p', 'vcp-cli', '--bin', 'vcp', '--bin', 'vcp-launch', '--target', selected.target,

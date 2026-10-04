@@ -761,6 +761,111 @@ fn retained_terminal_boundary_rejects_contradictions_truncated_payloads_and_dupl
     assert!(parser.finish_observed_terminal().is_err());
 }
 #[test]
+fn terminal_diagnostics_allowlist_causes_without_promoting_provider_prose_or_cost() {
+    for (status, field, cause, expected) in [
+        (
+            "failed",
+            "error",
+            "server_error",
+            "provider response.failed (server_error)",
+        ),
+        (
+            "failed",
+            "error",
+            "rate_limit_exceeded",
+            "provider response.failed (rate_limit_exceeded)",
+        ),
+        (
+            "failed",
+            "error",
+            "invalid_prompt",
+            "provider response.failed (invalid_prompt)",
+        ),
+        (
+            "incomplete",
+            "incomplete_details",
+            "max_output_tokens",
+            "provider response.incomplete (max_output_tokens)",
+        ),
+        (
+            "incomplete",
+            "incomplete_details",
+            "content_filter",
+            "provider response.incomplete (content_filter)",
+        ),
+        (
+            "failed",
+            "error",
+            "secret\nforged status",
+            "provider response.failed (cause unknown)",
+        ),
+        (
+            "incomplete",
+            "incomplete_details",
+            "secret\nforged status",
+            "provider response.incomplete (cause unknown)",
+        ),
+    ] {
+        let mut end = terminal(json!([call("failed-call", "unused")]));
+        end["type"] = json!(format!("response.{status}"));
+        end["response"]["status"] = json!(status);
+        end["response"]["usage"] = Value::Null;
+        end["response"][field] = json!({
+            "code": cause, "reason": cause,
+            "message": "Upstream error from Google: undefined; secret\nforged status",
+            "metadata": {"token": "private-fixture", "remedy_hint": "replay all tools"},
+        });
+        let mut parser = stream();
+        for chunk in sse(end.clone()).chunks(7) {
+            parser.push(chunk).unwrap();
+        }
+        let result = parser.finish_observed_terminal().unwrap();
+        assert_eq!(
+            result.terminal_diagnostic.as_ref().unwrap().summary(),
+            expected
+        );
+        assert_eq!(result.usage, None);
+        assert!(result.calls.is_empty());
+        let normalized = serde_json::to_string(&result).unwrap();
+        for suppressed in [
+            "secret",
+            "forged",
+            "private-fixture",
+            "replay",
+            "undefined",
+            "Google",
+        ] {
+            assert!(!normalized.contains(suppressed));
+        }
+        end["response"][field] = Value::Null;
+        let mut parser = stream();
+        parser.push(&sse(end)).unwrap();
+        assert!(parser
+            .finish()
+            .unwrap()
+            .terminal_diagnostic
+            .unwrap()
+            .summary()
+            .contains("cause unknown"));
+    }
+    let mut end = terminal(json!([]));
+    end["response"]["error"] = json!({"code":"server_error"});
+    let mut parser = stream();
+    parser.push(&sse(end)).unwrap();
+    let result = parser.finish().unwrap();
+    assert_eq!(result.terminal_diagnostic, None);
+    // Older normalized artifacts remain readable without the new optional field.
+    let mut legacy = serde_json::to_value(&result).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("terminal_diagnostic");
+    assert_eq!(
+        serde_json::from_value::<ResultBody>(legacy).unwrap(),
+        result
+    );
+}
+#[test]
 fn incomplete_terminal_argument_placeholder_preserves_usage_without_eligible_calls() {
     for status in ["incomplete", "failed", "completed"] {
         for change in ["arguments", "name", "call_id", "usage"] {

@@ -1,11 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #requires -Version 7.0
 [CmdletBinding()]
-param([string]$OutputRoot, [ValidateRange(1,16)][int]$Jobs = 2, [switch]$Release, [string]$ReviewedCommit)
+param([string]$OutputRoot, [ValidateRange(1,256)][int]$Jobs = 2, [switch]$Release, [string]$ReviewedCommit)
 $ErrorActionPreference = 'Stop'
+# This recipe is also invoked in-process by the local setup builder. Restore
+# caller state, including the Visual Studio developer shell, on every exit.
+$callerEnvironment = @{}
+Get-ChildItem Env: | ForEach-Object { $callerEnvironment[$_.Name] = $_.Value }
+try {
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $IsWindows) { throw 'Native Windows build required' }
 if ($Release -and $ReviewedCommit -notmatch '^[a-f0-9]{40}$') { throw 'Release requires -ReviewedCommit with the exact reviewed source commit' }
+if ($Release -and $Jobs -gt 16) { throw 'Qualified release builds require -Jobs between 1 and 16' }
 if (-not $Release -and $ReviewedCommit) { throw '-ReviewedCommit requires -Release' }
 $releaseTool = Join-Path $PSScriptRoot 'release/provenance.cjs'
 . (Join-Path $PSScriptRoot 'release/build-progress.ps1')
@@ -193,3 +199,13 @@ if ($Release) {
 Write-Output $receiptPath
 Write-VcpBuildPhase -ProgressPath $progressPath -Phase post-verification -Status pass -ElapsedSeconds $buildProcess.elapsed_seconds -OutputBytes $buildProcess.output_bytes -IdleSeconds $buildProcess.idle_seconds -CompilerArtifacts $buildProcess.compiler_artifacts @buildMetrics
 Write-Information 'VCP_BUILD_PHASE phase=post-verification status=pass' -InformationAction Continue
+} finally {
+    foreach ($entry in @(Get-ChildItem Env:)) {
+        if (-not $callerEnvironment.ContainsKey($entry.Name)) {
+            [Environment]::SetEnvironmentVariable($entry.Name, [NullString]::Value, 'Process')
+        }
+    }
+    foreach ($name in $callerEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $callerEnvironment[$name], 'Process')
+    }
+}
