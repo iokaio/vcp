@@ -16,7 +16,17 @@ use vcp_protocol::{
     },
     event::{EventInput, EventKind},
 };
-use vcp_store::contract::{key, Collection, Mutation, ReceiptInput, Record, State, Transaction};
+use vcp_store::contract::{
+    key, CanonicalStore, Collection, Mutation, ReceiptInput, Record, Transaction,
+};
+#[cfg(test)]
+use vcp_store::contract::State;
+use vcp_store::CurrentStateView;
+
+mod source;
+#[cfg(test)]
+pub(crate) use source::source;
+pub(crate) use source::source_store;
 
 pub(crate) struct Source {
     pub session: Session,
@@ -27,7 +37,8 @@ pub(crate) struct Source {
 
 /// Both the immutable completed boundary and its historical task snapshot must
 /// remain visible. A newer current task cannot supply old fingerprint evidence.
-pub(crate) fn source(
+#[cfg(test)]
+fn source_reference(
     state: &State,
     workspace: &WorkspaceId,
     session: &SessionId,
@@ -204,7 +215,12 @@ pub(crate) fn source(
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn available_targets(state: &State, session: &SessionId, task: &TaskId) -> Result<()> {
+pub(crate) fn available_targets<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    session: &SessionId,
+    task: &TaskId,
+) -> Result<()> {
+    let state = state.into();
     if state
         .records
         .contains_key(&key(Collection::Session, session.as_str()))
@@ -217,8 +233,8 @@ pub(crate) fn available_targets(state: &State, session: &SessionId, task: &TaskI
     Ok(())
 }
 
-pub(crate) fn transaction(
-    state: &State,
+pub(crate) async fn transaction<S: CanonicalStore>(
+    store: &S,
     command: &CommandEnvelope,
     digest: String,
     new_session: &SessionId,
@@ -226,6 +242,7 @@ pub(crate) fn transaction(
     through: &TurnId,
     now: Timestamp,
 ) -> Result<Transaction> {
+    let state = store.current();
     if command.task.is_some()
         || command.expected != Revision::ZERO
         || command.steering != SteeringRevision::ZERO
@@ -234,7 +251,7 @@ pub(crate) fn transaction(
         return Err(Error::Target);
     }
     available_targets(state, new_session, new_task)?;
-    let source = source(state, &command.workspace, &command.session, through)?;
+    let source = source_store(store, &command.workspace, &command.session, through).await?;
     let accepted = Acceptance {
         document_type: Format::V1,
         schema_version: 1,

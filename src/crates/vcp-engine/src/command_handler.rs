@@ -252,14 +252,15 @@ impl<S: CanonicalStore> Engine<S> {
                 through_turn,
             } => {
                 let transaction = crate::fork::transaction(
-                    self.store.state(),
+                    &self.store,
                     &command,
                     digest,
                     id,
                     task,
                     through_turn,
                     host.now,
-                )?;
+                )
+                .await?;
                 return self
                     .store
                     .transact(transaction)

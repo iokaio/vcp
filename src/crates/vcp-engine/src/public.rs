@@ -204,7 +204,7 @@ impl<S: CanonicalStore> Engine<S> {
         {
             return Err(PublicError::Access);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -286,8 +286,14 @@ impl<S: CanonicalStore> Engine<S> {
                     .map_err(|_| PublicError::InvalidParameters)?;
                 crate::fork::available_targets(state, &target_session, &target_task)
                     .map_err(public_error)?;
-                crate::fork::source(state, &access.workspace, &access.session, &through)
-                    .map_err(public_error)?;
+                crate::fork::source_store(
+                    self.store(),
+                    &access.workspace,
+                    &access.session,
+                    &through,
+                )
+                .await
+                .map_err(public_error)?;
                 (
                     None,
                     Command::ForkSession {
@@ -639,7 +645,7 @@ impl<S: CanonicalStore> Engine<S> {
     ) -> Result<Task, PublicError> {
         let task = prepared.task().ok_or(PublicError::InvalidParameters)?;
         self.store()
-            .state()
+            .current()
             .record(Collection::Task, task.as_str(), &access.workspace)
             .map_err(|_| PublicError::Unavailable)?
             .decode()
