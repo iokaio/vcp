@@ -16,6 +16,8 @@ const PAGE_ROWS: usize = 4096;
 mod encoding;
 #[path = "history_catalog_copy.rs"]
 mod copy;
+#[path = "history_catalog_equivalence.rs"]
+mod equivalence;
 #[cfg(test)]
 #[path = "history_catalog_current.rs"]
 mod current_append;

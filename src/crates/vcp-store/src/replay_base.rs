@@ -36,7 +36,16 @@ impl ReplayBase {
         if read_bounded(&seal, 64)? != digest_bytes(&bytes).as_bytes() {
             return Err(Error::Corruption("replay base seal"));
         }
-        let value: Self = serde_json::from_slice(&bytes)?;
+        Self::decode(&bytes).map(Some)
+    }
+    /// Shared semantic decoder for the exact retained legacy boundary. Archive
+    /// callers first authenticate and completely stage its bounded Blob bytes;
+    /// decoding grants no native ownership or destination execution authority.
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() > MAX_STATE_BYTES + 1024 * 1024 {
+            return Err(Error::Limit("serialized metadata"));
+        }
+        let value: Self = serde_json::from_slice(bytes)?;
         if canonical_bytes(&value)? != bytes {
             return Err(Error::Corruption("noncanonical replay base"));
         }
@@ -74,7 +83,7 @@ impl ReplayBase {
         }
         value.state.validate()?;
         validate_receipts(&value.state)?;
-        Ok(Some(value))
+        Ok(value)
     }
     pub fn write(
         root: &Path,

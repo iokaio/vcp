@@ -21,6 +21,11 @@ use vcp_domain::{
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 pub const FORMAT: &str = "vcp-neutral-history/1";
+#[path = "portable_snapshot_wire.rs"]
+pub(crate) mod wire;
+#[cfg(test)]
+#[path = "portable_snapshot_canonical.rs"]
+pub(crate) mod canonical;
 const MAX_PARTS: usize = 4096;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
