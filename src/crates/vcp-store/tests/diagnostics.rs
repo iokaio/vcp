@@ -22,6 +22,20 @@ async fn diagnostics_explain_replay_and_failed_or_duplicate_work_without_changin
         assert_eq!(observed.preparation.completed, 3);
         assert_eq!(observed.preparation.failed, 1);
         assert_eq!(observed.validation.completed, 1);
+        for phase in [
+            &observed.validation_phases.capacity,
+            &observed.validation_phases.records,
+            &observed.validation_phases.events,
+            &observed.validation_phases.redaction,
+            &observed.validation_phases.accounting,
+            &observed.validation_phases.ingestion,
+            &observed.validation_phases.search,
+            &observed.validation_phases.agents,
+        ] {
+            assert_eq!(phase.completed, 1);
+            assert_eq!(phase.failed, 0);
+            assert!(phase.elapsed_micros <= observed.validation.elapsed_micros);
+        }
         assert_eq!(
             observed.validation_input_records,
             state.records.len() as u64
@@ -41,6 +55,8 @@ async fn diagnostics_explain_replay_and_failed_or_duplicate_work_without_changin
         assert_eq!(reopened.state(), &state);
         let observed = reopened.diagnostics();
         assert_eq!(observed.replayed_commits, 1);
+        assert_eq!(observed.validation_phases.records.completed, 1);
+        assert_eq!(observed.validation_phases.events.completed, 1);
         assert!(observed.replay_payload_bytes > 0);
         assert_eq!(observed.append.completed, 0);
         assert_eq!(observed.preparation.completed, 0);

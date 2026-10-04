@@ -20,6 +20,35 @@ impl StorePhase {
     }
 }
 
+/// Full semantic-validation phases. These are nested within `validation` and
+/// report only reached phases; a failed earlier check leaves later counts alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ValidationPhases {
+    pub capacity: StorePhase,
+    pub records: StorePhase,
+    pub events: StorePhase,
+    pub redaction: StorePhase,
+    pub accounting: StorePhase,
+    pub ingestion: StorePhase,
+    pub search: StorePhase,
+    pub agents: StorePhase,
+}
+
+pub(crate) fn observe<T>(
+    phase: Option<&mut StorePhase>,
+    operation: impl FnOnce() -> crate::Result<T>,
+) -> crate::Result<T> {
+    match phase {
+        Some(phase) => {
+            let started = Instant::now();
+            let result = operation();
+            phase.record(started, result.is_ok());
+            result
+        }
+        None => operation(),
+    }
+}
+
 /// Bounded, payload-free observations for this store owner. Reopening starts a
 /// new snapshot; counters must not be mistaken for lifetime durable totals.
 #[derive(Clone, Debug, Serialize)]
@@ -36,6 +65,7 @@ pub struct StoreDiagnostics {
     pub artifact_verification: StorePhase,
     pub preparation: StorePhase,
     pub validation: StorePhase,
+    pub validation_phases: ValidationPhases,
     pub append: StorePhase,
     pub checkpoint: StorePhase,
     pub replayed_commits: u64,
@@ -68,6 +98,7 @@ impl StoreDiagnostics {
             artifact_verification: StorePhase::default(),
             preparation: StorePhase::default(),
             validation: StorePhase::default(),
+            validation_phases: ValidationPhases::default(),
             append: StorePhase::default(),
             checkpoint: StorePhase::default(),
             replayed_commits: 0,

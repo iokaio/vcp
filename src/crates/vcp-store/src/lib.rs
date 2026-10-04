@@ -31,8 +31,8 @@ pub mod trust_store;
 pub mod vault_crypto;
 pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
-pub use current_state::CurrentState;
-pub use diagnostics::{StoreDiagnostics, StorePhase};
+pub use current_state::{CurrentState, CurrentStateView};
+pub use diagnostics::{StoreDiagnostics, StorePhase, ValidationPhases};
 pub use history::{CommandHistoryPage, EventHistoryPage};
 pub use store::{snapshot_pin_active, Snapshot, Store};
 

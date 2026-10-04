@@ -1116,6 +1116,41 @@ impl State {
         self.validate_sized(None)
     }
     fn validate_sized(&self, size: Option<StateSize>) -> Result<()> {
+        self.validate_observed(size, None)
+    }
+    fn validate_observed(
+        &self,
+        size: Option<StateSize>,
+        mut phases: Option<&mut crate::ValidationPhases>,
+    ) -> Result<()> {
+        use crate::diagnostics::observe;
+        observe(phases.as_deref_mut().map(|p| &mut p.capacity), || {
+            self.validate_capacity(size)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.records), || {
+            self.validate_records()
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.events), || {
+            self.validate_event_history()
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.redaction), || {
+            crate::redaction_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.accounting), || {
+            crate::accounting_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.ingestion), || {
+            ingestion_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.search), || {
+            search_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.agents), || {
+            agents_contract::validate(self)
+        })?;
+        Ok(())
+    }
+    fn validate_capacity(&self, size: Option<StateSize>) -> Result<()> {
         if self.records.len() > MAX_RECORDS {
             return Err(Error::Limit("canonical record count"));
         }
@@ -1128,6 +1163,9 @@ impl State {
                 "canonical view bytes; explicit migration required",
             ));
         }
+        Ok(())
+    }
+    fn validate_records(&self) -> Result<()> {
         for (key, record) in &self.records {
             if &record.key() != key {
                 return Err(Error::Corruption("canonical key"));
@@ -1246,12 +1284,6 @@ impl State {
                 }
             }
         }
-        self.validate_event_history()?;
-        crate::redaction_contract::validate(self)?;
-        crate::accounting_contract::validate(self)?;
-        ingestion_contract::validate(self)?;
-        search_contract::validate(self)?;
-        agents_contract::validate(self)?;
         Ok(())
     }
     fn validate_event_history(&self) -> Result<()> {
@@ -1612,7 +1644,8 @@ impl State {
                     diagnostics.state_size_delta_updates.saturating_add(1);
             }
             let started = std::time::Instant::now();
-            let validation = result.validate_sized(next_size);
+            let validation =
+                result.validate_observed(next_size, Some(&mut diagnostics.validation_phases));
             diagnostics.validation.record(started, validation.is_ok());
             diagnostics.validation_input_records = diagnostics
                 .validation_input_records
@@ -1698,6 +1731,10 @@ impl State {
 #[allow(async_fn_in_trait)]
 pub trait CanonicalStore {
     fn state(&self) -> &State;
+    /// Borrow only the current projection; callers cannot accidentally scan history.
+    fn current(&self) -> crate::CurrentStateView<'_> {
+        crate::CurrentStateView::from(self.state())
+    }
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
 }
 
@@ -1712,6 +1749,30 @@ mod search_contract_tests;
 #[cfg(test)]
 mod size_tests {
     use super::*;
+
+    #[test]
+    fn validation_observations_preserve_error_and_stop_at_failed_phase() {
+        let mut state = State::default();
+        state
+            .records
+            .insert("wrong-key".into(), record(serde_json::json!({})));
+        let mut phases = crate::ValidationPhases::default();
+        let error = state
+            .validate_observed(None, Some(&mut phases))
+            .unwrap_err();
+        assert_eq!(error.to_string(), state.validate().unwrap_err().to_string());
+        assert!(matches!(error, Error::Corruption("canonical key")));
+        assert_eq!(phases.capacity.completed, 1);
+        assert_eq!(phases.capacity.failed, 0);
+        assert_eq!(phases.records.completed, 1);
+        assert_eq!(phases.records.failed, 1);
+        assert_eq!(phases.events.completed, 0);
+        assert_eq!(phases.redaction.completed, 0);
+        assert_eq!(phases.accounting.completed, 0);
+        assert_eq!(phases.ingestion.completed, 0);
+        assert_eq!(phases.search.completed, 0);
+        assert_eq!(phases.agents.completed, 0);
+    }
 
     fn record(value: serde_json::Value) -> Record {
         Record {

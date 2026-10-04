@@ -4,7 +4,7 @@ use std::sync::Arc;
 use vcp_domain::{EventId, TransactionId, WorkspaceId};
 use vcp_store::{
     contract::{CanonicalStore, Collection, Transaction},
-    BackendKind, Error, Store,
+    BackendKind, CurrentStateView, Error, Store,
 };
 
 #[test]
@@ -61,6 +61,23 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
         let initial = common::initial();
         store.transact(initial.clone()).await.unwrap();
         let old = store.current_state();
+        let current = store.current();
+        let archived = CurrentStateView::from(store.state());
+        let immutable = CurrentStateView::from(old.as_ref());
+        assert_eq!(current.watermark, archived.watermark);
+        assert_eq!(current.sequences, immutable.sequences);
+        assert!(std::ptr::eq(current.records, archived.records));
+        assert!(std::ptr::eq(current.records, immutable.records));
+        assert!(matches!(
+            current.record(Collection::Task, "task", &WorkspaceId::new()),
+            Err(Error::Access)
+        ));
+        assert_eq!(
+            current
+                .records_in(Collection::Task, &common::workspace().id)
+                .count(),
+            1
+        );
         let historical_snapshot = store.state().clone();
         assert!(std::ptr::eq(
             historical_snapshot.events.as_ptr(),
