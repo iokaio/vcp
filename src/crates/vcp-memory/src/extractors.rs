@@ -97,7 +97,7 @@ struct Reader<'a> {
     cache: BTreeMap<ArtifactId, (ArtifactDescriptor, Vec<u8>)>,
 }
 impl Reader<'_> {
-    fn read(&mut self, id: &ArtifactId) -> Result<Option<(ArtifactDescriptor, Vec<u8>)>> {
+    async fn read(&mut self, id: &ArtifactId) -> Result<Option<(ArtifactDescriptor, Vec<u8>)>> {
         if let Some(value) = self.cache.get(id) {
             return Ok(Some(value.clone()));
         }
@@ -128,7 +128,9 @@ impl Reader<'_> {
             &self.access.history(),
             id,
             &mut bytes,
-        ) {
+        )
+        .await
+        {
             Ok(_) => {}
             Err(vcp_audit::Error::Access) => return Err(Error::Access),
             Err(_) => return Ok(None),
@@ -249,7 +251,7 @@ async fn add_observation(
         }
     }
     for reference in &candidate.evidence {
-        let Some((descriptor, _)) = reader.read(&reference.artifact)? else {
+        let Some((descriptor, _)) = reader.read(&reference.artifact).await? else {
             result.finding(
                 "missing_evidence",
                 "evidence is unavailable, pruned, incomplete or over the batch limit",
@@ -347,7 +349,7 @@ async fn native_verification(
             return Err(Error::Access);
         }
         for check in verification.checks.iter().take(MAX_PROPOSALS) {
-            let Some((check_artifact, bytes)) = reader.read(&check.output)? else {
+            let Some((check_artifact, bytes)) = reader.read(&check.output).await? else {
                 result.finding(
                     "missing_check",
                     "verification check receipt unavailable",
@@ -408,7 +410,7 @@ async fn native_verification(
                 }
                 let descriptor: ArtifactDescriptor = row.decode()?;
                 if descriptor.sha256 == origin.sha256 {
-                    if let Some((descriptor, _)) = reader.read(id)? {
+                    if let Some((descriptor, _)) = reader.read(id).await? {
                         configuration = Some(descriptor);
                         break;
                     }
@@ -573,7 +575,7 @@ pub async fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> R
         if !seen.insert(id.clone()) {
             continue;
         }
-        let Some((descriptor, bytes)) = reader.read(id)? else {
+        let Some((descriptor, bytes)) = reader.read(id).await? else {
             result.finding(
                 "missing_artifact",
                 "observed artifact unavailable or exceeds extraction budget",

@@ -218,7 +218,7 @@ fn selector(corpus: &Corpus, slot: usize) -> Selector {
     }
 }
 
-fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
+async fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
     let before = store.state().clone();
     for allowed in [
         None,
@@ -237,6 +237,7 @@ fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
             &ChunkerSpec::default(),
             search_record::Limits::default(),
         )
+        .await
         .unwrap();
         let wanted: BTreeSet<_> = (0..2)
             .filter(|slot| {
@@ -446,6 +447,7 @@ async fn restore(
             &ChunkerSpec::default(),
             search_record::Limits::default()
         )
+        .await
         .is_err(),
         "old authority survived restore"
     );
@@ -457,7 +459,7 @@ async fn restore(
         tasks: corpus.tasks.clone(),
         versions: corpus.versions.clone(),
     };
-    check(&restored, &target_corpus, expected);
+    check(&restored, &target_corpus, expected).await;
     for (id, receipt) in &original.transactions {
         assert_eq!(restored.state().transactions.get(id), Some(receipt));
     }
@@ -490,7 +492,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
             let operations = trace(*seed_value);
             // Replay overrides are debugging aids, not the full qualification campaign.
             let mut coverage = [0usize; 5]; // accepted, refused, stale, scope, reopen
-            check(&store, &corpus, &expected);
+            check(&store, &corpus, &expected).await;
             for (index, operation) in operations.iter().take(count).enumerate() {
                 eprintln!(
                     "retention seed={seed_value:#x} backend={backend:?} prefix={:?}",
@@ -514,6 +516,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             Action::Exclude,
                             now,
                         )
+                        .await
                         .unwrap();
                         let revision = store
                             .state()
@@ -552,6 +555,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             Action::Exclude,
                             now,
                         )
+                        .await
                         .unwrap();
                         let before = store.state().clone();
                         let denied = Access {
@@ -585,6 +589,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             action,
                             now,
                         )
+                        .await
                         .unwrap();
                         let before = store.state().clone();
                         let wanted = next(expected[slot], op);
@@ -613,7 +618,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                         }
                     }
                 }
-                check(&store, &corpus, &expected);
+                check(&store, &corpus, &expected).await;
             }
             eprintln!("retention seed={seed_value:#x} backend={backend:?} authenticated restore after prefix={:?}",&operations[..count]);
             let to = if backend == BackendKind::Files {

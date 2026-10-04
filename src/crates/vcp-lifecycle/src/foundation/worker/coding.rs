@@ -595,12 +595,13 @@ impl Context {
 
     fn coding_artifact(&self, id: &ArtifactId) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(bytes)
     }
     fn coding_part(

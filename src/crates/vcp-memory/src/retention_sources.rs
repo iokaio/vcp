@@ -17,7 +17,7 @@ fn needed(tree: &Tree) -> bool {
         _ => false,
     }
 }
-pub(super) fn metadata(
+pub(super) async fn metadata(
     store: &Store,
     access: &Access,
     tree: &Tree,
@@ -62,6 +62,7 @@ pub(super) fn metadata(
             &manifest.spec.id,
             &mut bytes,
         )
+        .await
         .is_err()
         {
             continue;

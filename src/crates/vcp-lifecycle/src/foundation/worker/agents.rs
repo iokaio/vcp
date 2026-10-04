@@ -149,12 +149,13 @@ impl Context {
             return Err("child workspace registration evidence changed".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         let registration: WorkspaceRegistration = serde_json::from_slice(&bytes)?;
         if registration.owner != *task
             || registration.child.workspace != self.config.workspace

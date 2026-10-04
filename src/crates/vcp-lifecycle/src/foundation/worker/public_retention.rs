@@ -310,18 +310,20 @@ impl PublicConnection {
                         Call::MemoryForgetPreview(request) => {
                             let own = scope(&request.scope, &request.task)?;
                             let memory = scoped_access(context, &access, &own, false, &call)?;
-                            let preview = service::preview(
-                                context.engine.store(),
-                                &memory,
-                                own.clone(),
-                                request
-                                    .selector
-                                    .normalized()
-                                    .map_err(|_| RpcError::invalid_params())?,
-                                action(request.action),
-                                now(),
-                            )
-                            .map_err(|e| memory_error(e, &call))?;
+                            let preview = context
+                                .runtime
+                                .block_on(service::preview(
+                                    context.engine.store(),
+                                    &memory,
+                                    own.clone(),
+                                    request
+                                        .selector
+                                        .normalized()
+                                        .map_err(|_| RpcError::invalid_params())?,
+                                    action(request.action),
+                                    now(),
+                                ))
+                                .map_err(|e| memory_error(e, &call))?;
                             let selection = preview.selection();
                             if selection.selected.union(&selection.dependent).count()
                                 > wire::MAX_OFFSET as usize

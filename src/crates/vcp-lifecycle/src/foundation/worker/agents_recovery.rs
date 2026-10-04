@@ -53,12 +53,13 @@ impl worker::Context {
             return Err("registered child base evidence differs".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &spec.snapshot,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &spec.snapshot,
+                &mut bytes,
+            ))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
 }

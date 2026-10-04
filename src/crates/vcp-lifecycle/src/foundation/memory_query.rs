@@ -190,14 +190,14 @@ impl CanonicalHost {
                 }
             }
             context.validate_memory_bindings(&checked, &query.sources)?;
-            let captured = retrieval::capture(
+            let captured = context.runtime.block_on(retrieval::capture(
                 context.engine.store(),
                 &context.memory_access(),
                 &request,
                 &query.sources,
                 &query.chunker,
                 &|| false,
-            )?;
+            ))?;
             Ok((captured, embedding, routing_policy))
         })?;
         let routing_policy = prepared.2.clone();
@@ -258,12 +258,12 @@ impl CanonicalHost {
             {
                 return Err("memory query cancelled before materialization".into());
             }
-            let response = retrieval::finish(
+            let response = context.runtime.block_on(retrieval::finish(
                 context.engine.store(),
                 &context.memory_access(),
                 selected,
                 &|| external.load(Ordering::Acquire),
-            )?;
+            ))?;
             let mut selection =
                 context.capture_memory_selection(&binding, response, routing_policy)?;
             selection.resources = Some(resources);

@@ -264,7 +264,9 @@ async fn governed_public_memory_preserves_resolution_source_status_and_read_scop
         let mut access = engine_access("workspace");
         access.write = false;
         let before = f.store.state().watermark;
-        let page = inspect(&f.store, &access, &query, &|| Ok(())).unwrap();
+        let page = inspect(&f.store, &access, &query, &|| Ok(()))
+            .await
+            .unwrap();
         assert!(page.complete);
         assert_eq!(page.findings.len(), 1);
         assert_eq!(page.findings[0].content, f.proposal.statement);
@@ -297,20 +299,29 @@ async fn governed_public_memory_preserves_resolution_source_status_and_read_scop
                 .unwrap(),
         );
         assert_eq!(
-            inspect(&f.store, &access, &explicit, &|| Ok(())).unwrap(),
+            inspect(&f.store, &access, &explicit, &|| Ok(()))
+                .await
+                .unwrap(),
             page
         );
         explicit.version = Some("unknown-version".to_owned().try_into().unwrap());
-        assert!(inspect(&f.store, &access, &explicit, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &explicit, &|| Ok(()))
+            .await
+            .is_err());
         let mut foreign = query.clone();
         foreign.scope.session = "other-session".to_owned().try_into().unwrap();
-        assert!(inspect(&f.store, &access, &foreign, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &foreign, &|| Ok(()))
+            .await
+            .is_err());
         access.authority = AuthorityRevision::new(1);
-        assert!(inspect(&f.store, &access, &query, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &query, &|| Ok(()))
+            .await
+            .is_err());
         access.authority = AuthorityRevision::ZERO;
         assert!(inspect(&f.store, &access, &query, &|| Err(
             vcp_memory::Error::Conflict("cancelled")
         ))
+        .await
         .is_err());
         assert_eq!(f.store.state().watermark, before);
         let mut contrary = f.proposal.clone();
@@ -333,7 +344,9 @@ async fn governed_public_memory_preserves_resolution_source_status_and_read_scop
         assert_eq!(committed.result.resolution.outcome, Outcome::Disputed);
         let mut disputed = query.clone();
         disputed.claim = contrary.claim.to_string().try_into().unwrap();
-        let result = inspect(&f.store, &access, &disputed, &|| Ok(())).unwrap();
+        let result = inspect(&f.store, &access, &disputed, &|| Ok(()))
+            .await
+            .unwrap();
         let state = result.findings[0].state.as_ref().unwrap();
         assert!(!state.current);
         assert_eq!(
@@ -423,7 +436,9 @@ async fn logical_retention_never_projects_pruned_content_as_an_empty_retained_cl
             })
             .await
             .unwrap();
-        let page = inspect(&f.store, &engine_access("workspace"), &query, &|| Ok(())).unwrap();
+        let page = inspect(&f.store, &engine_access("workspace"), &query, &|| Ok(()))
+            .await
+            .unwrap();
         assert!(page.complete);
         let finding = &page.findings[0];
         assert!(finding.content.is_empty() && finding.evidence.is_empty());
@@ -438,7 +453,9 @@ async fn logical_retention_never_projects_pruned_content_as_an_empty_retained_cl
         f.store.close().await.unwrap();
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            inspect(&reopened, &engine_access("workspace"), &query, &|| Ok(())).unwrap(),
+            inspect(&reopened, &engine_access("workspace"), &query, &|| Ok(()))
+                .await
+                .unwrap(),
             page
         );
         reopened.close().await.unwrap();
@@ -575,7 +592,9 @@ async fn physical_purge_preserves_only_governed_lineage() {
         }
         f.store.rewrite_base(state, &[]).await.unwrap();
         let query = request(&f);
-        let page = inspect(&f.store, &engine_access("workspace"), &query, &|| Ok(())).unwrap();
+        let page = inspect(&f.store, &engine_access("workspace"), &query, &|| Ok(()))
+            .await
+            .unwrap();
         let finding = &page.findings[0];
         assert!(finding.content.is_empty() && finding.evidence.is_empty());
         let state = finding.state.as_ref().unwrap();
@@ -586,7 +605,9 @@ async fn physical_purge_preserves_only_governed_lineage() {
         f.store.close().await.unwrap();
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            inspect(&reopened, &engine_access("workspace"), &query, &|| Ok(())).unwrap(),
+            inspect(&reopened, &engine_access("workspace"), &query, &|| Ok(()))
+                .await
+                .unwrap(),
             page
         );
         reopened.close().await.unwrap();

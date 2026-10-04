@@ -184,6 +184,7 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
                 &chunker,
                 search_record::Limits::default(),
             )
+            .await
             .unwrap();
             let publisher = Publisher::new(&temporary.path().join("derived")).unwrap();
             let prepared = publisher
@@ -246,6 +247,7 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert!(
                 !result.passages.is_empty(),
@@ -272,13 +274,16 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert_eq!(limited.passages.len(), 1);
             assert!(
                 limited.truncated,
                 "published plus recent claims exceed the one-result ceiling"
             );
-            revalidate_fence(&store, &access, result.fence.as_ref().unwrap()).unwrap();
+            revalidate_fence(&store, &access, result.fence.as_ref().unwrap())
+                .await
+                .unwrap();
             let narrowed = Access {
                 tasks: Some(BTreeSet::from([scope.task.clone()])),
                 workspace: access.workspace.clone(),
@@ -297,16 +302,20 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert!(denied.passages.is_empty());
             let selection = search(
-                capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap(),
+                capture(&store, &access, &query_request, &[], &chunker, &|| false)
+                    .await
+                    .unwrap(),
                 Some(&view),
                 None,
                 &|| false,
             )
             .unwrap();
             assert!(finish(&store, &narrowed, selection, &|| false)
+                .await
                 .unwrap()
                 .passages
                 .is_empty());
@@ -321,6 +330,7 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
                 None,
                 &|| false
             )
+            .await
             .unwrap()
             .passages
             .is_empty());
@@ -342,6 +352,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             &chunker,
             search_record::Limits::default(),
         )
+        .await
         .unwrap();
         let publisher = Publisher::new(&temporary.path().join("derived")).unwrap();
         let prepared = publisher
@@ -373,25 +384,31 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
                 publisher.recover_snapshot(&snapshot, &narrowed).is_err(),
                 "scoped query does not gain a broad component View"
             );
-            let broad = capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+            let broad = capture(&store, &access, &query_request, &[], &chunker, &|| false)
+                .await
+                .unwrap();
             assert!(
                 publisher
                     .search_captured_with_check(&narrowed, broad, &|| Ok(()))
                     .is_err(),
                 "broad capture cannot cross a narrow reader"
             );
-            let scoped =
-                capture(&store, &narrowed, &query_request, &[], &chunker, &|| false).unwrap();
+            let scoped = capture(&store, &narrowed, &query_request, &[], &chunker, &|| false)
+                .await
+                .unwrap();
             let selected = publisher
                 .search_captured_with_check(&narrowed, scoped, &|| Ok(()))
                 .unwrap();
-            let page = finish(&store, &narrowed, selected, &|| false).unwrap();
+            let page = finish(&store, &narrowed, selected, &|| false)
+                .await
+                .unwrap();
             assert_eq!(page.passages.len(), 1);
             assert_eq!(page.passages[0].scope.task, scope.task);
             let mut foreign_actor = narrowed;
             foreign_actor.actor = ActorId::parse("foreign-actor").unwrap();
-            let scoped =
-                capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+            let scoped = capture(&store, &access, &query_request, &[], &chunker, &|| false)
+                .await
+                .unwrap();
             assert!(publisher
                 .search_captured_with_check(&foreign_actor, scoped, &|| Ok(()))
                 .is_err());
@@ -402,16 +419,18 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             checkpoints.get() >= 6
         };
         assert!(matches!(
-            capture(&store, &access, &query_request, &[], &chunker, &interrupt),
+            capture(&store, &access, &query_request, &[], &chunker, &interrupt).await,
             Err(vcp_memory::Error::Conflict("retrieval cancelled"))
         ));
         assert_eq!(checkpoints.get(), 6);
-        let captured = capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+        let captured = capture(&store, &access, &query_request, &[], &chunker, &|| false)
+            .await
+            .unwrap();
         let selection = search(captured, Some(view), None, &|| false).unwrap();
         checkpoints.set(0);
         assert!(
             matches!(
-                finish(&store, &access, selection, &interrupt),
+                finish(&store, &access, selection, &interrupt).await,
                 Err(vcp_memory::Error::Conflict("retrieval cancelled"))
             ),
             "interrupted rematerialization must not return a successful fence"
@@ -427,6 +446,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert_eq!(result.passages.len(), 1);
         assert!(
@@ -445,6 +465,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert_eq!(exact.passages.len(), 1);
         assert!(
@@ -463,14 +484,17 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert!(omitted.passages.is_empty() && omitted.truncated);
         assert!(result.passages[0].text.contains("retained-preference-only"));
         assert_eq!(result.passages[0].evidence_status, EvidenceStatus::Observed);
         assert!(result.degraded.contains(&"minimum_sequence_unsatisfied"));
         let fence = result.fence.as_ref().unwrap();
-        revalidate_fence(&store, &access, fence).unwrap();
-        let captured = capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+        revalidate_fence(&store, &access, fence).await.unwrap();
+        let captured = capture(&store, &access, &query_request, &[], &chunker, &|| false)
+            .await
+            .unwrap();
         assert!(store.try_snapshot_cleanup_guard().unwrap().is_none());
         let off_owner = std::thread::scope(|threads| {
             threads
@@ -480,21 +504,25 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
                 .unwrap()
         });
         assert!(store.try_snapshot_cleanup_guard().unwrap().is_none());
-        let finished = finish(&store, &access, off_owner, &|| false).unwrap();
+        let finished = finish(&store, &access, off_owner, &|| false).await.unwrap();
         assert_eq!(finished.passages[0].record_id, result.passages[0].record_id);
         assert!(store.try_snapshot_cleanup_guard().unwrap().is_some());
-        let captured_broad =
-            capture(&store, &access, &query_request, &[], &chunker, &|| false).unwrap();
+        let captured_broad = capture(&store, &access, &query_request, &[], &chunker, &|| false)
+            .await
+            .unwrap();
         let ranked_broad = search(captured_broad, Some(view), None, &|| false).unwrap();
         let mut narrow = access;
         narrow.tasks = Some(BTreeSet::new());
-        let narrowed_after_search = finish(&store, &narrow, ranked_broad, &|| false).unwrap();
+        let narrowed_after_search = finish(&store, &narrow, ranked_broad, &|| false)
+            .await
+            .unwrap();
         assert!(narrowed_after_search.passages.is_empty());
         assert!(!serde_json::to_string(&narrowed_after_search)
             .unwrap()
             .contains("retained-preference-only"));
-        let captured_narrow =
-            capture(&store, &narrow, &query_request, &[], &chunker, &|| false).unwrap();
+        let captured_narrow = capture(&store, &narrow, &query_request, &[], &chunker, &|| false)
+            .await
+            .unwrap();
         let ranked_narrow = search(captured_narrow, Some(view), None, &|| false).unwrap();
         let denied = query(
             &store,
@@ -506,15 +534,17 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert!(denied.passages.is_empty());
         assert!(!serde_json::to_string(&denied)
             .unwrap()
             .contains("retained-preference-only"));
-        assert!(revalidate_fence(&store, &narrow, fence).is_err());
+        assert!(revalidate_fence(&store, &narrow, fence).await.is_err());
         narrow.tasks = None;
         assert!(
             finish(&store, &narrow, ranked_narrow, &|| false)
+                .await
                 .unwrap()
                 .passages
                 .is_empty(),
@@ -532,6 +562,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert_eq!(trimmed.passages.len(), 1);
         assert!(trimmed.passages[0].trimmed);
@@ -559,6 +590,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert!(history.rebuild_required && history.passages.is_empty());
         let artifact = result.passages[0].evidence[0].clone();
@@ -592,8 +624,9 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             deletion: workspace.deletion,
             reason: "fixture prune".into(),
         };
-        let before_prune =
-            capture(&store, &narrow, &query_request, &[], &chunker, &|| false).unwrap();
+        let before_prune = capture(&store, &narrow, &query_request, &[], &chunker, &|| false)
+            .await
+            .unwrap();
         let before_prune = search(before_prune, Some(view), None, &|| false).unwrap();
         store
             .transact(Transaction {
@@ -630,16 +663,18 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             .unwrap();
         assert!(
             matches!(
-                finish(&store, &narrow, before_prune, &|| false),
+                finish(&store, &narrow, before_prune, &|| false).await,
                 Err(vcp_memory::Error::Access)
             ),
             "epoch change while native search runs must reject old selection"
         );
-        assert!(revalidate_fence(&store, &narrow, fence).is_err());
+        assert!(revalidate_fence(&store, &narrow, fence).await.is_err());
         let mut epoch_refreshed = fence.clone();
         epoch_refreshed.deletion = workspace.deletion;
         assert!(
-            revalidate_fence(&store, &narrow, &epoch_refreshed).is_err(),
+            revalidate_fence(&store, &narrow, &epoch_refreshed)
+                .await
+                .is_err(),
             "current epochs cannot restore a pruned source identity"
         );
         let pruned = query(
@@ -652,6 +687,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
             None,
             &|| false,
         )
+        .await
         .unwrap();
         assert!(pruned.passages.is_empty());
         assert!(!serde_json::to_string(&pruned)

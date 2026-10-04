@@ -840,6 +840,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         &fixture.request.spec.id,
         &mut bytes,
     )
+    .await
     .unwrap();
     assert_eq!(bytes, b"{\"request\":\"synthetic\"}");
     let denied = Access {
@@ -852,7 +853,8 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
             &denied,
             &fixture.request.spec.id,
             Vec::new()
-        ),
+        )
+        .await,
         Err(Error::Access)
     ));
     issue(
@@ -876,6 +878,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         &fixture.request.spec.id,
         Vec::new()
     )
+    .await
     .is_err());
     let renewed = Access {
         authority: AuthorityRevision::new(1),
@@ -887,6 +890,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         &fixture.request.spec.id,
         Vec::new()
     )
+    .await
     .is_ok());
     assert!(matches!(
         history.page(
@@ -994,7 +998,8 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             &access(),
             &fixture.request.spec.id,
             Vec::new()
-        ),
+        )
+        .await,
         Err(Error::Removed)
     ));
     let query = vcp_audit::inspection::InspectionQuery {

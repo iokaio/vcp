@@ -473,12 +473,14 @@ impl CanonicalHost {
     pub fn read_artifact(&self, id: ArtifactId) -> Result<Vec<u8>, String> {
         self.worker.run_cleanup(move |context| {
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                context.engine.store(),
-                &context.history_access(),
-                &id,
-                &mut bytes,
-            )?;
+            context
+                .runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    context.engine.store(),
+                    &context.history_access(),
+                    &id,
+                    &mut bytes,
+                ))?;
             Ok(bytes)
         })
     }

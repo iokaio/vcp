@@ -348,15 +348,15 @@ impl History {
     pub fn close(&mut self, snapshot: &SnapshotId) {
         self.snapshots.remove(snapshot);
     }
-    pub fn read_artifact(
+    pub async fn read_artifact(
         store: &Store,
         access: &Access,
         id: &ArtifactId,
         sink: impl std::io::Write,
     ) -> Result<ArtifactDescriptor> {
-        authorize(store.state(), access)?;
+        authorize(store.current(), access)?;
         let artifact: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &access.workspace)?
             .decode()?;
         if !allows(access, Some(&artifact.spec.scope.task)) {
@@ -368,13 +368,14 @@ impl History {
         if artifact.spec.schema == "vcp-optimization-forecast-v1" {
             return Err(Error::Access);
         }
-        vcp_store::export_contract::validate_read(
-            store.state(),
+        vcp_store::export_contract::validate_read_store(
+            store,
             access.authority,
             access.tasks.as_ref(),
             &artifact,
-        )?;
-        if masks(store.state(), &access.workspace)?
+        )
+        .await?;
+        if masks(store.current(), &access.workspace)?
             .iter()
             .any(|mask| mask.artifacts.contains(id))
         {

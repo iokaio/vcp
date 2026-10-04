@@ -314,7 +314,7 @@ pub struct Queued {
     pub policy: Policy,
     pub preview: PrunePreview,
 }
-pub fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Queued>> {
+pub async fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Queued>> {
     let policy = show(store, access)?;
     let Some(mode) = &policy.automatic else {
         return Ok(None);
@@ -341,7 +341,8 @@ pub fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Qu
     {
         return Ok(None);
     }
-    let preview = retention::preview(store, access, mode.selector.clone(), mode.action, now)?;
+    let preview =
+        retention::preview(store, access, mode.selector.clone(), mode.action, now).await?;
     Ok(Some(Queued { policy, preview }))
 }
 /// Recheck enabled policy and its granting authority immediately before applying
@@ -449,7 +450,7 @@ pub async fn run_due(
         local_cleanup_complete: None,
     };
     let mut name = format!("policy-blocked-{}", CommandId::new());
-    let queued = match queue(store, access, now) {
+    let queued = match queue(store, access, now).await {
         Ok(None) => return Ok(None),
         Ok(Some(queued)) => Some(queued),
         Err(Error::Access) => {

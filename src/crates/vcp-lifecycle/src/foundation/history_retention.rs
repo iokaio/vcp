@@ -115,9 +115,10 @@ pub async fn execute(
             claim,
             limit,
             cursor,
-        } => memory_page(store, access, claim, limit, cursor),
+        } => memory_page(store, access, claim, limit, cursor).await,
         Request::Preview { selector, action } => {
             let preview = retention::preview(store, access, selector, action, now)
+                .await
                 .map_err(|e| e.to_string())?;
             retention::save_preview(store, access, &preview, now)
                 .await
@@ -200,7 +201,7 @@ pub async fn execute(
     };
     result.map_err(|e| e.to_string())
 }
-fn memory_page(
+async fn memory_page(
     store: &Store,
     access: &Access,
     claim: ClaimId,
@@ -209,7 +210,7 @@ fn memory_page(
 ) -> Result<serde_json::Value, serde_json::Error> {
     // Errors from canonical authorization are returned through the ordinary
     // adapter error boundary; they are never represented as empty histories.
-    fn page(
+    async fn page(
         store: &Store,
         access: &Access,
         claim: ClaimId,
@@ -249,6 +250,7 @@ fn memory_page(
             cursor.as_ref().map_or(MemorySeq::ZERO, |c| c.after),
             limit as usize,
         )
+        .await
         .map_err(|e| e.to_string())?;
         let mut rows = Vec::new();
         let mut bytes = 0;
@@ -288,7 +290,9 @@ fn memory_page(
             serde_json::json!({"workspace":access.workspace,"claim":claim,"watermark":history.watermark,"at":at,"kind":"governed_memory","versions":rows,"next_cursor":more.then_some(MemoryCursor{workspace:access.workspace.clone(),access_digest,claim,at,after:next,authority:workspace.authority,deletion:workspace.deletion})}),
         )
     }
-    page(store, access, claim, limit, cursor).map_err(serde::ser::Error::custom)
+    page(store, access, claim, limit, cursor)
+        .await
+        .map_err(serde::ser::Error::custom)
 }
 fn preview_value(
     preview: &retention::PrunePreview,

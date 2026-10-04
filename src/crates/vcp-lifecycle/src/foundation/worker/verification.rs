@@ -524,12 +524,13 @@ impl Context {
             return Err("verification citation scope or completeness rejected".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(bytes)
     }
     pub(super) fn verification_observe(

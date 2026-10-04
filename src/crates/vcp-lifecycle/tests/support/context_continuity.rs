@@ -502,7 +502,7 @@ async fn run(backend: BackendKind, oversized: bool) {
                     from: None,
                     until: Timestamp::new(u64::MAX),
                 },
-            )
+            ).await
             .unwrap();
         assert!(!diagnostics.entries.is_empty());
         assert!(

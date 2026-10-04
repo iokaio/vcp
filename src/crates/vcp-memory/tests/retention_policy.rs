@@ -95,7 +95,7 @@ async fn aging_boundary_repeat_and_notification_only_preserve_retained_history()
         let notice = aging(&store, &access, now).await.unwrap();
         assert!(notice.due);
         assert_eq!(notice.oldest, Some(Timestamp::new(100)));
-        assert!(queue(&store, &access, now).unwrap().is_none());
+        assert!(queue(&store, &access, now).await.unwrap().is_none());
         acknowledge_notice(&mut store, &access, now).await.unwrap();
         assert!(!aging(&store, &access, now).await.unwrap().due);
         assert!(
@@ -128,7 +128,7 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
         let policy = set(&mut store, &access, None, 7, Some(automatic()), now)
             .await
             .unwrap();
-        let queued = queue(&store, &access, now).unwrap().unwrap();
+        let queued = queue(&store, &access, now).await.unwrap().unwrap();
         let disabled = set(&mut store, &access, Some(policy.revision), 7, None, now)
             .await
             .unwrap();
@@ -137,7 +137,7 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
             .await
             .is_err());
         assert_eq!(store.state().watermark, watermark);
-        assert!(queue(&store, &access, now).unwrap().is_none());
+        assert!(queue(&store, &access, now).await.unwrap().is_none());
         set(
             &mut store,
             &access,
@@ -148,12 +148,12 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
         )
         .await
         .unwrap();
-        let queued = queue(&store, &access, now).unwrap().unwrap();
+        let queued = queue(&store, &access, now).await.unwrap().unwrap();
         let receipt = apply_queued(&mut store, &access, &queued, now)
             .await
             .unwrap();
         assert_eq!(receipt.preview.action, Action::Exclude);
-        assert!(queue(&store, &access, now).unwrap().is_none());
+        assert!(queue(&store, &access, now).await.unwrap().is_none());
         let repeat = apply_queued(&mut store, &access, &queued, now)
             .await
             .unwrap();
@@ -162,11 +162,13 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
         let store = Store::open(dir.path(), backend, &[]).await.unwrap();
         assert!(
             queue(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS - 1))
+                .await
                 .unwrap()
                 .is_none()
         );
         assert!(
             queue(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS))
+                .await
                 .unwrap()
                 .is_some()
         );

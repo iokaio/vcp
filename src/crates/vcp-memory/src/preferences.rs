@@ -209,6 +209,7 @@ pub async fn materialize(
             return Err(Error::Conflict("preference artifact identity differs"));
         }
         vcp_audit::history::History::read_artifact(store, &access.history(), &id, std::io::sink())
+            .await
             .map_err(|_| Error::Access)?;
         return Ok(Some(proposal));
     } else {

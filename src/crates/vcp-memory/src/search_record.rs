@@ -242,7 +242,7 @@ pub fn spans(text: &str, spec: &ChunkerSpec) -> Result<Vec<Range>> {
     Ok(result)
 }
 
-fn read(
+async fn read(
     store: &Store,
     access: &Access,
     id: &ArtifactId,
@@ -266,7 +266,8 @@ fn read(
         return Ok(None);
     }
     let mut bytes = Vec::with_capacity(artifact.length.get() as usize);
-    match vcp_audit::history::History::read_artifact(store, &access.history(), id, &mut bytes) {
+    match vcp_audit::history::History::read_artifact(store, &access.history(), id, &mut bytes).await
+    {
         Ok(_) => Ok(Some((artifact, bytes))),
         Err(vcp_audit::Error::Access) => Err(Error::Access),
         Err(_) => Ok(None),
@@ -402,18 +403,18 @@ fn append(output: &mut Inventory, records: Vec<SearchRecord>, limits: Limits, to
 /// Builds a fixed authorized snapshot inventory. Callers retain this inventory
 /// identity while building private lexical/vector components; no active pointer
 /// or index intent is changed here.
-pub fn inventory(
+pub async fn inventory(
     store: &Store,
     access: &Access,
     sources: &[SourceBinding],
     spec: &ChunkerSpec,
     limits: Limits,
 ) -> Result<Inventory> {
-    inventory_with_check(store, access, sources, spec, limits, &|| Ok(()))
+    inventory_with_check(store, access, sources, spec, limits, &|| Ok(())).await
 }
 /// Cooperative bounded scan; callback failures abort the whole inventory rather
 /// than producing a successful digest or a partial source-authorization fence.
-pub fn inventory_with_check(
+pub async fn inventory_with_check(
     store: &Store,
     access: &Access,
     sources: &[SourceBinding],
@@ -446,11 +447,21 @@ pub fn inventory_with_check(
     }) {
         check()?;
         let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
-        if crate::access::redacted_scope(store.state(), access, &version.scope, &version.sources)
-            .is_err()
+        match crate::access::redacted_scope_store(
+            store,
+            access,
+            &version.scope,
+            &version.sources,
+            check,
+        )
+        .await
         {
-            exclude(&mut output, None, "denied");
-            continue;
+            Ok(()) => (),
+            Err(Error::Access) => {
+                exclude(&mut output, None, "denied");
+                continue;
+            }
+            Err(error) => return Err(error),
         }
         exclude(
             &mut output,
@@ -505,7 +516,9 @@ pub fn inventory_with_check(
                 None,
                 claim_versions,
                 check,
-            ) {
+            )
+            .await
+            {
                 Ok(history) => {
                     histories.insert(claim.clone(), Some(history));
                 }
@@ -585,15 +598,15 @@ pub fn inventory_with_check(
         let source = TextSource::Artifact {
             id: binding.artifact.clone(),
         };
-        let read_result = (|| -> Result<Option<(ArtifactDescriptor, Vec<u8>)>> {
+        let read_result: Result<Option<(ArtifactDescriptor, Vec<u8>)>> = async {
             let Some((descriptor, bytes)) =
-                read(store, access, &binding.artifact, limits.source_bytes)?
+                read(store, access, &binding.artifact, limits.source_bytes).await?
             else {
                 return Ok(None);
             };
             check()?;
             let Some((manifest, manifest_bytes)) =
-                read(store, access, &binding.manifest, limits.source_bytes)?
+                read(store, access, &binding.manifest, limits.source_bytes).await?
             else {
                 return Ok(None);
             };
@@ -609,7 +622,8 @@ pub fn inventory_with_check(
                 return Ok(None);
             }
             Ok(Some((descriptor, bytes)))
-        })();
+        }
+        .await;
         let (descriptor, bytes) = match read_result {
             Ok(Some(pair)) => pair,
             Ok(None) => {
@@ -627,7 +641,7 @@ pub fn inventory_with_check(
             Err(error) => return Err(error),
         };
         if !crate::retention::recall_allowed(
-            store.state(),
+            store.current(),
             &access.workspace,
             &crate::retention::Target::Record(vcp_store::contract::key(
                 Collection::Artifact,

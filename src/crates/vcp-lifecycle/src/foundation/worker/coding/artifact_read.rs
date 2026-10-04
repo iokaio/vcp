@@ -85,12 +85,13 @@ impl Context {
             .scope
             .task
             .clone()]));
-        let descriptor = match vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &access,
-            &input.artifact,
-            &mut window,
-        ) {
+        let descriptor = match self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &access,
+                &input.artifact,
+                &mut window,
+            )) {
             Ok(descriptor) => descriptor,
             Err(_) => {
                 return Ok((

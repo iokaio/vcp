@@ -145,7 +145,7 @@ fn inspection_access(
         tasks: None,
     })
 }
-pub fn query_store(
+pub async fn query_store(
     store: &Store,
     workspace: &WorkspaceId,
     actor: &ActorId,
@@ -160,12 +160,15 @@ pub fn query_store(
             write: false,
             tasks: None,
         };
-        return serde_json::to_value(vcp_lifecycle::foundation::memory_inspection::inspect_store(
-            store,
-            &access,
-            store.root(),
-            request,
-        )?)
+        return serde_json::to_value(
+            vcp_lifecycle::foundation::memory_inspection::inspect_store(
+                store,
+                &access,
+                store.root(),
+                request,
+            )
+            .await?,
+        )
         .map_err(|e| e.to_string());
     }
     if let Query::Inspect { request } = request {
@@ -854,7 +857,8 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
                     &entry.config.workspace,
                     &entry.config.actor,
                     &query_request,
-                );
+                )
+                .await;
                 store.close().await.map_err(|e| e.to_string())?;
                 value?
             }

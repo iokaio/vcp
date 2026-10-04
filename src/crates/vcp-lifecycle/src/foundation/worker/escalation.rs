@@ -175,12 +175,13 @@ impl Context {
                 return Err("escalation history bound".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                &descriptor.spec.id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    &descriptor.spec.id,
+                    &mut bytes,
+                ))?;
             bytes_total = bytes_total
                 .checked_add(bytes.len())
                 .ok_or("escalation history overflow")?;

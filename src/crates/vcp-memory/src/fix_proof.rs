@@ -8,7 +8,7 @@ use vcp_store::{
     Store,
 };
 
-pub(crate) fn matches(store: &Store, access: &Access, proposal: &Proposal) -> Result<bool> {
+pub(crate) async fn matches(store: &Store, access: &Access, proposal: &Proposal) -> Result<bool> {
     let ClaimValue::VerifiedFix {
         patch,
         before,
@@ -27,6 +27,7 @@ pub(crate) fn matches(store: &Store, access: &Access, proposal: &Proposal) -> Re
     }
     let mut bytes = Vec::new();
     if vcp_audit::history::History::read_artifact(store, &access.history(), patch, &mut bytes)
+        .await
         .is_err()
     {
         return Ok(false);

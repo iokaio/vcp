@@ -272,7 +272,7 @@ async fn save_inner(
     };
     check()?;
     let compaction =
-        compaction_diagnostics::observe_with_check(store, access, report.window.clone(), &check)?;
+        compaction_diagnostics::observe_with_check(store, access, report.window.clone(), &check).await?;
     check()?;
     let combined = dependencies(&forecast, &compaction);
     let tasks = match source_access(store, access, &combined, &check) {

@@ -217,6 +217,7 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
                 Action::Purge,
                 Timestamp::new(300),
             )
+            .await
             .unwrap();
             assert!(preview.protected.is_empty(), "{:?}", preview.protected);
             let targets: Vec<_> = preview

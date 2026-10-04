@@ -150,7 +150,7 @@ pub(crate) fn authorize_targets(
     }
     Ok(())
 }
-pub fn preview(
+pub async fn preview(
     store: &Store,
     access: &Access,
     scope: Scope,
@@ -160,7 +160,7 @@ pub fn preview(
 ) -> Result<Preview> {
     let tasks = authorize(store, access, &scope, false)?;
     limits::check(store.state())?;
-    let value = retention::preview_scoped(store, access, &scope, selector, action, now)?;
+    let value = retention::preview_scoped(store, access, &scope, selector, action, now).await?;
     Ok(Preview {
         scope,
         tasks,

@@ -346,6 +346,7 @@ async fn seed(fixture: &wire::Fixture) -> (Source, Source, State) {
         &ChunkerSpec::default(),
         search_record::Limits::default(),
     )
+    .await
     .unwrap();
     assert!(!inventory.records.is_empty());
     let scope = Scope {

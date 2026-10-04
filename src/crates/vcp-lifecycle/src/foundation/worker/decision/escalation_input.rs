@@ -81,12 +81,13 @@ impl Context {
                 );
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    &mut bytes,
+                ))?;
             let (pair, name, result) = observed_pair(&bytes, &seed.binding.scope)?;
             if !sequences.insert(pair.sequence) {
                 return Err("duplicate escalation advisory evidence sequence".into());

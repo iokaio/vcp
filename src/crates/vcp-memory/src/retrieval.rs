@@ -323,7 +323,7 @@ fn narrow_tasks(access: &Access, request: &Request) -> Option<BTreeSet<TaskId>> 
 }
 /// Owner-only stage: resolve present-day access and bounded retained source bytes.
 /// No component lookup, lexical search, vector search or model work occurs here.
-pub fn capture(
+pub async fn capture(
     store: &Store,
     access: &Access,
     request: &Request,
@@ -355,14 +355,17 @@ pub fn capture(
     let inventory = if request.historical.is_some() {
         None
     } else {
-        Some(search_record::inventory_with_check(
-            store,
-            &narrowed,
-            bindings,
-            chunker,
-            search_record::Limits::default(),
-            &|| checkpoint(start, request, cancelled),
-        )?)
+        Some(
+            search_record::inventory_with_check(
+                store,
+                &narrowed,
+                bindings,
+                chunker,
+                search_record::Limits::default(),
+                &|| checkpoint(start, request, cancelled),
+            )
+            .await?,
+        )
     };
     checkpoint(start, request, cancelled)?;
     Ok(Capture {
@@ -634,7 +637,7 @@ pub fn search(
 }
 /// Owner-only return fence. Recompute authorized bytes from current canonical
 /// state after native search; changed/hidden sources cannot reuse old snippets.
-pub fn finish(
+pub async fn finish(
     store: &Store,
     access: &Access,
     selection: Selection,
@@ -694,7 +697,8 @@ pub fn finish(
         chunker,
         search_record::Limits::default(),
         &|| checkpoint(start, request, cancelled),
-    )?;
+    )
+    .await?;
     if fresh.exclusions.iter().any(|e| e.reason.contains("limit")) {
         response.rebuild_required = true;
         if !response.degraded.contains(&"canonical_inventory_bounded") {
@@ -737,7 +741,10 @@ pub fn finish(
                     .current()
                     .record(Collection::Claim, version.as_str(), &access.workspace)?
                     .decode()?;
-                access::proposal_scope(store.state(), &narrowed, &value.proposal)?;
+                access::proposal_scope_store(store, &narrowed, &value.proposal, &|| {
+                    checkpoint(start, request, cancelled)
+                })
+                .await?;
                 value
                     .proposal
                     .evidence
@@ -819,10 +826,10 @@ pub fn finish(
     Ok(response)
 }
 
-/// Synchronous qualification/inspection wrapper. Production hosts run search()
+/// Qualification/inspection wrapper. Production hosts run search()
 /// on an admitted blocking worker and finish() on their canonical owner.
 #[allow(clippy::too_many_arguments)]
-pub fn query(
+pub async fn query(
     store: &Store,
     access: &Access,
     view: Option<&View>,
@@ -832,18 +839,19 @@ pub fn query(
     query_vector: Option<QueryVector<'_>>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Response> {
-    let captured = capture(store, access, request, bindings, chunker, cancelled)?;
+    let captured = capture(store, access, request, bindings, chunker, cancelled).await?;
     finish(
         store,
         access,
         search(captured, view, query_vector, cancelled)?,
         cancelled,
     )
+    .await
 }
 /// Invoke again at the controller's send-admission fence after refreshing local
 /// source observations. Epoch equality alone is insufficient: recompute retained
 /// bytes, source bindings, claim eligibility and every selected chunk identity.
-pub fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result<()> {
+pub async fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result<()> {
     let workspace = access::authorize(store.current(), access, false)?;
     if fence.workspace != workspace.id
         || fence.authority != workspace.authority
@@ -861,7 +869,8 @@ pub fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result
         &fence.bindings,
         &fence.chunker,
         search_record::Limits::default(),
-    )?;
+    )
+    .await?;
     for selected in &fence.sources {
         if !inventory
             .records
@@ -890,12 +899,12 @@ impl SourceBindings {
         }
     }
 }
-pub fn source_bindings(store: &Store, access: &Access) -> Result<SourceBindings> {
-    source_bindings_with_check(store, access, &|| Ok(()))
+pub async fn source_bindings(store: &Store, access: &Access) -> Result<SourceBindings> {
+    source_bindings_with_check(store, access, &|| Ok(())).await
 }
 /// All bounds cover authorized inputs only. No hidden source IDs/paths are
 /// returned in deficit explanations, and the helper never opens workspace files.
-pub fn source_bindings_with_check(
+pub async fn source_bindings_with_check(
     store: &Store,
     access: &Access,
     check: &dyn Fn() -> Result<()>,
@@ -903,7 +912,7 @@ pub fn source_bindings_with_check(
     use vcp_domain::{artifact::ArtifactDescriptor, task::Task};
     const ARTIFACT_BYTES: u64 = 256 * 1024;
     const READ_BYTES: u64 = 4 * 1024 * 1024;
-    fn read(
+    async fn read(
         store: &Store,
         access: &Access,
         artifact: &ArtifactDescriptor,
@@ -928,7 +937,8 @@ pub fn source_bindings_with_check(
             &access.history(),
             &artifact.spec.id,
             &mut bytes,
-        );
+        )
+        .await;
         check()?;
         match read {
             Ok(_) => Ok(Some(bytes)),
@@ -968,7 +978,7 @@ pub fn source_bindings_with_check(
             break;
         }
         manifests += 1;
-        let bytes = match read(store, access, &manifest, &mut total, check) {
+        let bytes = match read(store, access, &manifest, &mut total, check).await {
             Ok(Some(bytes)) => bytes,
             Ok(None) => {
                 result.deficit("source_manifest_unavailable");
@@ -1100,7 +1110,7 @@ pub fn source_bindings_with_check(
                     result.deficit("source_binding_limit");
                     break 'manifests;
                 }
-                match read(store, access, &source, &mut total, check) {
+                match read(store, access, &source, &mut total, check).await {
                     Ok(Some(_)) => (),
                     Ok(None) => {
                         result.deficit("source_unavailable");

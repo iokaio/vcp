@@ -148,12 +148,13 @@ impl Context {
             return Err("local fit artifact identity or retention changed".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &pin.artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &pin.artifact,
+                &mut bytes,
+            ))?;
         if vcp_protocol::digest_bytes(&bytes) != pin.digest {
             return Err("local fit bytes changed".into());
         }

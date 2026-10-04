@@ -127,12 +127,13 @@ impl Context {
     }
     fn recovery_artifact(&self, artifact: &ArtifactDescriptor) -> Result<Value> {
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &artifact.spec.id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &artifact.spec.id,
+                &mut bytes,
+            ))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
     pub fn reconcile_effects(&mut self) -> Result<Vec<ArtifactDescriptor>> {

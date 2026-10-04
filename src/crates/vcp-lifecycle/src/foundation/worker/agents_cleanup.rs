@@ -365,12 +365,13 @@ impl worker::Context {
             return Err("cleanup evidence is unavailable, outside scope or exceeds bounds".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
     fn publish_cleanup(

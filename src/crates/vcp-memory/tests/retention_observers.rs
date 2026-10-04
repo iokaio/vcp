@@ -97,6 +97,7 @@ async fn observer_retention_closure_scrubs_payload_and_keeps_absorbing_identity(
             Action::Purge,
             Timestamp::new(300),
         )
+        .await
         .unwrap();
         assert!(preview.selected.contains(&target) || preview.dependent.contains(&target));
         let receipt = retention::apply(&mut store, &access, &preview, Timestamp::new(301))

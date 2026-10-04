@@ -639,12 +639,13 @@ impl Context {
             return Err("charge evidence byte limit".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(bytes)
     }
 

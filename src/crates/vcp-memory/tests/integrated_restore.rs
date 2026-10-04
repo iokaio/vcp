@@ -125,6 +125,7 @@ async fn publish(
         &ChunkerSpec::default(),
         search_record::Limits::default(),
     )
+    .await
     .unwrap();
     let prepared = publisher
         .prepare(
@@ -174,6 +175,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert_eq!(before.passages.len(), 1);
             let evidence = before.passages[0].evidence.clone();
@@ -189,12 +191,17 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                     Action::Exclude,
                     Timestamp::new(400),
                 )
+                .await
                 .unwrap();
                 assert!(!preview.selected.is_empty());
                 retention::apply(&mut store, &access, &preview, Timestamp::new(401))
                     .await
                     .unwrap();
-                assert!(revalidate_fence(&store, &access, before.fence.as_ref().unwrap()).is_err());
+                assert!(
+                    revalidate_fence(&store, &access, before.fence.as_ref().unwrap())
+                        .await
+                        .is_err()
+                );
                 let denied = query(
                     &store,
                     &access,
@@ -205,6 +212,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                     None,
                     &|| false,
                 )
+                .await
                 .unwrap();
                 assert!(
                     denied.passages.is_empty(),
@@ -351,6 +359,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 &chunker,
                 search_record::Limits::default()
             )
+            .await
             .is_err());
             let target_access = Access {
                 workspace: scope.workspace.clone(),
@@ -387,6 +396,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert!(unavailable.rebuild_required && unavailable.passages.is_empty());
             let rebuilt = publish(
@@ -411,6 +421,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             if excluded {
                 assert!(
@@ -422,6 +433,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 assert_eq!(recalled.passages[0].text, before.passages[0].text);
                 assert_eq!(recalled.passages[0].evidence, evidence);
                 revalidate_fence(&restored, &target_access, recalled.fence.as_ref().unwrap())
+                    .await
                     .unwrap();
             }
             let narrow = Access {
@@ -438,6 +450,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false
             )
+            .await
             .unwrap()
             .passages
             .is_empty());

@@ -355,12 +355,13 @@ impl Context {
                 {
                     return Err("MCP context source identity changed".into());
                 }
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &part.artifact,
-                    &mut std::io::sink(),
-                )?;
+                self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &part.artifact,
+                        &mut std::io::sink(),
+                    ))?;
                 if let Some(file) = &part.file {
                     provenance
                         .roots
@@ -594,12 +595,13 @@ impl Context {
             }
         }
         let mut bytes = BoundedBytes(Vec::new());
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                artifact,
+                &mut bytes,
+            ))?;
         let receipt: serde_json::Value = serde_json::from_slice(&bytes.0)?;
         Ok(crate::foundation::mcp::ControlOutcome {
             value: serde_json::json!({"artifact":artifact,"prior_observation":true,"external_content":true,"grants_authority":false,"receipt":receipt,"result":receipt["result"]}),

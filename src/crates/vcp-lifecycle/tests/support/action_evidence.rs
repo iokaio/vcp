@@ -166,7 +166,7 @@ async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sou
             },
             Action::Purge,
             Timestamp::new(1001),
-        )
+        ).await
         .unwrap();
         retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
             .await
@@ -303,7 +303,7 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
             },
             Action::Purge,
             Timestamp::new(1001),
-        )
+        ).await
         .unwrap();
         assert!(!plan.selected.is_empty());
         retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
@@ -1729,7 +1729,7 @@ async fn logical_event_purge_removes_action_observations_before_cleanup() {
             },
             Action::Purge,
             Timestamp::new(1001),
-        )
+        ).await
         .unwrap();
         assert!(plan
             .selected

@@ -621,6 +621,7 @@ async fn production_memory_optimizer_exclusion_survive_encrypted_cross_backend_r
             &vcp_memory::search_record::ChunkerSpec::default(),
             vcp_memory::search_record::Limits::default()
         )
+        .await
         .is_err());
         store.close().await.unwrap();
         let target_cli = |args: &[&str]| success(call(&destination, &data, args));

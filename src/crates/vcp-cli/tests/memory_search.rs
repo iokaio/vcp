@@ -144,6 +144,7 @@ async fn offline_search_declares_missing_generation_without_creating_it_or_mutat
             &vcp_domain::ActorId::parse("owner").unwrap(),
             &query,
         )
+        .await
         .unwrap();
         assert!(result["passages"].as_array().unwrap().is_empty());
         assert!(!result["degraded"].as_array().unwrap().is_empty());

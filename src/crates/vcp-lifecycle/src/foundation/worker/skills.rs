@@ -669,12 +669,13 @@ impl Context {
             for captured in std::iter::once(&active.body).chain(active.resources.iter()) {
                 root.revalidate(&captured.file)?;
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &captured.artifact,
-                    &mut bytes,
-                )?;
+                self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &captured.artifact,
+                        &mut bytes,
+                    ))?;
                 if digest_bytes(&bytes) != captured.file.sha256 {
                     return Err("active skill captured source changed".into());
                 }
@@ -698,12 +699,13 @@ impl Context {
             if previous.spec.schema == schema
                 && previous.spec.scope == binding.scope
                 && previous.sha256 == digest_bytes(bytes)
-                && vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &previous.spec.id,
-                    std::io::sink(),
-                )
+                && self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &previous.spec.id,
+                        std::io::sink(),
+                    ))
                 .is_ok()
             {
                 return Ok(previous.clone());
@@ -787,12 +789,13 @@ impl Context {
     /// Captured artifact bytes, rechecked against the activation digest.
     fn verified_resource(&self, captured: &Captured) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &captured.artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &captured.artifact,
+                &mut bytes,
+            ))?;
         if digest_bytes(&bytes) != captured.file.sha256 {
             return Err("active skill captured source changed".into());
         }
@@ -816,12 +819,13 @@ impl Context {
                 continue;
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    &mut bytes,
+                ))?;
             let value: serde_json::Value = serde_json::from_slice(&bytes)?;
             let prepared: Revision = value
                 .get("skills_revision")

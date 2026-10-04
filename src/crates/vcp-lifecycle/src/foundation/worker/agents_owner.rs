@@ -172,12 +172,13 @@ impl CanonicalHost {
                     return Err("child snapshot identity or size differs".into());
                 }
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    context.engine.store(),
-                    &context.history_access(),
-                    &spec.snapshot,
-                    &mut bytes,
-                )?;
+                context.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        context.engine.store(),
+                        &context.history_access(),
+                        &spec.snapshot,
+                        &mut bytes,
+                    ))?;
                 let snapshot: WorkspaceSnapshot = serde_json::from_slice(&bytes)?;
                 let registration = context.child_registration(&selected, &graph, &spec)?;
                 Ok((
@@ -500,12 +501,13 @@ impl CanonicalHost {
                     return Err("child input identity or size differs".into());
                 }
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    context.engine.store(),
-                    &context.history_access(),
-                    id,
-                    &mut bytes,
-                )?;
+                context.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        context.engine.store(),
+                        &context.history_access(),
+                        id,
+                        &mut bytes,
+                    ))?;
                 Ok(bytes)
             };
             let snapshot: WorkspaceSnapshot = serde_json::from_slice(&read(

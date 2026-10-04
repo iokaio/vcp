@@ -458,7 +458,7 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
             },
             Action::Purge,
             Timestamp::new(1001),
-        )
+        ).await
         .unwrap();
         assert!(plan.protected.is_empty());
         retention::apply(&mut reopened, &access, &plan, Timestamp::new(1001))
@@ -699,7 +699,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             &audit,
             &pin.artifact,
             &mut sink
-        )
+        ).await
         .is_err());
         assert!(sink.is_empty());
         let audit = vcp_audit::history::Access {
@@ -711,7 +711,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             &audit,
             &pin.artifact,
             &mut sink
-        )
+        ).await
         .is_err());
         assert!(sink.is_empty());
         let plan = retention::preview(
@@ -726,7 +726,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             },
             Action::Purge,
             Timestamp::new(1003),
-        )
+        ).await
         .unwrap();
         assert!(plan.protected.is_empty());
         assert!(plan.dependent.contains(&retention::Target::Record(key(

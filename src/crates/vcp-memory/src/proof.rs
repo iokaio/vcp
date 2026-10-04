@@ -121,7 +121,7 @@ fn matches(receipt: &CheckReceipt, proposal: &Proposal, configuration_sha256: &s
 /// Verification. Unrelated check success cannot establish an arbitrary argv,
 /// working directory, or configuration version. Native checks currently prove
 /// test commands only; build commands require a separately supported receipt.
-pub fn command_matches(
+pub async fn command_matches(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
@@ -156,6 +156,7 @@ pub fn command_matches(
         &configuration.spec.id,
         std::io::sink(),
     )
+    .await
     .is_err()
     {
         return Ok(false);
@@ -167,6 +168,7 @@ pub fn command_matches(
         &reference.artifact,
         &mut bytes,
     )
+    .await
     .is_err()
     {
         return Ok(false);

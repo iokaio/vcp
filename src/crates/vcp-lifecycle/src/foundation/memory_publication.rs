@@ -107,13 +107,13 @@ impl CanonicalHost {
         let initial_binding = binding.clone();
         let empty = self.worker.run(move |context| {
             context.can_start_memory(&initial_binding)?;
-            let inventory = search_record::inventory(
+            let inventory = context.runtime.block_on(search_record::inventory(
                 context.engine.store(),
                 &context.memory_access(),
                 &initial_sources,
                 &initial_chunker,
                 search_record::Limits::default(),
-            )?;
+            ))?;
             Ok(inventory.records.is_empty())
         })?;
         let vector_result = if empty {
@@ -187,13 +187,13 @@ impl CanonicalHost {
                 return Err("publication owner epoch changed".into());
             }
             let access = context.memory_access();
-            let fresh = search_record::inventory(
+            let fresh = context.runtime.block_on(search_record::inventory(
                 context.engine.store(),
                 &access,
                 &sources,
                 &chunker,
                 search_record::Limits::default(),
-            )?;
+            ))?;
             if empty && !fresh.records.is_empty() {
                 return Err("empty publication inventory changed".into());
             }

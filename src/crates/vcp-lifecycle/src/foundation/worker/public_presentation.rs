@@ -33,8 +33,8 @@ pub(super) fn model(
         return;
     };
     if context
-        .engine
-        .public_artifact(
+        .runtime
+        .block_on(context.engine.public_artifact(
             access,
             &methods::ArtifactRead {
                 scope: request.scope.clone(),
@@ -43,7 +43,7 @@ pub(super) fn model(
                 offset: 0.into(),
                 length: 1,
             },
-        )
+        ))
         .is_err()
     {
         return;

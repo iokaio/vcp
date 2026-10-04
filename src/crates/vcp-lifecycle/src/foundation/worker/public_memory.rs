@@ -65,14 +65,19 @@ impl PublicConnection {
                             Ok(())
                         }
                     };
-                    inspect(context.engine.store(), &access, &request, &check)
+                    context.runtime.block_on(inspect(
+                        context.engine.store(),
+                        &access,
+                        &request,
+                        &check,
+                    ))
                 })())
             })
             .map_err(|_| unavailable())?
     }
 }
 
-fn inspect(
+async fn inspect(
     store: &Store,
     access: &Access,
     request: &methods::MemoryInspect,
@@ -131,6 +136,7 @@ fn inspect(
         Some(&task.fingerprint),
         check,
     )
+    .await
     .map_err(memory_error)?;
     let sequence = history
         .versions

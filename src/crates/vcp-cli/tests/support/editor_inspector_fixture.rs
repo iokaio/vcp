@@ -2,7 +2,7 @@
 //! Synthetic canonical source for actual editor inspectors, seeded through the
 //! same governed services as native CLI/SDK qualification. No provider runs.
 use super::local_fixture::Fixture;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
     artifact::{ArtifactSpec, Channel, Range},
@@ -249,7 +249,9 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     let mut at = None;
     loop {
         let (page, upper, more) =
-            vcp_memory::history::window(&store, &access, &proposal.claim, at, after, 32).unwrap();
+            vcp_memory::history::window(&store, &access, &proposal.claim, at, after, 32)
+                .await
+                .unwrap();
         at = Some(upper);
         for row in page.versions {
             after = row.memory_seq;
@@ -271,6 +273,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
         &vcp_memory::search_record::ChunkerSpec::default(),
         vcp_memory::search_record::Limits::default(),
     )
+    .await
     .unwrap();
     let publisher = vcp_memory::publication::Publisher::new(
         &fixture.config.canonical_root.join("search-generations"),
@@ -329,7 +332,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     let probe = vcp_memory::retention_public::preview(&store,&scoped,task.scope.clone(),
         Selector { schema_version:1, tree:Tree::Match(Criterion::Path("src/retention-only".into())) },
         vcp_memory::retention::Action::Purge, Timestamp::new(1004),
-    ).expect("valid synthetic manifests and exact retained path must permit a real purge preview before GUI launch");
+    ).await.expect("valid synthetic manifests and exact retained path must permit a real purge preview before GUI launch");
     assert!(!probe.selection().selected.is_empty());
     assert!(
         !probe.selection().protected.is_empty(),
@@ -383,6 +386,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
         vcp_memory::retention::Action::Purge,
         Timestamp::new(1006),
     )
+    .await
     .expect("terminal independent source permits governed purge preview");
     assert!(!eligible.selection().selected.is_empty());
     assert!(eligible.selection().protected.is_empty());

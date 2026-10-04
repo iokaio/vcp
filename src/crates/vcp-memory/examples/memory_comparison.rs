@@ -126,7 +126,8 @@ async fn publish(
         &[],
         &ChunkerSpec::default(),
         search_record::Limits::default(),
-    )?;
+    )
+    .await?;
     let prepared = publisher.prepare(
         publication::capture(engine.store(), access, scope, inventory)?,
         None,
@@ -344,7 +345,9 @@ async fn run() -> Result<Value> {
                             &ChunkerSpec::default(),
                             None,
                             &|| false,
-                        ) {
+                        )
+                        .await
+                        {
                             Ok(response) => {
                                 detail = json!({"route":"production_lexical_retrieval","degraded":response.degraded,"indexed_sequence":response.indexed_sequence,"canonical_watermark":response.canonical_watermark,"generation_watermark":response.generation_watermark,"token_upper_bound":response.token_upper_bound});
                                 for passage in &response.passages {
@@ -367,6 +370,7 @@ async fn run() -> Result<Value> {
                                 if let Some(fence) = response.fence {
                                     if let Err(problem) =
                                         retrieval::revalidate_fence(engine.store(), &scoped, &fence)
+                                            .await
                                     {
                                         error = Some(problem.to_string());
                                     }

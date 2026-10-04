@@ -224,12 +224,13 @@ impl Context {
             return Err("decision evidence identity or bound rejected".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &pin.artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &pin.artifact,
+                &mut bytes,
+            ))?;
         Ok(bytes)
     }
     fn decision_installation(&self, record: &QualificationRecord) -> Result<CurrentInstallation> {

@@ -368,6 +368,7 @@ pub async fn validate(
         &context.output_artifact,
         &mut bytes,
     )
+    .await
     .map_err(|_| invalid("extraction response capture is unavailable, denied or corrupt"))?;
     let tools = vcp_models::request::Tools::parse(&serde_json::json!([]))
         .map_err(|_| invalid("empty extraction tool schema unavailable"))?;
@@ -429,6 +430,7 @@ pub async fn validate(
             &reference.artifact,
             std::io::sink(),
         )
+        .await
         .map_err(|_| invalid("extraction source is unavailable, denied or corrupt"))?;
     }
     let mut proposals = Vec::new();

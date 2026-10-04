@@ -47,12 +47,13 @@ impl worker::Context {
             let mut note = format!("Untrusted unstamped child transcript; artifact={} sha256={}. No examined revision or defect is inferred. ", descriptor.spec.id, descriptor.sha256);
             if descriptor.state == CaptureState::Complete && descriptor.length.get() <= 64 * 1024 {
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &descriptor.spec.id,
-                    &mut bytes,
-                )?;
+                self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &descriptor.spec.id,
+                        &mut bytes,
+                    ))?;
                 if let Ok(text) = std::str::from_utf8(&bytes) {
                     let mut end = text.len().min(4096);
                     while !text.is_char_boundary(end) {
@@ -181,7 +182,7 @@ impl CanonicalHost {
                 return Err("retained child review packet is unavailable or exceeds bounds".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(context.engine.store(), &context.history_access(), &result.packet, &mut bytes)?;
+            context.runtime.block_on(vcp_audit::history::History::read_artifact(context.engine.store(), &context.history_access(), &result.packet, &mut bytes))?;
             let packet: ChildPacket = serde_json::from_slice(&bytes)?;
             packet.validate_findings()?;
             Ok(serde_json::json!({"child":child,"packet":result.packet,"plan":result.plan,
@@ -276,12 +277,13 @@ impl CanonicalHost {
                 return Err("child base artifact differs".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                context.engine.store(),
-                &context.history_access(),
-                &spec.snapshot,
-                &mut bytes,
-            )?;
+            context.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    context.engine.store(),
+                    &context.history_access(),
+                    &spec.snapshot,
+                    &mut bytes,
+                ))?;
             let base: WorkspaceSnapshot = serde_json::from_slice(&bytes)?;
             Ok((
                 source,
@@ -423,12 +425,13 @@ impl CanonicalHost {
                     return Err("child base artifact differs".into());
                 }
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    context.engine.store(),
-                    &context.history_access(),
-                    &spec.snapshot,
-                    &mut bytes,
-                )?;
+                context.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        context.engine.store(),
+                        &context.history_access(),
+                        &spec.snapshot,
+                        &mut bytes,
+                    ))?;
                 let base: WorkspaceSnapshot = serde_json::from_slice(&bytes)?;
                 Ok(Some((
                     source,

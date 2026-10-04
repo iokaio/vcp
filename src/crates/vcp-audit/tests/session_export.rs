@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+#[path = "session_export/bounded.rs"]
+mod bounded;
 use vcp_audit::{history, session_export};
 use vcp_domain::{artifact::*, task::*, verification::Fingerprint, workspace::*, *};
 use vcp_engine::{public::PublicError, public_export::*, Access, Engine, HostFacts};
@@ -174,7 +176,7 @@ async fn fixture(
     let token = engine.controller_token(&access(), &connection).unwrap();
     (engine, root, other, connection, token)
 }
-fn prepare(
+async fn prepare(
     engine: &Engine<Store>,
     request: methods::SessionExport,
     root: &TaskId,
@@ -183,13 +185,14 @@ fn prepare(
 ) -> PreparedPublicExport {
     match engine
         .prepare_public_export(request, &access(), connection, token, &disclosure(), root)
+        .await
         .unwrap()
     {
         PublicExportAdmission::Ready(value) => value,
         _ => panic!("expected fresh export"),
     }
 }
-fn read(engine: &Engine<Store>, id: &methods::Id) -> Vec<u8> {
+async fn read(engine: &Engine<Store>, id: &methods::Id) -> Vec<u8> {
     let mut bytes = Vec::new();
     history::History::read_artifact(
         engine.store(),
@@ -197,6 +200,7 @@ fn read(engine: &Engine<Store>, id: &methods::Id) -> Vec<u8> {
         &ArtifactId::parse(id.as_str()).unwrap(),
         &mut bytes,
     )
+    .await
     .unwrap();
     bytes
 }
@@ -215,13 +219,14 @@ async fn both_modes_are_atomic_scoped_truthful_and_replay_without_recapture() {
         ] {
             let request = request(name, Some(&root), capture.clone());
             let before = engine.store().state().clone();
-            let prepared = prepare(&engine, request.clone(), &root, &connection, &token);
+            let prepared = prepare(&engine, request.clone(), &root, &connection, &token).await;
             let rendered = session_export::render(
                 engine.store(),
                 &reader(),
                 prepared.sources(),
                 prepared.capture(),
             )
+            .await
             .unwrap();
             let outcome = engine
                 .commit_public_export(
@@ -250,7 +255,7 @@ async fn both_modes_are_atomic_scoped_truthful_and_replay_without_recapture() {
             for (key, value) in &before.records {
                 assert_eq!(engine.store().state().records.get(key), Some(value));
             }
-            let bytes = read(&engine, &outcome.view.artifact);
+            let bytes = read(&engine, &outcome.view.artifact).await;
             let document: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert!(!String::from_utf8(bytes)
                 .unwrap()
@@ -275,7 +280,8 @@ async fn both_modes_are_atomic_scoped_truthful_and_replay_without_recapture() {
                 );
             }
             let manifest: serde_json::Value =
-                serde_json::from_slice(&read(&engine, &outcome.view.visibility_manifest)).unwrap();
+                serde_json::from_slice(&read(&engine, &outcome.view.visibility_manifest).await)
+                    .unwrap();
             assert_eq!(manifest["secret_sanitization"], false);
             assert_eq!(
                 manifest["artifact"]["spec"]["id"],
@@ -289,6 +295,7 @@ async fn both_modes_are_atomic_scoped_truthful_and_replay_without_recapture() {
                 &ArtifactId::parse(outcome.view.artifact.as_str()).unwrap(),
                 Vec::new()
             )
+            .await
             .is_err());
             let snapshot = engine.store().state().clone();
             let PublicExportAdmission::Replay(replay) = engine
@@ -300,6 +307,7 @@ async fn both_modes_are_atomic_scoped_truthful_and_replay_without_recapture() {
                     &disclosure(),
                     &root,
                 )
+                .await
                 .unwrap()
             else {
                 panic!("receipt must replay")
@@ -314,27 +322,31 @@ async fn both_modes_are_atomic_scoped_truthful_and_replay_without_recapture() {
                 methods::CaptureScope::VisibleHistory
             };
             assert!(matches!(
-                engine.prepare_public_export(
-                    changed,
-                    &access(),
-                    &connection,
-                    &token,
-                    &disclosure(),
-                    &root
-                ),
+                engine
+                    .prepare_public_export(
+                        changed,
+                        &access(),
+                        &connection,
+                        &token,
+                        &disclosure(),
+                        &root
+                    )
+                    .await,
                 Err(PublicError::CommandConflict)
             ));
             let mut observer = access();
             observer.write = false;
             assert!(matches!(
-                engine.prepare_public_export(
-                    request,
-                    &observer,
-                    &connection,
-                    &token,
-                    &disclosure(),
-                    &root
-                ),
+                engine
+                    .prepare_public_export(
+                        request,
+                        &observer,
+                        &connection,
+                        &token,
+                        &disclosure(),
+                        &root
+                    )
+                    .await,
                 Err(PublicError::Access)
             ));
         }
@@ -351,13 +363,14 @@ async fn aggregate_reads_recheck_every_task_and_deny_stale_payload_and_manifest(
             None,
             methods::CaptureScope::VisibleHistoryAndArtifacts,
         );
-        let prepared = prepare(&engine, request.clone(), &root, &connection, &token);
+        let prepared = prepare(&engine, request.clone(), &root, &connection, &token).await;
         let rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         let outcome = engine
             .commit_public_export(
@@ -378,8 +391,9 @@ async fn aggregate_reads_recheck_every_task_and_deny_stale_payload_and_manifest(
                 &ArtifactId::parse(id.as_str()).unwrap(),
                 Vec::new()
             )
+            .await
             .is_err());
-            assert!(!read(&engine, id).is_empty());
+            assert!(!read(&engine, id).await.is_empty());
         }
         // Change the OTHER task, not the artifact's anchor. Both readers must
         // reject the copied aggregate despite the anchor still being current.
@@ -403,6 +417,7 @@ async fn aggregate_reads_recheck_every_task_and_deny_stale_payload_and_manifest(
                 &ArtifactId::parse(id.as_str()).unwrap(),
                 Vec::new()
             )
+            .await
             .is_err());
             assert!(engine
                 .public_artifact(
@@ -415,17 +430,20 @@ async fn aggregate_reads_recheck_every_task_and_deny_stale_payload_and_manifest(
                         length: 1024
                     }
                 )
+                .await
                 .is_err());
         }
         assert!(matches!(
-            engine.prepare_public_export(
-                request,
-                &access(),
-                &connection,
-                &token,
-                &disclosure(),
-                &root
-            ),
+            engine
+                .prepare_public_export(
+                    request,
+                    &access(),
+                    &connection,
+                    &token,
+                    &disclosure(),
+                    &root
+                )
+                .await,
             Err(PublicError::Unavailable)
         ));
     }
@@ -451,23 +469,26 @@ async fn disclosure_limits_and_canonical_provenance_fail_closed() {
         };
         let before = engine.store().state().clone();
         assert!(matches!(
-            engine.prepare_public_export(
-                request.clone(),
-                &access(),
-                &connection,
-                &token,
-                &denied,
-                &root
-            ),
+            engine
+                .prepare_public_export(
+                    request.clone(),
+                    &access(),
+                    &connection,
+                    &token,
+                    &denied,
+                    &root
+                )
+                .await,
             Err(PublicError::Access)
         ));
-        let prepared = prepare(&engine, request.clone(), &root, &connection, &token);
+        let prepared = prepare(&engine, request.clone(), &root, &connection, &token).await;
         let mut rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         rendered.payload = vec![0; export_contract::MAX_BYTES + 1];
         assert!(matches!(
@@ -486,13 +507,14 @@ async fn disclosure_limits_and_canonical_provenance_fail_closed() {
         ));
         assert_eq!(engine.store().state(), &before);
         assert_eq!(engine.store().spool().unfinished().unwrap().len(), 0);
-        let prepared = prepare(&engine, request.clone(), &root, &connection, &token);
+        let prepared = prepare(&engine, request.clone(), &root, &connection, &token).await;
         let rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         let outcome = engine
             .commit_public_export(
@@ -506,14 +528,9 @@ async fn disclosure_limits_and_canonical_provenance_fail_closed() {
             .unwrap();
         assert!(
             matches!(
-                engine.prepare_public_export(
-                    request,
-                    &access(),
-                    &connection,
-                    &token,
-                    &denied,
-                    &root
-                ),
+                engine
+                    .prepare_public_export(request, &access(), &connection, &token, &denied, &root)
+                    .await,
                 Err(PublicError::Access)
             ),
             "replay must not bypass current disclosure"
@@ -642,6 +659,19 @@ async fn disclosure_limits_and_canonical_provenance_fail_closed() {
         assert!(
             export_contract::validate_read(canonical, access().authority, None, &unknown).is_err()
         );
+        for (source, artifact) in [
+            (canonical, &descriptor),
+            (&stale, &descriptor),
+            (&policy_changed, &descriptor),
+            (&malformed, &descriptor),
+            (&pruned_proof, &descriptor),
+            (&changed_fact, &descriptor),
+            (&downgrade, &ordinary),
+            (canonical, &unknown),
+        ] {
+            bounded::compare(source, artifact).await;
+        }
+        bounded::faults(canonical, &descriptor).await;
     }
 }
 
@@ -655,13 +685,14 @@ async fn durable_export_replay_survives_restart_with_explicit_recovery_and_fresh
             None,
             methods::CaptureScope::VisibleHistoryAndArtifacts,
         );
-        let prepared = prepare(&engine, request.clone(), &root, &connection, &token);
+        let prepared = prepare(&engine, request.clone(), &root, &connection, &token).await;
         let rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         let outcome = engine
             .commit_public_export(
@@ -673,19 +704,21 @@ async fn durable_export_replay_survives_restart_with_explicit_recovery_and_fresh
             )
             .await
             .unwrap();
-        let original_payload = read(&engine, &outcome.view.artifact);
+        let original_payload = read(&engine, &outcome.view.artifact).await;
         drop(engine);
         let mut reopened =
             Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
         assert!(matches!(
-            reopened.prepare_public_export(
-                request.clone(),
-                &access(),
-                &connection,
-                &token,
-                &disclosure(),
-                &root
-            ),
+            reopened
+                .prepare_public_export(
+                    request.clone(),
+                    &access(),
+                    &connection,
+                    &token,
+                    &disclosure(),
+                    &root
+                )
+                .await,
             Err(PublicError::Access)
         ));
         let replacement = ControllerId::new();
@@ -721,13 +754,17 @@ async fn durable_export_replay_survives_restart_with_explicit_recovery_and_fresh
                 &disclosure(),
                 &root,
             )
+            .await
             .unwrap()
         else {
             panic!("durable replay required")
         };
         assert_eq!(replay.receipt, outcome.receipt);
         assert_eq!(replay.view, outcome.view);
-        assert_eq!(read(&reopened, &replay.view.artifact), original_payload);
+        assert_eq!(
+            read(&reopened, &replay.view.artifact).await,
+            original_payload
+        );
         assert_eq!(reopened.store().state(), &before);
     }
 }
@@ -777,18 +814,20 @@ async fn large_real_retained_event_rejects_metadata_export_before_capture() {
             Err(vcp_store::Error::Limit(_))
         ));
         assert!(matches!(
-            engine.prepare_public_export(
-                request(
-                    "large-history",
-                    Some(&root),
-                    methods::CaptureScope::VisibleHistory
-                ),
-                &access(),
-                &connection,
-                &token,
-                &disclosure(),
-                &root
-            ),
+            engine
+                .prepare_public_export(
+                    request(
+                        "large-history",
+                        Some(&root),
+                        methods::CaptureScope::VisibleHistory
+                    ),
+                    &access(),
+                    &connection,
+                    &token,
+                    &disclosure(),
+                    &root
+                )
+                .await,
             Err(PublicError::Unavailable)
         ));
         assert_eq!(engine.store().state().watermark, watermark);

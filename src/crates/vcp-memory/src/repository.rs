@@ -97,24 +97,23 @@ async fn current(store: &Store, access: &Access) -> Result<Vec<Version>> {
     }
     Ok(result)
 }
-pub(crate) fn evidence(
+pub(crate) async fn evidence(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
 ) -> Result<Vec<EvidenceObservation>> {
-    evidence_with_check(store, access, proposal, &|| Ok(()))
+    evidence_with_check(store, access, proposal, &|| Ok(())).await
 }
-pub(crate) fn evidence_with_check(
+pub(crate) async fn evidence_with_check(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<Vec<EvidenceObservation>> {
     check()?;
-    proposal
-        .evidence
-        .iter()
-        .map(|reference| {
+    let mut observations = Vec::with_capacity(proposal.evidence.len());
+    for reference in &proposal.evidence {
+        let observation: Result<EvidenceObservation> = async {
             check()?;
             let record = store
                 .current()
@@ -157,7 +156,9 @@ pub(crate) fn evidence_with_check(
                     &access.history(),
                     &reference.artifact,
                     std::io::sink(),
-                ) {
+                )
+                .await
+                {
                     Ok(_) => Availability::Available,
                     Err(vcp_audit::Error::Access) => Availability::InvalidScope,
                     Err(vcp_audit::Error::Removed) => Availability::Unavailable,
@@ -170,7 +171,7 @@ pub(crate) fn evidence_with_check(
             };
             let verification_current = match &reference.verification {
                 None => false,
-                Some(id) => verify_evidence(store, access, proposal, reference, id)?,
+                Some(id) => verify_evidence(store, access, proposal, reference, id).await?,
             };
             check()?;
             Ok(EvidenceObservation {
@@ -178,10 +179,13 @@ pub(crate) fn evidence_with_check(
                 status,
                 verification_current,
             })
-        })
-        .collect()
+        }
+        .await;
+        observations.push(observation?);
+    }
+    Ok(observations)
 }
-fn verify_evidence(
+async fn verify_evidence(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
@@ -229,7 +233,7 @@ fn verify_evidence(
             expected == id
                 && after == &verification.fingerprint
                 && verification.satisfies(&task.required_checks, true)
-                && crate::fix_proof::matches(store, access, proposal)?
+                && crate::fix_proof::matches(store, access, proposal).await?
         }
         ClaimValue::Command {
             verification: Some(expected),
@@ -237,7 +241,7 @@ fn verify_evidence(
             ..
         } => {
             expected == id
-                && crate::proof::command_matches(store, access, proposal, reference)?
+                && crate::proof::command_matches(store, access, proposal, reference).await?
                 && verification
                     .checks
                     .iter()
@@ -609,7 +613,7 @@ pub(crate) async fn propose_inner(
         let context = GovernanceContext {
             workspace: access.workspace.clone(),
             current: current(store, access).await?,
-            evidence: evidence(store, access, &proposal)?,
+            evidence: evidence(store, access, &proposal).await?,
             head: head.as_ref().and_then(|h| h.current.clone()),
         };
         let resolution = match validate_origins(store, access, &proposal, &workspace).await? {

@@ -1030,7 +1030,7 @@ async fn advisory_reads_respect_logical_purge_before_cleanup_and_after_reopen() 
             },
             Action::Purge,
             Timestamp::new(20),
-        )
+        ).await
         .unwrap();
         assert!(preview.protected.is_empty());
         retention::apply(&mut store, &access, &preview, Timestamp::new(21))

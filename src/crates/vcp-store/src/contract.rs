@@ -1551,6 +1551,41 @@ pub trait CanonicalStore {
         }
         Ok(rows)
     }
+    /// Complete ordered artifact-reference index under the current owner root.
+    /// Returns each matching envelope once, with its global ordinal, regardless
+    /// of kind, schema, redaction, or session. Cursor is exclusive; empty proves
+    /// exhaustion. Durable implementations must authenticate index completeness,
+    /// not merely return matching mutable database rows. Bounds match history_events.
+    async fn history_artifact_events(
+        &self,
+        workspace: &WorkspaceId,
+        artifact: &ArtifactId,
+        after: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, EventEnvelope)>> {
+        if limit == 0 || limit > 4096 {
+            return Err(Error::Limit("artifact history page"));
+        }
+        let first = after.map_or(Some(0), |value| value.checked_add(1))
+            .ok_or(Error::Limit("history ordinal"))?;
+        let first = usize::try_from(first).map_err(|_| Error::Limit("history ordinal"))?;
+        let events = &self.state().events;
+        if first > events.len() {
+            return Err(Error::Conflict("history ordinal ahead of owner"));
+        }
+        let mut rows = Vec::new();
+        let mut bytes = 0usize;
+        for (ordinal, event) in events.iter().enumerate().skip(first).filter(|(_, event)| {
+            &event.event.workspace == workspace && event.event.artifacts.contains(artifact)
+        }).take(limit) {
+            let size = encoded_len(event)?;
+            if size > MAX_COMMIT_BYTES { return Err(Error::Limit("history event row")); }
+            if size > MAX_COMMIT_BYTES - bytes { break; }
+            bytes += size;
+            rows.push((u64::try_from(ordinal).map_err(|_| Error::Limit("history ordinal"))?, event.clone()));
+        }
+        Ok(rows)
+    }
     /// Authenticated exact global ordinal, or absence at/beyond the owner's end.
     async fn history_event_at(&self, ordinal: u64) -> Result<Option<EventEnvelope>> {
         let ordinal = usize::try_from(ordinal).map_err(|_| Error::Limit("history ordinal"))?;
@@ -1577,6 +1612,16 @@ pub trait CanonicalStore {
             return Err(Error::Limit("history event row"));
         }
         Ok(event.cloned())
+    }
+    /// Authenticated canonical fact lookup only. Callers must separately prove
+    /// command meaning and disclosure scope; this is not replay authorization.
+    /// The resident adapter is replaced by the admitted catalog before eviction.
+    async fn command_receipt_by_id(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>> {
+        Ok(self.state().commands.get(&command_key(workspace, command)).cloned())
     }
     /// Exact command-meaning replay remains available after event retention.
     /// This resident-state adapter is replaced by authenticated durable lookup

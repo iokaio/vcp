@@ -12,6 +12,7 @@ use vcp_domain::{
 };
 use vcp_protocol::{event::EventKind, methods::CaptureScope};
 use vcp_store::{
+    contract::CanonicalStore,
     export_contract::{Sources, MAX_BYTES},
     Store,
 };
@@ -53,21 +54,23 @@ struct Payload {
 /// RPC input. Engine admission checks the source proof before capture/commit.
 pub use vcp_store::export_contract::Rendered;
 
-pub fn render(
+pub async fn render(
     store: &Store,
     access: &Access,
     sources: &Sources,
     capture: CaptureScope,
 ) -> Result<Rendered> {
-    crate::history::authorize(store.state(), access)?;
+    crate::history::authorize(store.current(), access)?;
     if sources.scope().workspace != access.workspace {
         return Err(Error::Access);
     }
-    sources.validate_current(store.state(), access.authority, access.tasks.as_ref())?;
-    let masks = crate::history::masks(store.state(), &access.workspace)?;
+    sources
+        .validate_current_store(store, access.authority, access.tasks.as_ref())
+        .await?;
+    let masks = crate::history::masks(store.current(), &access.workspace)?;
     let mut omissions = vec!["event_data_and_fact_payloads_omitted; metadata-only history, not a conversational transcript".to_owned()];
     let mut history = Vec::new();
-    for envelope in sources.events(store.state())? {
+    for envelope in sources.events_store(store).await? {
         if envelope.redaction.is_some()
             || masks.iter().any(|m| {
                 m.session == envelope.event.session
@@ -98,7 +101,7 @@ pub fn render(
     }
     let mut artifacts = Vec::new();
     let mut bytes_left = MAX_BYTES / 8; // JSON octets need up to four encoded bytes each.
-    for artifact in sources.artifacts(store.state())? {
+    for artifact in sources.artifacts(store.current())? {
         if capture == CaptureScope::VisibleHistory {
             omissions.push(format!("artifact_{}_bytes_not_requested", artifact.spec.id));
             continue;
@@ -116,7 +119,7 @@ pub fn render(
             return Err(Error::Limit);
         }
         let mut bytes = Vec::with_capacity(length);
-        History::read_artifact(store, access, &artifact.spec.id, &mut bytes)?;
+        History::read_artifact(store, access, &artifact.spec.id, &mut bytes).await?;
         bytes_left -= bytes.len();
         if artifact.state != CaptureState::Complete {
             omissions.push(format!("artifact_{}_capture_incomplete", artifact.spec.id));

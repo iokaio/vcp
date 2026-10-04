@@ -441,7 +441,7 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
             },
             Action::Purge,
             Timestamp::new(101),
-        )
+        ).await
         .unwrap();
         // Retention follows snapshot dependencies: selecting one task fact also
         // removes its task record and remaining history, not just one edge.
@@ -465,7 +465,7 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
             },
             Action::Purge,
             Timestamp::new(101),
-        )
+        ).await
         .unwrap();
         retention::apply(&mut store, &access, &plan, Timestamp::new(101))
             .await

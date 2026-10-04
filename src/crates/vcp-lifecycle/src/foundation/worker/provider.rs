@@ -408,12 +408,13 @@ impl Context {
                 return Err("captured source scope/size differs".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    &mut bytes,
+                ))?;
             Ok((descriptor, bytes))
         };
         read().map_err(|_| vcp_context::manifest::Error::Stale)

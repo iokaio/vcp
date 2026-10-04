@@ -121,18 +121,18 @@ fn proposal_removed_with_history(
 
 /// Returns at most 256 immutable versions. Larger histories require an explicit
 /// bounded sequence interval in the later common retrieval adapter.
-pub fn query(
+pub async fn query(
     store: &Store,
     access: &Access,
     claim: &ClaimId,
     at: Option<MemorySeq>,
     fingerprint: Option<&Fingerprint>,
 ) -> Result<ClaimHistory> {
-    query_with_check(store, access, claim, at, fingerprint, &|| Ok(()))
+    query_with_check(store, access, claim, at, fingerprint, &|| Ok(())).await
 }
 /// Cooperative history scan. The caller's callback may enforce a shared
 /// deadline/cancellation budget; interruption never returns a partial history.
-pub fn query_with_check(
+pub async fn query_with_check(
     store: &Store,
     access: &Access,
     claim: &ClaimId,
@@ -161,11 +161,11 @@ pub fn query_with_check(
             }
         }
     }
-    from_versions_with_check(store, access, claim, at, fingerprint, versions, check)
+    from_versions_with_check(store, access, claim, at, fingerprint, versions, check).await
 }
 /// Inventory already grouped canonical versions; do not rescan/decode the whole
 /// workspace for each claim. This is internal, never a supplied history source.
-pub(crate) fn from_versions_with_check(
+pub(crate) async fn from_versions_with_check(
     store: &Store,
     access: &Access,
     claim: &ClaimId,
@@ -185,6 +185,7 @@ pub(crate) fn from_versions_with_check(
         None,
         check,
     )
+    .await
 }
 
 #[derive(Serialize)]
@@ -267,7 +268,7 @@ pub fn origin_links_with_check(
 /// A stable sequence window over immutable claim versions. Only the bounded
 /// window retains decoded payloads; current authority applies to the entire
 /// claim, including the head used to label historical rows.
-pub fn window(
+pub async fn window(
     store: &Store,
     access: &Access,
     claim: &ClaimId,
@@ -275,11 +276,11 @@ pub fn window(
     after: MemorySeq,
     limit: usize,
 ) -> Result<(ClaimHistory, MemorySeq, bool)> {
-    window_with_check(store, access, claim, at, after, limit, None, &|| Ok(()))
+    window_with_check(store, access, claim, at, after, limit, None, &|| Ok(())).await
 }
 /// Cooperative bounded window with explicit current representation evidence.
 #[allow(clippy::too_many_arguments)]
-pub fn window_with_check(
+pub async fn window_with_check(
     store: &Store,
     access: &Access,
     claim: &ClaimId,
@@ -309,7 +310,7 @@ pub fn window_with_check(
             && row.value["proposal"]["claim"].as_str() == Some(claim.as_str())
         {
             let version: Version = row.decode()?;
-            access::version_scope(store.state(), access, &version)?;
+            access::version_scope_store(store, access, &version, check).await?;
             (
                 version.memory_seq,
                 version.id.clone(),
@@ -321,7 +322,8 @@ pub fn window_with_check(
             && row.value["claim"].as_str() == Some(claim.as_str())
         {
             let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
-            access::redacted_scope(store.state(), access, &version.scope, &version.sources)?;
+            access::redacted_scope_store(store, access, &version.scope, &version.sources, check)
+                .await?;
             (
                 version.memory_seq,
                 version.id.clone(),
@@ -371,12 +373,13 @@ pub fn window_with_check(
         Some(purged),
         Some(current.map(|(_, id)| id)),
         check,
-    )?;
+    )
+    .await?;
     Ok((history, upper, more))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn materialize(
+async fn materialize(
     store: &Store,
     access: &Access,
     claim: &ClaimId,
@@ -427,7 +430,8 @@ fn materialize(
     });
     let mut rows = Vec::new();
     for version in purged {
-        access::redacted_scope(store.state(), access, &version.scope, &version.sources)?;
+        access::redacted_scope_store(store, access, &version.scope, &version.sources, check)
+            .await?;
         rows.push(VersionView {
             current: current.as_ref() == Some(&version.id),
             id: version.id,
@@ -448,8 +452,9 @@ fn materialize(
         let selected = current.as_ref() == Some(&id);
         // Retention may hide content, but cannot make an unauthorized origin's
         // version/claim identities observable through a pruned placeholder.
-        access::version_scope(store.state(), access, &version)?;
-        if proposal_removed_with_check(store.state(), &access.workspace, &version.proposal, check)?
+        access::version_scope_store(store, access, &version, check).await?;
+        if proposal_removed_store_with_check(store, &access.workspace, &version.proposal, check)
+            .await?
         {
             rows.push(VersionView {
                 id,
@@ -472,7 +477,7 @@ fn materialize(
             .decode()?;
         let source = fingerprint.unwrap_or(&task.fingerprint);
         let observations =
-            repository::evidence_with_check(store, access, &version.proposal, check)?;
+            repository::evidence_with_check(store, access, &version.proposal, check).await?;
         check()?;
         if observations
             .iter()
@@ -481,7 +486,7 @@ fn materialize(
             return Err(Error::Access);
         }
         let recall_allowed = crate::retention::recall_allowed(
-            store.state(),
+            store.current(),
             &access.workspace,
             &crate::retention::Target::Record(vcp_store::contract::key(
                 Collection::Claim,

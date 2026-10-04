@@ -172,12 +172,13 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
             }
             if !redacted {
                 let mut bytes = Vec::new();
-                assert!(vcp_audit::history::History::read_artifact(
-                    context.engine.store(),
-                    &context.history_access(),
-                    &artifact.spec.id,
-                    &mut bytes
-                )
+                assert!(context.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        context.engine.store(),
+                        &context.history_access(),
+                        &artifact.spec.id,
+                        &mut bytes
+                    ))
                 .is_err());
                 assert!(
                     bytes.is_empty(),

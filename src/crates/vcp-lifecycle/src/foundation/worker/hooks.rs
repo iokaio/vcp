@@ -122,12 +122,13 @@ impl Context {
                 return Err("hook artifact outside the current task or not complete".into());
             }
             // Apply retention/export fences before disclosing even a reference.
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                std::io::sink(),
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    std::io::sink(),
+                ))?;
         }
         Ok(())
     }
@@ -152,12 +153,13 @@ impl Context {
             return Err("hook artifact scope or byte ceiling".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(Some(bytes))
     }
 

@@ -95,12 +95,14 @@ impl PublicConnection {
                             Ok(())
                         }
                     };
-                    let sources = retrieval::source_bindings_with_check(
-                        context.engine.store(),
-                        &memory_access,
-                        &check,
-                    )
-                    .map_err(memory_error)?;
+                    let sources = context
+                        .runtime
+                        .block_on(retrieval::source_bindings_with_check(
+                            context.engine.store(),
+                            &memory_access,
+                            &check,
+                        ))
+                        .map_err(memory_error)?;
                     let internal = retrieval::Request {
                         workspace: memory_access.workspace.clone(),
                         tasks: Some(vec![TaskId::parse(capture_request.task.as_str())
@@ -116,15 +118,17 @@ impl PublicConnection {
                         tokens: 16384,
                         bytes: 65536,
                     };
-                    let captured = retrieval::capture(
-                        context.engine.store(),
-                        &memory_access,
-                        &internal,
-                        &sources.bindings,
-                        &ChunkerSpec::default(),
-                        &|| capture_stop(),
-                    )
-                    .map_err(memory_error)?;
+                    let captured = context
+                        .runtime
+                        .block_on(retrieval::capture(
+                            context.engine.store(),
+                            &memory_access,
+                            &internal,
+                            &sources.bindings,
+                            &ChunkerSpec::default(),
+                            &|| capture_stop(),
+                        ))
+                        .map_err(memory_error)?;
                     Ok((
                         captured,
                         memory_access,
@@ -148,13 +152,15 @@ impl PublicConnection {
                         .public_authorize(&access, &connection, token.as_ref(), false)
                         .map_err(|_| failure(Code::PolicyDenied))?;
                     let memory_access = scoped_access(context.engine.store(), &access, &request)?;
-                    let mut response = retrieval::finish(
-                        context.engine.store(),
-                        &memory_access,
-                        selected,
-                        &|| stopped(),
-                    )
-                    .map_err(memory_error)?;
+                    let mut response = context
+                        .runtime
+                        .block_on(retrieval::finish(
+                            context.engine.store(),
+                            &memory_access,
+                            selected,
+                            &|| stopped(),
+                        ))
+                        .map_err(memory_error)?;
                     response.rebuild_required |= !sources.complete;
                     response.degraded.extend(sources.degraded);
                     if stopped() {

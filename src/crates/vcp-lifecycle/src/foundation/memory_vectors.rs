@@ -189,13 +189,13 @@ impl CanonicalHost {
             if !context.engine.store().spool().unfinished()?.is_empty() {
                 return Err("capture recovery incomplete".into());
             }
-            Ok(search_record::inventory(
+            Ok(context.runtime.block_on(search_record::inventory(
                 context.engine.store(),
                 &context.memory_access(),
                 &sources,
                 &chunker,
                 search_record::Limits::default(),
-            )?)
+            ))?)
         }) {
             Ok(inventory) => inventory,
             Err(error) => return Ok(Outcome::early(Status::Deferred(error))),

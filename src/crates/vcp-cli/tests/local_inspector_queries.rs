@@ -249,7 +249,9 @@ async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
     let mut at = None;
     loop {
         let (page, upper, more) =
-            vcp_memory::history::window(&store, &access, &proposal.claim, at, after, 32).unwrap();
+            vcp_memory::history::window(&store, &access, &proposal.claim, at, after, 32)
+                .await
+                .unwrap();
         at = Some(upper);
         for row in page.versions {
             after = row.memory_seq;

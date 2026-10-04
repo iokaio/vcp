@@ -149,8 +149,9 @@ async fn rebuild(
             Ok(())
         }
     };
-    let sources =
-        retrieval::source_bindings_with_check(store, &access, &check).map_err(|e| e.to_string())?;
+    let sources = retrieval::source_bindings_with_check(store, &access, &check)
+        .await
+        .map_err(|e| e.to_string())?;
     let inventory = search_record::inventory_with_check(
         store,
         &access,
@@ -159,6 +160,7 @@ async fn rebuild(
         search_record::Limits::default(),
         &check,
     )
+    .await
     .map_err(|e| e.to_string())?;
     let represented: BTreeSet<_> = sources
         .bindings

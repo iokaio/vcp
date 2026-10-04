@@ -101,7 +101,7 @@ fn available(store: &Store, access: &Access, collection: Collection, id: &str) -
     .map_err(err)
 }
 
-fn read(
+async fn read(
     store: &Store,
     access: &Access,
     descriptor: &ArtifactDescriptor,
@@ -131,7 +131,7 @@ fn read(
         &descriptor.spec.id,
         &mut bytes,
     )
-    .is_err()
+    .await.is_err()
         || digest_bytes(&bytes) != descriptor.sha256
     {
         return Ok(None);
@@ -148,10 +148,10 @@ fn pin(descriptor: &ArtifactDescriptor) -> ArtifactPin {
 
 /// Rebuild from authorized artifacts and canonical submission intents. This is
 /// a read-only description, not evidence that a provider received the request.
-pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
-    observe_with_check(store, access, window, &|| Ok(()))
+pub async fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
+    observe_with_check(store, access, window, &|| Ok(())).await
 }
-pub fn observe_with_check(
+pub async fn observe_with_check(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -229,7 +229,7 @@ pub fn observe_with_check(
             }
             report.source_events.push(event.id.clone());
             report.source_artifacts.push(pin(&descriptor));
-            let Some(bytes) = read(store, access, &descriptor, &mut total)? else {
+            let Some(bytes) = read(store, access, &descriptor, &mut total).await? else {
                 report.unavailable_artifacts += 1;
                 continue;
             };
@@ -339,7 +339,7 @@ pub fn observe_with_check(
                 .map_err(err)?;
             if request.sha256 != attempt.request_digest
                 || request.spec.scope != attempt.scope
-                || read(store, access, &request, &mut total)?.is_none()
+                || read(store, access, &request, &mut total).await?.is_none()
             {
                 continue;
             }
@@ -428,7 +428,7 @@ pub fn observe_with_check(
                                         .into(),
                                 );
                             }
-                            sources_complete &= read(store, access, &d, &mut total)?.is_some();
+                            sources_complete &= read(store, access, &d, &mut total).await?.is_some();
                         }
                         _ => sources_complete = false,
                     }

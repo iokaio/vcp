@@ -171,7 +171,7 @@ async fn fixture(
     let token = engine.controller_token(&access(), &connection).unwrap();
     (engine, root, other, connection, token)
 }
-fn prepare(
+async fn prepare(
     engine: &Engine<Store>,
     request: methods::SessionExport,
     root: &TaskId,
@@ -180,6 +180,7 @@ fn prepare(
 ) -> PreparedPublicExport {
     match engine
         .prepare_public_export(request, &access(), connection, token, &disclosure(), root)
+        .await
         .unwrap()
     {
         PublicExportAdmission::Ready(value) => value,
@@ -203,13 +204,15 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             &other,
             &connection,
             &token,
-        );
+        )
+        .await;
         let rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&rendered.payload).unwrap();
         assert!(payload["artifacts"]
@@ -284,7 +287,9 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             ]),
         };
         let preview =
-            retention::preview(&store, &auth, selector, Action::Purge, Timestamp::new(10)).unwrap();
+            retention::preview(&store, &auth, selector, Action::Purge, Timestamp::new(10))
+                .await
+                .unwrap();
         for output in &outputs {
             assert!(preview
                 .dependent

@@ -155,6 +155,7 @@ async fn retention_case(admitted: bool) {
             Action::Purge,
             Timestamp::new(1000),
         )
+        .await
         .unwrap();
         assert!(preview.protected.is_empty());
         assert!(preview.backup_copies.contains(&operation.to_string()));

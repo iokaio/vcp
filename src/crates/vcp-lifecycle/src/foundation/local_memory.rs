@@ -191,11 +191,13 @@ impl LocalMemory {
         let control = self.scan_control(cancelled.clone(), Duration::from_secs(60));
         let sources = self.host.worker.run(move |context| {
             context.can_start_memory(&binding)?;
-            Ok(retrieval::source_bindings_with_check(
-                context.engine.store(),
-                &context.memory_access(),
-                &|| control.check(),
-            )?)
+            Ok(context
+                .runtime
+                .block_on(retrieval::source_bindings_with_check(
+                    context.engine.store(),
+                    &context.memory_access(),
+                    &|| control.check(),
+                ))?)
         })?;
         if !sources.complete {
             return Err(format!(
@@ -299,18 +301,21 @@ impl LocalMemory {
         let (captured, sources) = self.host.worker.run(move |context| {
             context.can_start_memory(&checked)?;
             let access = context.memory_access();
-            let sources =
-                retrieval::source_bindings_with_check(context.engine.store(), &access, &|| {
-                    capture_control.check()
-                })?;
-            let captured = retrieval::capture(
+            let sources = context
+                .runtime
+                .block_on(retrieval::source_bindings_with_check(
+                    context.engine.store(),
+                    &access,
+                    &|| capture_control.check(),
+                ))?;
+            let captured = context.runtime.block_on(retrieval::capture(
                 context.engine.store(),
                 &access,
                 &request,
                 &sources.bindings,
                 &ChunkerSpec::default(),
                 &|| capture_control.check().is_err(),
-            )?;
+            ))?;
             Ok((captured, sources))
         })?;
         let host = self.host.clone();
@@ -366,12 +371,12 @@ impl LocalMemory {
         let binding = self.host.binding(self.thread)?;
         let response = self.host.worker.run(move |context| {
             context.can_start_memory(&binding)?;
-            let mut response = retrieval::finish(
+            let mut response = context.runtime.block_on(retrieval::finish(
                 context.engine.store(),
                 &context.memory_access(),
                 selected,
                 &|| control.check().is_err(),
-            )?;
+            ))?;
             response.rebuild_required |= !sources.complete;
             response.degraded.extend(sources.degraded);
             Ok(response)

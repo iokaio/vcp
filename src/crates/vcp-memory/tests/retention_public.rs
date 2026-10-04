@@ -150,6 +150,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
             Action::Purge,
             Timestamp::new(200),
         )
+        .await
         .unwrap();
         assert_eq!(
             store.state(),
@@ -400,7 +401,8 @@ async fn out_of_scope_copied_context_dependency_denies_the_entire_preview() {
                     selection(),
                     Action::Purge,
                     Timestamp::new(200)
-                ),
+                )
+                .await,
                 Err(vcp_memory::Error::Access)
             ),
             "foreign copied text cannot be silently excluded from purge closure"
@@ -468,6 +470,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 &search_record::ChunkerSpec::default(),
                 search_record::Limits::default(),
             )
+            .await
             .unwrap();
             assert_eq!(inventory.records.len(), scopes.len());
             let publisher =
@@ -517,6 +520,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 Action::Purge,
                 Timestamp::new(202),
             )
+            .await
             .unwrap();
             assert!(preview.selection().protected.is_empty());
             let request = command_request(&store, &scope);
@@ -589,6 +593,7 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             Action::Exclude,
             Timestamp::new(200),
         )
+        .await
         .unwrap();
         let request = command_request(&store, &scope);
         let mut foreign = scope.clone();
@@ -601,6 +606,7 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             Action::Exclude,
             Timestamp::new(200)
         )
+        .await
         .is_err());
         let current = store.state().watermark;
         store
@@ -648,6 +654,7 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             Action::Exclude,
             Timestamp::new(202)
         )
+        .await
         .is_err());
     }
 }

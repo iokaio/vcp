@@ -35,7 +35,7 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
                 break;
             }
         }
-        assert!(!inventory(&store, &access).records.is_empty());
+        assert!(!inventory(&store, &access).await.records.is_empty());
         let query = vcp_memory::lexical::Query {
             workspace: scope.workspace.clone(),
             tasks: None,
@@ -51,18 +51,17 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
         };
         let components = root.join("components");
         let publisher = Publisher::new(&components).unwrap();
-        let prepare = |store: &Store| {
+        let prepare = |store: &Store, inventory| {
             publisher
                 .prepare(
-                    publication::capture(store, &access, &scope, inventory(store, &access))
-                        .unwrap(),
+                    publication::capture(store, &access, &scope, inventory).unwrap(),
                     None,
                     &AtomicBool::new(false),
                     &|_| {},
                 )
                 .unwrap()
         };
-        let first = prepare(&store);
+        let first = prepare(&store, inventory(&store, &access).await);
         publisher
             .publish(&mut store, &access, &first, Timestamp::new(2000), &|_| {})
             .await
@@ -108,7 +107,7 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
             &acknowledged,
             "recovery cannot repair canonical facts from an index"
         );
-        let replacement = prepare(&reopened);
+        let replacement = prepare(&reopened, inventory(&reopened, &access).await);
         publisher
             .publish(
                 &mut reopened,
@@ -328,7 +327,7 @@ use vcp_memory::{
     publication::{self, GarbagePolicy, Publisher},
     search_record,
 };
-fn inventory(store: &Store, access: &Access) -> search_record::Inventory {
+async fn inventory(store: &Store, access: &Access) -> search_record::Inventory {
     search_record::inventory(
         store,
         access,
@@ -336,6 +335,7 @@ fn inventory(store: &Store, access: &Access) -> search_record::Inventory {
         &search_record::ChunkerSpec::default(),
         search_record::Limits::default(),
     )
+    .await
     .unwrap()
 }
 
@@ -358,7 +358,7 @@ async fn empty_and_fully_excluded_inventories_acknowledge_exact_coverage() {
                         break;
                     }
                 }
-                assert!(!inventory(&store, &access).records.is_empty());
+                assert!(!inventory(&store, &access).await.records.is_empty());
                 let mut workspace: Workspace = store
                     .state()
                     .record(
@@ -416,7 +416,7 @@ async fn empty_and_fully_excluded_inventories_acknowledge_exact_coverage() {
                     .await
                     .unwrap();
             }
-            let inventory = inventory(&store, &access);
+            let inventory = inventory(&store, &access).await;
             assert!(inventory.records.is_empty());
             assert_eq!(!inventory.exclusions.is_empty(), excluded_claim);
             let publisher = Publisher::new(&temp.path().join("components")).unwrap();
@@ -481,7 +481,7 @@ async fn recovery_never_returns_generations_from_old_access_or_deletion_epochs()
             let publisher = Publisher::new(&temp.path().join("components")).unwrap();
             let prepared = publisher
                 .prepare(
-                    publication::capture(&store, &access, &scope, inventory(&store, &access))
+                    publication::capture(&store, &access, &scope, inventory(&store, &access).await)
                         .unwrap(),
                     None,
                     &AtomicBool::new(false),
@@ -563,7 +563,8 @@ async fn private_build_pins_directory_namespaces_until_writes_finish() {
     let checked = AtomicBool::new(false);
     let prepared = publisher
         .prepare(
-            publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+            publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                .unwrap(),
             None,
             &AtomicBool::new(false),
             &|barrier| {
@@ -614,7 +615,7 @@ async fn adopted_vectors_allow_resource_receipts_but_reject_changed_scope_or_sou
                 break;
             }
         }
-        let original = inventory(&store, &access);
+        let original = inventory(&store, &access).await;
         let expected = embedding::inventory_chunks(&original).unwrap();
         assert!(!expected.is_empty());
         let encode = |rows: Vec<embedding::Chunk>| {
@@ -657,7 +658,7 @@ async fn adopted_vectors_allow_resource_receipts_but_reject_changed_scope_or_sou
         )
         .await
         .unwrap();
-        let current = inventory(&store, &access);
+        let current = inventory(&store, &access).await;
         assert!(current.watermark > original.watermark);
         let publisher = Publisher::new(&temp.path().join("generations")).unwrap();
         let cancel = AtomicBool::new(false);
@@ -713,7 +714,7 @@ async fn adopted_vectors_allow_resource_receipts_but_reject_changed_scope_or_sou
             let wrong_checksum = wrong.save_private(&wrong_path, &|| false).unwrap();
             assert!(publisher
                 .prepare_with_vectors(
-                    publication::capture(&store, &access, &scope, inventory(&store, &access))
+                    publication::capture(&store, &access, &scope, inventory(&store, &access).await)
                         .unwrap(),
                     &wrong_path,
                     &wrong_checksum,
@@ -762,7 +763,8 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
         let cancel = AtomicBool::new(false);
         let first = publisher
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &cancel,
                 &|_| {},
@@ -791,7 +793,8 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
         );
         let next = publisher
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &cancel,
                 &|_| {},
@@ -799,7 +802,8 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
             .unwrap();
         let loser = publisher
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &cancel,
                 &|_| {},
@@ -885,7 +889,7 @@ async fn publication_records_owned_cleanup_namespace_and_retry_is_exact() {
             let publisher = Publisher::new(&path).unwrap();
             let prepared = publisher
                 .prepare(
-                    publication::capture(&store, &access, &scope, inventory(&store, &access))
+                    publication::capture(&store, &access, &scope, inventory(&store, &access).await)
                         .unwrap(),
                     None,
                     &AtomicBool::new(false),
@@ -965,7 +969,7 @@ async fn retention_removes_owned_generation_and_reports_external_copy_pending() 
             let publisher = Publisher::new(&path).unwrap();
             let prepared = publisher
                 .prepare(
-                    publication::capture(&store, &access, &scope, inventory(&store, &access))
+                    publication::capture(&store, &access, &scope, inventory(&store, &access).await)
                         .unwrap(),
                     None,
                     &AtomicBool::new(false),
@@ -1023,6 +1027,7 @@ async fn retention_removes_owned_generation_and_reports_external_copy_pending() 
                 Action::Purge,
                 Timestamp::new(3000),
             )
+            .await
             .unwrap();
             assert!(preview.protected.is_empty());
             let receipt = retention::apply(&mut store, &access, &preview, Timestamp::new(3001))
@@ -1073,7 +1078,8 @@ async fn publication_child() {
             .unwrap();
     let baseline = publisher
         .prepare(
-            publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+            publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                .unwrap(),
             Some(&mut model),
             &cancel,
             &|_| {},
@@ -1109,7 +1115,8 @@ async fn publication_child() {
     };
     let prepared = publisher
         .prepare(
-            publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+            publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                .unwrap(),
             Some(&mut model),
             &cancel,
             &stop,
@@ -1211,7 +1218,7 @@ async fn process_kill_at_component_manifest_and_activation_boundaries() {
         }
     }
 }
-// Append to memory publication integration tests (existing fixture()/inventory()).
+// Append to memory publication integration tests (existing fixture()/inventory().await).
 #[cfg(windows)]
 #[tokio::test]
 async fn validated_generation_denies_swaps_and_all_root_managers_share_pins() {
@@ -1234,7 +1241,8 @@ async fn validated_generation_denies_swaps_and_all_root_managers_share_pins() {
         let cancel = AtomicBool::new(false);
         let prepared = publisher
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &cancel,
                 &|_| {},
@@ -1276,7 +1284,8 @@ async fn validated_generation_denies_swaps_and_all_root_managers_share_pins() {
         let same_root = Publisher::new(&root).unwrap();
         let next = same_root
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &cancel,
                 &|_| {},
@@ -1320,7 +1329,8 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
         let before = store.state().clone();
         let cancel = AtomicBool::new(false);
         let result = publisher.prepare(
-            publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+            publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                .unwrap(),
             None,
             &cancel,
             &|barrier| {
@@ -1335,7 +1345,8 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
         cancel.store(false, std::sync::atomic::Ordering::Release);
         let prepared = publisher
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &cancel,
                 &|_| {},
@@ -1343,7 +1354,7 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
             .unwrap();
         let mut base = prepared.manifest().clone();
         base.canonical_watermark = Watermark::ZERO;
-        let fresh = inventory(&store, &access);
+        let fresh = inventory(&store, &access).await;
         assert!(!fresh.records.is_empty());
         let overlay =
             publication::overlay(&base, &fresh, 1, 1, std::time::Duration::from_millis(50))
@@ -1385,7 +1396,8 @@ async fn recovery_cancellation_before_and_after_native_open_never_returns_a_view
         let publisher = Publisher::new(&temp.path().join("components")).unwrap();
         let prepared = publisher
             .prepare(
-                publication::capture(&store, &access, &scope, inventory(&store, &access)).unwrap(),
+                publication::capture(&store, &access, &scope, inventory(&store, &access).await)
+                    .unwrap(),
                 None,
                 &AtomicBool::new(false),
                 &|_| {},

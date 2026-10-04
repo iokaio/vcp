@@ -156,7 +156,9 @@ pub async fn save_preview(
         value.selector.clone(),
         value.action,
         value.created_at,
-    )? != *value
+    )
+    .await?
+        != *value
     {
         return Err(Error::Conflict("stale preview before save"));
     }
@@ -457,16 +459,16 @@ fn context_dependencies(
 }
 /// Materialize exact IDs against one canonical cut. Unknown metadata never
 /// matches negation. Protection categories deliberately contain no source text.
-pub fn preview(
+pub async fn preview(
     store: &Store,
     access: &Access,
     selector: Selector,
     action: Action,
     now: Timestamp,
 ) -> Result<PrunePreview> {
-    preview_inner(store, access, None, selector, action, now)
+    preview_inner(store, access, None, selector, action, now).await
 }
-pub(crate) fn preview_scoped(
+pub(crate) async fn preview_scoped(
     store: &Store,
     access: &Access,
     scope: &Scope,
@@ -474,9 +476,9 @@ pub(crate) fn preview_scoped(
     action: Action,
     now: Timestamp,
 ) -> Result<PrunePreview> {
-    preview_inner(store, access, Some(scope), selector, action, now)
+    preview_inner(store, access, Some(scope), selector, action, now).await
 }
-fn preview_inner(
+async fn preview_inner(
     store: &Store,
     access: &Access,
     scoped: Option<&Scope>,
@@ -498,7 +500,7 @@ fn preview_inner(
         .transpose()?;
     let selector = selector.normalized()?;
     let state = store.state();
-    let source_metadata = sources::metadata(store, access, &selector.tree)?;
+    let source_metadata = sources::metadata(store, access, &selector.tree).await?;
     let mut selected = BTreeSet::new();
     let superseded: BTreeSet<_> = state
         .records
@@ -997,7 +999,8 @@ async fn apply_inner(
         preview.selector.clone(),
         preview.action,
         preview.created_at,
-    )?;
+    )
+    .await?;
     actual.watermark = preview.watermark;
     actual.id.clear();
     actual.id = digest(&actual)?;
@@ -1288,7 +1291,11 @@ pub fn purged<'a>(
 ) -> Result<bool> {
     Ok(decision(state, workspace, target)?.is_some_and(|value| value.purged))
 }
-pub fn recall_allowed(state: &State, workspace: &WorkspaceId, target: &Target) -> Result<bool> {
+pub fn recall_allowed<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+    target: &Target,
+) -> Result<bool> {
     Ok(decision(state, workspace, target)?
         .is_none_or(|value| !value.recall_excluded && !value.purged))
 }
