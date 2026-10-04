@@ -860,18 +860,17 @@ listing at most 10 findings ordered by severity.
     $namesT5 = @($namesT4) + @(@('Missing_if_match_returns_428', 'Stale_if_match_returns_412', 'Matching_if_match_updates_product_and_etag') | ForEach-Object { "Inventory.Tests.ConcurrencyTests.$_" })
     function New-DotnetCheck([string[]]$Names, [int]$DeadlineSeconds) {
         return [ordered]@{ manifest = (Split-Path -Leaf (Get-Solution)); runner = 'dotnet'; profile = 'dotnet'
-            timeout_ms = [math]::Min(300000, [long]$DeadlineSeconds * 1000); expected_tests = $Names
+            timeout_ms = 300000; expected_tests = $Names
             rationale = 'Owner acceptance: cumulative named Inventory xUnit tests must pass against current application source.' }
     }
     $profiles = @{}
     foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT2), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
         $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $pair[1] $ctx.DeadlineSeconds)
     }
-    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false -Guardrail
     foreach ($key in 'T1', 'T2', 'T3', 'T4', 'T5') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
-    foreach ($pair in @(@('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    [void](Test-ProfileCheck $ctx $stage $profileReview 'review')
     [void](Test-ProcessEnvironment $ctx $stage $dotnetProcess 'dotnet-tool-restore' @('tool', 'restore'))
     [void](Test-ProcessEnvironment $ctx $stage $dotnetProcess 'dotnet-build' @('build', (Get-Solution), '-nologo'))
 
@@ -916,22 +915,25 @@ listing at most 10 findings ordered by severity.
     if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'
 
-    # --- T5: concurrency, short deadline then 'resume <task>' --------------
+    # --- T5: explicit acknowledged pause, then same-task resume -----------
     $gatesT5 = { param($s) Test-Build $s; Test-Tests $s 22 $namesT5; Test-Migrations $s @('InitialCreate', 'AddProductRowVersion'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-Concurrency $s $p; Test-ApiContract $s $p; Test-RazorPages $s $p } }
-    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-concurrency' -Title 'Optimistic concurrency (short deadline)' -Prompt $promptT5 -Config $profileShort -AcceptExit @(0, 3, 8)
+    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-concurrency' -Title 'Optimistic concurrency with explicit pause' -Prompt $promptT5 -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)
     if ($t5) {
-        $unresolvedDeadline = $t5.exit_code -eq 7
-        Test-StageExit $ctx $t5 'T5-concurrency' -DiagnosticUnresolvedDeadline:$unresolvedDeadline
-        if ($unresolvedDeadline) { [void](Invoke-DeadlineCostReconciliation $ctx $t5) }
-        if (($t5.exit_code -eq 8 -or $unresolvedDeadline) -and $t5.task) {
-            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task)" -Arguments @('resume', $t5.task) -Config $profiles['T5'] -AcceptExit @(0, 3)
-            if ($resumed) {
-                Test-StageExit $ctx $resumed 'T5-resume'
-                [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'resume <task> continued the paused T5 task' -Test {
-                        Assert-That ($resumed.task -eq $t5.task) "resumed '$($resumed.task)' != paused '$($t5.task)'"; $true })
-            }
+        Test-StageExit $ctx $t5 'T5-concurrency'
+        [void](Invoke-Gate $ctx 'T5-concurrency' 'explicit-pause' 'owner acknowledged pause and execution ended durably paused' {
+            Assert-That ($t5.explicit_pause.acknowledged -and $t5.exit_code -eq 8 -and
+                $t5.conditions -contains 'durably_paused' -and $ctx.PaidExecutionBlock.resume_same_task) 'Explicit pause lacks acknowledged, scoped terminal proof'
+            $true
+        })
+        if (@(Get-FailedGates $ctx 'T5-concurrency').Count) { throw 'Explicit pause qualification failed; retained evidence requires diagnosis before continuation.' }
+        $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title 'resume <task> after explicit pause' `
+            -Arguments @('resume', $t5.task) -Config $profiles['T5'] -AcceptExit @(0, 3)
+        if ($resumed) {
+            Test-StageExit $ctx $resumed 'T5-resume'
+            [void](Invoke-Gate $ctx 'T5-resume' 'resume-same-task' 'resume <task> continued the explicitly paused task' {
+                Assert-That ($resumed.task -eq $t5.task) 'Resume selected a different task'; $true
+            })
         }
-        else { [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'resume <task> continued the paused T5 task' "T5 ended with exit $($t5.exit_code); continuation not exercised") }
         & $gatesT5 'T5-concurrency'
         [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-concurrency' -Config $profiles['T5'] -GateScript $gatesT5)
     }

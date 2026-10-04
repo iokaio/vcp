@@ -878,18 +878,16 @@ $uiIds = @('column-todo', 'column-doing', 'column-done', 'task-card', 'task-form
     $nodeProcess = New-ProcessProfile -Name 'node' -Executable $node -Ctx $ctx -MaxTimeoutMs 900000
     $affected = @('README.md', 'package.json', 'server', 'src', 'tests', 'vite.config.ts', 'vitest.config.ts')
     function New-NodeCheck([string[]]$Names, [int]$DeadlineSeconds) {
-        return [ordered]@{ manifest = 'package.json'; runner = 'node'; profile = 'node'; timeout_ms = [math]::Min(300000, [long]$DeadlineSeconds * 1000)
+        return [ordered]@{ manifest = 'package.json'; runner = 'node'; profile = 'node'; timeout_ms = 300000
             expected_tests = $Names; rationale = 'Owner acceptance: named TaskBoard API tests must pass under node --test.' }
     }
     $profiles = @{}
     foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT1), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
         $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($nodeProcess) -Checks @(New-NodeCheck $pair[1] $ctx.DeadlineSeconds)
     }
-    $profiles['T5-short'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($nodeProcess) `
-        -Checks @(New-NodeCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profiles['review'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profiles['guardrail'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-guardrail' -AffectedPaths $affected -MaximumAutonomy 'workspace' -AutomaticEffects @('read', 'write') -Guardrail
-    foreach ($key in 'T1', 'T5-short', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    foreach ($key in 'T1', 'T5', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
     [void](Test-ProcessEnvironment $ctx $stage $nodeProcess 'node-typecheck' @($npmCli, 'run', 'typecheck'))
 
     # --- G0: zero-spend guardrail ----------------------------------------
@@ -939,25 +937,25 @@ $uiIds = @('column-todo', 'column-doing', 'column-done', 'task-card', 'task-form
     if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'
 
-    # --- T5: production, under a short deadline, then resume --last --------
+    # --- T5: explicit acknowledged pause, then same-task resume -----------
     $gatesT5 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT5; Test-UnitAndBuild $s ($uiIds + @('stats-bar')) 5; Test-Production $s; Test-ProtectedUnchanged $s $protected }
-    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-production' -Title 'Production serving and stats (short deadline)' -Prompt $promptT5 `
-        -Config $profiles['T5-short'] -AcceptExit @(0, 3, 8)
+    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-production' -Title 'Production serving and stats with explicit pause' -Prompt $promptT5 `
+        -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)
     if ($t5) {
-        $unresolvedDeadline = $t5.exit_code -eq 7
-        Test-StageExit $ctx $t5 'T5-production' -DiagnosticUnresolvedDeadline:$unresolvedDeadline
-        if ($unresolvedDeadline) { [void](Invoke-DeadlineCostReconciliation $ctx $t5) }
-        if ($t5.exit_code -eq 8 -or $unresolvedDeadline) {
-            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title 'resume --last after deadline pause' `
-                -Arguments @('resume', '--last') -Config $profiles['T5'] -AcceptExit @(0, 3)
-            if ($resumed) {
-                Test-StageExit $ctx $resumed 'T5-resume'
-                [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'resume --last continued the paused T5 task' -Test {
-                        Assert-That ($resumed.task -eq $t5.task) "resumed task '$($resumed.task)' != paused task '$($t5.task)'"; $true })
-            }
-        }
-        else {
-            [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'resume --last continued the paused T5 task' "T5 ended with exit $($t5.exit_code) before the short deadline; continuation not exercised")
+        Test-StageExit $ctx $t5 'T5-production'
+        [void](Invoke-Gate $ctx 'T5-production' 'explicit-pause' 'owner acknowledged pause and execution ended durably paused' {
+            Assert-That ($t5.explicit_pause.acknowledged -and $t5.exit_code -eq 8 -and
+                $t5.conditions -contains 'durably_paused' -and $ctx.PaidExecutionBlock.resume_same_task) 'Explicit pause lacks acknowledged, scoped terminal proof'
+            $true
+        })
+        if (@(Get-FailedGates $ctx 'T5-production').Count) { throw 'Explicit pause qualification failed; retained evidence requires diagnosis before continuation.' }
+        $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title 'resume --last after explicit pause' `
+            -Arguments @('resume', '--last') -Config $profiles['T5'] -AcceptExit @(0, 3)
+        if ($resumed) {
+            Test-StageExit $ctx $resumed 'T5-resume'
+            [void](Invoke-Gate $ctx 'T5-resume' 'resume-same-task' 'resume --last continued the explicitly paused task' {
+                Assert-That ($resumed.task -eq $t5.task) 'Resume selected a different task'; $true
+            })
         }
         & $gatesT5 'T5-production'
         [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-production' -Config $profiles['T5'] -GateScript $gatesT5)

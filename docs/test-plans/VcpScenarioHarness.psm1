@@ -661,6 +661,32 @@ function Write-VcpCommandCompletion {
     Add-Content -LiteralPath $AuditPath -Encoding utf8NoBOM -Value ($Record | ConvertTo-Json -Depth 12 -Compress)
 }
 
+function Invoke-ScenarioPauseOnProgress {
+    <# Trigger once from a completed root effect, using the existing scoped CLI
+       control channel. A receipt proves acknowledgement, not quiescence. #>
+    param($Ctx, [string]$Stage, $Frame, $Pause)
+    if ($Frame.type -eq 'accepted' -and $Frame.scope) { $Pause.scope = $Frame.scope; return }
+    if ($Pause.attempted -or -not $Pause.scope -or $Frame.type -ne 'event' -or
+        $Frame.scope.task -ne $Pause.scope.task -or $Frame.scope.session -ne $Pause.scope.session -or
+        $Frame.scope.workspace -ne $Pause.scope.workspace -or $Frame.event.event.kind -ne 'effect_transition') { return }
+    $completed = @($Frame.event.event.data.facts | Where-Object { $_.collection -eq 'effect' -and $_.value.state -eq 'succeeded' })
+    if (-not $completed.Count) { return }
+    $Pause.attempted = $true
+    $Pause.trigger_event = $Frame.event.event.id
+    try {
+        $control = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'explicit-pause' -DenyProviderCredentials `
+            -Arguments @('tasks', 'pause', [string]$Pause.scope.task) -TimeoutSeconds 30
+        $receipt = $control.Result.data
+        Assert-That ($control.ExitCode -eq 0 -and -not $control.TimedOut -and $control.InvalidLines -eq 0 -and
+            $receipt.version -eq 1 -and $receipt.workspace -eq $Pause.scope.workspace -and $receipt.command -and
+            $receipt.transaction -and $receipt.digest -match '^[0-9a-f]{64}$' -and $receipt.result.result -eq 'accepted') 'Explicit pause did not return a valid owner receipt'
+        $Pause.receipt = $receipt
+        $Pause.acknowledged = $true
+    }
+    catch { $Pause.error = $_.Exception.Message }
+    Write-JsonFile (Join-Path $Ctx.Logs "$Stage/explicit-pause.json") $Pause
+}
+
 function Invoke-Vcp {
     <#
     Runs one vcp command in structured mode and records it in
@@ -676,6 +702,7 @@ function Invoke-Vcp {
         [string]$Config,
         [AllowNull()][Nullable[int]]$TimeoutSeconds = 300,
         [switch]$Live,
+        [switch]$PauseAfterProgress,
         [switch]$NoGlobals,
         [switch]$DenyProviderCredentials
     )
@@ -712,12 +739,14 @@ function Invoke-Vcp {
     $invocationClock = [Diagnostics.Stopwatch]::StartNew()
     $counts = @{}
     $onLine = $null
-    if ($Live) {
+    $pause = @{ attempted = $false; acknowledged = $false; scope = $null; trigger_event = $null; receipt = $null; error = $null }
+    if ($Live -or $PauseAfterProgress) {
         # Invoked from Invoke-NativeLogged, so $Ctx and $counts resolve through
         # this function's scope (same module session state).
         $onLine = {
             param($line)
             $frame = $line | ConvertFrom-Json -Depth 100
+            if ($PauseAfterProgress) { Invoke-ScenarioPauseOnProgress $Ctx $Stage $frame $pause }
             if ($frame.type -eq 'event') {
                 $kind = [string]$frame.event.event.kind
                 $counts[$kind] = 1 + [int]$counts[$kind]
@@ -774,6 +803,7 @@ function Invoke-Vcp {
         Result          = $final
         Scope           = $scope
         EventCounts     = $counts
+        ExplicitPause   = $(if ($PauseAfterProgress) { $pause } else { $null })
     }
 }
 
@@ -1116,7 +1146,7 @@ function Get-FreshScenarioProfile {
     if (-not $Config) { return $Config }
     $profile = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json -AsHashtable -Depth 100
     if (-not $profile.provider.valid_until) { throw "Profile has no provider expiry: $Config" }
-    $window = [math]::Max(300, [int]$profile.deadline_seconds + 300)
+    $window = 300 # Freshness margin for admission, independent of task lifetime.
     $neededUntil = [DateTimeOffset]::UtcNow.AddSeconds($window)
     if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$profile.provider.valid_until) -gt $neededUntil) { return $Config }
     $snapshot = if ($Ctx.SnapshotText) { $Ctx.SnapshotText | ConvertFrom-Json -AsHashtable -Depth 100 } else { $null }
@@ -1138,7 +1168,7 @@ function Get-FreshScenarioProfile {
         Assert-That ($snapshot.compatibility.model -ceq $profile.provider.compatibility.model -and
             $snapshot.compatibility.endpoint -ceq $profile.provider.compatibility.endpoint) 'Refresh changed the selected model or endpoint'
         Assert-That ((Get-FileHash -LiteralPath $newCatalog -Algorithm SHA256).Hash -ieq $snapshot.raw_sha256) 'Refreshed catalog hash mismatch'
-        Assert-That ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until) -gt $neededUntil) 'Fresh metadata does not cover the next task deadline'
+        Assert-That ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until) -gt $neededUntil) 'Fresh metadata does not cover the admission freshness margin'
         $Ctx.Snapshot = $newSnapshot; $Ctx.Catalog = $newCatalog
         $Ctx.SnapshotText = Get-Content -LiteralPath $newSnapshot -Raw
         $Ctx.SnapshotValidUntil = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until).ToString('o')
@@ -1192,7 +1222,8 @@ function Invoke-VcpTask {
         [ValidateSet('plan', 'ask', 'workspace', 'autonomous')][string]$Autonomy = 'autonomous',
         [decimal]$BudgetUsd = 0,
         [int[]]$AcceptExit = @(0),
-        [string[]]$Skill = @()
+        [string[]]$Skill = @(),
+        [switch]$PauseAfterProgress
     )
     if ($BudgetUsd -le 0) { $BudgetUsd = $Ctx.TurnBudgetUsd }
     Assert-ScenarioBudgetPrecision $BudgetUsd 'BudgetUsd'
@@ -1222,7 +1253,8 @@ function Invoke-VcpTask {
     foreach ($id in $Skill) { $arguments += @('--skill', $id) }
     return Invoke-PaidScenarioDispatch $Ctx $BudgetUsd {
         $run = Invoke-Vcp -Ctx $Ctx -Stage $Stage -Label 'run' -Config $Config -Arguments $arguments `
-            -TimeoutSeconds $null -Live
+            -TimeoutSeconds $null -Live -PauseAfterProgress:$PauseAfterProgress
+        if ($PauseAfterProgress) { $stageRecord.explicit_pause = $run.ExplicitPause }
         Complete-VcpStageEvidence -Ctx $Ctx -Stage $Stage -Run $run -Before $before -Record $stageRecord
     }
 }
@@ -1784,7 +1816,7 @@ function New-ScenarioProfile {
         canonical_tools          = @('vcp_read', 'vcp_list', 'vcp_search', 'vcp_patch', 'vcp_exec', 'vcp_verify')
         max_requests             = $MaxRequests
         output_tokens            = [string]$Ctx.OutputTokens
-        provider_timeout_seconds = [math]::Min(300, $DeadlineSeconds)
+        provider_timeout_seconds = 300
         max_transport_retries    = 2
         deadline_seconds         = $DeadlineSeconds
         processes                = @($Processes)
