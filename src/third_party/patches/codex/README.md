@@ -231,6 +231,10 @@ already include these changes; normal builds never apply patches.
     retry admission hooks, allowing shared provider pacing without holding a
     canonical store lock. Default hosts retain their synchronous behavior.
 
+50. `0050-dotnet-verification-lock.patch` records the existing workspace
+    quick-xml dependency for VCP's bounded .slnx solution discovery. Its selected
+    version and upstream source remain unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

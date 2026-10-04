@@ -25,6 +25,29 @@ execution. Cargo discovery proposes `cargo test --locked --offline
 responsible for parsing its manifest. These are proposed operations, not policy
 grants. Missing profiles, prerequisites and denied execution remain visible.
 
+The P2-06 .NET increment adds `dotnet` requirements for observed C# project and
+solution manifests. The qualified command uses `dotnet test` with `--no-restore`,
+`--disable-build-servers`, `--nologo` and the normal console logger. Dependencies must be restored separately
+through the configured process authority. Solution checks execute in the solution
+directory and cover its observed source scope; a test project check cannot claim
+coverage of sibling application sources. Solution project paths must remain within
+that directory and identify observed C# manifests. Unsupported solution forms
+produce `not_run` rather than inferred coverage.
+
+The console parser requires an explicit successful run, matching nonempty test
+counts, distinct passed names and every owner-configured fully qualified test name.
+Skipped, failed, ambiguous, truncated and unsupported localized output cannot prove
+completion. These checks qualify the VSTest console format; they do not qualify
+arbitrary .NET test platforms or model assertions about test quality.
+
+The .NET SDK needs explicit public directory values even without restore. Owner
+profiles may configure `APPDATA`, `LOCALAPPDATA` and `ProgramFiles(x86)`; no ambient
+environment is inherited. Scenario B assigns the first two to fresh directories
+outside its source tree and resolves the last through the Windows known-folder
+API. Credentials, arbitrary SDK variables and model-supplied environment remain
+excluded. Verification disables build servers so it cannot reuse a worker
+initialized with another invocation's environment.
+
 The configured runner must be direct and nonterminal. It still uses current
 policy, explicit filtered environment, native job ownership, process/time/output
 ceilings, durable dispatch and complete output receipts. Streaming native file

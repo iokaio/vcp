@@ -273,7 +273,8 @@ $environmentBlock = @'
 - Startup must not require a connection string or database in the `Testing` environment; tests
   replace the DbContext registration with EF Core InMemory via `WebApplicationFactory<Program>`.
 - Protected files (never edit, rename or delete): `src/Inventory.Web/appsettings.Development.json`{{PROTECTED}}.
-- Before finishing, build the solution and run all tests, and fix any failure. Finish with a short
+- Before finishing, build the solution and run all tests, and fix any failure. Run `vcp_verify`
+  with the required stage check and resolve every failure before claiming completion. Finish with a short
   summary of changed files, migrations added and command results.
 '@
 
@@ -608,7 +609,9 @@ In `src/Inventory.Web`, add the data layer for Contoso Inventory.
   7 KB-MECH-TKL "Mechanical Keyboard TKL" 89.00 5 1; 8 MS-WL-ERGO "Wireless Ergonomic Mouse" 54.50 5 1;
   9 HUB-USB-C-7 "USB-C Hub 7-in-1" 44.99 7 1; 10 SSD-NVME-1TB "NVMe SSD 1TB" 79.99 4 1.
 - Create the migration `InitialCreate` in `Data/Migrations` with the local dotnet-ef tool.
-- Add unit tests in `tests/Inventory.Tests` for model validation rules (at least 3 tests).
+- Add parameterless xUnit `[Fact]` tests in namespace `Inventory.Tests`, class
+  `DomainValidationTests`: `Supplier_requires_valid_email`, `Product_rejects_invalid_sku`,
+  and `StockMovement_requires_nonzero_quantity`. Each must exercise the real model validation.
 '@
     $promptT2 = New-Prompt @'
 # Task T2 - RESTful JSON API
@@ -634,6 +637,12 @@ validation failures are 400 validation problem details whose `errors` keys name 
   with onHand <= reorderLevel, ordered by SKU.
 - Integration tests with `WebApplicationFactory<Program>` in environment `Testing` using EF Core
   InMemory (at least 8 tests covering the endpoints above).
+  Use namespace `Inventory.Tests`, class `ApiContractTests`, and parameterless `[Fact]` methods:
+  `Suppliers_are_ordered_by_name`, `Duplicate_supplier_name_returns_conflict`,
+  `Products_support_search_and_paging`, `Invalid_product_page_returns_bad_request`,
+  `Product_creation_returns_location`, `Unknown_supplier_returns_validation_error`,
+  `Sale_requires_negative_quantity`, `Low_stock_report_is_ordered_by_sku`.
+  Keep every earlier named acceptance test passing.
 '@
     $promptT3 = New-Prompt @'
 # Task T3 - Razor Pages UI
@@ -650,7 +659,10 @@ Build the Razor Pages UI on the same services as the API (no HTTP calls from pag
 - `/Products/Details/{id}` - product facts, on-hand stock, movement history newest first, and a
   form with the heading text `Record movement` (quantity, reason, note) that posts to the page.
 - `/Reports/LowStock` - the low-stock report as a table.
-- Add the pages to the layout navigation. Add tests for the page model logic (at least 3 tests).
+- Add the pages to the layout navigation. Add parameterless `[Fact]` tests in namespace
+  `Inventory.Tests`, class `RazorPageTests`: `Products_page_filters_search`,
+  `Create_page_rejects_invalid_input`, `Details_page_lists_movements_newest_first`.
+  Each must exercise the real page model logic. Keep every earlier named acceptance test passing.
 '@
     $promptT4 = New-Prompt @'
 # Task T4 - Make the protected regression tests pass
@@ -676,6 +688,9 @@ Prevent lost updates when two clerks edit the same product:
   error (model error) when the product changed since it was loaded.
 - Tests for the 428/412/200 paths (InMemory does not enforce rowversion; simulate the check in
   your concurrency logic or test it at the service level, and say which).
+  Use parameterless `[Fact]` methods in namespace `Inventory.Tests`, class `ConcurrencyTests`:
+  `Missing_if_match_returns_428`, `Stale_if_match_returns_412`,
+  `Matching_if_match_updates_product_and_etag`. Keep every earlier named acceptance test passing.
 '@ '`, `tests/Inventory.Tests/RegressionTests.cs`'
     $promptReview = @'
 # Task T6 - Read-only engineering review
@@ -693,12 +708,37 @@ listing at most 10 findings ordered by severity.
     # --- Profiles ------------------------------------------------------------
     $stage = 'P1-profiles'
     $dotnetProcess = New-ProcessProfile -Name 'dotnet' -Executable $dotnet -Ctx $ctx -MaxTimeoutMs 1200000
+    # NuGet/SDK initialization needs these public directory roots even when
+    # --no-restore uses the absolute package paths in project.assets.json.
+    # Give this run fresh settings/cache directories instead of inheriting
+    # the owner's ambient profile configuration or credential-bearing files.
+    $dotnetProcess.environment['APPDATA'] = Join-Path $ctx.Temp 'dotnet-appdata'
+    $dotnetProcess.environment['LOCALAPPDATA'] = Join-Path $ctx.Temp 'dotnet-localappdata'
+    $dotnetProcess.environment['ProgramFiles(x86)'] = [Environment]::GetFolderPath('ProgramFilesX86')
+    foreach ($directory in @($dotnetProcess.environment['APPDATA'], $dotnetProcess.environment['LOCALAPPDATA'])) {
+        [void][IO.Directory]::CreateDirectory($directory)
+    }
     $affected = @('README.md', 'src', 'tests')
-    $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($dotnetProcess)
-    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($dotnetProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
+    $namesT1 = @('Supplier_requires_valid_email', 'Product_rejects_invalid_sku', 'StockMovement_requires_nonzero_quantity') | ForEach-Object { "Inventory.Tests.DomainValidationTests.$_" }
+    $namesT2 = @($namesT1) + @(@('Suppliers_are_ordered_by_name', 'Duplicate_supplier_name_returns_conflict', 'Products_support_search_and_paging', 'Invalid_product_page_returns_bad_request', 'Product_creation_returns_location', 'Unknown_supplier_returns_validation_error', 'Sale_requires_negative_quantity', 'Low_stock_report_is_ordered_by_sku') | ForEach-Object { "Inventory.Tests.ApiContractTests.$_" })
+    $namesT3 = @($namesT2) + @(@('Products_page_filters_search', 'Create_page_rejects_invalid_input', 'Details_page_lists_movements_newest_first') | ForEach-Object { "Inventory.Tests.RazorPageTests.$_" })
+    $regressionNames = @('Sku_is_trimmed_and_uppercased_on_create', 'Sale_exceeding_stock_returns_insufficient_stock_problem', 'Whitespace_only_product_name_is_rejected', 'Supplier_email_must_be_valid')
+    $namesT4 = @($namesT3) + @($regressionNames | ForEach-Object { "Inventory.Tests.RegressionTests.$_" })
+    $namesT5 = @($namesT4) + @(@('Missing_if_match_returns_428', 'Stale_if_match_returns_412', 'Matching_if_match_updates_product_and_etag') | ForEach-Object { "Inventory.Tests.ConcurrencyTests.$_" })
+    function New-DotnetCheck([string[]]$Names, [int]$DeadlineSeconds) {
+        return [ordered]@{ manifest = (Split-Path -Leaf (Get-Solution)); runner = 'dotnet'; profile = 'dotnet'
+            timeout_ms = [math]::Min(300000, [long]$DeadlineSeconds * 1000); expected_tests = $Names
+            rationale = 'Owner acceptance: cumulative named Inventory xUnit tests must pass against current application source.' }
+    }
+    $profiles = @{}
+    foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT2), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
+        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $pair[1] $ctx.DeadlineSeconds)
+    }
+    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($dotnetProcess) -Checks @(New-DotnetCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profileUntrusted = New-ScenarioProfile -Ctx $ctx -Name 'profile-untrusted' -AffectedPaths $affected -Processes @($dotnetProcess) -TrustWorkspace $false -Guardrail
-    foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    foreach ($key in 'T1', 'T2', 'T3', 'T4', 'T5') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    foreach ($pair in @(@('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
 
     # --- G0: zero-spend guardrail: untrusted workspace ---------------------
     $guardPrompt = Join-Path $ctx.Logs 'G0-guardrail\prompt.md'
@@ -713,21 +753,21 @@ listing at most 10 findings ordered by severity.
     }
 
     # --- T1 ----------------------------------------------------------------
-    $gatesT1 = { param($s) Test-Build $s; Test-Tests $s 4; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected }
-    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-data' -Title 'Domain model, EF Core, InitialCreate' -Prompt $promptT1 -Config $profileMain
-    if ($t1) { Test-StageExit $ctx $t1 'T1-data'; & $gatesT1 'T1-data'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-data' -Config $profileMain -GateScript $gatesT1) }
+    $gatesT1 = { param($s) Test-Build $s; Test-Tests $s 4 $namesT1; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected }
+    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-data' -Title 'Domain model, EF Core, InitialCreate' -Prompt $promptT1 -Config $profiles['T1']
+    if ($t1) { Test-StageExit $ctx $t1 'T1-data'; & $gatesT1 'T1-data'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-data' -Config $profiles['T1'] -GateScript $gatesT1) }
     Save-Checkpoint $ctx 'T1: data model and InitialCreate'
 
     # --- T2 ----------------------------------------------------------------
-    $gatesT2 = { param($s) Test-Build $s; Test-Tests $s 12; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p } }
-    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-api' -Title 'RESTful JSON API' -Prompt $promptT2 -Config $profileMain
-    if ($t2) { Test-StageExit $ctx $t2 'T2-api'; & $gatesT2 'T2-api'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-api' -Config $profileMain -GateScript $gatesT2) }
+    $gatesT2 = { param($s) Test-Build $s; Test-Tests $s 12 $namesT2; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p } }
+    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-api' -Title 'RESTful JSON API' -Prompt $promptT2 -Config $profiles['T2']
+    if ($t2) { Test-StageExit $ctx $t2 'T2-api'; & $gatesT2 'T2-api'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-api' -Config $profiles['T2'] -GateScript $gatesT2) }
     Save-Checkpoint $ctx 'T2: REST API'
 
     # --- T3 ----------------------------------------------------------------
-    $gatesT3 = { param($s) Test-Build $s; Test-Tests $s 15; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-RazorPages $s $p; Test-ApiContract $s $p } }
-    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-razor' -Title 'Razor Pages UI' -Prompt $promptT3 -Config $profileMain
-    if ($t3) { Test-StageExit $ctx $t3 'T3-razor'; & $gatesT3 'T3-razor'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-razor' -Config $profileMain -GateScript $gatesT3) }
+    $gatesT3 = { param($s) Test-Build $s; Test-Tests $s 15 $namesT3; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-RazorPages $s $p; Test-ApiContract $s $p } }
+    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-razor' -Title 'Razor Pages UI' -Prompt $promptT3 -Config $profiles['T3']
+    if ($t3) { Test-StageExit $ctx $t3 'T3-razor'; & $gatesT3 'T3-razor'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-razor' -Config $profiles['T3'] -GateScript $gatesT3) }
     Save-Checkpoint $ctx 'T3: Razor Pages UI'
 
     # --- T4: protected regression tests -----------------------------------
@@ -736,19 +776,18 @@ listing at most 10 findings ordered by severity.
     if (-not $protected.ContainsKey('tests/Inventory.Tests/RegressionTests.cs')) {
         $protected['tests/Inventory.Tests/RegressionTests.cs'] = Get-Sha256 (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')
     }
-    $regressionNames = @('Sku_is_trimmed_and_uppercased_on_create', 'Sale_exceeding_stock_returns_insufficient_stock_problem', 'Whitespace_only_product_name_is_rejected', 'Supplier_email_must_be_valid')
-    $gatesT4 = { param($s) Test-Build $s; Test-Tests $s 19 $regressionNames; Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p; Test-RazorPages $s $p } }
-    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profileMain
-    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profileMain -GateScript $gatesT4) }
+    $gatesT4 = { param($s) Test-Build $s; Test-Tests $s 19 $namesT4; Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-ApiContract $s $p; Test-RazorPages $s $p } }
+    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profiles['T4']
+    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'
 
     # --- T5: concurrency, short deadline then 'resume <task>' --------------
-    $gatesT5 = { param($s) Test-Build $s; Test-Tests $s 22 $regressionNames; Test-Migrations $s @('InitialCreate', 'AddProductRowVersion'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-Concurrency $s $p; Test-ApiContract $s $p; Test-RazorPages $s $p } }
+    $gatesT5 = { param($s) Test-Build $s; Test-Tests $s 22 $namesT5; Test-Migrations $s @('InitialCreate', 'AddProductRowVersion'); Test-ProtectedUnchanged $s $protected; Invoke-RuntimeGates $s { param($p) Test-Concurrency $s $p; Test-ApiContract $s $p; Test-RazorPages $s $p } }
     $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-concurrency' -Title 'Optimistic concurrency (short deadline)' -Prompt $promptT5 -Config $profileShort -AcceptExit @(0, 3, 8)
     if ($t5) {
         Test-StageExit $ctx $t5 'T5-concurrency'
         if ($t5.exit_code -eq 8 -and $t5.task) {
-            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task)" -Arguments @('resume', $t5.task) -Config $profileMain -AcceptExit @(0, 3)
+            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task)" -Arguments @('resume', $t5.task) -Config $profiles['T5'] -AcceptExit @(0, 3)
             if ($resumed) {
                 Test-StageExit $ctx $resumed 'T5-resume'
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'resume <task> continued the paused T5 task' -Test {
@@ -757,7 +796,7 @@ listing at most 10 findings ordered by severity.
         }
         else { [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'resume <task> continued the paused T5 task' "T5 ended with exit $($t5.exit_code); continuation not exercised") }
         & $gatesT5 'T5-concurrency'
-        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-concurrency' -Config $profileMain -GateScript $gatesT5)
+        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-concurrency' -Config $profiles['T5'] -GateScript $gatesT5)
     }
     Save-Checkpoint $ctx 'T5: optimistic concurrency'
 
@@ -768,7 +807,7 @@ listing at most 10 findings ordered by severity.
     $stage = 'FINAL'
     Write-Step $ctx 'FINAL publish and independent verification' 'phase'
     Test-Build $stage
-    Test-Tests $stage 22 $regressionNames
+    Test-Tests $stage 22 $namesT5
     Test-Migrations $stage @('InitialCreate', 'AddProductRowVersion')
     Test-ProtectedUnchanged $stage $protected
     $publishDir = Join-Path $ws 'artifacts\publish'

@@ -20,6 +20,14 @@ async fn actual_cargo_and_documentation_checks_preserve_failed_evidence_before_c
     }
 }
 
+#[cfg(feature = "dotnet-qualification")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn actual_dotnet_checks_preserve_failed_evidence_before_completion() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        run(backend, Runner::Dotnet).await;
+    }
+}
+
 async fn run(backend: BackendKind, runner: Runner) {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
@@ -92,6 +100,74 @@ async fn run(backend: BackendKind, runner: Runner) {
                 "# Initial documentation\n",
                 "[Guide](missing.md)\n",
                 "[Guide](guide.md)\n",
+                executable,
+            )
+        }
+        Runner::Dotnet => {
+            let executable: std::path::PathBuf = std::env::var_os("VCP_TEST_DOTNET")
+                .expect("explicit real native dotnet executable")
+                .into();
+            let packages = std::env::var_os("VCP_TEST_NUGET_PACKAGES")
+                .expect("explicit offline NuGet package cache");
+            let dotnet_home = temp.path().join("dotnet-home");
+            fs::create_dir(&dotnet_home).unwrap();
+            environment.insert(
+                "ProgramFiles(x86)".into(),
+                std::env::var("ProgramFiles(x86)").unwrap(),
+            );
+            for name in ["APPDATA", "LOCALAPPDATA"] {
+                let directory = dotnet_home.join(name);
+                fs::create_dir(&directory).unwrap();
+                environment.insert(name.into(), directory.display().to_string());
+            }
+            for directory in ["app", "tests"] {
+                fs::create_dir(workspace.join(directory)).unwrap();
+            }
+            fs::write(workspace.join("app/App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n").unwrap();
+            fs::write(workspace.join("tests/Tests.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><IsTestProject>true</IsTestProject></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.NET.Test.Sdk\" Version=\"17.11.1\"/><PackageReference Include=\"xunit\" Version=\"2.9.2\"/><PackageReference Include=\"xunit.runner.visualstudio\" Version=\"2.8.2\"/><ProjectReference Include=\"../app/App.csproj\"/></ItemGroup></Project>\n").unwrap();
+            fs::write(workspace.join("tests/Checks.cs"), "using Xunit;\nnamespace AcceptanceFixture;\npublic class Checks { [Fact] public void ObservedAnswer() { System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppContext.BaseDirectory, \"../../../../../assertion-observed\"), \"ran\"); Assert.Equal(42, App.Value.Answer()); } }\n").unwrap();
+            fs::write(workspace.join("fixture.slnx"), "<Solution><Project Path=\"app/App.csproj\"/><Project Path=\"tests/Tests.csproj\"/></Solution>\n").unwrap();
+            // No ambient NuGet configuration, credential provider or network source.
+            fs::write(
+                workspace.join("NuGet.config"),
+                "<configuration><packageSources><clear /></packageSources></configuration>\n",
+            )
+            .unwrap();
+            fs::write(
+                workspace.join("app/Value.cs"),
+                "namespace App; public static class Value { public static int Answer() => 40; }\n",
+            )
+            .unwrap();
+            let restored = std::process::Command::new(&executable)
+                .current_dir(&workspace)
+                .env_clear()
+                .envs(&environment)
+                .args([
+                    "restore",
+                    "fixture.slnx",
+                    "--configfile",
+                    "NuGet.config",
+                    "--nologo",
+                    "-p:NuGetAudit=false",
+                    "--disable-build-servers",
+                ])
+                .arg("--packages")
+                .arg(packages)
+                .output()
+                .unwrap();
+            assert!(
+                restored.status.success(),
+                "offline restore failed: {} {}",
+                String::from_utf8_lossy(&restored.stdout),
+                String::from_utf8_lossy(&restored.stderr)
+            );
+            (
+                "fixture.slnx",
+                "AcceptanceFixture.Checks.ObservedAnswer",
+                "app/Value.cs",
+                "namespace App; public static class Value { public static int Answer() => 40; }\n",
+                "namespace App; public static class Value { public static int Answer() => 41; }\n",
+                "namespace App; public static class Value { public static int Answer() => 42; }\n",
                 executable,
             )
         }
