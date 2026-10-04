@@ -7,6 +7,8 @@ use crate::durable_owner::{DurableOwner, PreparedDurable};
 mod files;
 #[path = "backend_current_materialized.rs"]
 mod materialized;
+#[path = "backend_current_open.rs"]
+pub(crate) mod open;
 #[path = "backend_current_sqlite_replay.rs"]
 mod sqlite_replay;
 pub(crate) use sqlite_replay::replay_sqlite_all;

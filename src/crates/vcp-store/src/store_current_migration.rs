@@ -9,6 +9,9 @@ use crate::{
     private_paths::Directory,
 };
 use sqlx::Connection;
+#[cfg(test)]
+#[path = "backend_current_open_tests.rs"]
+mod native_open_tests;
 #[path = "store_current_snapshot.rs"]
 pub(crate) mod snapshot;
 
