@@ -1020,6 +1020,9 @@ starting another run. An interrupted script may not write its final scorecard.
    Fatal admission messages and the final execution gate include the captured VCP task
    reason. A failed provider terminal with missing observed cost still blocks execution;
    the reservation is not proof of actual spend, and missing cost is not zero cost.
+   The console and Markdown summary label incomplete accounting as a budget reservation
+   with actual spend unresolved. In the JSON scorecard, `spend_usd` remains the conservative
+   amount used for budget admission when `spend_evidence_complete` is false.
 2. For a failing gate, read its detail in `scorecard.json`, the tool log it names under
    `logs\<stage>\tools\`, and the stage's `prompt.md`, `final-message.md` and
    `workspace-diff.json`.
@@ -1038,6 +1041,12 @@ Its baseline includes strict server/test typechecking, tests and the UI build. F
 `await` inside synchronous `createApp` initialization is invalid. Repair the retained
 project before rerunning, or choose a new empty project directory for a fresh scenario;
 the harness preserves the existing files and rejects a broken baseline before paid turns.
+
+In Scenario B, failed initial migrations can leave the generated database absent. The seed
+probe is skipped until migrations apply successfully; an absent database can produce a SQL
+login error even when integrated authentication works. If T1 stopped before making edits,
+the template's single test and missing `DbContext` are consequences of the unfinished task.
+Inspect the captured provider/task stopping reason before diagnosing them as toolchain faults.
 
 ### 9.5 Expected duration and spend
 

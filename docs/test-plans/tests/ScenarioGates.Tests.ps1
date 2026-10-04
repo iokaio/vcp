@@ -105,6 +105,57 @@ try {
         Assert-Rejected { New-InventoryConnection "Server=fixture;Integrated Security=True;$key=C:\existing\user-data.mdf" 'VcpInventory_fixture' } "$key can redirect migrations to an existing database file"
     }
 
+    Import-ScenarioFunction 'scenario-b-aspnet-inventory.ps1' 'Test-Migrations'
+    $sqlcmd = 'fixture-sqlcmd.exe'; $useLocalDb = $true; $database = 'VcpInventory_fixture'
+    $seededSkus = @('fixture-sku')
+    $script:migrationCase = 'pass'; $script:seedCount = '10'
+    $script:migrationCalls = [Collections.Generic.List[string]]::new()
+    $script:seedCalls = 0
+    function Invoke-Dotnet {
+        param($Stage, $Label, $Arguments)
+        $script:migrationCalls.Add($Label)
+        if ($Label -eq 'ef-migrations-list') {
+            if ($script:migrationCase -eq 'no-context') { return @{ ExitCode = 1; Output = ''; Errors = 'No DbContext was found' } }
+            $output = if ($script:migrationCase -eq 'missing-migration') { 'No migrations were found' } else { '20261003000000_InitialCreate' }
+            return @{ ExitCode = 0; Output = $output; Errors = '' }
+        }
+        $exitCode = if ($script:migrationCase -eq 'update-failed') { 1 } else { 0 }
+        @{ ExitCode = $exitCode; Output = ''; Errors = 'fixture update result' }
+    }
+    function Invoke-Tool {
+        param($Ctx, $Stage, $Label, $FilePath, $ArgumentList)
+        $script:seedCalls++
+        @{ ExitCode = 0; Output = $script:seedCount; Errors = '' }
+    }
+    foreach ($case in 'no-context', 'missing-migration', 'update-failed') {
+        $script:migrationCase = $case
+        $script:migrationCalls.Clear()
+        Test-Migrations "migration-$case" @('InitialCreate')
+        Assert-Gate "migration-$case" 'migrations' 'fail'
+        Assert-Gate "migration-$case" 'db.seed' 'skip'
+        $migrationGate = @($ctx.Gates | Where-Object { $_.stage -eq "migration-$case" -and $_.id -eq 'migrations' })[-1]
+        $seedGate = @($ctx.Gates | Where-Object { $_.stage -eq "migration-$case" -and $_.id -eq 'db.seed' })[-1]
+        Assert-That ($migrationGate.required -and -not $seedGate.required -and $seedGate.detail -match 'failed migrations') 'Migration failure or seed dependency lost its meaning'
+        Assert-That ($script:seedCalls -eq 0) 'Failed migrations still queried an unverified database'
+        if ($case -ne 'update-failed') {
+            Assert-That ('ef-database-update' -notin $script:migrationCalls) 'Missing migrations still attempted database update'
+        }
+    }
+    $script:migrationCase = 'pass'
+    Test-Migrations 'migration-pass' @('InitialCreate')
+    Assert-Gate 'migration-pass' 'migrations' 'pass'
+    Assert-Gate 'migration-pass' 'db.seed' 'pass'
+    Assert-That ($script:seedCalls -eq 1) 'Successful migrations did not verify seed data'
+    $script:seedCount = '9'
+    Test-Migrations 'migration-bad-seed' @('InitialCreate')
+    Assert-Gate 'migration-bad-seed' 'migrations' 'pass'
+    Assert-Gate 'migration-bad-seed' 'db.seed' 'fail'
+    $sqlcmd = $null
+    Test-Migrations 'migration-no-sqlcmd' @('InitialCreate')
+    Assert-Gate 'migration-no-sqlcmd' 'migrations' 'pass'
+    Assert-Gate 'migration-no-sqlcmd' 'db.seed' 'skip'
+    Assert-That ($script:seedCalls -eq 2) 'Unavailable SQL tool still queried the database'
+
     Import-ScenarioFunction 'scenario-a-vue-taskboard.ps1' 'Test-UnitAndBuild'
     New-Item -ItemType Directory -Path (Join-Path $ws 'dist/client/assets') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $ws 'dist/client/index.html') -Value '<html></html>'

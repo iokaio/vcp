@@ -1864,7 +1864,12 @@ function Complete-VcpScenario {
     [void]$md.AppendLine()
     [void]$md.AppendLine("Project: ``$($Ctx.Workspace)`` (existing files reused: $([bool]$Ctx.ReuseProject)).")
     [void]$md.AppendLine()
-    [void]$md.AppendLine("Run ``$($Ctx.RunId)`` - verdict **$($scorecard.verdict.ToUpperInvariant())** - $($passed.Count)/$($required.Count) required gates - spend $(Format-Usd $Ctx.SpentUsd) USD$(if ($Ctx.CostUnknown) { ' (incomplete cost evidence)' }) - $($scorecard.wall_minutes) min")
+    $costSummary = if ($Ctx.CostUnknown) {
+        "budget reservation $(Format-Usd $Ctx.SpentUsd) USD (actual spend unresolved)"
+    } else {
+        "spend $(Format-Usd $Ctx.SpentUsd) USD"
+    }
+    [void]$md.AppendLine("Run ``$($Ctx.RunId)`` - verdict **$($scorecard.verdict.ToUpperInvariant())** - $($passed.Count)/$($required.Count) required gates - $costSummary - $($scorecard.wall_minutes) min")
     [void]$md.AppendLine()
     [void]$md.AppendLine("VCP ``$($Ctx.VcpVersion)``, model ``$($Ctx.Model)`` endpoint ``$($Ctx.Endpoint)``. First-pass feature turns: $($firstPass.Count)/$($primary.Count); repair turns: $($repairs.Count).")
     $commandLogPath = if ($Ctx.CommandLog) { $Ctx.CommandLog } else { Join-Path $Ctx.Logs 'vcp-commands.log' }
@@ -1907,7 +1912,7 @@ function Complete-VcpScenario {
         foreach ($note in $Ctx.Notes) { [void]$md.AppendLine("- $note") }
     }
     Write-Utf8File -Path (Join-Path $Ctx.Results 'summary.md') -Content $md.ToString()
-    Write-Step $Ctx ("Scenario {0}: {1} ({2}/{3} required gates, {4} USD). Results: {5}" -f $Ctx.Name, $scorecard.verdict.ToUpperInvariant(), $passed.Count, $required.Count, (Format-Usd $Ctx.SpentUsd), $Ctx.Results) $(if ($scorecard.verdict -in 'pass', 'dry-run-pass') { 'ok' } else { 'fail' })
+    Write-Step $Ctx ("Scenario {0}: {1} ({2}/{3} required gates, {4}). Results: {5}" -f $Ctx.Name, $scorecard.verdict.ToUpperInvariant(), $passed.Count, $required.Count, $costSummary, $Ctx.Results) $(if ($scorecard.verdict -in 'pass', 'dry-run-pass') { 'ok' } else { 'fail' })
     if ($Ctx.Transcript) { try { Stop-Transcript | Out-Null } catch { } }
     return $(if ($scorecard.verdict -in 'pass', 'dry-run-pass') { 0 } else { 1 })
 }

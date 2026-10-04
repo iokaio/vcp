@@ -41,6 +41,13 @@ try {
     }
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' $null $r } $ctx $record
     Check ($ctx.SpentUsd -eq 3 -and $ctx.CostUnknown) 'Pause uncertainty did not reserve its task cap'
+    Check ((Complete-VcpScenario $ctx) -eq 1) 'Unresolved accounting must fail the scenario'
+    $summary = Get-Content -LiteralPath (Join-Path $temporary 'summary.md') -Raw
+    $progress = Get-Content -LiteralPath (Join-Path $temporary 'progress.log') -Raw
+    Check ($summary -match 'budget reservation 3\.00 USD \(actual spend unresolved\)') 'Summary presented the reserved task cap as observed spend'
+    Check ($progress -match 'Scenario accounting: FAIL .*budget reservation 3\.00 USD \(actual spend unresolved\)') 'Console verdict presented the reserved task cap as observed spend'
+    $uncertainCard = Get-Content -LiteralPath (Join-Path $temporary 'scorecard.json') -Raw | ConvertFrom-Json
+    Check ($uncertainCard.spend_usd -eq 3 -and -not $uncertainCard.spend_evidence_complete) 'Cost labeling weakened the conservative admission reservation'
     $budget = & $module { param($c) Get-ContinuationBudget $c @('resume', 'task-a') '' } $ctx
     Check ($budget.Additional -eq 0) 'Uncertain paused task was double-reserved'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' ([decimal]2) $r } $ctx $record
@@ -49,6 +56,8 @@ try {
     [void](Add-GateResult $ctx T5 cost-evidence 'paused snapshot' fail 'unresolved at pause' $false)
     Check ((Complete-VcpScenario $ctx) -eq 0) 'Historical pause uncertainty failed a fully reconciled run'
     Check ((Get-Content (Join-Path $temporary 'scorecard.json') -Raw | ConvertFrom-Json).spend_evidence_complete) 'Final reconciled scorecard still marked costs incomplete'
+    $summary = Get-Content -LiteralPath (Join-Path $temporary 'summary.md') -Raw
+    Check ($summary -match 'spend 2\.00 USD' -and $summary -notmatch 'actual spend unresolved|budget reservation') 'Reconciled accounting retained a reservation label'
 
     $ctx.UnscopedCostUnknown = $true
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' ([decimal]2) $r } $ctx $record

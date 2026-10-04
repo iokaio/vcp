@@ -328,14 +328,18 @@ function Test-Tests([string]$Stage, [int]$MinTests, [string[]]$Required = @()) {
 }
 
 function Test-Migrations([string]$Stage, [string[]]$Names) {
-    [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'migrations' -Description "migrations present: $($Names -join ', '); database update applies them" -Test {
+    $migration = Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'migrations' -Description "migrations present: $($Names -join ', '); database update applies them" -Test {
             $list = Invoke-Dotnet $Stage 'ef-migrations-list' @('tool', 'run', 'dotnet-ef', 'migrations', 'list', '--project', 'src/Inventory.Web', '--no-build')
             Assert-That ($list.ExitCode -eq 0) ("migrations list exit {0}`n{1}" -f $list.ExitCode, (Get-Tail ($list.Output + $list.Errors)))
             $missing = @($Names | Where-Object { $list.Output -notmatch "_$_\b" })
             Assert-That ($missing.Count -eq 0) ('missing migrations: ' + ($missing -join ', '))
             $update = Invoke-Dotnet $Stage 'ef-database-update' @('tool', 'run', 'dotnet-ef', 'database', 'update', '--project', 'src/Inventory.Web', '--no-build')
             Assert-That ($update.ExitCode -eq 0) ("database update exit {0}`n{1}" -f $update.ExitCode, (Get-Tail ($update.Output + $update.Errors)))
-            $true })
+            $true }
+    if ($migration.outcome -ne 'pass') {
+        [void](Skip-Gate $ctx $Stage 'db.seed' 'database holds the 10 seeded products' 'Blocked by failed migrations; database creation and seed data are not verified.')
+        return
+    }
     if ($sqlcmd -and $useLocalDb) {
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'db.seed' -Description 'database holds the 10 seeded products' -Advisory -Test {
                 $run = Invoke-Tool -Ctx $ctx -Stage $Stage -Label 'sqlcmd-count' -FilePath $sqlcmd -ArgumentList @(
