@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
+#[path = "tests/bounded.rs"]
+mod bounded;
 use crate::HostFacts;
 use vcp_domain::{
     artifact::ArtifactSpec,
@@ -286,7 +288,7 @@ async fn diff_ranges_use_original_proposal_link_after_outcome_and_restart_on_bot
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, descriptor, bytes) = fixture(temp.path(), backend, 0).await;
-        let initial = engine.public_diff(&access(), &request()).unwrap();
+        let initial = engine.public_diff(&access(), &request()).await.unwrap();
         assert_eq!(initial.artifact.as_str(), descriptor.spec.id.as_str());
         assert_eq!(initial.sha256, vcp_protocol::digest_bytes(&bytes));
         assert_eq!(initial.total_bytes.as_str(), bytes.len().to_string());
@@ -309,26 +311,32 @@ async fn diff_ranges_use_original_proposal_link_after_outcome_and_restart_on_bot
             Revision::new(1),
         )
         .await;
-        assert_eq!(engine.public_diff(&access(), &request()).unwrap(), initial);
+        assert_eq!(
+            engine.public_diff(&access(), &request()).await.unwrap(),
+            initial
+        );
         let watermark = engine.store().state().watermark;
         let mut tail = request();
         tail.offset = ((bytes.len() - 10) as u64).into();
-        assert!(engine.public_diff(&access(), &tail).unwrap().complete);
+        assert!(engine.public_diff(&access(), &tail).await.unwrap().complete);
         tail.offset = u64::MAX.into();
-        assert!(engine.public_diff(&access(), &tail).is_err());
+        assert!(engine.public_diff(&access(), &tail).await.is_err());
         let mut other = request();
         other.task = id("other");
-        assert!(engine.public_diff(&access(), &other).is_err());
+        assert!(engine.public_diff(&access(), &other).await.is_err());
         let mut denied = access();
         denied.read = false;
         assert_eq!(
-            engine.public_diff(&denied, &request()),
+            engine.public_diff(&denied, &request()).await,
             Err(QueryError::Access)
         );
         assert_eq!(engine.store().state().watermark, watermark);
         engine.into_store().close().await.unwrap();
         let engine = Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
-        assert_eq!(engine.public_diff(&access(), &request()).unwrap(), initial);
+        assert_eq!(
+            engine.public_diff(&access(), &request()).await.unwrap(),
+            initial
+        );
     }
 }
 #[tokio::test]
@@ -338,7 +346,7 @@ async fn diff_rejects_forged_projection_scope_proof_and_legacy_without_public_ca
             let temp = tempfile::tempdir().unwrap();
             let (engine, _, _) = fixture(temp.path(), backend, variant).await;
             assert!(
-                engine.public_diff(&access(), &request()).is_err(),
+                engine.public_diff(&access(), &request()).await.is_err(),
                 "variant {variant}"
             );
         }
@@ -391,7 +399,7 @@ async fn diff_respects_logical_artifact_and_original_linkage_retention_before_by
                 command: None,
             };
             engine.store_mut().transact(tx).await.unwrap();
-            assert!(engine.public_diff(&access(), &request()).is_err());
+            assert!(engine.public_diff(&access(), &request()).await.is_err());
         }
     }
 }
@@ -417,7 +425,7 @@ async fn diff_detects_corruption_outside_requested_range() {
         std::fs::write(last, bytes).unwrap();
         let mut range = request();
         range.length = 1;
-        assert!(engine.public_diff(&access(), &range).is_err());
+        assert!(engine.public_diff(&access(), &range).await.is_err());
     }
 }
 

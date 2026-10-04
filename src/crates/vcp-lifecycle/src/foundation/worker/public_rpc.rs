@@ -512,8 +512,8 @@ impl RpcHost for PublicConnection {
                 .run_cleanup(move |context| {
                     if let Call::DiffRead(request) = &request {
                         return Ok(context
-                            .engine
-                            .public_diff(&access, request)
+                            .runtime
+                            .block_on(context.engine.public_diff(&access, request))
                             .map(ResultValue::Artifact)
                             .map_err(vcp_engine::rpc::query_error));
                     }
@@ -542,8 +542,8 @@ impl RpcHost for PublicConnection {
                     }
                     if let Call::ArtifactRead(request) = &request {
                         return Ok(context
-                            .engine
-                            .public_artifact(&access, request)
+                            .runtime
+                            .block_on(context.engine.public_artifact(&access, request))
                             .map(ResultValue::Artifact)
                             .map_err(vcp_engine::rpc::query_error));
                     }

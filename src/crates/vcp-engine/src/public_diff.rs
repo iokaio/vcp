@@ -16,7 +16,12 @@ use vcp_protocol::{
     event::{EventEnvelope, EventKind},
     methods::{self, Call},
 };
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
+
+mod provenance;
 
 // Legacy private Prepared evidence uses decimal byte arrays. Its bound is
 // intentionally separate from the smaller public base64 document.
@@ -30,7 +35,7 @@ fn byte_limit(descriptor: &ArtifactDescriptor) -> u64 {
 }
 
 impl Engine<Store> {
-    pub fn public_diff(
+    pub async fn public_diff(
         &self,
         access: &Access,
         request: &methods::DiffRead,
@@ -42,7 +47,7 @@ impl Engine<Store> {
         if task.redaction.is_some() {
             return Err(QueryError::Unavailable);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let effect: Effect = state
             .record(
                 Collection::Effect,
@@ -82,46 +87,7 @@ impl Engine<Store> {
         }
         // Later effect outcomes replace observed_changes. The exact initial
         // Validated fact permanently identifies what was proposed, not applied.
-        let mut selected = None;
-        for event in state.events.iter().filter(|e| {
-            e.event.kind == EventKind::EffectTransition
-                && e.event.workspace == task.scope.workspace
-                && e.event.session == task.scope.session
-                && e.event.task.as_ref() == Some(&task.scope.task)
-        }) {
-            if event.event.data["schema_version"] != 1 {
-                continue;
-            }
-            for fact in event.event.data["facts"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|f| {
-                    f["collection"] == "effect"
-                        && f["id"].as_str() == Some(effect.id.as_str())
-                        && f["revision"] == "1"
-                })
-            {
-                let original: Effect = serde_json::from_value(fact["value"].clone())
-                    .map_err(|_| QueryError::InvalidData)?;
-                if original.id != effect.id
-                    || original.scope != effect.scope
-                    || original.operation_digest != effect.operation_digest
-                    || original.revision != Revision::new(1)
-                    || original.state != EffectState::Validated
-                    || original.cause != event.event.id
-                    || original.redaction.is_some()
-                    || event_hidden(event, &masks)
-                {
-                    return Err(QueryError::Unavailable);
-                }
-                if selected.is_some() {
-                    return Err(QueryError::Unavailable);
-                }
-                selected = Some((original, event));
-            }
-        }
-        let (original, anchor) = selected.ok_or(QueryError::Unavailable)?;
+        let (original, anchor) = provenance::read(self.store(), &effect, &masks).await?;
         let mut documents = Vec::new();
         for id in &original.observed_changes {
             let descriptor: ArtifactDescriptor = state
@@ -131,7 +97,7 @@ impl Engine<Store> {
                 .map_err(|_| QueryError::InvalidData)?;
             if descriptor.spec.schema == public_diff::SCHEMA {
                 self.diff_descriptor(&descriptor, &task.scope, &masks)?;
-                if !anchor.event.artifacts.contains(id) {
+                if !anchor.contains(id) {
                     return Err(QueryError::Unavailable);
                 }
                 documents.push(descriptor);
@@ -147,7 +113,7 @@ impl Engine<Store> {
             || document.change != effect.id
             || document.operation_digest != effect.operation_digest
             || !original.observed_changes.contains(&document.prepared)
-            || !anchor.event.artifacts.contains(&document.prepared)
+            || !anchor.contains(&document.prepared)
         {
             return Err(QueryError::Unavailable);
         }
@@ -198,6 +164,7 @@ impl Engine<Store> {
                 length: request.length,
             },
         )
+        .await
     }
     fn diff_descriptor(
         &self,
