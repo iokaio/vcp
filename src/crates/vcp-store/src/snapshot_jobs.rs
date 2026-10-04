@@ -177,9 +177,9 @@ impl Jobs {
         let public = trust.configuration();
         Ok(job.stage == Stage::Published
             && public.workspace == job.workspace
-            && public.lineage == finalization.manifest.lineage
-            && public.checkpoint.sequence == finalization.manifest.sequence
-            && public.checkpoint.deletion >= finalization.manifest.deletion
+            && public.lineage == finalization.manifest.lineage()
+            && public.checkpoint.sequence == finalization.manifest.sequence()
+            && public.checkpoint.deletion >= finalization.manifest.deletion()
             && public.checkpoint.parent.as_ref()
                 == Some(&digest_bytes(&canonical_bytes(&finalization.manifest)?)))
     }
@@ -579,7 +579,7 @@ impl Jobs {
         if marker.exists() {
             let finalization: Finalization =
                 serde_json::from_slice(&crate::artifact::read_bounded(&marker, 128 * 1024)?)?;
-            if finalization.manifest != manifest
+            if finalization.manifest != manifest.clone().into()
                 || finalization.writer != keys.public().writer
                 || finalization.recipient != keys.public().recipient
             {
@@ -912,10 +912,10 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
                 finalization.writer,
             ))?) != job.key_ref
             || finalization.bytes > 65 * 1024 * 1024
-            || finalization.manifest.workspace != job.workspace
-            || finalization.manifest.deletion != job.deletion
-            || finalization.manifest.format != FORMAT
-            || finalization.manifest.objects.len() > 4096
+            || finalization.manifest.workspace() != &job.workspace
+            || finalization.manifest.deletion() != job.deletion
+            || finalization.manifest.format() != FORMAT
+            || finalization.manifest.validate().is_err()
         {
             return Err(Error::Corruption("snapshot finalized identity"));
         }

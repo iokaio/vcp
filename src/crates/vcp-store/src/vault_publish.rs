@@ -5,7 +5,10 @@
 use crate::{
     keys::{LocalKeys, PublicKeys, RecoveryCopy, VerifiedKeys},
     private_paths::{self, Directory},
-    vault_crypto::{self, FinalizedCiphertext, Limits, Manifest, PrivateStaging, Restored, Trust},
+    vault_crypto::{
+        self, FinalizedCiphertext, Limits, Manifest, ManifestEnvelope, PrivateStaging, Restored,
+        Trust,
+    },
     Error, Result,
 };
 use serde::{Deserialize, Serialize};
@@ -19,6 +22,8 @@ use std::{
 };
 use vcp_domain::{CommandId, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
+#[path = "vault_publish_stream.rs"]
+pub(crate) mod stream;
 
 fn hash(value: &str) -> bool {
     value.len() == 64
@@ -166,8 +171,8 @@ impl LocalTrust {
         self.matches(&proof.manifest, &proof.writer, &proof.recipient)?;
         let next = self.next()?;
         self.public.checkpoint = Checkpoint {
-            sequence: proof.manifest.sequence,
-            deletion: proof.manifest.deletion,
+            sequence: proof.manifest.sequence(),
+            deletion: proof.manifest.deletion(),
             parent: Some(digest_bytes(&canonical_bytes(&proof.manifest)?)),
         };
         self.public.revision = next;
@@ -260,12 +265,17 @@ impl LocalTrust {
         self.public.revision = next;
         Ok(())
     }
-    fn matches(&self, manifest: &Manifest, writer: &[u8; 32], recipient: &str) -> Result<()> {
-        if manifest.workspace != self.public.workspace
-            || manifest.lineage != self.public.lineage
-            || manifest.sequence <= self.public.checkpoint.sequence
-            || manifest.deletion < self.public.checkpoint.deletion
-            || manifest.parent != self.public.checkpoint.parent
+    fn matches(
+        &self,
+        manifest: &ManifestEnvelope,
+        writer: &[u8; 32],
+        recipient: &str,
+    ) -> Result<()> {
+        if manifest.workspace() != &self.public.workspace
+            || manifest.lineage() != self.public.lineage
+            || manifest.sequence() <= self.public.checkpoint.sequence
+            || manifest.deletion() < self.public.checkpoint.deletion
+            || manifest.parent() != &self.public.checkpoint.parent
             || !self.public.writers.contains(writer)
             || recipient != self.public.selected.recipient
             || writer != &self.public.selected.writer
@@ -289,7 +299,11 @@ impl LocalTrust {
         if keys.public() != &self.public.selected {
             return Err(Error::Access);
         }
-        self.matches(&manifest, &keys.public().writer, &keys.public().recipient)?;
+        self.matches(
+            &manifest.clone().into(),
+            &keys.public().writer,
+            &keys.public().recipient,
+        )?;
         vault_crypto::encrypt(
             staging,
             &keys.recipient,
@@ -370,8 +384,8 @@ impl LocalTrust {
             manifest: digest_bytes(&canonical_bytes(&object.manifest)?),
             key_ref: self.public.selected.key_ref.clone(),
             revision: expected,
-            sequence: object.manifest.sequence,
-            deletion: object.manifest.deletion,
+            sequence: object.manifest.sequence(),
+            deletion: object.manifest.deletion(),
         })
     }
 }
@@ -391,7 +405,7 @@ struct PublicationProof {
     operation: CommandId,
     ciphertext: String,
     bytes: u64,
-    manifest: Manifest,
+    manifest: ManifestEnvelope,
     writer: [u8; 32],
     recipient: String,
     revision: u64,

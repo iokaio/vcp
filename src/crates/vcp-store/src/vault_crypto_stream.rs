@@ -38,7 +38,7 @@ struct Header {
     manifest: StreamManifest,
     signature: Vec<u8>,
 }
-fn validate(manifest: &StreamManifest, limits: Limits) -> Result<()> {
+pub(super) fn validate(manifest: &StreamManifest, limits: Limits) -> Result<()> {
     limits.validate()?;
     if manifest.format != FORMAT || manifest.archive_root.format != "vcp-neutral-history/2" {
         return Err(Error::Incompatible);
@@ -269,9 +269,24 @@ pub(crate) struct Encrypted {
     sha256: String,
     pub(crate) manifest: StreamManifest,
     pub(crate) writer: [u8; 32],
+    recipient: String,
     _staging: Arc<Directory>,
 }
 impl Encrypted {
+    /// Consumes only a completely finalized, synced encoder result. Publication
+    /// uses the existing ciphertext capability and cannot accept raw streams.
+    pub(crate) fn into_finalized(self) -> FinalizedCiphertext {
+        FinalizedCiphertext {
+            path: self.path,
+            file: self.file,
+            bytes: self.bytes,
+            sha256: self.sha256,
+            manifest: self.manifest.into(),
+            writer: self.writer,
+            recipient: self.recipient,
+            _staging: self._staging,
+        }
+    }
     pub(crate) fn copy_ciphertext(&mut self, mut output: impl Write) -> Result<()> {
         self.file.seek(SeekFrom::Start(0))?;
         let mut digest = Sha256::new();
@@ -374,6 +389,7 @@ pub(crate) fn encrypt_checked(
         sha256: format!("{:x}", digest.finalize()),
         manifest,
         writer: writer.verifying_key().to_bytes(),
+        recipient: recipient.to_string(),
         _staging: staging.directory.clone(),
     })
 }

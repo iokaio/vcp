@@ -20,8 +20,11 @@ use vcp_domain::{CommandId, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 pub const FORMAT: &str = "vcp-signed-age/1";
+#[path = "vault_manifest_envelope.rs"]
+mod manifest_envelope;
 #[path = "vault_crypto_stream.rs"]
 pub(crate) mod stream;
+pub(crate) use manifest_envelope::ManifestEnvelope;
 const DOMAIN: &[u8] = b"vcp-portable-manifest-signature-v1\0";
 #[derive(Clone, Copy)]
 pub struct Limits {
@@ -191,7 +194,7 @@ pub struct FinalizedCiphertext {
     file: File,
     sha256: String,
     bytes: u64,
-    pub(crate) manifest: Manifest,
+    pub(crate) manifest: ManifestEnvelope,
     pub(crate) writer: [u8; 32],
     pub(crate) recipient: String,
     _staging: Arc<Directory>,
@@ -207,7 +210,7 @@ impl FinalizedCiphertext {
         self.bytes
     }
     pub fn format(&self) -> &'static str {
-        FORMAT
+        self.manifest.format()
     }
     /// Copy only the held finalized object, rejecting any staging modification.
     /// Destination publication remains the caller's separate durable operation.
@@ -360,7 +363,7 @@ pub fn encrypt(
         file,
         sha256: format!("{:x}", digest.finalize()),
         bytes,
-        manifest,
+        manifest: manifest.into(),
         writer: writer.verifying_key().to_bytes(),
         recipient: recipient.to_string(),
         _staging: staging.directory.clone(),
@@ -446,7 +449,7 @@ pub fn decrypt(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Finalization {
-    pub manifest: Manifest,
+    pub manifest: ManifestEnvelope,
     pub writer: [u8; 32],
     pub recipient: String,
     pub sha256: String,
@@ -468,6 +471,7 @@ impl FinalizedCiphertext {
         directory: Arc<Directory>,
     ) -> Result<Self> {
         regular(path)?;
+        receipt.manifest.validate()?;
         if receipt.bytes > 65 * 1024 * 1024 || !hash(&receipt.sha256) {
             return Err(Error::Limit("persisted ciphertext"));
         }
