@@ -51,12 +51,12 @@ pub struct Resolve {
 }
 
 fn task(store: &Store, access: &Access, scope: &Scope, write: bool) -> Result<Task> {
-    access::authorize(store.state(), access, write)?;
+    access::authorize(store.current(), access, write)?;
     if scope.workspace != access.workspace || !access.allows_task(&scope.task) {
         return Err(Error::Access);
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)?
         .decode()?;
     if task.scope != *scope || task.redaction.is_some() {
@@ -82,7 +82,7 @@ fn retained(store: &Store, access: &Access, submission: &Submission) -> Result<(
 pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> Result<ReviewState> {
     task(store, access, scope, false)?;
     let row = store
-        .state()
+        .current()
         .record(Collection::Claim, id.as_str(), &access.workspace)?;
     if row.value["document_type"] != memory_review::SUBMISSION {
         return Err(Error::Conflict("manual memory submission unavailable"));
@@ -94,7 +94,7 @@ pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> R
     retained(store, access, &submission)?;
     let decision_id = memory_review_decision_id(scope, id)?;
     let decision = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &decision_id))
         .map(|row| -> Result<Decision> {
@@ -127,7 +127,7 @@ pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> R
         .filter(|d| d.governed_proposal.is_some())
         .map(|d| -> Result<ProposalResult> {
             let result: ProposalResult = store
-                .state()
+                .current()
                 .record(
                     Collection::Projection,
                     d.command.as_str(),
@@ -148,7 +148,7 @@ pub fn read(store: &Store, access: &Access, scope: &Scope, id: &ProposalId) -> R
         .and_then(|r| r.intent.as_ref())
         .map(|id| -> Result<IndexStatus> {
             let intent: IndexIntent = store
-                .state()
+                .current()
                 .record(Collection::IndexIntent, id.as_str(), &access.workspace)?
                 .decode()?;
             Ok(intent.status)
@@ -190,7 +190,7 @@ fn receipt(
 }
 fn current_head(store: &Store, access: &Access, claim: &ClaimId) -> Result<Option<ClaimVersionId>> {
     let head = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, claim.as_str()))
         .map(|row| -> Result<Head> {
@@ -208,7 +208,7 @@ fn current_head(store: &Store, access: &Access, claim: &ClaimId) -> Result<Optio
     // an empty claim. Repair is a separate explicit operation, not a side effect.
     let mut accepted = None::<(MemorySeq, ClaimVersionId)>;
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.collection == Collection::Claim && r.workspace == access.workspace)
@@ -266,12 +266,12 @@ fn guards(
     expected_head: &Option<ClaimVersionId>,
 ) -> Result<()> {
     let task = task(store, access, &candidate.scope, true)?;
-    let workspace = access::authorize(store.state(), access, true)?;
+    let workspace = access::authorize(store.current(), access, true)?;
     if task.revision != revision
         || task.steering != steering
         || epochs.authority != workspace.authority
         || epochs.deletion != workspace.deletion
-        || epochs.policy != access::policy(store.state(), &access.workspace)?
+        || epochs.policy != access::policy(store.current(), &access.workspace)?
     {
         return Err(Error::Conflict("manual memory preconditions changed"));
     }
@@ -312,7 +312,7 @@ pub(crate) fn validate_fresh(
         let mut claims = std::collections::BTreeSet::new();
         let mut sequence = MemorySeq::ZERO;
         for row in store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.workspace == access.workspace)
@@ -341,7 +341,7 @@ pub(crate) fn validate_fresh(
             current_head(store, access, &claim)?;
         }
         let saved = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, access.workspace.as_str()))
             .map(Record::decode::<MemoryHead>)
@@ -430,7 +430,7 @@ fn transaction<T: Serialize>(
     decorate(&mut event, action, id, value)?;
     Ok(Transaction {
         id: TransactionId::new(),
-        expected_watermark: store.state().watermark,
+        expected_watermark: store.current().watermark,
         mutations: vec![Mutation::Put {
             expected: None,
             record,

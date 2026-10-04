@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use vcp_domain::{ids::*, retention_selector::Selector, revision::*, task::Task, workspace::Scope};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_store::{
-    contract::{command_key, Collection, Receipt, State},
+    contract::{command_key, CanonicalStore, Collection, Receipt, State},
     Store,
 };
 #[path = "retention_limits.rs"]
@@ -97,13 +97,13 @@ fn authorize(
     scope: &Scope,
     write: bool,
 ) -> Result<BTreeSet<TaskId>> {
-    access::authorize(store.state(), access, write)?;
+    access::authorize(store.current(), access, write)?;
     if scope.workspace != access.workspace || !access.allows_task(&scope.task) {
         return Err(Error::Access);
     }
     let tasks = access.tasks.as_ref().ok_or(Error::Access)?;
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)?
         .decode()?;
     if task.scope != *scope {
@@ -112,7 +112,7 @@ fn authorize(
     // Scope validation never converts Some(tasks) into workspace-wide authority.
     for id in tasks {
         let task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, id.as_str(), &access.workspace)?
             .decode()?;
         if task.scope.session != scope.session {
@@ -176,7 +176,7 @@ pub fn validate_preview(
     preview: &Preview,
 ) -> Result<()> {
     let current = authorize(store, access, scope, false)?;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if scope != &preview.scope
         || access.actor != preview.value.actor
         || workspace.authority != preview.value.authority
@@ -249,7 +249,7 @@ pub async fn apply(
         return Err(Error::Conflict("retention preview digest changed"));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             preview.scope.task.as_str(),
@@ -274,7 +274,7 @@ pub async fn apply(
 pub fn read_job(store: &Store, access: &Access, scope: &Scope, id: &str) -> Result<PruneReceipt> {
     authorize(store, access, scope, false)?;
     let job: PruneReceipt = store
-        .state()
+        .current()
         .record(Collection::Projection, id, &access.workspace)?
         .decode()?;
     let binding = job.public.as_ref().ok_or(Error::Access)?;

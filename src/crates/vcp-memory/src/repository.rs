@@ -102,7 +102,7 @@ pub(crate) fn evidence_with_check(
         .map(|reference| {
             check()?;
             let record = store
-                .state()
+                .current()
                 .records
                 .get(&key(Collection::Artifact, reference.artifact.as_str()));
             let Some(record) = record else {
@@ -454,18 +454,18 @@ pub(crate) async fn propose_inner(
         if let Some((submission, request)) = manual {
             crate::review::validate_fresh(store, access, submission, request)?;
         }
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         if proposal.scope.workspace != access.workspace
             || proposal.actor != access.actor
             || !access.allows_task(&proposal.scope.task)
             || proposal.epochs.authority != workspace.authority
             || proposal.epochs.deletion != workspace.deletion
-            || proposal.epochs.policy != access::policy(store.state(), &access.workspace)?
+            || proposal.epochs.policy != access::policy(store.current(), &access.workspace)?
         {
             return Err(Error::Access);
         }
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 proposal.scope.task.as_str(),
@@ -475,7 +475,7 @@ pub(crate) async fn propose_inner(
         if task.scope != proposal.scope || task.redaction.is_some() {
             return Err(Error::Access);
         }
-        for row in store.state().records.values().filter(|r| {
+        for row in store.current().records.values().filter(|r| {
             r.workspace == access.workspace
                 && r.collection == Collection::Claim
                 && r.value["document_type"] == vcp_domain::redaction::PROPOSAL
@@ -509,7 +509,7 @@ pub(crate) async fn propose_inner(
             return Err(Error::Access);
         }
         // The stable origin/extractor/output mapping survives lost acknowledgements.
-        for row in store.state().records.values().filter(|r| {
+        for row in store.current().records.values().filter(|r| {
             r.workspace == access.workspace
                 && r.collection == Collection::Claim
                 && r.value["document_type"] == "vcp_memory_proposal_v1"
@@ -533,7 +533,7 @@ pub(crate) async fn propose_inner(
                     ));
                 }
                 let result: ProposalResult = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Projection,
                         previous.proposal.command.as_str(),
@@ -558,7 +558,7 @@ pub(crate) async fn propose_inner(
                     .as_ref()
                     .map(|id| {
                         store
-                            .state()
+                            .current()
                             .record(Collection::IndexIntent, id.as_str(), &access.workspace)
                             .and_then(Record::decode::<IndexIntent>)
                             .map(|i| i.status)
@@ -575,7 +575,7 @@ pub(crate) async fn propose_inner(
             crate::projections::rebuild(store, access, now).await?;
         }
         let head: Option<Head> = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, proposal.claim.as_str()))
             .map(Record::decode)
@@ -587,7 +587,7 @@ pub(crate) async fn propose_inner(
             return Err(Error::Access);
         }
         let sequence: Option<MemoryHead> = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, access.workspace.as_str()))
             .map(Record::decode)
@@ -607,7 +607,7 @@ pub(crate) async fn propose_inner(
             None => gates::evaluate(&proposal, &context).map_err(Error::Invalid)?,
         };
         let tx = TransactionId::new();
-        let watermark = store.state().watermark.next()?;
+        let watermark = store.current().watermark.next()?;
         let mut mutations = Vec::new();
         let recorded = ProposalRecord {
             document_type: DocumentType::Proposal,
@@ -792,7 +792,7 @@ pub(crate) async fn propose_inner(
         }
         let transaction = Transaction {
             id: tx,
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![event],
             command: Some(ReceiptInput {

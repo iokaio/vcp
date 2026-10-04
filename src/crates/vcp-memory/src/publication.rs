@@ -88,12 +88,12 @@ pub fn capture(
     scope: &Scope,
     inventory: Inventory,
 ) -> Result<Snapshot> {
-    let workspace = access::authorize(store.state(), access, true)?;
+    let workspace = access::authorize(store.current(), access, true)?;
     inventory.validate()?;
     if access.tasks.is_some()
         || scope.workspace != access.workspace
         || inventory.workspace != access.workspace
-        || inventory.watermark != store.state().watermark
+        || inventory.watermark != store.current().watermark
         || inventory.authority != workspace.authority
         || inventory.deletion != workspace.deletion
     {
@@ -113,7 +113,7 @@ pub fn capture(
     let mut intents = Vec::new();
     let mut memory_seq = MemorySeq::ZERO;
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.workspace == access.workspace)
@@ -669,7 +669,7 @@ impl Publisher {
         now: Timestamp,
         barrier: &dyn Fn(Barrier),
     ) -> Result<Receipt> {
-        access::authorize(store.state(), access, true)?;
+        access::authorize(store.current(), access, true)?;
         if access.tasks.is_some() || prepared.manifest.scope.workspace != access.workspace {
             return Err(Error::Access);
         }
@@ -739,7 +739,7 @@ impl Publisher {
         now: Timestamp,
         barrier: &dyn Fn(Barrier),
     ) -> Result<Receipt> {
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         let manifest = &prepared.manifest;
         if access.tasks.is_some() || manifest.scope.workspace != access.workspace {
             return Err(Error::Access);
@@ -834,7 +834,7 @@ impl Publisher {
             .filter(|intent| manifest.covered_intents.contains(&intent.id))
         {
             let mut current: IndexIntent = store
-                .state()
+                .current()
                 .record(
                     Collection::IndexIntent,
                     captured.id.as_str(),
@@ -876,7 +876,7 @@ impl Publisher {
         };
         let transaction = Transaction {
             id: manifest.transaction.clone(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![event],
             command: None,
@@ -1013,7 +1013,7 @@ impl Publisher {
         id: &GenerationId,
         policy: &GarbagePolicy,
     ) -> Result<bool> {
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         let obsolete =
             generation(store.state(), id, &access.workspace)?.deletion < workspace.deletion;
         if access.tasks.is_some() {
@@ -1033,7 +1033,7 @@ impl Publisher {
         scope: &vcp_domain::workspace::Scope,
         ceiling: &BTreeSet<vcp_domain::TaskId>,
     ) -> Result<bool> {
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         if access.tasks.is_none()
             || scope.workspace != access.workspace
             || !access.allows_task(&scope.task)
@@ -1103,7 +1103,7 @@ impl Publisher {
             || active(store.state(), &access.workspace)?
                 .is_some_and(|active| active.generation == *id && !obsolete)
             || store
-                .state()
+                .current()
                 .records
                 .values()
                 .any(|row| row.workspace == access.workspace && vcp_store::snapshot_pin_active(row))

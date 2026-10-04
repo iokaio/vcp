@@ -13,7 +13,7 @@ use vcp_domain::{
     verification::Fingerprint,
 };
 use vcp_store::{
-    contract::{Collection, State},
+    contract::{CanonicalStore, Collection, State},
     CurrentStateView, Store,
 };
 
@@ -140,9 +140,9 @@ pub fn query_with_check(
     check: &dyn Fn() -> Result<()>,
 ) -> Result<ClaimHistory> {
     check()?;
-    access::authorize(store.state(), access, false)?;
+    access::authorize(store.current(), access, false)?;
     let mut versions = Vec::new();
-    for row in store.state().records.values() {
+    for row in store.current().records.values() {
         check()?;
         if row.workspace == access.workspace
             && row.collection == Collection::Claim
@@ -212,9 +212,9 @@ pub fn origin_links_with_check(
     if origins.len() > 128 {
         return Err(Error::Invalid("origin navigation limit".into()));
     }
-    access::authorize(store.state(), access, false)?;
+    access::authorize(store.current(), access, false)?;
     let mut links = Vec::new();
-    for row in store.state().records.values().filter(|row| {
+    for row in store.current().records.values().filter(|row| {
         row.workspace == access.workspace
             && row.collection == Collection::Claim
             && row.value["document_type"] == "vcp_memory_version_v1"
@@ -292,12 +292,12 @@ pub fn window_with_check(
     if !(1..=32).contains(&limit) {
         return Err(Error::Invalid("memory window limit must be 1..32".into()));
     }
-    access::authorize(store.state(), access, false)?;
+    access::authorize(store.current(), access, false)?;
     let mut selected = std::collections::BTreeMap::new();
     let mut current: Option<(MemorySeq, ClaimVersionId)> = None;
     let mut maximum = MemorySeq::ZERO;
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.workspace == access.workspace && row.collection == Collection::Claim)
@@ -387,11 +387,11 @@ fn materialize(
     check: &dyn Fn() -> Result<()>,
 ) -> Result<ClaimHistory> {
     check()?;
-    access::authorize(store.state(), access, false)?;
+    access::authorize(store.current(), access, false)?;
     versions.sort_by_key(|v| v.memory_seq);
     let supplied_purged = selected_purged.is_some();
     let mut purged = selected_purged.unwrap_or_default();
-    for row in store.state().records.values().filter(|r| {
+    for row in store.current().records.values().filter(|r| {
         r.workspace == access.workspace
             && r.collection == Collection::Claim
             && r.value["document_type"] == vcp_domain::redaction::VERSION
@@ -462,7 +462,7 @@ fn materialize(
             continue;
         }
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 version.scope.task.as_str(),
@@ -528,7 +528,7 @@ fn materialize(
     Ok(ClaimHistory {
         workspace: access.workspace.clone(),
         claim: claim.clone(),
-        watermark: store.state().watermark,
+        watermark: store.current().watermark,
         at,
         versions: rows,
     })

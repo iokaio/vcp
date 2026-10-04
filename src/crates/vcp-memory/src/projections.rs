@@ -32,7 +32,7 @@ pub async fn rebuild(
     access: &Access,
     now: Timestamp,
 ) -> Result<Option<Receipt>> {
-    access::authorize(store.state(), access, true)?;
+    access::authorize(store.current(), access, true)?;
     let state = store.state();
     let mut versions = Vec::<RebuildVersion>::new();
     let mut results = Vec::<RebuildResult>::new();

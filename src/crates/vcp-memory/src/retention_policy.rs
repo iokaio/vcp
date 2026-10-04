@@ -58,7 +58,7 @@ fn id(kind: &str, workspace: &WorkspaceId) -> String {
     format!("{kind}-{workspace}")
 }
 fn authorize(store: &Store, access: &Access, write: bool) -> Result<()> {
-    access::authorize(store.state(), access, write)?;
+    access::authorize(store.current(), access, write)?;
     if access.tasks.is_some() {
         return Err(Error::Access);
     }
@@ -66,7 +66,7 @@ fn authorize(store: &Store, access: &Access, write: bool) -> Result<()> {
 }
 pub fn show(store: &Store, access: &Access) -> Result<Policy> {
     authorize(store, access, false)?;
-    let value = match store.state().records.get(&key(
+    let value = match store.current().records.get(&key(
         Collection::Projection,
         &id("retention-policy", &access.workspace),
     )) {
@@ -101,7 +101,7 @@ async fn put<T: Serialize>(
 ) -> Result<()> {
     authorize(store, access, true)?;
     let session = store
-        .state()
+        .current()
         .records
         .values()
         .find(|r| r.workspace == access.workspace && r.collection == Collection::Session)
@@ -133,7 +133,7 @@ async fn put<T: Serialize>(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put { record, expected }],
             events: vec![event],
             command: None,
@@ -154,7 +154,7 @@ pub async fn set(
     authorize(store, access, true)?;
     let name = id("retention-policy", &access.workspace);
     let current = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
         .map(|r| r.revision);
@@ -219,7 +219,7 @@ pub fn aging(store: &Store, access: &Access, now: Timestamp) -> Result<Aging> {
         Ok(sum.saturating_add(serde_json::to_vec(event)?.len() as u64))
     })?;
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Artifact)
@@ -230,7 +230,7 @@ pub fn aging(store: &Store, access: &Access, now: Timestamp) -> Result<Aging> {
         }
     }
     let last = store
-        .state()
+        .current()
         .records
         .get(&key(
             Collection::Projection,
@@ -270,7 +270,7 @@ pub async fn acknowledge_notice(store: &mut Store, access: &Access, now: Timesta
     }
     let name = id("retention-notice", &access.workspace);
     let expected = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
         .map(|r| r.revision);
@@ -307,7 +307,7 @@ pub fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Qu
         return Err(Error::Access);
     }
     let latest = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| {
@@ -355,7 +355,7 @@ pub async fn apply_queued(
     let receipt = retention::apply(store, access, &queued.preview, now).await?;
     let name = format!("policy-run-{}", receipt.id);
     if !store
-        .state()
+        .current()
         .records
         .contains_key(&key(Collection::Projection, &name))
     {
@@ -385,7 +385,7 @@ fn applied_status() -> String {
 pub fn latest_run(store: &Store, access: &Access) -> Result<Option<PolicyRun>> {
     authorize(store, access, false)?;
     let mut latest: Option<PolicyRun> = None;
-    for row in store.state().records.values().filter(|r| {
+    for row in store.current().records.values().filter(|r| {
         r.workspace == access.workspace
             && r.collection == Collection::Projection
             && r.value["document_type"] == "vcp_retention_policy_run_v1"
@@ -483,7 +483,7 @@ pub async fn run_due(
     // An indeterminate canonical failure must still prevent opening an owner.
     // Successful logical apply is discoverable by its original receipt on retry.
     let expected = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
         .map(|r| r.revision);
@@ -497,7 +497,7 @@ pub async fn run_due(
 pub async fn resume_cleanup(store: &mut Store, access: &Access, now: Timestamp) -> Result<()> {
     authorize(store, access, true)?;
     let mut pending = Vec::new();
-    for row in store.state().records.values().filter(|r| {
+    for row in store.current().records.values().filter(|r| {
         r.workspace == access.workspace
             && r.collection == Collection::Projection
             && r.value["document_type"] == "vcp_retention_job_v1"

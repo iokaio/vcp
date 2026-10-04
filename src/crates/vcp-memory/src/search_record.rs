@@ -16,7 +16,10 @@ use vcp_domain::{
     workspace::{Scope, Workspace},
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -246,7 +249,7 @@ fn read(
     max: usize,
 ) -> Result<Option<(ArtifactDescriptor, Vec<u8>)>> {
     let Some(row) = store
-        .state()
+        .current()
         .records
         .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
     else {
@@ -295,7 +298,7 @@ pub(crate) fn source_current(
         return Ok(false);
     }
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             descriptor.spec.scope.task.as_str(),
@@ -424,10 +427,10 @@ pub fn inventory_with_check(
     if sources.len() > limits.records {
         return Err(Error::Invalid("source binding inventory limit".into()));
     }
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     let mut output = Inventory {
         workspace: workspace.id.clone(),
-        watermark: store.state().watermark,
+        watermark: store.current().watermark,
         authority: workspace.authority,
         deletion: workspace.deletion,
         chunker_digest: spec.digest()?,
@@ -436,7 +439,7 @@ pub fn inventory_with_check(
         digest: String::new(),
     };
     let mut total = 0;
-    for row in store.state().records.values().filter(|r| {
+    for row in store.current().records.values().filter(|r| {
         r.workspace == workspace.id
             && r.collection == Collection::Claim
             && r.value["document_type"] == vcp_domain::redaction::VERSION
@@ -460,7 +463,7 @@ pub fn inventory_with_check(
     }
     let mut versions: Vec<vcp_domain::memory::Version> = Vec::new();
     let mut grouped: BTreeMap<ClaimId, Vec<vcp_domain::memory::Version>> = BTreeMap::new();
-    for row in store.state().records.values() {
+    for row in store.current().records.values() {
         check()?;
         if row.workspace != workspace.id
             || row.collection != Collection::Claim
@@ -683,7 +686,7 @@ pub fn inventory_with_check(
             status: Outcome::Accepted,
             evidence_status: EvidenceStatus::Observed,
             memory_seq: MemorySeq::ZERO,
-            watermark: store.state().watermark,
+            watermark: store.current().watermark,
             text: String::new(),
         };
         let records = chunk(record, text, spec, &output.chunker_digest, check)?;

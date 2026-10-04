@@ -19,7 +19,10 @@ use vcp_domain::{
     workspace::Scope,
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 #[derive(Clone, Debug)]
 pub struct Limits {
@@ -195,7 +198,7 @@ impl Write for BoundedBytes {
 
 fn descriptor(store: &Store, access: &Access, id: &ArtifactId) -> Result<ArtifactDescriptor> {
     let artifact: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(Collection::Artifact, id.as_str(), &access.workspace)?
         .decode()?;
     if !access.allows_task(&artifact.spec.scope.task) {
@@ -217,7 +220,7 @@ pub fn validate(
 ) -> Result<Vec<Proposal>> {
     context.limits.validate()?;
     context.applicability.validate()?;
-    let workspace = access::authorize(store.state(), access, true)?;
+    let workspace = access::authorize(store.current(), access, true)?;
     if context.extractor.trim().is_empty()
         || context.extractor.len() > 256
         || context.extractor.contains('\0')
@@ -248,7 +251,7 @@ pub fn validate(
         return Err(Error::Access);
     }
     let source: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task_id.as_str(), &access.workspace)?
         .decode()?;
     let scope = Scope {
@@ -260,7 +263,7 @@ pub fn validate(
         return Err(Error::Access);
     }
     let attempt: Attempt = store
-        .state()
+        .current()
         .record(
             Collection::Attempt,
             context.attempt.as_str(),
@@ -281,7 +284,7 @@ pub fn validate(
         ));
     }
     let mut task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             attempt.scope.task.as_str(),
@@ -308,12 +311,12 @@ pub fn validate(
             break;
         };
         task = store
-            .state()
+            .current()
             .record(Collection::Task, parent.as_str(), &access.workspace)?
             .decode()?;
     }
     let reservation: Reservation = store
-        .state()
+        .current()
         .record(
             Collection::Reservation,
             attempt.reservation.as_str(),
@@ -321,7 +324,7 @@ pub fn validate(
         )?
         .decode()?;
     let ledger: Ledger = store
-        .state()
+        .current()
         .record(Collection::Ledger, attempt.root.as_str(), &access.workspace)?
         .decode()?;
     if reservation.attempt != attempt.id
@@ -334,7 +337,7 @@ pub fn validate(
     }
     let mut response_link = false;
     for row in
-        store.state().records.values().filter(|row| {
+        store.current().records.values().filter(|row| {
             row.collection == Collection::Settlement && row.workspace == access.workspace
         })
     {
@@ -511,7 +514,7 @@ pub fn validate(
             epochs: Epochs {
                 authority: workspace.authority,
                 deletion: workspace.deletion,
-                policy: access::policy(store.state(), &access.workspace)?,
+                policy: access::policy(store.current(), &access.workspace)?,
             },
             registry_version: REGISTRY_VERSION,
             extractor: context.extractor.clone(),

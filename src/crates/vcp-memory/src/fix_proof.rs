@@ -3,7 +3,10 @@
 //! it does not infer who caused the edits or prove the proposed diagnosis.
 use crate::{access::Access, Result};
 use vcp_domain::{artifact::ArtifactDescriptor, memory::*};
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 pub(crate) fn matches(store: &Store, access: &Access, proposal: &Proposal) -> Result<bool> {
     let ClaimValue::VerifiedFix {
@@ -16,7 +19,7 @@ pub(crate) fn matches(store: &Store, access: &Access, proposal: &Proposal) -> Re
         return Ok(false);
     };
     let descriptor: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(Collection::Artifact, patch.as_str(), &access.workspace)?
         .decode()?;
     if descriptor.spec.schema != "vcp-memory-change/1" || descriptor.length.get() > 256 * 1024 {

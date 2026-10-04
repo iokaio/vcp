@@ -20,7 +20,7 @@ use vcp_protocol::{
     event::{EventEnvelope, EventKind},
 };
 use vcp_store::{
-    contract::{Collection, Record},
+    contract::{CanonicalStore, Collection, Record},
     Store,
 };
 
@@ -103,7 +103,7 @@ impl Reader<'_> {
         }
         let Some(row) = self
             .store
-            .state()
+            .current()
             .records
             .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
         else {
@@ -200,7 +200,7 @@ fn add_observation(
         return Ok(());
     }
     let mut candidate = proposal(workspace, reader.access, event, &task.scope, observation)?;
-    candidate.epochs.policy = access::policy(reader.store.state(), &workspace.id)?;
+    candidate.epochs.policy = access::policy(reader.store.current(), &workspace.id)?;
     if candidate.validate().is_err() {
         result.finding(
             "invalid_observation",
@@ -325,7 +325,7 @@ fn native_verification(
         if record.collection != Collection::Verification {
             continue;
         }
-        let Some(current) = reader.store.state().records.get(&record.key()) else {
+        let Some(current) = reader.store.current().records.get(&record.key()) else {
             continue;
         };
         if current.revision != record.revision
@@ -396,7 +396,7 @@ fn native_verification(
                 // Filter by digest before loading unrelated captured outputs.
                 let Some(row) = reader
                     .store
-                    .state()
+                    .current()
                     .records
                     .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
                 else {
@@ -507,7 +507,7 @@ impl CheckPlan {
 /// Pure discovery over a canonical event. Caller persists jobs, findings and
 /// governed proposal receipts; no worker, model call or mutation starts here.
 pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<Extraction> {
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if event.event.workspace != workspace.id
         || event
             .event
@@ -524,7 +524,7 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
     }
     let mut result = Extraction::default();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == workspace.id && r.collection == Collection::Tombstone)
@@ -551,7 +551,7 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
         return Ok(result);
     };
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task_id.as_str(), &workspace.id)?
         .decode()?;
     if task.scope.session != event.event.session {

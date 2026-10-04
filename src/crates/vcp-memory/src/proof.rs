@@ -8,7 +8,10 @@ use vcp_domain::{
     verification::CheckOutcome,
     ArtifactId,
 };
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 const MAX_PROOF_BYTES: u64 = 256 * 1024;
 
@@ -58,7 +61,7 @@ fn descriptor(
     id: &ArtifactId,
 ) -> Result<Option<ArtifactDescriptor>> {
     let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
     else {
@@ -124,7 +127,7 @@ pub fn command_matches(
     proposal: &Proposal,
     reference: &EvidenceRef,
 ) -> Result<bool> {
-    crate::access::authorize(store.state(), access, false)?;
+    crate::access::authorize(store.current(), access, false)?;
     let ClaimValue::Command {
         purpose: CommandPurpose::Test,
         configuration,

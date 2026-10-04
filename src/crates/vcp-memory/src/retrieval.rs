@@ -19,7 +19,10 @@ use vcp_domain::{
     workspace::Scope,
     *,
 };
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 pub const FUSION_VERSION: &str = "rrf-equal-k60-id-ascending-overlay-terms/2";
 pub const TOKEN_ACCOUNTING: &str = "serialized-passage-array-utf8-byte-upper-bound/1";
@@ -332,7 +335,7 @@ pub fn capture(
     request.validate()?;
     chunker.validate()?;
     checkpoint(start, request, cancelled)?;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if request.workspace != access.workspace {
         return Err(Error::Access);
     }
@@ -648,7 +651,7 @@ pub fn finish(
     let request = &capture.request;
     let bindings = &capture.bindings;
     let chunker = &capture.chunker;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     checkpoint(start, request, cancelled)?;
     if workspace.id != capture.workspace.id
         || access.actor != capture.actor
@@ -658,13 +661,13 @@ pub fn finish(
     {
         return Err(Error::Access);
     }
-    response.canonical_watermark = store.state().watermark;
+    response.canonical_watermark = store.current().watermark;
     if !materialize {
         return Ok(response);
     }
     if response
         .generation_watermark
-        .is_some_and(|watermark| watermark < store.state().watermark)
+        .is_some_and(|watermark| watermark < store.current().watermark)
         && !response.degraded.contains(&"generation_lag")
     {
         response.degraded.push("generation_lag");
@@ -731,7 +734,7 @@ pub fn finish(
             TextSource::Artifact { id } => vec![id.clone()],
             TextSource::Claim { version, .. } => {
                 let value: Version = store
-                    .state()
+                    .current()
                     .record(Collection::Claim, version.as_str(), &access.workspace)?
                     .decode()?;
                 access::proposal_scope(store.state(), &narrowed, &value.proposal)?;
@@ -776,7 +779,7 @@ pub fn finish(
         }
     }
     checkpoint(start, request, cancelled)?;
-    let latest = access::authorize(store.state(), access, false)?;
+    let latest = access::authorize(store.current(), access, false)?;
     if latest.authority != workspace.authority
         || latest.deletion != workspace.deletion
         || latest.binding.revision != workspace.binding.revision
@@ -804,7 +807,7 @@ pub fn finish(
         authority: workspace.authority,
         deletion: workspace.deletion,
         binding: workspace.binding.revision,
-        canonical_watermark: store.state().watermark,
+        canonical_watermark: store.current().watermark,
         generation: response
             .generation
             .clone()
@@ -841,14 +844,14 @@ pub fn query(
 /// source observations. Epoch equality alone is insufficient: recompute retained
 /// bytes, source bindings, claim eligibility and every selected chunk identity.
 pub fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result<()> {
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if fence.workspace != workspace.id
         || fence.authority != workspace.authority
         || fence.deletion != workspace.deletion
         || fence.binding != workspace.binding.revision
         || fence.sources.len() > 64
         || fence.bindings.len() > 64
-        || fence.canonical_watermark > store.state().watermark
+        || fence.canonical_watermark > store.current().watermark
     {
         return Err(Error::Access);
     }
@@ -933,7 +936,7 @@ pub fn source_bindings_with_check(
         }
     }
     check()?;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     let mut result = SourceBindings {
         bindings: vec![],
         complete: true,
@@ -942,7 +945,7 @@ pub fn source_bindings_with_check(
     let mut total = 0u64;
     let mut manifests = 0usize;
     let mut unique = BTreeSet::new();
-    'manifests: for row in store.state().records.values() {
+    'manifests: for row in store.current().records.values() {
         check()?;
         if row.workspace != access.workspace || row.collection != Collection::Artifact {
             continue;
@@ -991,7 +994,7 @@ pub fn source_bindings_with_check(
             _ => continue,
         };
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 manifest.spec.scope.task.as_str(),
@@ -1038,7 +1041,7 @@ pub fn source_bindings_with_check(
                 continue;
             };
             let Some(row) = store
-                .state()
+                .current()
                 .records
                 .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
             else {

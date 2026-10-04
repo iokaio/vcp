@@ -134,13 +134,17 @@ pub async fn save_preview(
     value: &PrunePreview,
     now: Timestamp,
 ) -> Result<()> {
-    access::authorize(store.state(), access, true)?;
+    access::authorize(store.current(), access, true)?;
     if value.workspace != access.workspace || value.actor != access.actor || access.tasks.is_some()
     {
         return Err(Error::Access);
     }
     let id = format!("preview-{}", value.id);
-    if let Some(row) = store.state().records.get(&key(Collection::Projection, &id)) {
+    if let Some(row) = store
+        .current()
+        .records
+        .get(&key(Collection::Projection, &id))
+    {
         if row.value["preview"] != serde_json::to_value(value)? {
             return Err(Error::Conflict("saved preview identity"));
         }
@@ -173,7 +177,7 @@ pub async fn save_preview(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record,
                 expected: None,
@@ -185,11 +189,11 @@ pub async fn save_preview(
     Ok(())
 }
 pub fn load_preview(store: &Store, access: &Access, id: &str) -> Result<PrunePreview> {
-    access::authorize(store.state(), access, false)?;
+    access::authorize(store.current(), access, false)?;
     if access.tasks.is_some() || !vcp_domain::accounting::valid_hash(id) {
         return Err(Error::Access);
     }
-    let row = store.state().record(
+    let row = store.current().record(
         Collection::Projection,
         &format!("preview-{id}"),
         &access.workspace,
@@ -332,7 +336,7 @@ fn context_dependencies(
 ) -> Result<BTreeMap<Target, BTreeSet<Target>>> {
     let mut dependencies = BTreeMap::<Target, BTreeSet<Target>>::new();
     let artifacts: Vec<ArtifactDescriptor> = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == *workspace && r.collection == Collection::Artifact)
@@ -427,14 +431,14 @@ fn context_dependencies(
         dependencies.entry(target).or_default().extend(refs);
     }
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == *workspace && r.collection == Collection::Settlement)
     {
         let settlement: vcp_domain::accounting::Settlement = row.decode()?;
         let attempt: vcp_domain::accounting::Attempt = store
-            .state()
+            .current()
             .record(Collection::Attempt, settlement.attempt.as_str(), workspace)?
             .decode()?;
         dependencies
@@ -480,7 +484,7 @@ fn preview_inner(
     action: Action,
     now: Timestamp,
 ) -> Result<PrunePreview> {
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if scoped.is_none() && access.tasks.is_some() {
         return Err(Error::Access);
     }
@@ -954,7 +958,7 @@ async fn apply_inner(
     public: Option<&crate::retention_public::Binding>,
     now: Timestamp,
 ) -> Result<PruneReceipt> {
-    let mut workspace = access::authorize(store.state(), access, true)?;
+    let mut workspace = access::authorize(store.current(), access, true)?;
     if (public.is_none() && access.tasks.is_some())
         || preview.actor != access.actor
         || preview.workspace != access.workspace
@@ -964,7 +968,7 @@ async fn apply_inner(
     if let Some(binding) = public {
         crate::retention_public::authorize_targets(store, access, binding, preview, true)?;
     }
-    if let Some(row) = store.state().records.get(&key(
+    if let Some(row) = store.current().records.get(&key(
         Collection::Projection,
         &format!("prune-{}", preview.id),
     )) {
@@ -981,7 +985,7 @@ async fn apply_inner(
     }
     if workspace.authority != preview.authority
         || workspace.deletion != preview.deletion
-        || store.state().watermark < preview.watermark
+        || store.current().watermark < preview.watermark
         || source_digest(store.state())? != preview.source_digest
     {
         return Err(Error::Conflict("stale preview; create a new preview"));
@@ -1314,12 +1318,12 @@ async fn cleanup_inner(
     id: &str,
     now: Timestamp,
 ) -> Result<PruneReceipt> {
-    access::authorize(store.state(), access, true)?;
+    access::authorize(store.current(), access, true)?;
     if scoped.is_none() && access.tasks.is_some() {
         return Err(Error::Access);
     }
     let mut job: PruneReceipt = store
-        .state()
+        .current()
         .record(Collection::Projection, id, &access.workspace)?
         .decode()?;
     if job.document_type != JOB {
@@ -1352,7 +1356,7 @@ async fn cleanup_inner(
                     }
                 }
                 Target::Record(k) => {
-                    if let Some(row) = store.state().records.get(&k) {
+                    if let Some(row) = store.current().records.get(&k) {
                         if !already_redacted(row) {
                             if row.collection == Collection::Task {
                                 tasks.insert(TaskId::parse(row.id.clone())?);
@@ -1388,7 +1392,7 @@ async fn cleanup_inner(
         };
         let mut pending = Vec::new();
         for generation in &job.pending_generations {
-            let location = store.state().records.get(&key(
+            let location = store.current().records.get(&key(
                 Collection::Projection,
                 &format!("generation-location-{generation}"),
             ));
@@ -1461,7 +1465,7 @@ async fn cleanup_inner(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record,
                 expected: Some(expected),
