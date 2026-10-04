@@ -10,7 +10,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 |---|---|---|---|
 | EE-00a | Evidence and quality definitions | Plan review | complete |
 | EE-00b | Phase instrumentation | EE-00a | in progress |
-| EE-00c | Bundle integration and reconstruction | EE-00a/b | in progress |
+| EE-00c | Bundle integration and reconstruction | EE-00a/b | in progress; bundle/offline reconstruction verified |
 | EE-01a | Harness deadline/spend removal | EE-00a/b | planned |
 | EE-01b | Versioned explicit limit representation | EE-00a | in progress; core/schema slice verified |
 | EE-01c | Financial admission with durable attempt fences | EE-01b | planned |
@@ -28,7 +28,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-03d | Conditional caching/encoding refinements | Measured EE-06 need and applicable EE-03 inputs | planned |
 | EE-04a | Shared-driver completion repair | EE-00a/c; current full requirement set | planned |
 | EE-04b | Focused selection and freshness refinement | EE-04a | planned |
-| EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | planned |
+| EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | in progress; public reason projection verified |
 | EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | planned |
 | EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | planned |
 | EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | planned |
@@ -65,3 +65,5 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 - EE-02c checkpoint: immutable `CurrentState` snapshots omit historical events and command/transaction payloads. Repeated current readers share one `Arc` per successful commit; rejected/duplicate transactions preserve it, and older readers retain their watermark. Collection-key prefix queries avoid scanning unrelated collections. The explicitly named projection digest is separate from historical commitments. Both-backend tests pass for snapshot isolation, scope checks, bounded history-independent projection bytes and receipt preservation; diagnostics (4) and replay-base (7) tests also passed. CLI adoption and resume-open consolidation remain under integration checks.
 - EE-02b integrity qualification: four adversarial event-index tests passed, but the experiment still compares the exact old event prefix and remains test-only. Automatic approval review rejected a production shortcut pending equivalence evidence. Production continues full historical event validation; no shortcut or validation waiver is delivered.
 - EE-02d remains outstanding: checkpoints are compared against mandatory replay rather than trusted from their mutable local seals. Suffix-only cold open cannot yet establish equivalent detection of interior corruption. Hot snapshots do not change durable trust or qualify bounded reopen; the delivered duplicate-replay reductions and hot-read API remain useful independently.
+- EE-00c reconstruction checkpoint: CLI bundle tests (8) passed, including authorization, pagination, missing evidence, duplicate identity and explicit attempt/effect associations. The offline analyzer's two tests passed and it analyzed two retained original A/B failure bundles without provider calls or evidence mutation. [Experiment notes](../test-plans/execution-engine-experiments.md) record source hashes and findings. Explicit causal-parent links were absent in those runs; shared recorded identities remain associations rather than invented causal edges. Lifecycle phase spans and a newly executed repair-chain analysis remain outstanding.
+- EE-04c projection checkpoint: versioned bounded pause diagnostics are optional on public task views, retain readable reasons and link only same-task diagnostic artifact metadata. Legacy strings stay valid. Protocol decoder and engine scope/fallback tests passed (1 each), schema/provenance plus SDK tests passed (19), SDK/extension type checks passed, and extension rendering tests passed (4), including legacy fallback and text-only rendering. Controller pause/repair integration is being verified separately.
