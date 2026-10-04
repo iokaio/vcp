@@ -17,7 +17,7 @@ project content is persisted in coordinator state.
 
 Each HTTP 429 publishes a shared cooldown of at least five seconds. Supported
 longer Retry-After values are preserved. Unsupported hints still forbid that
-attempt's automatic retry; they do not erase its HTTP diagnosis. Existing
+attempt's automatic retry; retained error-response evidence remains available. Existing
 per-attempt retry counts, absolute deadlines and owner-generation checks remain
 authoritative. A queued stop or deadline creates no attempt or billing liability.
 Initial calls, compaction and retries use the asynchronous admission boundary;
@@ -26,7 +26,8 @@ resume grants forward it. Tool and build execution do not consume provider slots
 The coordinator uses pinned local paths, bounded versioned state, serialized
 updates and OS file locks. Reparse points, hard links and corrupt state fail
 closed. Process death releases transport leases. Cooldown updates have a bounded
-lock wait; failure denies another send while retaining canonical failure evidence.
+lock wait; failure denies another send while retaining response evidence and
+the existing canonical accounting transitions.
 
 Pacing cannot guarantee availability in a provider's shared upstream pool.
 An already submitted error without trustworthy final cost remains an unresolved
