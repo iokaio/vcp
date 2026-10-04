@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Internal domain envelopes and the separately negotiated public wire contract.
+pub mod backup_publisher;
 pub mod command;
 pub mod errors;
 pub mod event;
@@ -17,7 +18,6 @@ pub mod policy_inspection;
 pub mod redaction;
 pub mod routing_inspection;
 pub mod routing_optimizer;
-pub mod backup_publisher;
 pub mod subscription;
 pub mod version;
 
@@ -26,6 +26,33 @@ use sha2::{Digest, Sha256};
 
 pub fn digest_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Incremental digest of caller-defined bytes. This does not canonicalize JSON;
+/// callers preserve the same framing and canonical field order as digest_bytes.
+#[derive(Default)]
+pub struct DigestWriter {
+    hash: Sha256,
+    length: u64,
+}
+impl DigestWriter {
+    pub fn finish(self) -> (String, u64) {
+        (format!("{:x}", self.hash.finalize()), self.length)
+    }
+}
+impl std::io::Write for DigestWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let length = self
+            .length
+            .checked_add(bytes.len() as u64)
+            .ok_or_else(|| std::io::Error::other("digest byte count overflow"))?;
+        self.hash.update(bytes);
+        self.length = length;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Hash an already bounded reader without retaining its contents in memory.

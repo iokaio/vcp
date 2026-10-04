@@ -146,7 +146,7 @@ fn scoped_access(
     for row in context
         .engine
         .store()
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.workspace == access.workspace && row.collection == Collection::Task)
@@ -353,13 +353,15 @@ impl PublicConnection {
                                 .lock()
                                 .map_err(|_| failure(Code::StoreUnavailable, &call))?
                                 .get(request.preview.as_str(), &own, &call)?;
-                            service::validate_preview(
-                                context.engine.store(),
-                                &memory,
-                                &own,
-                                &cached.preview,
-                            )
-                            .map_err(|e| memory_error(e, &call))?;
+                            context
+                                .runtime
+                                .block_on(service::validate_preview(
+                                    context.engine.store(),
+                                    &memory,
+                                    &own,
+                                    &cached.preview,
+                                ))
+                                .map_err(|e| memory_error(e, &call))?;
                             Ok(ResultValue::RetentionPreview(page(
                                 &cached,
                                 request.offset,
@@ -370,13 +372,15 @@ impl PublicConnection {
                         Call::MemoryForgetRead(request) => {
                             let own = scope(&request.scope, &request.task)?;
                             let memory = scoped_access(context, &access, &own, false, &call)?;
-                            let job = service::read_job(
-                                context.engine.store(),
-                                &memory,
-                                &own,
-                                request.job.as_str(),
-                            )
-                            .map_err(|e| memory_error(e, &call))?;
+                            let job = context
+                                .runtime
+                                .block_on(service::read_job(
+                                    context.engine.store(),
+                                    &memory,
+                                    &own,
+                                    request.job.as_str(),
+                                ))
+                                .map_err(|e| memory_error(e, &call))?;
                             Ok(ResultValue::Retention(job_view(&own, &job)?))
                         }
                         _ => Err(RpcError::invalid_params()),
@@ -485,26 +489,30 @@ impl PublicConnection {
                                     &first_call,
                                 )?;
                                 // Durable intent wins over expired/evicted connection cache.
-                                let replay = service::replay(
-                                    context.engine.store(),
-                                    &memory,
-                                    &first_scope,
-                                    request.preview.as_str(),
-                                    &operation,
-                                )
-                                .map_err(|e| memory_error(e, &first_call))?;
+                                let replay = context
+                                    .runtime
+                                    .block_on(service::replay(
+                                        context.engine.store(),
+                                        &memory,
+                                        &first_scope,
+                                        request.preview.as_str(),
+                                        &operation,
+                                    ))
+                                    .map_err(|e| memory_error(e, &first_call))?;
                                 let cached = if replay.is_none() {
                                     let value = previews
                                         .lock()
                                         .map_err(|_| failure(Code::StoreUnavailable, &first_call))?
                                         .get(request.preview.as_str(), &first_scope, &first_call)?;
-                                    service::validate_preview(
-                                        context.engine.store(),
-                                        &memory,
-                                        &first_scope,
-                                        &value.preview,
-                                    )
-                                    .map_err(|e| memory_error(e, &first_call))?;
+                                    context
+                                        .runtime
+                                        .block_on(service::validate_preview(
+                                            context.engine.store(),
+                                            &memory,
+                                            &first_scope,
+                                            &value.preview,
+                                        ))
+                                        .map_err(|e| memory_error(e, &first_call))?;
                                     if value
                                         .preview
                                         .digest()
@@ -516,7 +524,7 @@ impl PublicConnection {
                                     let task: Task = context
                                         .engine
                                         .store()
-                                        .state()
+                                        .current()
                                         .record(
                                             Collection::Task,
                                             first_scope.task.as_str(),
@@ -576,24 +584,25 @@ impl PublicConnection {
                                                 now(),
                                             ))
                                             .map_err(|e| {
-                                                if context
-                                                    .engine
-                                                    .store()
-                                                    .state()
-                                                    .commands
-                                                    .contains_key(
-                                                        &vcp_store::contract::command_key(
-                                                            &first_scope.workspace,
-                                                            &operation.command,
-                                                        ),
+                                                // Failed receipt I/O cannot prove the operation
+                                                // was rejected before durable acceptance.
+                                                if !matches!(
+                                                    context.runtime.block_on(
+                                                        context
+                                                            .engine
+                                                            .store()
+                                                            .command_receipt_by_id(
+                                                                &first_scope.workspace,
+                                                                &operation.command
+                                                            )
+                                                    ),
+                                                    Ok(None)
+                                                ) || matches!(
+                                                    &e,
+                                                    vcp_memory::Error::Conflict(
+                                                        "retention receipt unavailable"
                                                     )
-                                                    || matches!(
-                                                        &e,
-                                                        vcp_memory::Error::Conflict(
-                                                            "retention receipt unavailable"
-                                                        )
-                                                    )
-                                                {
+                                                ) {
                                                     unknown(&first_call)
                                                 } else {
                                                     memory_error(e, &first_call)
@@ -609,7 +618,7 @@ impl PublicConnection {
                                         let tasks = context
                                             .engine
                                             .store()
-                                            .state()
+                                            .current()
                                             .records
                                             .values()
                                             .filter(|row| {

@@ -52,6 +52,8 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 
 ## Phase evidence and commits
 
+- EE-02c retention readers: ordinary preview, timestamp and export-lineage reads now traverse bounded history pages. Saved-preview commitments stream the exact existing canonical tuple bytes, preserving compatibility and read-error behavior. Public administrative limits and explicit cleanup rewrite semantics remain unchanged. Independent review found no concrete issue; 31 retention-family tests, four final boundary tests and lifecycle test-target compilation passed. Full history ownership eviction remains a separate integration step.
+
 - EE-01c/05 completed-response reporting: the CLI now distinguishes proven complete provider execution with unresolved cost from an uncertain send or effect. A retained proof binds the exact attempt, admission/send identity, canonical artifact descriptors and captured terminal hash; duplicate or malformed proofs fail closed. The proof only affects reporting and cannot admit work or settle billing. The shared CLI repair/reopen fixture passed on both backends (55.66 seconds), the interrupted-provider negative fixture retained exit 7 (5.13 seconds), and the lifecycle finite/unbounded, duplicate-proof and reopen fixture passed (19.31 seconds). The terminal-identity boundary test and four corrected real-workspace settings fixtures passed. Full A/B and real pause/resume remain unrun.
 
 - EE-00a: evidence/quality definitions and phase registration complete. Source inspection and Markdown reference checks only; no new live scenario outcome is claimed.

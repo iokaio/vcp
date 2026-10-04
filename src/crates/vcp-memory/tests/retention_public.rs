@@ -157,7 +157,9 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
             &before,
             "preview must not write or widen access"
         );
-        public::validate_preview(&store, &access, &scope, &preview).unwrap();
+        public::validate_preview(&store, &access, &scope, &preview)
+            .await
+            .unwrap();
         let selection_bytes = serde_json::to_vec(preview.selection()).unwrap().len();
         assert!(
             preview.cache_bytes(selection_bytes).is_err(),
@@ -201,7 +203,9 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
             request.command_digest
         );
         assert!(
-            public::validate_preview(&store, &access, &scope, &preview).is_err(),
+            public::validate_preview(&store, &access, &scope, &preview)
+                .await
+                .is_err(),
             "deletion invalidates cached target pages"
         );
         assert!(committed.job.logical_unavailable && !committed.job.rewrite_complete);
@@ -219,13 +223,23 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         assert_eq!(replay.receipt, committed.receipt);
         assert_eq!(store.state(), &after);
         access.write = false;
-        assert!(public::read_job(&store, &access, &scope, &committed.job.id).is_ok());
-        assert!(public::replay(&store, &access, &scope, preview.id(), &request).is_err());
+        assert!(public::read_job(&store, &access, &scope, &committed.job.id)
+            .await
+            .is_ok());
+        assert!(
+            public::replay(&store, &access, &scope, preview.id(), &request)
+                .await
+                .is_err()
+        );
         access.write = true;
         let mut altered = command_request(&store, &scope);
         altered.command = request.command.clone();
         altered.command_digest = "c".repeat(64);
-        assert!(public::replay(&store, &access, &scope, preview.id(), &altered).is_err());
+        assert!(
+            public::replay(&store, &access, &scope, preview.id(), &altered)
+                .await
+                .is_err()
+        );
         let snapshot = store.snapshot().unwrap();
         let held = public::cleanup(
             &mut store,
@@ -265,6 +279,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
             public::replay(&store, &access, &scope, preview.id(), &request)
+                .await
                 .unwrap()
                 .unwrap()
                 .receipt,
@@ -272,6 +287,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         );
         assert!(
             public::read_job(&store, &access, &scope, &committed.job.id)
+                .await
                 .unwrap()
                 .local_cleanup_complete
         );
@@ -633,7 +649,9 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             .await
             .unwrap();
         let after = store.state().clone();
-        public::validate_preview(&store, &access, &scope, &preview).unwrap();
+        public::validate_preview(&store, &access, &scope, &preview)
+            .await
+            .unwrap();
         assert!(public::apply(
             &mut store,
             &access,

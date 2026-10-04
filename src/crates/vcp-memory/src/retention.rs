@@ -20,12 +20,16 @@ use vcp_protocol::{
     canonical_bytes, digest_bytes,
     event::{EventInput, EventKind},
 };
+#[cfg(test)]
+use vcp_store::contract::State;
 use vcp_store::{
-    contract::{key, CanonicalStore, Collection, Mutation, Record, State, Transaction},
+    contract::{key, CanonicalStore, Collection, Mutation, Record, Transaction},
     Store,
 };
 #[path = "retention_exports.rs"]
 mod exports;
+#[path = "retention_history.rs"]
+mod history;
 #[path = "retention_sources.rs"]
 mod sources;
 const PREVIEW: &str = "vcp_retention_preview_v1";
@@ -115,6 +119,7 @@ pub struct Decision {
 
 /// Preview persistence itself is not a new selected history fact. Every other
 /// record/event/command-copy mutation remains part of the source commitment.
+#[cfg(test)]
 fn source_digest(state: &State) -> Result<String> {
     let records: Vec<_> = state
         .records
@@ -162,7 +167,7 @@ pub async fn save_preview(
     {
         return Err(Error::Conflict("stale preview before save"));
     }
-    let scope = scope_for(store.state(), &access.workspace)?;
+    let scope = scope_for(store.current(), &access.workspace)?;
     let record = Record::typed(
         Collection::Projection,
         id,
@@ -240,21 +245,21 @@ fn empty_facts(workspace: &WorkspaceId) -> Facts<'_> {
         superseded: None,
     }
 }
-pub(crate) fn scope(state: &State, target: &Target) -> Result<Option<Scope>> {
+pub(crate) async fn scope<S: CanonicalStore>(store: &S, target: &Target) -> Result<Option<Scope>> {
     match target {
-        Target::Event(id) => Ok(state
-            .events
-            .iter()
-            .find(|e| &e.event.id == id)
-            .and_then(|e| {
-                e.event.task.as_ref().map(|task| Scope {
-                    workspace: e.event.workspace.clone(),
-                    session: e.event.session.clone(),
-                    task: task.clone(),
-                })
-            })),
+        Target::Event(id) => {
+            let event = store.history_event(id).await?;
+            if event
+                .as_ref()
+                .is_some_and(|e| &e.event.id != id || e.watermark > store.current().watermark)
+            {
+                return Err(Error::Conflict("retention event identity"));
+            }
+            Ok(event.as_ref().and_then(history::event_scope))
+        }
         Target::Record(k) => {
-            let row = state
+            let row = store
+                .current()
                 .records
                 .get(k)
                 .ok_or(Error::Conflict("retention target missing"))?;
@@ -332,7 +337,7 @@ fn record_proposal(row: &Record) -> Result<Option<vcp_domain::memory::Proposal>>
     })
 }
 
-fn context_dependencies(
+async fn context_dependencies(
     store: &Store,
     workspace: &WorkspaceId,
 ) -> Result<BTreeMap<Target, BTreeSet<Target>>> {
@@ -454,7 +459,7 @@ fn context_dependencies(
                 attempt.request.as_str(),
             )));
     }
-    exports::extend(store, workspace, &mut dependencies)?;
+    exports::extend(store, workspace, &mut dependencies).await?;
     Ok(dependencies)
 }
 /// Materialize exact IDs against one canonical cut. Unknown metadata never
@@ -499,7 +504,7 @@ async fn preview_inner(
         })
         .transpose()?;
     let selector = selector.normalized()?;
-    let state = store.state();
+    let state = store.current();
     let source_metadata = sources::metadata(store, access, &selector.tree).await?;
     let mut selected = BTreeSet::new();
     let superseded: BTreeSet<_> = state
@@ -514,48 +519,51 @@ async fn preview_inner(
                 .map(str::to_owned)
         })
         .collect();
-    for event in state.events.iter().filter(|e| {
-        e.event.workspace == access.workspace
-            && e.redaction.is_none()
-            && e.event.data["document_type"] != PREVIEW
-    }) {
-        if let (Some(own), Some(tasks)) = (scoped, allowed) {
-            if !crate::retention_public::target_allowed(
-                state,
-                own,
-                tasks,
-                &Target::Event(event.event.id.clone()),
-            )? {
-                continue;
+    let mut selection_pages = history::Pages::open(store).await?;
+    while let Some(rows) = selection_pages.next(store).await? {
+        for event in rows.iter().filter(|e| {
+            e.event.workspace == access.workspace
+                && e.redaction.is_none()
+                && e.event.data["document_type"] != PREVIEW
+        }) {
+            if let (Some(own), Some(tasks)) = (scoped, allowed) {
+                if !crate::retention_public::scope_allowed(
+                    history::event_scope(event).as_ref(),
+                    own,
+                    tasks,
+                ) {
+                    continue;
+                }
+            }
+            let name = serde_json::to_value(&event.event.kind)?;
+            let mut facts = empty_facts(&access.workspace);
+            facts.timestamp = Some(event.event.timestamp);
+            facts.task = event.event.task.as_ref();
+            facts.actor = Some(&event.event.actor);
+            facts.event = name.as_str();
+            let task = event
+                .event
+                .task
+                .as_ref()
+                .map(|id| {
+                    state
+                        .record(Collection::Task, id.as_str(), &access.workspace)?
+                        .decode::<Task>()
+                })
+                .transpose()?;
+            facts.task_status = task.as_ref().map(|t| t.state);
+            if let Some(meta) = &event.event.metadata {
+                facts.agent = meta.agent.as_ref();
+                facts.model = meta.model.as_deref();
+                facts.provider = meta.provider.as_deref();
+                facts.paths = Some(&meta.paths);
+            }
+            if selector.evaluate(&facts)? == Truth::Match {
+                selected.insert(Target::Event(event.event.id.clone()));
             }
         }
-        let name = serde_json::to_value(&event.event.kind)?;
-        let mut facts = empty_facts(&access.workspace);
-        facts.timestamp = Some(event.event.timestamp);
-        facts.task = event.event.task.as_ref();
-        facts.actor = Some(&event.event.actor);
-        facts.event = name.as_str();
-        let task = event
-            .event
-            .task
-            .as_ref()
-            .map(|id| {
-                state
-                    .record(Collection::Task, id.as_str(), &access.workspace)?
-                    .decode::<Task>()
-            })
-            .transpose()?;
-        facts.task_status = task.as_ref().map(|t| t.state);
-        if let Some(meta) = &event.event.metadata {
-            facts.agent = meta.agent.as_ref();
-            facts.model = meta.model.as_deref();
-            facts.provider = meta.provider.as_deref();
-            facts.paths = Some(&meta.paths);
-        }
-        if selector.evaluate(&facts)? == Truth::Match {
-            selected.insert(Target::Event(event.event.id.clone()));
-        }
     }
+    let timestamps = history::record_timestamps(store, &access.workspace).await?;
     for row in state
         .records
         .values()
@@ -563,11 +571,11 @@ async fn preview_inner(
     {
         let target = Target::Record(row.key());
         if let (Some(own), Some(tasks)) = (scoped, allowed) {
-            if !crate::retention_public::target_allowed(state, own, tasks, &target)? {
+            if !crate::retention_public::target_allowed(store, own, tasks, &target).await? {
                 continue;
             }
         }
-        let own = scope(state, &target)?;
+        let own = scope(store, &target).await?;
         let mut facts = empty_facts(&access.workspace);
         facts.task = own.as_ref().map(|s| &s.task);
         let task = own
@@ -579,34 +587,7 @@ async fn preview_inner(
             })
             .transpose()?;
         facts.task_status = task.as_ref().map(|t| t.state);
-        facts.timestamp = state
-            .events
-            .iter()
-            .filter(|event| event.event.workspace == access.workspace)
-            .find(|event| match row.collection {
-                Collection::Artifact => {
-                    event.event.artifacts.iter().any(|id| id.as_str() == row.id)
-                }
-                Collection::Task => event
-                    .event
-                    .task
-                    .as_ref()
-                    .is_some_and(|id| id.as_str() == row.id),
-                _ => event
-                    .event
-                    .data
-                    .get("facts")
-                    .or_else(|| event.event.data.get("records"))
-                    .and_then(|value| value.as_array())
-                    .is_some_and(|facts| {
-                        facts.iter().any(|fact| {
-                            serde_json::from_value::<Record>(fact.clone()).is_ok_and(|record| {
-                                record.key() == row.key() && record.workspace == row.workspace
-                            })
-                        })
-                    }),
-            })
-            .map(|event| event.event.timestamp);
+        facts.timestamp = timestamps.get(&row.key()).copied();
         if row.collection == Collection::Artifact {
             if let Some(metadata) = source_metadata.get(row.id.as_str()) {
                 facts.roots = Some(&metadata.roots);
@@ -656,7 +637,7 @@ async fn preview_inner(
     let contexts = if selected.is_empty() {
         BTreeMap::new()
     } else {
-        context_dependencies(store, &access.workspace)?
+        context_dependencies(store, &access.workspace).await?
     };
     let mut closure = selected.clone();
     // Lineage closure uses canonical references and captured context manifests;
@@ -673,20 +654,21 @@ async fn preview_inner(
                 closure.insert(dependent.clone());
             }
         }
-        for event in state.events.iter().filter(|e| {
-            e.event.workspace == access.workspace
-                && e.redaction.is_none()
-                && e.event.data["document_type"] != PREVIEW
-        }) {
-            let event_target = Target::Event(event.event.id.clone());
-            let task_selected = event.event.task.as_ref().is_some_and(|t| {
-                closure.contains(&Target::Record(key(Collection::Task, t.as_str())))
-            });
-            let artifact_selected =
-                event.event.artifacts.iter().any(|a| {
+        let mut closure_pages = history::Pages::open(store).await?;
+        while let Some(rows) = closure_pages.next(store).await? {
+            for event in rows.iter().filter(|e| {
+                e.event.workspace == access.workspace
+                    && e.redaction.is_none()
+                    && e.event.data["document_type"] != PREVIEW
+            }) {
+                let event_target = Target::Event(event.event.id.clone());
+                let task_selected = event.event.task.as_ref().is_some_and(|t| {
+                    closure.contains(&Target::Record(key(Collection::Task, t.as_str())))
+                });
+                let artifact_selected = event.event.artifacts.iter().any(|a| {
                     closure.contains(&Target::Record(key(Collection::Artifact, a.as_str())))
                 });
-            let fact_selected = event
+                let fact_selected = event
                 .event
                 .data
                 .get("facts").or_else(||event.event.data.get("records"))
@@ -698,32 +680,33 @@ async fn preview_inner(
                         })
                     })
                 });
-            if task_selected || artifact_selected || fact_selected {
-                closure.insert(event_target.clone());
-            }
-            if closure.contains(&event_target) {
-                if let Some(facts) = event
-                    .event
-                    .data
-                    .get("facts")
-                    .or_else(|| event.event.data.get("records"))
-                    .and_then(|v| v.as_array())
-                {
-                    for fact in facts {
-                        if let Some(id) = fact.get("id").and_then(|v| v.as_str()) {
-                            for row in state.records.values().filter(|r| {
-                                r.workspace == access.workspace
-                                    && r.id == id
-                                    && valid_record(r)
-                                    && !already_redacted(r)
-                            }) {
-                                closure.insert(Target::Record(row.key()));
+                if task_selected || artifact_selected || fact_selected {
+                    closure.insert(event_target.clone());
+                }
+                if closure.contains(&event_target) {
+                    if let Some(facts) = event
+                        .event
+                        .data
+                        .get("facts")
+                        .or_else(|| event.event.data.get("records"))
+                        .and_then(|v| v.as_array())
+                    {
+                        for fact in facts {
+                            if let Some(id) = fact.get("id").and_then(|v| v.as_str()) {
+                                for row in state.records.values().filter(|r| {
+                                    r.workspace == access.workspace
+                                        && r.id == id
+                                        && valid_record(r)
+                                        && !already_redacted(r)
+                                }) {
+                                    closure.insert(Target::Record(row.key()));
+                                }
                             }
                         }
                     }
-                }
-                for id in &event.event.artifacts {
-                    closure.insert(Target::Record(key(Collection::Artifact, id.as_str())));
+                    for id in &event.event.artifacts {
+                        closure.insert(Target::Record(key(Collection::Artifact, id.as_str())));
+                    }
                 }
             }
         }
@@ -733,7 +716,7 @@ async fn preview_inner(
             .filter(|r| r.workspace == access.workspace && valid_record(r) && !already_redacted(r))
         {
             let target = Target::Record(row.key());
-            let own = scope(state, &target)?;
+            let own = scope(store, &target).await?;
             let own_selected = own.as_ref().is_some_and(|s| {
                 closure.contains(&Target::Record(key(Collection::Task, s.task.as_str())))
             });
@@ -799,7 +782,7 @@ async fn preview_inner(
     // safe. The complete private canonical closure must fit the current ceiling.
     if let (Some(own), Some(tasks)) = (scoped, allowed) {
         for target in &closure {
-            if !crate::retention_public::target_allowed(state, own, tasks, target)? {
+            if !crate::retention_public::target_allowed(store, own, tasks, target).await? {
                 return Err(Error::Access);
             }
         }
@@ -807,7 +790,7 @@ async fn preview_inner(
     let mut protected = Vec::new();
     if action == Action::Purge {
         for target in &closure {
-            let own = scope(state, target)?;
+            let own = scope(store, target).await?;
             if store
                 .retention_protection(&access.workspace, own.as_ref().map(|s| &s.task))
                 .is_err()
@@ -844,25 +827,27 @@ async fn preview_inner(
             }
         }
     }
-    let retained_bytes = closure.iter().try_fold(0u64, |sum, t| -> Result<u64> {
-        Ok(sum.saturating_add(match t {
-            Target::Record(k) => {
-                let row = &state.records[k];
+    let mut retained_bytes = 0u64;
+    for target in &closure {
+        let bytes = match target {
+            Target::Record(key) => {
+                let row = &state.records[key];
                 if row.collection == Collection::Artifact {
                     row.decode::<ArtifactDescriptor>()?.length.get()
                 } else {
                     canonical_bytes(row)?.len() as u64
                 }
             }
-            Target::Event(id) => state
-                .events
-                .iter()
-                .find(|e| &e.event.id == id)
+            Target::Event(id) => store
+                .history_event(id)
+                .await?
+                .as_ref()
                 .map(canonical_bytes)
                 .transpose()?
-                .map_or(0, |b| b.len() as u64),
-        }))
-    })?;
+                .map_or(0, |bytes| bytes.len() as u64),
+        };
+        retained_bytes = retained_bytes.saturating_add(bytes);
+    }
     let backup_copies = state
         .records
         .values()
@@ -882,7 +867,7 @@ async fn preview_inner(
         selected: selected.clone(),
         dependent: closure.difference(&selected).cloned().collect(),
         protected,
-        source_digest: source_digest(state)?,
+        source_digest: history::source_digest(store).await?,
         retained_bytes,
         bytes_are_exact: false,
         created_at: now,
@@ -907,7 +892,7 @@ fn event(scope: &Scope, access: &Access, now: Timestamp, data: serde_json::Value
         metadata: None,
     }
 }
-fn scope_for(state: &State, workspace: &WorkspaceId) -> Result<Scope> {
+fn scope_for(state: vcp_store::CurrentStateView<'_>, workspace: &WorkspaceId) -> Result<Scope> {
     state
         .records
         .values()
@@ -935,22 +920,16 @@ pub(crate) async fn apply_scoped(
 ) -> Result<crate::retention_public::Commit> {
     let job = apply_inner(store, access, preview, Some(binding), now).await?;
     let command = store
-        .state()
-        .commands
-        .get(&vcp_store::contract::command_key(
-            &access.workspace,
-            &binding.command,
-        ))
+        .command_receipt_by_id(&access.workspace, &binding.command)
+        .await?
         .ok_or(Error::Conflict("retention receipt unavailable"))?;
     if command.digest != binding.command_digest {
         return Err(Error::Conflict("retention command payload conflict"));
     }
     let receipt = store
-        .state()
-        .transactions
-        .get(&command.transaction)
-        .ok_or(Error::Conflict("retention receipt unavailable"))?
-        .clone();
+        .transaction_receipt(&command.transaction)
+        .await?
+        .ok_or(Error::Conflict("retention receipt unavailable"))?;
     Ok(crate::retention_public::Commit { receipt, job })
 }
 async fn apply_inner(
@@ -968,7 +947,7 @@ async fn apply_inner(
         return Err(Error::Access);
     }
     if let Some(binding) = public {
-        crate::retention_public::authorize_targets(store, access, binding, preview, true)?;
+        crate::retention_public::authorize_targets(store, access, binding, preview, true).await?;
     }
     if let Some(row) = store.current().records.get(&key(
         Collection::Projection,
@@ -988,7 +967,7 @@ async fn apply_inner(
     if workspace.authority != preview.authority
         || workspace.deletion != preview.deletion
         || store.current().watermark < preview.watermark
-        || source_digest(store.state())? != preview.source_digest
+        || history::source_digest(store).await? != preview.source_digest
     {
         return Err(Error::Conflict("stale preview; create a new preview"));
     }
@@ -1015,7 +994,7 @@ async fn apply_inner(
             "reconcile protected dependency closure before purge",
         ));
     }
-    let state = store.state();
+    let state = store.current();
     let scope = match public {
         Some(binding) => binding.scope.clone(),
         None => scope_for(state, &access.workspace)?,
@@ -1096,10 +1075,9 @@ async fn apply_inner(
                 }
             }
             if let Target::Event(id) = &target {
-                let envelope = state
-                    .events
-                    .iter()
-                    .find(|e| &e.event.id == id)
+                let envelope = store
+                    .history_event(id)
+                    .await?
                     .ok_or(Error::Conflict("preview event missing"))?;
                 let mask = vcp_audit::history::RetentionMask {
                     schema_version: 1,
@@ -1341,7 +1319,8 @@ async fn cleanup_inner(
         if &binding.scope != scope {
             return Err(Error::Access);
         }
-        crate::retention_public::authorize_targets(store, access, binding, &job.preview, true)?;
+        crate::retention_public::authorize_targets(store, access, binding, &job.preview, true)
+            .await?;
     }
     if job.preview.action != Action::Purge {
         return Ok(job);
@@ -1354,10 +1333,9 @@ async fn cleanup_inner(
             match target {
                 Target::Event(id) => {
                     if store
-                        .state()
-                        .events
-                        .iter()
-                        .any(|e| e.event.id == id && e.redaction.is_none())
+                        .history_event(&id)
+                        .await?
+                        .is_some_and(|e| e.redaction.is_none())
                     {
                         events.insert(id);
                     }
@@ -1451,7 +1429,7 @@ async fn cleanup_inner(
     job.revision = job.revision.next()?;
     let scope = match scoped {
         Some(scope) => scope.clone(),
-        None => scope_for(store.state(), &access.workspace)?,
+        None => scope_for(store.current(), &access.workspace)?,
     };
     let record = Record::typed(
         Collection::Projection,

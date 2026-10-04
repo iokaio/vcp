@@ -1551,6 +1551,31 @@ pub trait CanonicalStore {
         }
         Ok(rows)
     }
+    /// Complete command receipt facts in canonical command-key order. The
+    /// exclusive key cursor and byte/row bounds permit streaming source
+    /// commitments without deriving receipt existence from retained events.
+    async fn history_commands(
+        &self,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, CommandReceipt)>> {
+        if limit == 0 || limit > 4096 {
+            return Err(Error::Limit("command history page"));
+        }
+        let mut rows = Vec::new();
+        let mut bytes = 0usize;
+        for (key, receipt) in self.state().commands.iter()
+            .filter(|(key, _)| after.is_none_or(|after| key.as_str() > after))
+            .take(limit)
+        {
+            let size = encoded_len(&(key, receipt))?;
+            if size > MAX_COMMIT_BYTES { return Err(Error::Limit("command history row")); }
+            if size > MAX_COMMIT_BYTES - bytes { break; }
+            bytes += size;
+            rows.push((key.clone(), receipt.clone()));
+        }
+        Ok(rows)
+    }
     /// Complete ordered artifact-reference index under the current owner root.
     /// Returns each matching envelope once, with its global ordinal, regardless
     /// of kind, schema, redaction, or session. Cursor is exclusive; empty proves

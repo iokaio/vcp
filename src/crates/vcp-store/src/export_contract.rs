@@ -14,7 +14,7 @@ pub const MAX_ARTIFACTS: usize = 128;
 pub const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 mod history;
-pub use history::validate_read_store;
+pub use history::{retention_dependencies_store, validate_read_store};
 
 /// Host-rendered output, never deserialized from a public request.
 pub struct Rendered {
@@ -590,47 +590,7 @@ pub fn retention_dependencies(
             return Err(Error::Limit("retained export lineage count"));
         }
         let sources = &accepted.sources;
-        if sources.scope.workspace != *workspace
-            || sources.tasks.is_empty()
-            || sources.tasks.len() > MAX_EVENTS
-            || !sources.tasks.contains(&sources.scope.task)
-            || sources.dependencies.len() > MAX_EVENTS + MAX_ARTIFACTS + 2
-            || sources
-                .task
-                .as_ref()
-                .is_some_and(|task| task != &sources.scope.task || sources.tasks.len() != 1)
-        {
-            return Err(Error::Access);
-        }
-        let mut records = BTreeSet::new();
-        let mut tasks = BTreeSet::new();
-        let mut artifacts = 0usize;
-        for dep in &sources.dependencies {
-            if !vcp_domain::accounting::valid_hash(&dep.digest)
-                || !records.insert(key(dep.collection, &dep.id))
-            {
-                return Err(Error::Access);
-            }
-            match dep.collection {
-                Collection::Workspace if dep.id == workspace.as_str() => (),
-                Collection::Session if dep.id == sources.scope.session.as_str() => (),
-                Collection::Task => {
-                    tasks.insert(TaskId::parse(&dep.id)?);
-                }
-                Collection::Artifact => {
-                    ArtifactId::parse(&dep.id)?;
-                    artifacts += 1;
-                }
-                _ => return Err(Error::Access),
-            }
-        }
-        if tasks != sources.tasks
-            || artifacts > MAX_ARTIFACTS
-            || !records.contains(&key(Collection::Workspace, workspace.as_str()))
-            || !records.contains(&key(Collection::Session, sources.scope.session.as_str()))
-        {
-            return Err(Error::Access);
-        }
+        let records = retention_records(sources, workspace)?;
         // Rewrites preserve event identity/scope. Current contents and hashes may
         // already be redacted; those changes must not erase the lineage edge.
         let events = sources
@@ -648,6 +608,51 @@ pub fn retention_dependencies(
         });
     }
     Ok(result)
+}
+
+fn retention_records(sources: &Sources, workspace: &WorkspaceId) -> Result<BTreeSet<String>> {
+    if sources.scope.workspace != *workspace
+        || sources.tasks.is_empty()
+        || sources.tasks.len() > MAX_EVENTS
+        || !sources.tasks.contains(&sources.scope.task)
+        || sources.dependencies.len() > MAX_EVENTS + MAX_ARTIFACTS + 2
+        || sources
+            .task
+            .as_ref()
+            .is_some_and(|task| task != &sources.scope.task || sources.tasks.len() != 1)
+    {
+        return Err(Error::Access);
+    }
+    let mut records = BTreeSet::new();
+    let mut tasks = BTreeSet::new();
+    let mut artifacts = 0usize;
+    for dep in &sources.dependencies {
+        if !vcp_domain::accounting::valid_hash(&dep.digest)
+            || !records.insert(key(dep.collection, &dep.id))
+        {
+            return Err(Error::Access);
+        }
+        match dep.collection {
+            Collection::Workspace if dep.id == workspace.as_str() => (),
+            Collection::Session if dep.id == sources.scope.session.as_str() => (),
+            Collection::Task => {
+                tasks.insert(TaskId::parse(&dep.id)?);
+            }
+            Collection::Artifact => {
+                ArtifactId::parse(&dep.id)?;
+                artifacts += 1;
+            }
+            _ => return Err(Error::Access),
+        }
+    }
+    if tasks != sources.tasks
+        || artifacts > MAX_ARTIFACTS
+        || !records.contains(&key(Collection::Workspace, workspace.as_str()))
+        || !records.contains(&key(Collection::Session, sources.scope.session.as_str()))
+    {
+        return Err(Error::Access);
+    }
+    Ok(records)
 }
 
 #[cfg(test)]

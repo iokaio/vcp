@@ -255,3 +255,67 @@ async fn acceptance_store<S: CanonicalStore>(
     }
     found.ok_or(Error::Access)
 }
+
+/// Retention uses frozen source identities even after disclosure hashes become
+/// stale; current source authorization must not erase an obligation to purge a copy.
+pub async fn retention_dependencies_store<S: CanonicalStore>(
+    store: &S,
+    workspace: &WorkspaceId,
+) -> Result<Vec<ExportDependencies>> {
+    let mut result = Vec::new();
+    let mut seen = BTreeSet::new();
+    for row in store
+        .current()
+        .records
+        .values()
+        .filter(|row| &row.workspace == workspace && row.collection == Collection::Artifact)
+    {
+        let artifact: ArtifactDescriptor = row.decode()?;
+        if artifact.state == vcp_domain::artifact::CaptureState::Purged {
+            continue;
+        }
+        let mut pages = ArtifactPages::open(store, &artifact).await?;
+        let mut marked = false;
+        while let Some(rows) = pages.next(store).await? {
+            if rows
+                .iter()
+                .any(|e| e.event.data.get("session_export").is_some())
+            {
+                marked = true;
+                break;
+            }
+        }
+        if !reserved(&artifact.spec.schema) && !marked {
+            continue;
+        }
+        let accepted = acceptance_store(store, &artifact).await?;
+        if !seen.insert(accepted.artifact.spec.id.clone()) {
+            continue;
+        }
+        if result.len() == MAX_EVENTS {
+            return Err(Error::Limit("retained export lineage count"));
+        }
+        let records = retention_records(&accepted.sources, workspace)?;
+        let mut events = BTreeSet::new();
+        let mut count = 0;
+        let mut pages = Pages::open(store).await?;
+        while let Some(rows) = pages.next(store).await? {
+            for event in rows.iter().filter(|e| accepted.sources.includes_event(e)) {
+                if count == MAX_EVENTS {
+                    return Err(Error::Limit("export events"));
+                }
+                count += 1;
+                events.insert(event.event.id.clone());
+            }
+        }
+        result.push(ExportDependencies {
+            artifacts: [
+                accepted.artifact.spec.id,
+                accepted.visibility_manifest.spec.id,
+            ],
+            records,
+            events,
+        });
+    }
+    Ok(result)
+}
