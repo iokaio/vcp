@@ -1104,7 +1104,7 @@ async fn native_hook_context_precedes_retained_model_request_and_transport_retry
                     operating: "Observe attributed hook evidence and respond without tools.".into(),
                     affected_paths: vec!["input.txt".into()],
                     max_requests: 3,
-                    deadline: Timestamp::new(now + 300000),
+                    deadline: Timestamp::new(now + 300000).into(),
                 },
             )
             .unwrap();
@@ -1276,7 +1276,7 @@ async fn native_hook_compaction_fires_only_for_eligible_retained_history() {
                     operating: "Read history twice, then summarize.".into(),
                     affected_paths: vec!["input.txt".into()],
                     max_requests: 4,
-                    deadline: Timestamp::new(now + 300000),
+                    deadline: Timestamp::new(now + 300000).into(),
                 },
             )
             .unwrap();
@@ -1376,7 +1376,7 @@ async fn fixed_provider_retains_more_recent_pairs_only_when_exact_request_fits()
                     operating: "Read retained history, then report observed facts.".into(),
                     affected_paths: vec!["history.txt".into()],
                     max_requests: 16,
-                    deadline: Timestamp::new(now + 300_000),
+                    deadline: Timestamp::new(now + 300_000).into(),
                 },
             )
             .unwrap();
@@ -1497,7 +1497,7 @@ async fn native_hook_owner_approval_resume_reuses_pending_hook_for_same_user_byt
                     operating: "Preserve pending hook across explicit resume.".into(),
                     affected_paths: vec!["input.txt".into()],
                     max_requests: 3,
-                    deadline: Timestamp::new(now + 300000),
+                    deadline: Timestamp::new(now + 300000).into(),
                 },
             )
             .unwrap();
@@ -1681,7 +1681,7 @@ async fn native_hook_model_admission_rejects_omitted_and_stale_async_gate() {
                         operating: "Require current asynchronous hook gate.".into(),
                         affected_paths: vec!["input.txt".into()],
                         max_requests: 3,
-                        deadline: Timestamp::new(now + 300000),
+                        deadline: Timestamp::new(now + 300000).into(),
                     },
                 )
                 .unwrap();

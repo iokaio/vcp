@@ -68,6 +68,127 @@ pub struct Plan {
     pub rationale: String,
     pub not_run: Option<String>,
 }
+
+/// Owner-selected diagnostic checks. Missing or ambiguous project coverage
+/// deliberately falls back to the complete configured requirement set.
+pub fn focused_requirements(
+    requirements: &[Requirement],
+    affected_paths: &[String],
+    failed_checks: &[String],
+) -> Result<Vec<Requirement>> {
+    if affected_paths.len() > 256 || failed_checks.len() > 32 {
+        return Err(Error::Invalid("focused verification selector ceiling"));
+    }
+    if affected_paths.is_empty() && failed_checks.is_empty() {
+        return Ok(requirements.to_vec());
+    }
+    let mut selected = BTreeSet::new();
+    for path in affected_paths {
+        let normalized = vcp_repository::path::relative(Path::new(path))?;
+        if normalized != *path {
+            return Err(Error::Invalid("normalized affected path required"));
+        }
+        let matches: Vec<_> = requirements
+            .iter()
+            .enumerate()
+            .filter(|(_, requirement)| {
+                let directory = requirement
+                    .manifest
+                    .rsplit_once('/')
+                    .map_or("", |(directory, _)| directory);
+                directory.is_empty() || path.starts_with(&format!("{directory}/"))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if matches.len() != 1 {
+            return Ok(requirements.to_vec());
+        }
+        selected.insert(matches[0]);
+    }
+    for specification in failed_checks {
+        let matches: Vec<_> = requirements
+            .iter()
+            .enumerate()
+            .filter(|(_, requirement)| format!("{}#test", requirement.manifest) == *specification)
+            .map(|(index, _)| index)
+            .collect();
+        if matches.len() != 1 {
+            return Ok(requirements.to_vec());
+        }
+        selected.insert(matches[0]);
+    }
+    Ok(requirements
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| selected.contains(index))
+        .map(|(_, requirement)| requirement.clone())
+        .collect())
+}
+
+#[cfg(test)]
+mod focused_tests {
+    use super::*;
+    fn requirement(manifest: &str) -> Requirement {
+        Requirement {
+            manifest: manifest.into(),
+            runner: Runner::Node,
+            profile: "node".into(),
+            timeout_ms: None,
+            expected_tests: vec!["acceptance".into()],
+            rationale: "owner check".into(),
+        }
+    }
+    #[test]
+    fn exact_projects_and_failed_checks_form_a_stable_union() {
+        let requirements = vec![
+            requirement("api/package.json"),
+            requirement("ui/package.json"),
+        ];
+        let selected = focused_requirements(&requirements, &["ui/src/app.ts".into()], &[]).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].manifest, "ui/package.json");
+        let selected = focused_requirements(
+            &requirements,
+            &["ui/src/app.ts".into()],
+            &["api/package.json#test".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            selected
+                .iter()
+                .map(|r| r.manifest.as_str())
+                .collect::<Vec<_>>(),
+            vec!["api/package.json", "ui/package.json"]
+        );
+    }
+    #[test]
+    fn unknown_or_ambiguous_coverage_falls_back_and_invalid_paths_reject() {
+        let requirements = vec![
+            requirement("api/package.json"),
+            requirement("ui/package.json"),
+        ];
+        for (paths, failed) in [
+            (vec![], vec![]),
+            (vec!["shared/types.ts".into()], vec![]),
+            (vec![], vec!["unknown#test".into()]),
+        ] {
+            assert_eq!(
+                focused_requirements(&requirements, &paths, &failed)
+                    .unwrap()
+                    .len(),
+                2
+            );
+        }
+        let overlap = vec![requirement("package.json"), requirement("ui/package.json")];
+        assert_eq!(
+            focused_requirements(&overlap, &["ui/app.ts".into()], &[])
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(focused_requirements(&requirements, &["../private".into()], &[]).is_err());
+    }
+}
 /// Discover only qualified command forms. Shell syntax and pre/post hooks are
 /// not silently discarded. Unsupported configurations remain visible as not run.
 pub fn discover(observation: &Observation, requirements: &[Requirement]) -> Result<Vec<Plan>> {

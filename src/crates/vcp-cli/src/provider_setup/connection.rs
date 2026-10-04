@@ -237,7 +237,7 @@ fn recover_state(
     if ledger.scope != task.scope
         || task.parent.is_some()
         || task.root != task.scope.task
-        || ledger.cap != crate::args::parse_usd(&spec.cap_usd)?
+        || ledger.cap != crate::args::parse_usd(&spec.cap_usd)?.into()
         || ledger.currency.code() != "USD"
         || ledger.active != Micros::ZERO
         || ledger.unresolved != Micros::ZERO

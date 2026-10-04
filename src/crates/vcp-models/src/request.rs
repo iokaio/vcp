@@ -348,6 +348,16 @@ pub fn validate_sealed_with_effort(
     snapshot.current(now)?;
     let sealed = context.sealed();
     let m = &sealed.manifest;
+    if let Some(allocation) = &m.allocation {
+        allocation
+            .validate(
+                m.envelope
+                    .input_capacity()
+                    .map_err(|_| Error::Limit("request allocation capacity"))?,
+                m.envelope.output,
+            )
+            .map_err(|_| Error::Protocol("request allocation"))?;
+    }
     if m.input_estimate.get() != sealed.body().len() as u64
         || m.input_estimate > snapshot.max_input
         || m.estimate_method != "utf8-byte-ceiling/1"

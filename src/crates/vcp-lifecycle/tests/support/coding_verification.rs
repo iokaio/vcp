@@ -46,7 +46,31 @@ async fn retained_verification_diagnostics_reach_model_without_reexecution() {
         }
     }
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_completion_rechecks_missing_and_stale_proof_without_inference() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for mode in ["owner_missing", "owner_later_effect", "owner_denied"] {
+            run(backend, mode).await;
+        }
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_completion_pauses_exact_repeated_failure_without_progress() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        run(backend, "owner_failed").await;
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_completion_repairs_then_reverifies_same_task() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        run(backend, "owner_repaired").await;
+    }
+}
 async fn run(backend: BackendKind, mode: &'static str) {
+    let owner_recheck = mode.starts_with("owner_");
+    let repair_pass = mode == "owner_repaired";
+    let mode = mode.strip_prefix("owner_").unwrap_or(mode);
+    let mode = if repair_pass { "failed" } else { mode };
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
@@ -148,7 +172,14 @@ async fn run(backend: BackendKind, mode: &'static str) {
         .unwrap(),
     )
     .unwrap();
-    let (snapshot, raw) = provider_snapshot();
+    // The repair adds another complete tool pair after failed-check output.
+    // The historical 24-KiB fixture legitimately cannot contain that request;
+    // this workflow fixture declares its larger synthetic endpoint explicitly.
+    let (snapshot, raw) = if owner_recheck {
+        provider_snapshot_capacity(240_000, 200_000)
+    } else {
+        provider_snapshot()
+    };
     host.configure_provider(snapshot, raw).unwrap();
     let count = Arc::new(AtomicUsize::new(0));
     let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -166,6 +197,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
             2 if mode != "missing" => Some(("vcp_verify",serde_json::json!({"citations":[]}))),
             3 if mode == "later_effect" => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}))),
             3 if mode == "siblings" => Some(("vcp_verify",serde_json::json!({"citations":[]}))),
+            4 if repair_pass => Some(("vcp_patch",serde_json::json!({"patch":"*** Begin Patch\n*** Update File: value.txt\n@@\n-43\n+42\n*** End Patch"}))),
             _ => None,
         };
         if let Some((name,arguments))=selected {
@@ -230,11 +262,18 @@ async fn run(backend: BackendKind, mode: &'static str) {
             operating: "Read, edit, verify, then report actual results.".into(),
             affected_paths: vec!["value.txt".into()],
             max_requests: 8,
-            deadline: Timestamp::new(now + 600_000),
+            deadline: Timestamp::new(now + 600_000).into(),
         },
     )
     .unwrap();
     assert!(host.complete_coding_turn(thread).is_err());
+    if owner_recheck {
+        host.configure_continuity(
+            thread,
+            vcp_lifecycle::foundation::coding::continuity_defaults(),
+        )
+        .unwrap();
+    }
     let turn = host
         .begin_coding_turn(thread, "Run the accepted task".into())
         .unwrap();
@@ -397,6 +436,205 @@ async fn run(backend: BackendKind, mode: &'static str) {
         assert_eq!(host.project().unwrap().effects.len(), 3);
     }
     let complete = host.complete_coding_turn(thread);
+    if owner_recheck {
+        use vcp_lifecycle::foundation::verification::{CompletionAttempt, CompletionRejection};
+        assert!(complete.is_err());
+        let CompletionAttempt::Rejected(failure) = host.try_complete_coding_turn(thread).unwrap()
+        else {
+            panic!("completion must need current proof");
+        };
+        if mode == "failed" {
+            assert_eq!(failure.kind, CompletionRejection::FailedChecks);
+            for round in 1..=3 {
+                let verification = host.verify_for_completion(thread).await.unwrap_or_else(|error| panic!("{backend:?}/{mode}, repair_pass={repair_pass}, round={round}: {error}; task={:?}; transitions={:?}", host.project().unwrap().tasks[&config.root_task], host.snapshot().unwrap().events.iter().rev().filter(|event| event.event.kind == vcp_protocol::event::EventKind::TaskTransition).take(3).map(|event| &event.event.data).collect::<Vec<_>>()));
+                if repair_pass && round == 2 {
+                    assert!(matches!(
+                        host.try_complete_verified(thread, verification.id).unwrap(),
+                        CompletionAttempt::Completed(_)
+                    ));
+                    assert_eq!(
+                        host.project().unwrap().tasks[&config.root_task].state,
+                        TaskState::Completed
+                    );
+                    assert_eq!(
+                        fs::read_to_string(workspace.join("value.txt"))
+                            .unwrap()
+                            .trim(),
+                        "42"
+                    );
+                    break;
+                }
+                assert!(
+                    matches!(host.try_complete_verified(thread, verification.id).unwrap(), CompletionAttempt::Rejected(ref failure) if failure.kind == CompletionRejection::FailedChecks)
+                );
+                let failed_evidence = verification.checks[0].output.to_string();
+                let feedback = host.completion_repair_feedback(thread).unwrap();
+                if round == 3 {
+                    assert!(feedback.is_none());
+                    assert_eq!(
+                        host.project().unwrap().tasks[&config.root_task].state,
+                        TaskState::Paused
+                    );
+                    break;
+                }
+                let feedback = feedback.unwrap();
+                assert!(
+                    feedback.contains("package.json#test") && feedback.contains("evidence"),
+                    "{feedback}"
+                );
+                assert!(
+                    host.completion_repair_feedback(thread).is_err(),
+                    "same verification cannot dispatch repair twice"
+                );
+                host.begin_coding_turn(thread, feedback.clone()).unwrap();
+                let next_request = count.load(Ordering::SeqCst);
+                test.codex
+                    .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+                        text: feedback,
+                        text_elements: vec![],
+                    }]))
+                    .await
+                    .unwrap();
+                tokio::time::timeout(Duration::from_secs(30), async {
+                    loop {
+                        match test.codex.next_event().await.unwrap().msg {
+                            EventMsg::Error(error) => loop_errors.push(format!("{error:?}")),
+                            EventMsg::TurnComplete(_) => break,
+                            _ => {}
+                        }
+                    }
+                })
+                .await
+                .unwrap();
+                assert!(loop_errors.is_empty(), "{backend:?}/{mode}, repair_pass={repair_pass}, round={round}, provider_calls={}: {loop_errors:?}", count.load(Ordering::SeqCst));
+                let wire = requests.lock().unwrap()[next_request].to_string();
+                assert!(wire.contains("Repair the observed failures") && wire.contains(&failed_evidence), "owner repair feedback and scoped check evidence must reach the exact encoded next request");
+            }
+            assert_eq!(
+                count.load(Ordering::SeqCst),
+                expected + 2,
+                "only two bounded repair continuations are dispatched"
+            );
+            let effects_before_resume = host.project().unwrap().effects.len();
+            if !repair_pass {
+                let paused = host.project().unwrap().tasks[&config.root_task].clone();
+                assert!(paused.reason.contains("execution.no_progress"));
+                assert!(host
+                    .begin_coding_turn(thread, "No implicit resume".into())
+                    .is_err());
+                host.resume(thread, paused.revision, paused.fingerprint)
+                    .unwrap();
+                let resumed = host.project().unwrap().tasks[&config.root_task].clone();
+                assert_eq!(resumed.state, TaskState::Running);
+                assert_eq!(
+                    count.load(Ordering::SeqCst),
+                    expected + 2,
+                    "explicit resume alone does not submit repair"
+                );
+                assert_eq!(host.project().unwrap().effects.len(), effects_before_resume);
+                assert!(!host.has_output_continuation(thread).unwrap());
+                host.command(
+                    Command::Transition {
+                        next: TaskState::Cancelled,
+                        reason: "owner cancels after deliberate resume".into(),
+                        verification: None,
+                    },
+                    Some(config.root_task.clone()),
+                    resumed.revision,
+                )
+                .unwrap();
+            }
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+            if !repair_pass {
+                drop(test);
+                drop(host);
+                let (reopened, owner) = CanonicalHost::open(config.clone()).unwrap();
+                let view = reopened.project().unwrap();
+                assert_eq!(view.tasks[&config.root_task].state, TaskState::Cancelled);
+                assert_eq!(view.effects.len(), effects_before_resume);
+                assert_eq!(count.load(Ordering::SeqCst), expected + 2);
+                assert!(reopened.has_output_continuation(thread).is_err());
+                let retained = reopened.snapshot().unwrap();
+                assert!(retained
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Verification)
+                    .any(|row| row
+                        .decode::<Verification>()
+                        .unwrap()
+                        .checks
+                        .iter()
+                        .any(|check| matches!(check.outcome, CheckOutcome::Failed { .. }))));
+                assert!(retained
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .any(
+                        |row| row.decode::<ArtifactDescriptor>().unwrap().spec.schema
+                            == "execution-completion-repair/1"
+                    ));
+                owner.close().await.unwrap();
+            }
+            return;
+        } else if mode == "denied" {
+            assert!(
+                host.verify_for_completion(thread).await.is_err(),
+                "owner scheduling cannot bypass named tool authority"
+            );
+            assert!(!oracle.exists());
+        } else {
+            assert_eq!(
+                failure.kind,
+                if mode == "missing" {
+                    CompletionRejection::MissingVerification
+                } else {
+                    CompletionRejection::StaleVerification
+                }
+            );
+            let focused = host
+                .verify_focused(thread, vec!["value.txt".into()], vec![])
+                .await
+                .unwrap();
+            assert!(focused
+                .checks
+                .iter()
+                .all(|check| check.outcome == CheckOutcome::Passed));
+            assert!(
+                matches!(
+                    host.try_complete_verified(thread, focused.id).unwrap(),
+                    CompletionAttempt::Rejected(_)
+                ),
+                "diagnostic verification cannot authorize completion, including full fallback"
+            );
+            let verified = host.verify_for_completion(thread).await.unwrap();
+            assert!(
+                verified.outstanding_issues.is_empty(),
+                "{:?}",
+                verified.outstanding_issues
+            );
+            assert!(verified
+                .checks
+                .iter()
+                .all(|check| check.outcome == CheckOutcome::Passed));
+            assert!(matches!(
+                host.try_complete_verified(thread, verified.id).unwrap(),
+                CompletionAttempt::Completed(_)
+            ));
+            assert_eq!(
+                host.project().unwrap().tasks[&config.root_task].state,
+                TaskState::Completed
+            );
+        }
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            expected,
+            "verification repair cannot dispatch inference"
+        );
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        return;
+    }
     if matches!(mode, "pass" | "siblings") {
         complete.unwrap_or_else(|e| panic!("{backend:?}/{mode}: {e}"));
         let state = host.snapshot().unwrap();

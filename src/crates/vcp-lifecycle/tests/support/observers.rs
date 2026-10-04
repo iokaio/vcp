@@ -270,7 +270,7 @@ async fn native_observer_shared_root_cap_stops_local_work_without_provider_liabi
         fs::create_dir(&workspace).unwrap();
         let workspace = workspace.canonicalize().unwrap();
         let mut configuration = config(&temp.path().join("canonical"), &workspace, backend);
-        configuration.cap.micros = Micros::ZERO;
+        configuration.cap.micros = Micros::ZERO.into();
         let (host, owner) = CanonicalHost::open(configuration.clone()).unwrap();
         let binding = super::task(&host, &configuration, configuration.root_task.clone(), None);
         let server = start_mock_server().await;

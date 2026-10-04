@@ -316,6 +316,7 @@ fn input(catalog: &CatalogRevision, policy: &Policy) -> RoutingInput {
         input_tokens: Units::new(100),
         output_tokens: Units::new(50),
         available: money(10_000).into(),
+        candidate_requests: vec![],
         protected_verification: Micros::new(100),
         estimates: catalog.entries.iter().map(estimate).collect(),
     }
@@ -325,6 +326,33 @@ fn setup(entries: Vec<Candidate>) -> (CatalogRevision, Policy, RoutingInput) {
     let catalog = CatalogRevision::create(None, Timestamp::new(20), None, entries).unwrap();
     let input = input(&catalog, &policy);
     (catalog, policy, input)
+}
+
+#[test]
+fn candidate_request_sizes_keep_small_capable_endpoints_and_preserve_policy() {
+    let (catalog, mut policy, mut input) = setup(vec![candidate("fixture/small", Group::High, 9000, 10, "0.000001")]);
+    input.input_tokens = Units::new(5000);
+    input.output_tokens = Units::new(2000);
+    input.estimates[0].first_attempt.input = Units::new(5000);
+    input.estimates[0].first_attempt.output = Units::new(2000);
+    assert!(select(&catalog, &policy, &input).unwrap().selected.is_none());
+    input.candidate_requests = vec![CandidateRequest {candidate: catalog.entries[0].identity.clone(),input_tokens:Units::new(100),output_tokens:Units::new(50)}];
+    assert!(select(&catalog, &policy, &input).unwrap().selected.is_some());
+    policy.output_tokens = Some(Units::new(40));
+    policy = policy.seal().unwrap();
+    input.policy = policy.id.clone();
+    let blocked = select(&catalog, &policy, &input).unwrap();
+    assert!(blocked.selected.is_none());
+    assert!(blocked.candidates[0].exclusions.contains(&Exclusion::ContextCapacity));
+    policy.output_tokens = None;
+    policy.allowed_models.clear();
+    policy = policy.seal().unwrap();
+    input.policy = policy.id.clone();
+    let blocked = select(&catalog, &policy, &input).unwrap();
+    assert!(blocked.selected.is_none());
+    assert!(blocked.candidates[0].exclusions.contains(&Exclusion::ModelDenied));
+    input.candidate_requests.push(input.candidate_requests[0].clone());
+    assert!(input.validate().is_err());
 }
 
 #[test]

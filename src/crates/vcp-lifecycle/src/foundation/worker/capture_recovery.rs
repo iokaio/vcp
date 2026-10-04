@@ -285,7 +285,7 @@ mod tests {
             revision: Revision::ZERO,
             policy: PolicyRevision::ZERO,
             currency,
-            cap: Micros::new(1000),
+            cap: Micros::new(1000).into(),
             protected: Micros::ZERO,
             settled: Micros::ZERO,
             active: Micros::ZERO,

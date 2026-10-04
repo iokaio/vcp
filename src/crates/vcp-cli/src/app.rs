@@ -85,6 +85,38 @@ pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Va
             .map_err(|e| e.to_string());
         }
     };
+    bounded_records(state.watermark, workspace, selected)
+}
+
+/// Current-only owner reads retain the public query envelope while avoiding a
+/// full historical snapshot. History-dependent queries stay on `query`.
+pub fn query_current(
+    state: &vcp_store::CurrentState,
+    workspace: &WorkspaceId,
+    query: &Query,
+) -> Result<Value, String> {
+    let selected = match query {
+        Query::Sessions => state
+            .records_in(Collection::Session, workspace)
+            .map(|record| record.value.clone())
+            .collect(),
+        Query::Task { task } => {
+            let task: Task = state
+                .record(Collection::Task, task.as_str(), workspace)
+                .and_then(|record| record.decode())
+                .map_err(|error| error.to_string())?;
+            vec![serde_json::to_value(task).map_err(|error| error.to_string())?]
+        }
+        _ => return Err("query requires retained historical state".into()),
+    };
+    bounded_records(state.watermark, workspace, selected)
+}
+
+fn bounded_records(
+    watermark: vcp_domain::Watermark,
+    workspace: &WorkspaceId,
+    selected: Vec<Value>,
+) -> Result<Value, String> {
     let mut records = Vec::new();
     let mut bytes = 0;
     for record in selected.iter().take(256) {
@@ -95,7 +127,7 @@ pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Va
         records.push(record.clone());
     }
     Ok(
-        json!({"watermark":state.watermark,"workspace":workspace,"truncated":records.len()<selected.len(),"records":records}),
+        json!({"watermark":watermark,"workspace":workspace,"truncated":records.len()<selected.len(),"records":records}),
     )
 }
 fn inspection_access(
@@ -147,7 +179,12 @@ pub fn query_store(
         )
         .map_err(|e| e.to_string());
     }
-    query(store.state(), workspace, request)
+    let mut value = query(store.state(), workspace, request)?;
+    if matches!(request, Query::InspectBundle { .. }) {
+        value["store_diagnostics"] =
+            serde_json::to_value(store.diagnostics()).map_err(|e| e.to_string())?;
+    }
+    Ok(value)
 }
 fn task_from(state: &State, workspace: &WorkspaceId, task: &TaskId) -> Result<Task, String> {
     state
@@ -244,7 +281,11 @@ pub(crate) fn emit_command_outcome(
     scope: Option<&vcp_domain::workspace::Scope>,
 ) -> Result<(), String> {
     Jsonl::new(output)
-        .emit(&CommandId::new(), scope, Payload::CommandResult { exit_code, data })
+        .emit(
+            &CommandId::new(),
+            scope,
+            Payload::CommandResult { exit_code, data },
+        )
         .map_err(|e| e.to_string())
 }
 
@@ -973,6 +1014,70 @@ impl<'a> HistoryControl<'a> {
 #[cfg(test)]
 mod display_tests {
     use super::*;
+    #[tokio::test]
+    async fn current_query_preserves_envelope_and_refuses_history_queries() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::open(temporary.path(), vcp_store::BackendKind::Files, &[])
+            .await
+            .unwrap();
+        let workspace = WorkspaceId::new();
+        let current = store.current_state();
+        assert_eq!(
+            query(store.state(), &workspace, &Query::Sessions).unwrap(),
+            query_current(&current, &workspace, &Query::Sessions).unwrap()
+        );
+        let request = Query::Task {
+            task: TaskId::new(),
+        };
+        assert_eq!(
+            query(store.state(), &workspace, &request).unwrap_err(),
+            query_current(&current, &workspace, &request).unwrap_err()
+        );
+        assert!(query_current(&current, &workspace, &Query::Continuation).is_err());
+        assert!(query_current(
+            &current,
+            &workspace,
+            &Query::InspectBundle {
+                task: TaskId::new()
+            }
+        )
+        .is_err());
+        let mut state = store.state().clone();
+        for index in 0..300 {
+            let session = vcp_domain::workspace::Session {
+                id: vcp_domain::SessionId::parse(format!("session-{index:04}")).unwrap(),
+                workspace: workspace.clone(),
+                revision: vcp_domain::Revision::ZERO,
+                configuration: vcp_domain::Revision::ZERO,
+                fork_origin: None,
+                fork_through: None,
+            };
+            let record = vcp_store::contract::Record::typed(
+                Collection::Session,
+                session.id.to_string(),
+                workspace.clone(),
+                session.revision,
+                &session,
+            )
+            .unwrap();
+            state.records.insert(record.key(), record);
+        }
+        let mut current = (*current).clone();
+        current.records = state.records.clone();
+        let projected = query_current(&current, &workspace, &Query::Sessions).unwrap();
+        assert_eq!(
+            projected,
+            query(&state, &workspace, &Query::Sessions).unwrap()
+        );
+        assert_eq!(projected["truncated"], true);
+        assert_eq!(projected["records"].as_array().unwrap().len(), 256);
+        let foreign = WorkspaceId::new();
+        assert_eq!(
+            query_current(&current, &foreign, &Query::Sessions).unwrap(),
+            query(&state, &foreign, &Query::Sessions).unwrap()
+        );
+        store.close().await.unwrap();
+    }
     #[test]
     fn text_display_waits_for_complete_json_frames() {
         let mut output = DisplayOutput {

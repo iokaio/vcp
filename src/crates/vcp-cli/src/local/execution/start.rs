@@ -30,7 +30,7 @@ impl Supervisor {
         let profile = &prepared.profile;
         if self.config.cap.currency.code() != "USD"
             || request.budget.currency != methods::Currency::Usd
-            || request.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
+            || request.budget.cap_micros != self.config.cap.micros.map(|cap| cap.get().into())
             || request.budget.max_requests != profile.max_requests
             || request.budget.deadline_seconds != profile.deadline_seconds
         {

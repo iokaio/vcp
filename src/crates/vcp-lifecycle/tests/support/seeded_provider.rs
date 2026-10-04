@@ -302,7 +302,7 @@ impl Fixture {
         std::fs::create_dir(&workspace).unwrap();
         let workspace = workspace.canonicalize().unwrap();
         let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-        config.cap.micros = Micros::new(CAP);
+        config.cap.micros = Micros::new(CAP).into();
         config.max_transport_retries = 2;
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
         host.command(
@@ -619,7 +619,7 @@ impl Fixture {
             ledger.settled.get() == settled
                 && ledger.unresolved.get() == unresolved
                 && ledger.active.get() == 0
-                && ledger.cap.get() == CAP
+                && ledger.cap.finite().expect("finite historical fixture").get() == CAP
                 && !ledger.overrun,
             format!(
                 "ledger differs: settled={}/{} unresolved={}/{} active={} cap={}",
@@ -628,7 +628,7 @@ impl Fixture {
                 ledger.unresolved.get(),
                 unresolved,
                 ledger.active.get(),
-                ledger.cap.get()
+                ledger.cap.finite().expect("finite historical fixture").get()
             ),
         )?;
         require(

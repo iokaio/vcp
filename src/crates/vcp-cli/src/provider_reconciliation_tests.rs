@@ -50,7 +50,8 @@ async fn fixture(
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }
+        .into(),
         protected: Micros::new(100),
         price: PriceSnapshot {
             id: "a".repeat(64),
@@ -157,7 +158,7 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
         let before = store.state().clone();
         store.close().await.unwrap();
         // A stale descriptor must not replace the original admitted cap.
-        entry.config.cap.micros = Micros::new(999999);
+        entry.config.cap.micros = Micros::new(999999).into();
         let source = Arc::new(NoRequests(AtomicUsize::new(0)));
         let (code, report) =
             execute_with_source(&entry, &entry.config.root_task, &workspace, || {

@@ -7,8 +7,12 @@ use vcp_domain::{
     task::{Task, TaskState},
     workspace::Scope,
 };
+use vcp_lifecycle::foundation::verification::{CompletionAttempt, CompletionRejection};
 use vcp_lifecycle::foundation::CanonicalHost;
 use vcp_store::contract::Collection;
+
+#[cfg(all(test, windows, feature = "qualification"))]
+mod tests;
 
 pub fn event_for_turn(event: &Event, turn: &str) -> bool {
     use codex_protocol::protocol::EventMsg;
@@ -46,6 +50,7 @@ pub enum Completion {
     Deferred,
     Completed,
     Rejected(String),
+    Repair,
 }
 
 /// A bounded lifecycle operation owns no event receiver. The caller retains its
@@ -71,6 +76,9 @@ impl LifecycleJob {
 }
 
 impl RetainedExecution {
+    pub fn has_output_continuation(&self) -> Result<bool, String> {
+        self.host.has_output_continuation(self.session.id)
+    }
     pub fn start_submission(&self, accepted: Option<vcp_domain::TurnId>) -> LifecycleJob {
         let host = self.host.clone();
         let session = self.session.clone();
@@ -89,9 +97,31 @@ impl RetainedExecution {
         let session = self.session.clone();
         let scope = self.scope.clone();
         LifecycleJob(tokio::spawn(async move {
-            complete(&host, &session, &scope)
-                .await
-                .map(LifecycleResult::Completed)
+            // Only a settled, typed output truncation may request another turn.
+            // The caller reaches this job after the retained terminal event;
+            // partial tool calls never acquire execution authority.
+            if let Some(continuation) = host.take_output_continuation(session.id)? {
+                host.begin_coding_turn(session.id, continuation.feedback.clone())?;
+                return submit_text(&session, continuation.feedback)
+                    .await
+                    .map(LifecycleResult::Submitted);
+            }
+            match complete(&host, &session, &scope).await? {
+                Completion::Repair => {
+                    let Some(feedback) = host.completion_repair_feedback(session.id)? else {
+                        return Ok(LifecycleResult::Completed(Completion::Deferred));
+                    };
+                    host.set_next_coding_activity(
+                        session.id,
+                        vcp_domain::request_allocation::Activity::Repair,
+                    )?;
+                    host.begin_coding_turn(session.id, feedback.clone())?;
+                    submit_text(&session, feedback)
+                        .await
+                        .map(LifecycleResult::Submitted)
+                }
+                completion => Ok(LifecycleResult::Completed(completion)),
+            }
         }))
     }
     pub fn claim(host: &CanonicalHost, session: &Session, scope: &Scope) -> Result<Self, String> {
@@ -163,10 +193,39 @@ async fn complete(
             )
         );
     }
-    Ok(match host.complete_coding_turn(session.id) {
-        Ok(_) => Completion::Completed,
-        Err(error) => Completion::Rejected(error),
-    })
+    match host.try_complete_coding_turn(session.id)? {
+        CompletionAttempt::Completed(_) => Ok(Completion::Completed),
+        CompletionAttempt::Rejected(failure)
+            if matches!(
+                failure.kind,
+                CompletionRejection::MissingVerification
+                    | CompletionRejection::StaleVerification
+                    | CompletionRejection::FailedChecks
+            ) =>
+        {
+            // Exactly one fresh verification attempt per completion request.
+            // The same owner still consumes events; no model request or tool
+            // reissue is needed merely to produce current acceptance evidence.
+            let verification = match host.verify_for_completion(session.id).await {
+                Ok(verification) => verification,
+                Err(error) => return Ok(Completion::Rejected(error)),
+            };
+            Ok(
+                match host.try_complete_verified(session.id, verification.id)? {
+                    CompletionAttempt::Completed(_) => Completion::Completed,
+                    CompletionAttempt::Rejected(failure)
+                        if failure.kind == CompletionRejection::FailedChecks =>
+                    {
+                        Completion::Repair
+                    }
+                    CompletionAttempt::Rejected(failure) => {
+                        Completion::Rejected(failure.to_string())
+                    }
+                },
+            )
+        }
+        CompletionAttempt::Rejected(failure) => Ok(Completion::Rejected(failure.to_string())),
+    }
 }
 
 /// Submit an already admitted task. The canonical host checks turn admission;

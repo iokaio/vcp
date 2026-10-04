@@ -33,6 +33,30 @@ pub fn assemble(
     counter: &dyn Counter,
     encode: impl Fn(&[Part], &Envelope, &serde_json::Value) -> Result<Vec<u8>>,
 ) -> Result<Sealed> {
+    assemble_with_input_target(
+        parts,
+        revisions,
+        envelope,
+        schemas,
+        instruction_probes,
+        counter,
+        None,
+        encode,
+    )
+}
+
+/// Soft targets restrict optional evidence only. Required sources and complete
+/// tool pairs may exceed the target but never the provider's hard envelope.
+pub fn assemble_with_input_target(
+    parts: Vec<Part>,
+    revisions: Revisions,
+    envelope: Envelope,
+    schemas: serde_json::Value,
+    instruction_probes: Vec<Probe>,
+    counter: &dyn Counter,
+    input_target: Option<Units>,
+    encode: impl Fn(&[Part], &Envelope, &serde_json::Value) -> Result<Vec<u8>>,
+) -> Result<Sealed> {
     if parts.len() > 512 || instruction_probes.len() > 4096 {
         return Err(Error::Invalid("manifest bounds"));
     }
@@ -107,9 +131,16 @@ pub fn assemble(
             .collect::<Vec<_>>()
     };
     let required_body = encode(&view(&selected), &envelope, &schemas)?;
-    if required_body.len() > 16 * 1024 * 1024 || counter.count(&required_body)? > capacity {
+    if required_body.len() > 16 * 1024 * 1024 {
         return Err(Error::Capacity);
     }
+    let required_estimate = counter.count(&required_body)?;
+    if required_estimate > capacity {
+        return Err(Error::Capacity);
+    }
+    let optional_capacity = input_target.map_or(capacity, |target| {
+        target.get().max(required_estimate).min(capacity)
+    });
     optional.sort_by_key(|(index, part)| (part.rank, *index));
     for (index, part) in optional {
         let fragments = uncovered(part, &selected, &mut excluded)?;
@@ -123,11 +154,16 @@ pub fn assemble(
             return Err(Error::Invalid("selected fragment bounds"));
         }
         let candidate = encode(&view(&candidate_parts), &envelope, &schemas)?;
-        if candidate.len() > 16 * 1024 * 1024 || counter.count(&candidate)? > capacity {
+        if candidate.len() > 16 * 1024 * 1024 || counter.count(&candidate)? > optional_capacity {
             for part in fragments {
                 excluded.push(Excluded {
                     id: part.id,
-                    reason: "outside selected envelope after serialization".into(),
+                    reason: if optional_capacity < capacity {
+                        "outside activity input target after serialization"
+                    } else {
+                        "outside selected envelope after serialization"
+                    }
+                    .into(),
                     start: part.start,
                     end: part.end,
                 });
@@ -154,6 +190,7 @@ pub fn assemble(
         input_estimate: Units::new(estimate),
         estimate_method: counter.method().into(),
         estimated: counter.estimated(),
+        allocation: None,
     };
     Sealed::new(manifest, body)
 }

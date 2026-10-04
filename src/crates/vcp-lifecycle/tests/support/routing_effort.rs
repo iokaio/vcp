@@ -195,7 +195,7 @@ async fn effort_is_qualified_selected_sealed_and_bounded_without_changing_output
                     operating: "Report the synthetic fixture.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: 1,
-                    deadline: Timestamp::new(clock().get() + 300000),
+                    deadline: Timestamp::new(clock().get() + 300000).into(),
                 },
             )
             .unwrap();

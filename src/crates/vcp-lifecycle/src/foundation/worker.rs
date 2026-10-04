@@ -65,7 +65,6 @@ mod public_workspace;
 mod reasoning;
 mod reconciliation;
 pub(super) mod recovery;
-mod retention_policy;
 mod routing;
 #[cfg(windows)]
 pub(super) mod skills;
@@ -206,6 +205,7 @@ impl Worker {
     }
 }
 pub struct Context {
+    pub diagnostics: super::execution_diagnostics::Collector,
     pub(super) local_memory_only: bool,
     pub engine: Engine<Store>,
     pub runtime: tokio::runtime::Runtime,
@@ -277,6 +277,20 @@ fn has_unpriced_media(value: &serde_json::Value) -> bool {
     }
 }
 impl Context {
+    pub fn begin_diagnostic(
+        &self,
+        binding: &ThreadBinding,
+        phase: super::execution_diagnostics::Phase,
+        attempt: Option<AttemptId>,
+    ) -> super::execution_diagnostics::Span {
+        let turn =
+            vcp_engine::public::current_public_turn(self.engine.store().state(), &binding.scope)
+                .ok()
+                .flatten()
+                .map(|turn| turn.id);
+        self.diagnostics
+            .begin(phase, binding.scope.clone(), turn, attempt)
+    }
     fn close(self) -> Result<()> {
         self.runtime.block_on(self.engine.into_store().close())?;
         Ok(())
@@ -376,6 +390,7 @@ impl Context {
             .filter_map(|row| row.decode::<ArtifactDescriptor>().ok())
             .any(|row| row.spec.schema == "openrouter-provider-configuration/1");
         let mut context = Self {
+            diagnostics: super::execution_diagnostics::Collector::default(),
             local_memory_only: false,
             engine,
             runtime,
@@ -479,7 +494,8 @@ impl Context {
         context.stop_coding_turns("owner recovered canonical turn")?;
         #[cfg(windows)]
         context.recover_observers()?;
-        context.apply_startup_retention_policy()?;
+        // Saved retention policy is preserved for inspection and explicit
+        // governed requests. Opening an execution owner never prunes evidence.
         Ok(context)
     }
     fn actor(&self) -> vcp_budget::Actor {
@@ -693,6 +709,28 @@ impl Context {
         commit: ResumeCommit,
         final_check: impl FnOnce() -> Result<T>,
     ) -> Result<CommandReceipt> {
+        let span =
+            self.begin_diagnostic(binding, super::execution_diagnostics::Phase::Resume, None);
+        let result = self.resume_checked_inner(
+            binding,
+            expected,
+            fingerprint,
+            idle_owned,
+            commit,
+            final_check,
+        );
+        span.finish(&result);
+        result
+    }
+    fn resume_checked_inner<T>(
+        &mut self,
+        binding: &ThreadBinding,
+        expected: Revision,
+        fingerprint: vcp_domain::verification::Fingerprint,
+        idle_owned: &[(ToolRunId, ExecutionId)],
+        commit: ResumeCommit,
+        final_check: impl FnOnce() -> Result<T>,
+    ) -> Result<CommandReceipt> {
         if let Some(receipt) = self.recheck_resume(&commit)? {
             return Ok(receipt);
         }
@@ -717,17 +755,9 @@ impl Context {
             return Err("repository fingerprint changed; refresh canonical task first".into());
         }
         self.revalidate_resume_environment(binding)?;
-        let budget_current = vcp_budget::ledger(self.engine.store().state(), &binding.scope)
-            .map(|ledger| {
-                !ledger.overrun
-                    && ledger
-                        .settled
-                        .get()
-                        .saturating_add(ledger.active.get())
-                        .saturating_add(ledger.unresolved.get())
-                        < ledger.cap.get()
-            })
-            .unwrap_or(true);
+        // Financial observations survive resume; they do not grant or deny
+        // execution while monetary restrictions are suspended.
+        let budget_current = true;
         let tasks = self
             .engine
             .store()
@@ -1419,16 +1449,13 @@ impl Context {
             return Err("budget initialization requires live owner".into());
         }
         let state = self.engine.store().state();
-        if state
+        let existing = state
             .record(
                 Collection::Ledger,
                 self.config.root_task.as_str(),
                 &self.config.workspace,
             )
-            .is_ok()
-        {
-            return Ok(());
-        }
+            .is_ok();
         let root: Task = state
             .record(
                 Collection::Task,
@@ -1440,14 +1467,25 @@ impl Context {
             return Err("root budget scope denied".into());
         }
         let actor = self.actor();
-        self.runtime.block_on(vcp_budget::initialize(
-            self.engine.store_mut(),
-            root.scope,
-            self.config.cap.clone(),
-            self.config.protected,
-            None,
-            &actor,
-        ))?;
+        if existing {
+            self.runtime.block_on(vcp_budget::suspend_constraints(
+                self.engine.store_mut(),
+                &root.scope,
+                &actor,
+            ))?;
+        } else {
+            self.runtime.block_on(vcp_budget::initialize(
+                self.engine.store_mut(),
+                root.scope,
+                MonetaryLimit {
+                    currency: self.config.cap.currency.clone(),
+                    micros: vcp_domain::Limit::Unbounded,
+                },
+                self.config.protected,
+                None,
+                &actor,
+            ))?;
+        }
         Ok(())
     }
     pub fn pause_all(&mut self, reason: &str) -> Result<()> {

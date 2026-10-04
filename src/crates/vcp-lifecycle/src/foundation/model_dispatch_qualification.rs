@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Explicit native fault observers, absent from production builds.
+//! Explicit native qualification probes, absent from production builds.
 use super::{worker::Context, CanonicalHost};
 use std::sync::Arc;
 use vcp_domain::AttemptId;
@@ -17,6 +17,18 @@ pub(super) type Observer =
     Arc<dyn Fn(Point, &AttemptId, &State) -> Result<(), String> + Send + Sync>;
 
 impl CanonicalHost {
+    /// Inspect the next allocation using the production selector without
+    /// preparing context, reserving funds, or granting a provider send.
+    pub fn qualification_coding_allocation(
+        &self,
+        thread: codex_protocol::ThreadId,
+        snapshot: vcp_models::catalog::Snapshot,
+    ) -> Result<vcp_domain::request_allocation::Allocation, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.coding_request_allocation(&binding, &snapshot))
+    }
+
     /// Runs synchronously on the canonical worker. The observer must not reenter
     /// this host; its snapshot describes the exact durable boundary observed.
     pub fn qualification_observe_model_dispatch(

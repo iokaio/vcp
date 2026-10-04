@@ -484,7 +484,7 @@ impl Context {
         {
             return Ok(Selection::Idle);
         }
-        let ledger = match vcp_budget::ledger(self.engine.store().state(), &binding.scope) {
+        let _ledger = match vcp_budget::ledger(self.engine.store().state(), &binding.scope) {
             Ok(ledger) => ledger,
             Err(_) => {
                 let notice = "Observer paused: shared root cost ledger unavailable";
@@ -496,48 +496,19 @@ impl Context {
                 return Ok(Selection::Idle);
             }
         };
-        if ledger.overrun
-            || ledger
-                .settled
-                .get()
-                .saturating_add(ledger.active.get())
-                .saturating_add(ledger.unresolved.get())
-                >= ledger.cap.get()
-        {
-            let notice = "Observer paused: shared root cost cap exhausted";
-            if document.notice != notice || document.state.queued.is_some() {
-                document.notice = notice.into();
-                document.state.queued = None;
-                self.save_observer(document)?;
-            }
-            return Ok(Selection::Idle);
-        }
         let old = document.state.clone();
-        let state = self.engine.store().state();
-        let start = state
+        let history = self
+            .engine
+            .store()
+            .event_history_page(&binding.scope, document.state.cursor, PAGE)
+            .map_err(|error| error.to_string())?;
+        let relevant = history
             .events
-            .partition_point(|e| e.watermark <= document.state.cursor);
-        let mut end = (start + PAGE).min(state.events.len());
-        while end < state.events.len()
-            && end > start
-            && state.events[end].watermark == state.events[end - 1].watermark
-            && end - start < 4096
-        {
-            end += 1;
-        }
-        if end < state.events.len()
-            && end > start
-            && state.events[end].watermark == state.events[end - 1].watermark
-        {
-            return Err("observer event transaction exceeds bounded page".into());
-        }
-        let relevant = state.events[start..end].iter().any(|e| {
-            e.event.task.as_ref() == Some(&binding.scope.task)
-                && e.event.kind == vcp_protocol::event::EventKind::VerificationRecorded
-        });
+            .iter()
+            .any(|e| e.event.kind == vcp_protocol::event::EventKind::VerificationRecorded);
         // Cursor-only commits emit no event, so even a full page of our own
         // receipts advances without either starvation or a feedback loop.
-        let cutoff = state.events[start..end].last().map(|e| e.watermark);
+        let cutoff = history.cutoff;
         let time = now();
         if relevant {
             match self.observer_input(
@@ -788,14 +759,7 @@ impl Context {
             .unwrap_or(false)
     }
     fn observer_budget_available(&self, binding: &ThreadBinding) -> bool {
-        vcp_budget::ledger(self.engine.store().state(), &binding.scope).is_ok_and(|l| {
-            !l.overrun
-                && l.settled
-                    .get()
-                    .saturating_add(l.active.get())
-                    .saturating_add(l.unresolved.get())
-                    < l.cap.get()
-        })
+        vcp_budget::ledger(self.engine.store().state(), &binding.scope).is_ok()
     }
     fn observer_latest_failed(&self, binding: &ThreadBinding) -> bool {
         use vcp_domain::verification::{CheckOutcome, Verification};

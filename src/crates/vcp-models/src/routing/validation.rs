@@ -321,8 +321,20 @@ impl RoutingInput {
             || self.excluded.len() > 128
             || self.estimates.len() > 1024
             || self.output_tokens == Units::ZERO
+            || self.candidate_requests.len() > 1024
         {
             return Err(Error::Protocol("routing input bounds"));
+        }
+        let mut request_candidates = BTreeSet::new();
+        for request in &self.candidate_requests {
+            request.candidate.validate()?;
+            if request.output_tokens == Units::ZERO
+                || request.input_tokens > self.input_tokens
+                || request.output_tokens > self.output_tokens
+                || !request_candidates.insert(&request.candidate)
+            {
+                return Err(Error::Protocol("candidate request bounds or duplicate"));
+            }
         }
         for capability in &self.required_capabilities {
             text(capability, 128)?;

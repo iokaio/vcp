@@ -35,10 +35,10 @@ fn request(config: &Config) -> methods::TurnStart {
         constraints: vec!["Preserve files".into()],
         acceptance: vec!["Use evidence".into()],
         budget: methods::Budget {
-            cap_micros: config.cap.micros.get().into(),
+            cap_micros: config.cap.micros.map(|amount| amount.get().into()),
             currency: methods::Currency::Usd,
             max_requests: 3,
-            deadline_seconds: 60,
+            deadline_seconds: 60.into(),
         },
     }
 }
@@ -162,7 +162,7 @@ async fn accepted_start_constructor_activates_once_and_binds_exact_caller_turn()
                 operating: "Do not submit in this admission test".into(),
                 affected_paths: vec!["source.txt".into()],
                 max_requests: 3,
-                deadline: Timestamp::new(now + 30_000),
+                deadline: Timestamp::new(now + 30_000).into(),
             },
         )
         .unwrap();
@@ -288,7 +288,7 @@ async fn expired_accepted_run_replays_but_cannot_construct_via_start_or_resume()
         let mut connection = host.public_connection(current.clone()).unwrap();
         connection.acquire(CommandId::new(), None).unwrap();
         let mut request = request(&config);
-        request.budget.deadline_seconds = 1;
+        request.budget.deadline_seconds = 1.into();
         let (receipt, mut ticket) = accept(&connection, request.clone(), &current);
         tokio::time::sleep(Duration::from_millis(1100)).await;
         assert!(

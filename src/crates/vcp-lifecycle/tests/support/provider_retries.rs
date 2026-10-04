@@ -282,7 +282,7 @@ async fn setup_with_bounds(
     std::fs::create_dir(&workspace).unwrap();
     let workspace = workspace.canonicalize().unwrap();
     let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-    config.cap.micros = Micros::new(cap);
+    config.cap.micros = Micros::new(cap).into();
     config.max_transport_retries = retries;
     if let Some(output) = output_ceiling {
         config.output_ceiling = output;
@@ -379,7 +379,7 @@ async fn setup_with_bounds(
                     operating: "Keep current accounting and source evidence".into(),
                     affected_paths: vec!["evidence.txt".into()],
                     max_requests: 4,
-                    deadline: Timestamp::new(now + 60_000),
+                    deadline: Timestamp::new(now + 60_000).into(),
                 },
             )
             .unwrap();

@@ -2,6 +2,7 @@
 //! OpenRouter conversion and bounded normalization. Transport remains in the
 //! retained client and may only be reached through canonical host admission.
 pub mod catalog;
+pub mod allocation;
 pub mod decision;
 pub mod escalation;
 pub mod markov;

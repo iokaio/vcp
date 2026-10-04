@@ -204,10 +204,34 @@ pub struct RoutingInput {
     pub retry_pin: Option<ModelEndpoint>,
     pub input_tokens: Units,
     pub output_tokens: Units,
+    /// Exact candidate-codec estimates and candidate-specific output allowances.
+    /// Empty preserves historical fixed allocation records.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidate_requests: Vec<CandidateRequest>,
     /// Current ledger view supplied by the host; selection does not consume it.
     pub available: vcp_domain::accounting::MonetaryLimit,
     pub protected_verification: Micros,
     pub estimates: Vec<CostEstimate>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateRequest {
+    pub candidate: ModelEndpoint,
+    pub input_tokens: Units,
+    pub output_tokens: Units,
+}
+
+impl RoutingInput {
+    pub fn request_for(&self, candidate: &ModelEndpoint) -> Option<(Units, Units)> {
+        if self.candidate_requests.is_empty() {
+            Some((self.input_tokens, self.output_tokens))
+        } else {
+            self.candidate_requests
+                .iter()
+                .find(|row| &row.candidate == candidate)
+                .map(|row| (row.input_tokens, row.output_tokens))
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

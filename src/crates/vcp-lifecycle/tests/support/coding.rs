@@ -130,7 +130,7 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
                     operating: "Observe configured tools; do not execute processes.".into(),
                     affected_paths: vec!["file.txt".into()],
                     max_requests: 2,
-                    deadline: Timestamp::new(now + 300_000),
+                    deadline: Timestamp::new(now + 300_000).into(),
                 },
             )
             .unwrap();
@@ -226,9 +226,31 @@ async fn registered_directory_tools_reject_quoted_root_then_accept_empty_root() 
     run_coding_modes(&["quoted_root"]).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn output_limit_continuation_preserves_partial_evidence_and_stops_without_progress() {
+    run_coding_modes(&["incomplete_usage"]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pending_output_continuation_reopen_retains_evidence_without_dispatch() {
+    run_coding_modes(&["incomplete_pending_reopen"]).await;
+}
+
+#[cfg(feature = "qualification")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completed_tool_pairs_preserve_adaptive_usage_across_owner_reopen() {
+    run_coding_modes(&["allocation_reopen"]).await;
+}
+
 async fn run_coding_modes(modes: &[&'static str]) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
-        for &mode in modes {
+        for &requested_mode in modes {
+            let pending_reopen = requested_mode == "incomplete_pending_reopen";
+            let mode = if pending_reopen {
+                "incomplete_usage"
+            } else {
+                requested_mode
+            };
             let temp = tempfile::tempdir().unwrap();
             let workspace = temp.path().join("workspace");
             std::fs::create_dir(&workspace).unwrap();
@@ -249,7 +271,12 @@ async fn run_coding_modes(modes: &[&'static str]) {
             .unwrap();
             let executable = temp.path().join("fixture.exe");
             std::fs::copy(env!("CARGO_BIN_EXE_vcp-process-fixture"), &executable).unwrap();
-            let config = config(&temp.path().join("canonical"), &workspace, backend);
+            let mut config = config(&temp.path().join("canonical"), &workspace, backend);
+            if mode == "incomplete_usage" {
+                // The host ceiling may exceed this fixed provider's 8000-token
+                // capacity; every actual request/reservation must still fit.
+                config.output_ceiling = Units::new(16_000);
+            }
             let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
             let binding = task(&host, &config, config.root_task.clone(), None);
             host.command(
@@ -363,7 +390,9 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 } else if mode == "empty" {
                     events.push(ev_assistant_message("empty-answer", " \n\t "));
                 } else if index < 4 {
-                    let (name, arguments) = if mode == "quoted_root" {
+                    let (name, arguments) = if mode == "allocation_reopen" {
+                        ("vcp_read", serde_json::json!({"path":"file.txt","max_bytes":1024,"start_line":null,"end_line":null}))
+                    } else if mode == "quoted_root" {
                         let root = if index % 2 == 0 { r#"\"\""# } else { "" };
                         if index < 2 {
                             ("vcp_exec", serde_json::json!({"profile":"fixture","arguments":["verify",directory.to_str().unwrap()],"directory":root,"timeout_ms":10_000,"output_bytes":1_048_576,"input":null}))
@@ -387,6 +416,8 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 if mode=="stale_instructions" { std::fs::write(directory.join("AGENTS.md"), "concurrent human guidance").unwrap(); }
                 if mode == "incomplete_usage" {
                     events.push(serde_json::json!({"type":"response.incomplete","response":{"id":format!("coding-{index}"),"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":output,"usage":{"input_tokens":5950,"output_tokens":512,"total_tokens":6462,"cost":0.0021275}}}));
+                } else if mode == "allocation_reopen" {
+                    events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0},"cost":0.00120975}}}));
                 } else if mode == "invalid_call_usage" {
                     events.push(serde_json::json!({"type":"response.completed","response":{"id":format!("coding-{index}"),"status":"completed","output":output,"usage":{"input_tokens":4354,"output_tokens":97,"total_tokens":4451,"cost":0.00120975}}}));
                 } else {
@@ -428,12 +459,17 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     canonical_tools: Default::default(),
                     operating: "Use prepared tools and report observed evidence only.".into(),
                     affected_paths: vec!["file.txt".into()],
-                    max_requests: if mode == "limit" { 2 } else { 8 },
+                    max_requests: match mode {
+                        "limit" => 2,
+                        "allocation_reopen" => 4,
+                        _ => 8,
+                    },
                     // Leave native capture/startup headroom before submission;
                     // the server then withholds its response beyond this bound.
                     deadline: Timestamp::new(
                         now + if mode == "deadline" { 10_000 } else { 300_000 },
-                    ),
+                    )
+                    .into(),
                 },
             )
             .unwrap();
@@ -468,6 +504,233 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 .is_err());
             assert_eq!(host.snapshot().unwrap(), before_duplicate);
             coding_turn(&test, backend, mode).await;
+            #[cfg(feature = "qualification")]
+            if mode == "allocation_reopen" {
+                assert_eq!(count.load(Ordering::SeqCst), 4);
+                let before = host.project().unwrap();
+                assert_eq!(before.effects.len(), 4);
+                assert_eq!(before.tasks[&config.root_task].state, TaskState::Paused);
+                let prior = host.snapshot().unwrap();
+                let observations: Vec<_> = prior
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                    .filter(|artifact| artifact.spec.schema == "coding-allocation-observation/1")
+                    .map(|artifact| {
+                        serde_json::from_slice::<serde_json::Value>(
+                            &host.read_artifact(artifact.spec.id).unwrap(),
+                        )
+                        .unwrap()
+                    })
+                    .collect();
+                assert_eq!(observations.len(), 4);
+                let last = observations
+                    .iter()
+                    .find(|value| value["sequence"] == 3)
+                    .unwrap();
+                assert_eq!(
+                    last["completed_pairs"], 3,
+                    "observation precedes fourth result publication"
+                );
+                assert_eq!(last["history"]["underuse_streak"], 3, "{last}");
+                owner.close().await.unwrap();
+                test.codex.shutdown_and_wait().await.unwrap();
+                drop(test);
+                drop(host);
+                let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+                assert_eq!(host.project().unwrap().effects, before.effects);
+                assert_eq!(
+                    count.load(Ordering::SeqCst),
+                    4,
+                    "owner reopen does not dispatch"
+                );
+                assert!(host.has_output_continuation(id).is_err());
+                let (snapshot, raw) = provider_snapshot();
+                host.configure_provider(snapshot, raw).unwrap();
+                let mut registry = ExtensionRegistryBuilder::new();
+                registry.turn_start_admission(Arc::new(host.clone()));
+                registry.work_admission(Arc::new(host.clone()));
+                registry.tool_contributor(Arc::new(host.clone()));
+                let starter = host.clone();
+                let cwd = workspace.clone();
+                let test = test_codex()
+                    .with_extensions(Arc::new(registry.build()))
+                    .with_auth(codex_login::CodexAuth::from_api_key(
+                        "synthetic-allocation-reopen",
+                    ))
+                    .with_allowed_tools(allowed_tools())
+                    .with_config(move |config| {
+                        config.cwd = cwd.try_into().unwrap();
+                        configure_provider_fixture(config);
+                        starter
+                            .lifecycle()
+                            .authorize_startup(config.cwd.as_path(), None)
+                            .unwrap();
+                    })
+                    .build_with_auto_env(&server)
+                    .await
+                    .unwrap();
+                let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
+                host.register(id, binding.clone()).unwrap();
+                let task = host.project().unwrap().tasks[&config.root_task].clone();
+                host.resume(id, task.revision, task.fingerprint).unwrap();
+                host.configure_coding(
+                    id,
+                    CodingConfig {
+                        canonical_tools: Default::default(),
+                        operating: "Use prepared tools and report observed evidence only.".into(),
+                        affected_paths: vec!["file.txt".into()],
+                        max_requests: 4,
+                        deadline: Timestamp::new(now + 300_000).into(),
+                    },
+                )
+                .unwrap();
+                assert_eq!(count.load(Ordering::SeqCst), 4);
+                assert!(!host.has_output_continuation(id).unwrap());
+                let allocation = host
+                    .qualification_coding_allocation(id, provider_snapshot().0)
+                    .unwrap();
+                assert_eq!(
+                    allocation.activity,
+                    vcp_domain::request_allocation::Activity::Discovery
+                );
+                assert_eq!(allocation.previous_output, Some(Units::new(97)));
+                assert_eq!(allocation.output_limit, Units::new(512));
+                assert_eq!(
+                    allocation.reason,
+                    vcp_domain::request_allocation::Reason::ShrinkAfterRepeatedUnderuse
+                );
+                coding_turn(&test, backend, "allocation-reopen").await;
+                assert_eq!(
+                    count.load(Ordering::SeqCst),
+                    4,
+                    "reopen retains the finite request ceiling"
+                );
+                let requests = observed.lock().unwrap();
+                assert_eq!(requests[3]["max_output_tokens"], 1024);
+                assert_eq!(host.project().unwrap().effects, before.effects);
+                assert_eq!(
+                    host.project().unwrap().ledgers[&config.root_task]
+                        .unresolved
+                        .get(),
+                    0
+                );
+                drop(requests);
+                owner.close().await.unwrap();
+                test.codex.shutdown_and_wait().await.unwrap();
+                continue;
+            }
+            if mode == "incomplete_usage" {
+                assert_eq!(
+                    host.project().unwrap().tasks[&config.root_task].state,
+                    TaskState::Running
+                );
+                assert!(host.project().unwrap().effects.is_empty());
+                assert!(host.has_output_continuation(id).unwrap());
+                if pending_reopen {
+                    let prior = host.snapshot().unwrap();
+                    let artifacts: Vec<_> = prior
+                        .records
+                        .values()
+                        .filter(|row| row.collection == Collection::Artifact)
+                        .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                        .filter(|artifact| {
+                            matches!(
+                                artifact.spec.schema.as_str(),
+                                "coding-output-continuation/1" | "coding-allocation-observation/1"
+                            )
+                        })
+                        .collect();
+                    assert_eq!(artifacts.len(), 2);
+                    owner.close().await.unwrap();
+                    test.codex.shutdown_and_wait().await.unwrap();
+                    drop(test);
+                    drop(host);
+                    // Opening canonical history alone has no retained owner,
+                    // no continuation capability and no source of dispatch.
+                    let store = vcp_store::Store::open(&config.canonical_root, backend, &[])
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        store
+                            .state()
+                            .records
+                            .values()
+                            .filter(|row| row.collection == Collection::Attempt)
+                            .count(),
+                        1
+                    );
+                    assert_eq!(
+                        store
+                            .state()
+                            .records
+                            .values()
+                            .filter(|row| row.collection == Collection::Effect)
+                            .count(),
+                        0
+                    );
+                    for artifact in &artifacts {
+                        assert_eq!(
+                            store
+                                .state()
+                                .record(
+                                    Collection::Artifact,
+                                    artifact.spec.id.as_str(),
+                                    &config.workspace
+                                )
+                                .unwrap()
+                                .decode::<ArtifactDescriptor>()
+                                .unwrap(),
+                            *artifact
+                        );
+                    }
+                    assert_eq!(count.load(Ordering::SeqCst), 1);
+                    drop(store);
+                    let (reopened, owner) = CanonicalHost::open(config.clone()).unwrap();
+                    assert_eq!(
+                        reopened.project().unwrap().tasks[&config.root_task].state,
+                        TaskState::Paused
+                    );
+                    assert!(
+                        reopened.has_output_continuation(id).is_err(),
+                        "old retained binding cannot be recreated from diagnostic artifacts"
+                    );
+                    assert_eq!(count.load(Ordering::SeqCst), 1);
+                    assert_eq!(
+                        reopened.project().unwrap().ledgers[&config.root_task]
+                            .settled
+                            .get(),
+                        2128
+                    );
+                    assert!(reopened.project().unwrap().effects.is_empty());
+                    for artifact in artifacts {
+                        assert!(!reopened.read_artifact(artifact.spec.id).unwrap().is_empty());
+                    }
+                    owner.close().await.unwrap();
+                    continue;
+                }
+                let continuation = host.take_output_continuation(id).unwrap().unwrap();
+                assert_eq!(continuation.evidence.len(), 2);
+                for evidence in &continuation.evidence {
+                    assert!(!host.read_artifact(evidence.clone()).unwrap().is_empty());
+                }
+                assert!(host.take_output_continuation(id).unwrap().is_none());
+                host.begin_coding_turn(id, continuation.feedback).unwrap();
+                coding_turn(&test, backend, mode).await;
+                assert!(host.has_output_continuation(id).unwrap());
+                let continuation = host.take_output_continuation(id).unwrap().unwrap();
+                host.begin_coding_turn(id, continuation.feedback).unwrap();
+                coding_turn(&test, backend, mode).await;
+                assert!(!host.has_output_continuation(id).unwrap());
+                let requests = observed.lock().unwrap();
+                assert_eq!(requests[0]["max_output_tokens"], 4096);
+                assert_eq!(requests[1]["max_output_tokens"], 8000);
+                assert_eq!(requests[2]["max_output_tokens"], 8000);
+                assert!(requests[1]
+                    .to_string()
+                    .contains("No tool call from that response was executed"));
+            }
             let canonical_turn: vcp_domain::task::Turn = host
                 .snapshot()
                 .unwrap()
@@ -479,6 +742,8 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 canonical_turn.state,
                 if matches!(mode, "complete" | "nested" | "process_fail" | "quoted_root") {
                     vcp_domain::task::TurnState::Verifying
+                } else if mode == "incomplete_usage" {
+                    vcp_domain::task::TurnState::Failed
                 } else {
                     vcp_domain::task::TurnState::Paused
                 },
@@ -487,6 +752,8 @@ async fn run_coding_modes(modes: &[&'static str]) {
             let expected = if matches!(mode, "complete" | "nested" | "process_fail" | "quoted_root")
             {
                 5
+            } else if mode == "incomplete_usage" {
+                3
             } else if mode == "limit" {
                 2
             } else {
@@ -635,6 +902,25 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 assert!(host.complete_coding_turn(id).is_err());
                 assert!(view.effects.is_empty(), "partial patch never dispatched");
             }
+            if mode == "incomplete_usage" {
+                let state = host.snapshot().unwrap();
+                let mut outputs: Vec<_> = state
+                    .records
+                    .values()
+                    .filter(|record| record.collection == Collection::Attempt)
+                    .map(|record| {
+                        record
+                            .decode::<vcp_domain::accounting::Attempt>()
+                            .unwrap()
+                            .quote
+                            .bounds
+                            .output
+                            .get()
+                    })
+                    .collect();
+                outputs.sort_unstable();
+                assert_eq!(outputs, vec![4096, 8000, 8000]);
+            }
             if mode == "empty" {
                 assert!(
                     host.complete_coding_turn(id).is_err(),
@@ -687,7 +973,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     0
                 } else {
                     if mode == "incomplete_usage" {
-                        2128
+                        6384
                     } else if mode == "invalid_call_usage" {
                         1210
                     } else {
@@ -719,7 +1005,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 assert_eq!(
                     restored.ledgers[&config.root_task].settled.get(),
                     if mode == "incomplete_usage" {
-                        2128
+                        6384
                     } else {
                         1210
                     }
@@ -772,7 +1058,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         operating: "Use prepared tools and report observed evidence only.".into(),
                         affected_paths: vec!["file.txt".into()],
                         max_requests: 6,
-                        deadline: Timestamp::new(now + 300_000),
+                        deadline: Timestamp::new(now + 300_000).into(),
                     },
                 )
                 .unwrap();
@@ -844,7 +1130,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         operating: "Bounded helper fixture".into(),
                         affected_paths: vec!["file.txt".into()],
                         max_requests: 128,
-                        deadline: Timestamp::new(now + 300_000),
+                        deadline: Timestamp::new(now + 300_000).into(),
                     },
                 )
                 .unwrap();

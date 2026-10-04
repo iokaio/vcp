@@ -248,6 +248,26 @@ async fn handle(
             crate::app::Query::Inspect { request } => {
                 serde_json::to_value(host.inspect(request)?).map_err(|e| e.to_string())
             }
+            query @ crate::app::Query::InspectBundle { .. } => {
+                let mut value = crate::app::query(&host.snapshot()?, workspace, &query)?;
+                value["store_diagnostics"] =
+                    serde_json::to_value(host.store_diagnostics()?).map_err(|e| e.to_string())?;
+                let scope: vcp_domain::workspace::Scope =
+                    serde_json::from_value(value["task"]["scope"].clone())
+                        .map_err(|e| e.to_string())?;
+                value["lifecycle_diagnostics"] =
+                    serde_json::to_value(host.execution_diagnostics(scope)?)
+                        .map_err(|e| e.to_string())?;
+                if serde_json::to_vec(&value).map_err(|e| e.to_string())?.len()
+                    > crate::inspection_bundle::MAX_BYTES
+                {
+                    return Err("inspection bundle byte limit exceeded after diagnostics".into());
+                }
+                Ok(value)
+            }
+            query @ (crate::app::Query::Sessions | crate::app::Query::Task { .. }) => {
+                crate::app::query_current(host.current_state()?.as_ref(), workspace, &query)
+            }
             query => crate::app::query(&host.snapshot()?, workspace, &query),
         },
         Request::Prepare {
@@ -255,7 +275,7 @@ async fn handle(
             task,
             cancel,
         } if requested == *workspace => {
-            let state = host.snapshot()?;
+            let state = host.current_state()?;
             let task: Task = state
                 .record(
                     vcp_store::contract::Collection::Task,

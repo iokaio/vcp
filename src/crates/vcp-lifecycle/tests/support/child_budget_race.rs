@@ -39,7 +39,7 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         let mut config = config(&temp.path().join("canonical"), &workspace, backend);
         // Each request costs exactly 100 micros. The two 125-micro allocations
         // fit the 250-micro ordinary root ceiling but do not reserve or spend it.
-        config.cap.micros = Micros::new(300);
+        config.cap.micros = Micros::new(300).into();
         config.protected = Micros::new(50);
         config.max_transport_retries = 0;
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();

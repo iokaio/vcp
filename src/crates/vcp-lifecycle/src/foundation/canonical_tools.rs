@@ -42,7 +42,7 @@ impl<'de> serde::Deserialize<'de> for CanonicalTools {
 /// patch ceiling, materializes helpers as ordinary `vcp_patch` creations
 /// (ADR-070/071), so it follows the read ceiling and leaves recorded ceilings
 /// and legacy defaults unchanged.
-const IMPLIED: [(&str, &str); 1] = [("vcp_skill", "vcp_read")];
+const IMPLIED: [(&str, &str); 2] = [("vcp_skill", "vcp_read"), ("vcp_artifact_read", "vcp_read")];
 
 impl CanonicalTools {
     pub fn contains(&self, name: &str) -> bool {
@@ -137,7 +137,7 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
+            BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill", "vcp_artifact_read"])
         );
         assert!(!tools
             .allowed_tools()

@@ -82,7 +82,7 @@ fn configure_parent(host: &CanonicalHost, id: codex_protocol::ThreadId) {
             operating: "Observe current child scope only.".into(),
             affected_paths: vec!["file.txt".into()],
             max_requests: 8,
-            deadline: Timestamp::new(now + 300_000),
+            deadline: Timestamp::new(now + 300_000).into(),
         },
     )
     .unwrap();

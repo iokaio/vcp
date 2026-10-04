@@ -103,7 +103,7 @@ fn setup(
         cap: Money {
             currency: "USD".to_owned().try_into()?,
             micros: crate::args::parse_usd(&spec.cap_usd)?,
-        },
+        }.into(),
         protected: Micros::ZERO,
         price: candidate.price.clone(),
         input_ceiling: candidate.max_input,

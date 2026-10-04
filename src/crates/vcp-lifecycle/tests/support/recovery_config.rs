@@ -21,7 +21,7 @@ pub fn config(root: &std::path::Path, workspace: &std::path::Path, backend: Back
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }.into(),
         protected: Micros::ZERO,
         price: PriceSnapshot {
             id: "a".repeat(64),

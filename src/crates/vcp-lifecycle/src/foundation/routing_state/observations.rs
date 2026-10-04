@@ -1316,11 +1316,16 @@ fn observe_verification(
             CheckOutcome::Failed { reason } => {
                 let failures = build.failures_seen.entry(task_id.clone()).or_default();
                 *failures = failures.saturating_add(1);
-                let signature = observed_task_revision.and_then(|revision| normalize(reason).and_then(|diagnostic| {
-                    canonical_bytes(&serde_json::json!({"check":identity,"task_revision":revision,"steering":verification.steering,
-                        "fingerprint":input_fingerprint,"exit_code":check.exit_code,"diagnostic":digest_bytes(diagnostic.as_bytes())}))
-                        .ok().map(|bytes| digest_bytes(&bytes))
-                }));
+                let signature = observed_task_revision.and_then(|revision| {
+                    check_failure_signature(
+                        &check.specification,
+                        revision,
+                        verification.steering,
+                        &input_fingerprint,
+                        check.exit_code,
+                        reason,
+                    )
+                });
                 (CheckResult::Failed, signature)
             }
         };
@@ -1355,6 +1360,23 @@ fn observe_verification(
         cost_known: matches!(verification.cost, CostCertainty::Known),
     });
     Ok(())
+}
+
+/// Shared exact failure identity. A scheduling consumer still needs its own
+/// qualified progress/pause policy; this digest grants no action authority.
+pub(crate) fn check_failure_signature(
+    specification: &str,
+    revision: Revision,
+    steering: SteeringRevision,
+    input_fingerprint: &str,
+    exit_code: Option<i32>,
+    reason: &str,
+) -> Option<String> {
+    let identity = digest_bytes(normalize(specification)?.as_bytes());
+    let diagnostic = normalize(reason)?;
+    canonical_bytes(&serde_json::json!({"check":identity,"task_revision":revision,"steering":steering,
+        "fingerprint":input_fingerprint,"exit_code":exit_code,"diagnostic":digest_bytes(diagnostic.as_bytes())}))
+        .ok().map(|bytes| digest_bytes(&bytes))
 }
 
 fn normalize(value: &str) -> Option<String> {

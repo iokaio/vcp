@@ -315,10 +315,8 @@ impl Context {
         {
             return Err("provider refresh waits for active attempts".into());
         }
-        if snapshot.price.currency != self.config.cap.currency
-            || self.config.output_ceiling > snapshot.max_output
-        {
-            return Err("provider currency/output differs from host ceiling".into());
+        if snapshot.price.currency != self.config.cap.currency {
+            return Err("provider currency differs from host ledger".into());
         }
         let scope = Scope {
             workspace: self.config.workspace.clone(),
@@ -444,6 +442,19 @@ impl Context {
         #[cfg(windows)]
         self.validate_skills(binding)?;
         if let Some(decision) = &ready.routing {
+            let selected = decision
+                .selected
+                .as_ref()
+                .ok_or("routing selected candidate missing")?;
+            if !decision.input.candidate_requests.is_empty()
+                && decision.input.request_for(selected)
+                    != Some((
+                        ready.context.sealed().manifest.input_estimate,
+                        ready.context.sealed().manifest.envelope.output,
+                    ))
+            {
+                return Err("sealed request differs from selected candidate allocation".into());
+            }
             let current_catalog = self.current_routing_catalog()?;
             if self
                 .current_routing_policy()?
@@ -476,16 +487,16 @@ impl Context {
                 // selection and admission still check the current balance.
                 decision.input.available.clone()
             } else {
-                Money {
+                MonetaryLimit {
                     currency: ledger.currency.clone(),
-                    micros: Micros::new(
-                        ledger
-                            .cap
-                            .get()
-                            .saturating_sub(ledger.settled.get())
-                            .saturating_sub(ledger.active.get())
-                            .saturating_sub(ledger.unresolved.get()),
-                    ),
+                    micros: ledger.cap.map(|cap| {
+                        Micros::new(
+                            cap.get()
+                                .saturating_sub(ledger.settled.get())
+                                .saturating_sub(ledger.active.get())
+                                .saturating_sub(ledger.unresolved.get()),
+                        )
+                    }),
                 }
             };
             self.revalidate_routing_selection(
@@ -548,7 +559,21 @@ impl Context {
         } else {
             self.config.output_ceiling
         };
-        if sealed.manifest.envelope.output != output_ceiling
+        if let Some(allocation) = &sealed.manifest.allocation {
+            allocation.validate(
+                sealed.manifest.envelope.input_capacity()?,
+                sealed.manifest.envelope.output,
+            )?;
+            if allocation.host_output_ceiling != output_ceiling
+                || allocation.output_limit > output_ceiling
+            {
+                return Err("sealed allocation exceeds current host ceiling".into());
+            }
+            #[cfg(windows)]
+            if !self.coding_allocation_matches(binding, allocation) {
+                return Err("sealed allocation differs from current controller decision".into());
+            }
+        } else if sealed.manifest.envelope.output != output_ceiling
             || sealed.manifest.envelope.output > self.config.output_ceiling
         {
             return Err("sealed output differs from effective host ceiling".into());
@@ -710,6 +735,12 @@ impl Context {
         binding: &ThreadBinding,
         retained: &serde_json::Value,
     ) -> Result<Prepared> {
+        let span = self.begin_diagnostic(binding, crate::foundation::execution_diagnostics::Phase::PolicyAdmission, None);
+        let result = self.admit_context_inner(binding, retained);
+        span.finish(&result);
+        result
+    }
+    fn admit_context_inner(&mut self, binding: &ThreadBinding, retained: &serde_json::Value) -> Result<Prepared> {
         #[cfg(windows)]
         if let Err(error) = self.check_coding_bounds() {
             self.pause_root("canonical root coding limit requires attention")?;
@@ -717,7 +748,10 @@ impl Context {
         }
         #[cfg(windows)]
         if self.coding.contains_key(&binding.scope.task) {
-            if let Err(error) = self.assemble_coding_context(binding) {
+            let span = self.begin_diagnostic(binding, crate::foundation::execution_diagnostics::Phase::ContextAssembly, None);
+            let assembled = self.assemble_coding_context(binding);
+            span.finish(&assembled);
+            if let Err(error) = assembled {
                 self.pause_root("canonical coding context or request limit requires attention")?;
                 return Err(error);
             }
@@ -1028,16 +1062,16 @@ impl Context {
             input.policy = policy.id.clone();
             // A failed submitted request is never treated as free. Moving its
             // active reservation to unknown liability preserves this balance.
-            input.available = Money {
+            input.available = MonetaryLimit {
                 currency: ledger.currency.clone(),
-                micros: Micros::new(
-                    ledger
-                        .cap
-                        .get()
-                        .saturating_sub(ledger.settled.get())
-                        .saturating_sub(ledger.active.get())
-                        .saturating_sub(ledger.unresolved.get()),
-                ),
+                micros: ledger.cap.map(|cap| {
+                    Micros::new(
+                        cap.get()
+                            .saturating_sub(ledger.settled.get())
+                            .saturating_sub(ledger.active.get())
+                            .saturating_sub(ledger.unresolved.get()),
+                    )
+                }),
             };
             input.protected_verification = ledger.protected;
             if vcp_models::routing::select_owner_set(&catalog, &policy, &input, assigned)?
@@ -1253,6 +1287,8 @@ impl Context {
             &canonical_bytes(&normalized)?,
             "openrouter-normalized-response/1",
         )?;
+        #[cfg(windows)]
+        self.observe_coding_allocation(binding, attempt, &normalized)?;
         let Some(amount) = normalized
             .usage
             .as_ref()
@@ -1311,6 +1347,24 @@ impl Context {
             self.pause_root("observed served model differs from admitted model pin")?;
         }
         if let Some(diagnostic) = &normalized.terminal_diagnostic {
+            #[cfg(windows)]
+            if matches!(
+                diagnostic,
+                stream::TerminalDiagnostic::Incomplete {
+                    reason: Some(stream::IncompleteReason::MaxOutputTokens)
+                }
+            ) && self.coding.contains_key(&binding.scope.task)
+                && self.queue_output_continuation(
+                    binding,
+                    attempt,
+                    vec![
+                        descriptor.spec.id.clone(),
+                        normalized_capture.spec.id.clone(),
+                    ],
+                )?
+            {
+                return Ok(());
+            }
             self.pause_root(&format!(
                 "{}; final observed cost retained",
                 diagnostic.summary()

@@ -167,7 +167,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
             operating: "Use only current scoped guidance".into(),
             affected_paths: vec!["file.txt".into()],
             max_requests: 3,
-            deadline: Timestamp::new(now + 300_000),
+            deadline: Timestamp::new(now + 300_000).into(),
         },
     )
     .unwrap();

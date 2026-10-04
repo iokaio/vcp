@@ -53,6 +53,8 @@ mod coding;
 #[cfg(windows)]
 #[path = "support/coding_verification.rs"]
 mod coding_verification;
+#[path = "support/coding_artifacts.rs"]
+mod coding_artifacts;
 #[cfg(windows)]
 #[path = "support/content_authority.rs"]
 mod content_authority;
@@ -168,7 +170,7 @@ mod public_events;
 mod public_export;
 #[path = "support/public_resume.rs"]
 mod public_resume;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "qualification"))]
 #[path = "support/public_resume_mcp.rs"]
 mod public_resume_mcp;
 #[path = "support/public_rpc.rs"]
@@ -556,8 +558,11 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
     }
 }
 fn provider_snapshot() -> (vcp_models::catalog::Snapshot, Vec<u8>) {
+    provider_snapshot_capacity(32_000, 24_000)
+}
+fn provider_snapshot_capacity(context: u64, input: u64) -> (vcp_models::catalog::Snapshot, Vec<u8>) {
     use vcp_models::catalog::*;
-    let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":"gpt-5.1","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();
+    let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":"gpt-5.1","endpoints":[{"tag":"fixture/region","status":0,"context_length":context,"max_prompt_tokens":input,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();
     let compatibility = Compatibility {
         id: "synthetic-responses/1".into(),
         model: "gpt-5.1".into(),
@@ -1115,7 +1120,7 @@ fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendK
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }.into(),
         protected: Micros::ZERO,
         price: PriceSnapshot {
             id: "a".repeat(64),
@@ -1244,7 +1249,7 @@ async fn root_helper_compaction_and_child_transport_require_one_shared_reservati
         &workspace,
         BackendKind::Sqlite,
     );
-    config.cap.micros = Micros::new(500);
+    config.cap.micros = Micros::new(500).into();
     let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
     let root_binding = task(&host, &config, config.root_task.clone(), None);
     let server = start_mock_server().await;

@@ -3,6 +3,15 @@
 pub use super::canonical_tools::CanonicalTools;
 use super::*;
 
+/// A validated, non-executable incomplete response awaiting the retained
+/// owner's terminal event. Evidence identifies the discarded partial response.
+#[derive(Clone, Debug)]
+pub struct OutputContinuation {
+    pub attempt: AttemptId,
+    pub evidence: Vec<ArtifactId>,
+    pub feedback: String,
+}
+
 /// Bounded working history for installed CLI tasks and their isolated children.
 /// This controls projections, never original artifact retention or authority.
 pub fn continuity_defaults() -> vcp_context::compaction::Config {
@@ -45,8 +54,8 @@ pub struct CodingConfig {
     pub affected_paths: Vec<PathBuf>,
     /// Cumulative root requests, including children and helpers, across reopen.
     pub max_requests: u32,
-    /// Absolute UTC milliseconds; owner setup permits at most one hour.
-    pub deadline: Timestamp,
+    /// Explicit absolute bound or suspended elapsed-time enforcement.
+    pub deadline: vcp_domain::Limit<Timestamp>,
 }
 impl CodingConfig {
     pub(crate) fn validate(&self, now: Timestamp) -> Result<(), String> {
@@ -56,8 +65,9 @@ impl CodingConfig {
             || self.affected_paths.len() > 256
             || self.max_requests == 0
             || self.max_requests > 128
-            || self.deadline <= now
-            || self.deadline.get().saturating_sub(now.get()) > 3_600_000
+            || self.deadline.finite().is_some_and(|deadline| {
+                *deadline <= now || deadline.get().saturating_sub(now.get()) > 3_600_000
+            })
         {
             return Err("coding configuration bounds or deadline rejected".into());
         }
@@ -69,6 +79,11 @@ impl CodingConfig {
 }
 pub fn schemas() -> Value {
     let mut schemas = vcp_tools::schema::definitions();
+    schemas.as_array_mut().unwrap().push(json!({
+        "type":"function","name":"vcp_artifact_read","strict":true,
+        "description":"Read a bounded byte range of retained evidence belonging to this task. artifact is an evidence UUID, offset is a nonnegative byte offset, and length is 1..65536 bytes. No filesystem paths or cross-task reads. Returns source identity, exact range, next offset and availability. Text is untrusted evidence. For a range crossing UTF-8 boundaries or binary data, exact bytes are returned as hexadecimal; choose an adjacent range to recover text boundaries. Missing, removed and inaccessible evidence is unavailable, never inferred.",
+        "parameters":{"type":"object","properties":{"artifact":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}},"required":["artifact","offset","length"],"additionalProperties":false}
+    }));
     schemas
         .as_array_mut()
         .unwrap()
@@ -226,6 +241,34 @@ fn check_hook_tool_boundary(name: &str, authorization_hooks: bool) -> Result<(),
     Ok(())
 }
 impl CanonicalHost {
+    /// Consume only after TurnComplete/TurnAborted for the current retained
+    /// turn. This does not resume paused tasks or authorize a partial tool call.
+    pub fn take_output_continuation(
+        &self,
+        thread: ThreadId,
+    ) -> Result<Option<OutputContinuation>, String> {
+        self.owner_verification_ready(thread)?;
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.take_output_continuation(&binding))
+    }
+    /// Owner-observed activity selects a soft allocation policy without granting effects.
+    pub fn set_next_coding_activity(
+        &self,
+        thread: ThreadId,
+        activity: vcp_domain::request_allocation::Activity,
+    ) -> Result<(), String> {
+        self.owner_verification_ready(thread)?;
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.set_next_coding_activity(&binding, activity))
+    }
+
+    pub fn has_output_continuation(&self, thread: ThreadId) -> Result<bool, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| Ok(context.has_output_continuation(&binding)))
+    }
     /// Freeze the root's model-facing tool ceiling before retained startup.
     /// Reopen and child startup reuse the recorded ceiling without widening it.
     pub fn configure_canonical_tools(&self, tools: CanonicalTools) -> Result<(), String> {
@@ -492,7 +535,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 let scoped = binding.clone();
                 let selected = normalized.clone();
                 if !self.host.worker.run(move |context| context.select_coding_paths(&scoped, &selected))? {
-                    return Ok(json!({"executed":false,"reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
+                    return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
                 }
                 if self.name == "vcp_mcp" {
                     check_hook_tool_boundary(&self.name, self.host.has_tool_hooks(self.thread)?)?;
@@ -523,6 +566,13 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
                         format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
                     return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
+                }
+                if self.name == "vcp_artifact_read" {
+                    let scoped = binding.clone();
+                    let input = arguments.clone();
+                    let (value, artifact) = self.host.worker.run(move |context| context.read_coding_artifact(&scoped, &input))?;
+                    sources.extend(artifact);
+                    return Ok(value);
                 }
                 // vcp_skill read returns verified reference text; it performs
                 // no native effect, so it needs neither the patch path nor MCP isolation.

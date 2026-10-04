@@ -24,7 +24,7 @@ impl Context {
         decision: &RoutingDecision,
         catalog: &routing::CatalogRevision,
         policy: &routing::Policy,
-        available: Money,
+        available: MonetaryLimit,
         protected: Micros,
     ) -> Result<()> {
         let owner = self
@@ -366,7 +366,6 @@ impl Context {
             .current_routing_policy()?
             .ok_or("routing policy unavailable")?;
         configuration.escalation = self.current_escalation_policy()?;
-        let output_ceiling = self.current_output_ceiling()?;
         configuration.catalog = self
             .current_routing_catalog()?
             .ok_or("routing registry unavailable")?;
@@ -405,41 +404,80 @@ impl Context {
             }
         }
         let context_bytes = canonical_bytes(&(parts, schemas))?;
-        // Compare actual provider serialization after portable compaction.
-        // Use the largest encoding as a conservative common bound; final
-        // assembly and atomic admission still check the selected exact bytes.
-        let estimated_input = configuration
+        let sizing_revisions = self.context_revisions(binding)?;
+        // Size each candidate with its own codec and output allowance before
+        // selection. Smaller qualified candidates do not inherit the primary's
+        // larger response ceiling or another candidate's encoding size.
+        let candidate_requests: Vec<routing::CandidateRequest> = configuration
             .catalog
             .entries
             .iter()
-            .filter_map(|candidate| candidate.snapshot.as_ref())
-            .filter_map(|snapshot| {
-                let envelope =
-                    vcp_models::request::envelope(snapshot, output_ceiling, Units::new(512), now())
-                        .ok()?;
-                vcp_models::request::encode_with_effort(
-                    parts,
-                    &envelope,
-                    schemas,
+            .filter_map(|candidate| {
+                let snapshot = candidate.snapshot.as_ref()?;
+                let allocation = self.coding_request_allocation(binding, snapshot).ok()?;
+                let envelope = vcp_models::request::envelope(
                     snapshot,
-                    configuration.policy.reasoning_effort,
+                    allocation.output_limit,
+                    Units::new(512),
+                    now(),
+                )
+                .ok()?;
+                vcp_context::selection::assemble_with_input_target(
+                    parts.to_vec(),
+                    sizing_revisions.clone(),
+                    envelope,
+                    schemas.clone(),
+                    Vec::new(),
+                    &vcp_context::selection::Utf8ByteCeiling,
+                    Some(allocation.input_target),
+                    |selected, envelope, schemas| {
+                        vcp_models::request::encode_with_effort(
+                            selected,
+                            envelope,
+                            schemas,
+                            snapshot,
+                            configuration.policy.reasoning_effort,
+                        )
+                        .map_err(|_| {
+                            vcp_context::manifest::Error::Incompatible("candidate provider codec")
+                        })
+                    },
                 )
                 .ok()
-                .map(|body| body.len() as u64)
+                .map(|sealed| routing::CandidateRequest {
+                    candidate: candidate.identity.clone(),
+                    input_tokens: sealed.manifest.input_estimate,
+                    output_tokens: allocation.output_limit,
+                })
             })
+            .collect();
+        let estimated_input = candidate_requests
+            .iter()
+            .map(|request| request.input_tokens.get())
             .max()
-            .unwrap_or(context_bytes.len() as u64);
-        let available = ledger
-            .cap
-            .get()
-            .checked_sub(ledger.settled.get())
-            .and_then(|v| v.checked_sub(ledger.active.get()))
-            .and_then(|v| v.checked_sub(ledger.unresolved.get()))
-            .unwrap_or(0);
+            .ok_or("no candidate request can be encoded")?;
+        let output_ceiling = candidate_requests
+            .iter()
+            .map(|request| request.output_tokens)
+            .max()
+            .ok_or("no candidate output allocation")?;
+        let available = ledger.cap.map(|cap| {
+            Micros::new(
+                cap.get()
+                    .saturating_sub(ledger.settled.get())
+                    .saturating_sub(ledger.active.get())
+                    .saturating_sub(ledger.unresolved.get()),
+            )
+        });
         if !configuration.owner_assignments.is_empty() {
             for estimate in &mut configuration.estimates {
-                estimate.first_attempt.input = Units::new(estimated_input);
-                estimate.first_attempt.output = output_ceiling;
+                if let Some(request) = candidate_requests
+                    .iter()
+                    .find(|request| request.candidate == estimate.candidate)
+                {
+                    estimate.first_attempt.input = request.input_tokens;
+                    estimate.first_attempt.output = request.output_tokens;
+                }
             }
         }
         let rotation_selected = self
@@ -498,9 +536,10 @@ impl Context {
             required_capabilities,
             input_tokens: Units::new(estimated_input),
             output_tokens: output_ceiling,
-            available: Money {
+            candidate_requests,
+            available: MonetaryLimit {
                 currency: ledger.currency.clone(),
-                micros: Micros::new(available),
+                micros: available,
             },
             protected_verification: ledger.protected,
             estimates: configuration.estimates.clone(),

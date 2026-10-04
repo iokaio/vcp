@@ -33,7 +33,7 @@ pub fn restored_configuration(
     prior: Option<&super::Config>,
 ) -> Result<super::Config> {
     use vcp_domain::{
-        accounting::{Ledger, Money, PriceSnapshot},
+        accounting::{Ledger, PriceSnapshot},
         task::Task,
         workspace::Trust,
         ByteCount, Micros, Timestamp, Units,
@@ -109,17 +109,17 @@ pub fn restored_configuration(
     // not a price estimate or a newly admitted canonical monetary fact.
     let cap = ledger
         .as_ref()
-        .map(|ledger| Money {
+        .map(|ledger| vcp_domain::accounting::MonetaryLimit {
             currency: ledger.currency.clone(),
             micros: ledger.cap,
         })
         .or_else(|| prior.map(|config| config.cap.clone()))
-        .unwrap_or(Money {
+        .unwrap_or(vcp_domain::accounting::MonetaryLimit {
             currency: "USD"
                 .to_owned()
                 .try_into()
                 .map_err(|_| "default currency invalid")?,
-            micros: Micros::ZERO,
+            micros: vcp_domain::Limit::Unbounded,
         });
     let protected = ledger
         .as_ref()

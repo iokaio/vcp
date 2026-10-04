@@ -50,7 +50,7 @@ pub struct Profile {
     pub provider_timeout_seconds: Option<u32>,
     #[serde(default = "vcp_lifecycle::foundation::default_max_transport_retries")]
     pub max_transport_retries: u32,
-    pub deadline_seconds: u32,
+    pub deadline_seconds: vcp_domain::Limit<u32>,
     pub processes: Vec<ProcessProfile>,
     /// Executable hooks are explicit trusted owner configuration, never imports.
     #[serde(default)]
@@ -294,13 +294,12 @@ fn startup_output_ceiling(
 
 fn startup_provider_timeout(
     selected: Option<u32>,
-    deadline_seconds: u32,
+    _legacy_deadline_seconds: u32,
 ) -> Result<Duration, String> {
     match selected {
-        Some(seconds) if seconds == 0 || seconds > 360 || seconds > deadline_seconds => Err(
-            "explicit provider timeout must be 1..360 seconds and not exceed the task deadline"
-                .into(),
-        ),
+        Some(seconds) if seconds == 0 || seconds > 360 => {
+            Err("explicit provider transport timeout must be 1..360 seconds".into())
+        }
         Some(seconds) => Ok(Duration::from_secs(u64::from(seconds))),
         // Preserve legacy profiles, including tasks shorter than 120 seconds;
         // the task deadline remains an independent cancellation boundary.
@@ -338,11 +337,8 @@ mod request_limit_tests {
         );
         let extended = profile.with_max_timeout_ms(180_000).unwrap();
         assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 600).is_ok());
-        assert!(
-            validate_check_durations(&[check.clone()], &[extended.clone()], 120)
-                .unwrap_err()
-                .contains("task deadline")
-        );
+        // Authorized process ceilings remain; task deadlines do not constrain checks.
+        assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 120).is_ok());
         for invalid in [0, vcp_tools::process::MAX_TIMEOUT_MS + 1, u64::MAX] {
             check.timeout_ms = Some(invalid);
             assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 3600).is_err());
@@ -405,10 +401,10 @@ mod request_limit_tests {
         for seconds in [0, 361, u32::MAX] {
             assert!(startup_provider_timeout(Some(seconds), 3600).is_err());
         }
-        assert!(startup_provider_timeout(Some(61), 60).is_err());
-        assert!(startup_provider_timeout(Some(180), 179).is_err());
-        assert!(startup_provider_timeout(Some(360), 359).is_err());
-        assert!(startup_provider_timeout(Some(1), 0).is_err());
+        assert!(startup_provider_timeout(Some(61), 60).is_ok());
+        assert!(startup_provider_timeout(Some(180), 179).is_ok());
+        assert!(startup_provider_timeout(Some(360), 359).is_ok());
+        assert!(startup_provider_timeout(Some(1), 0).is_ok());
     }
 
     #[test]
@@ -494,11 +490,20 @@ mod request_limit_tests {
         assert_eq!(configured.output_ceiling().unwrap(), Units::new(16384));
         assert_eq!(configured.max_transport_retries, 0);
         selected["provider_timeout_seconds"] = serde_json::json!(360);
+        // Transport liveness is independently bounded. The outer finite task
+        // deadline remains effective without invalidating this profile value.
+        let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert_eq!(
+            configured.provider_timeout().unwrap(),
+            Duration::from_secs(360)
+        );
+        selected["provider_timeout_seconds"] = serde_json::json!(361);
         let invalid: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert!(invalid.provider_timeout().is_err());
         assert!(
-            matches!(invalid.prepare(Autonomy::Autonomous), Err(reason) if reason.contains("explicit provider timeout"))
+            matches!(invalid.prepare(Autonomy::Autonomous), Err(reason) if reason.contains("explicit provider transport timeout"))
         );
+        selected["provider_timeout_seconds"] = serde_json::json!(360);
         selected["deadline_seconds"] = serde_json::json!(900);
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(configured.provider_timeout_seconds, Some(360));
@@ -520,7 +525,7 @@ impl Profile {
     }
 
     pub fn provider_timeout(&self) -> Result<Duration, String> {
-        startup_provider_timeout(self.provider_timeout_seconds, self.deadline_seconds)
+        startup_provider_timeout(self.provider_timeout_seconds, 0)
     }
 
     pub fn prepare(self, requested: Autonomy) -> Result<PreparedProfile, String> {
@@ -537,9 +542,10 @@ impl Profile {
         }
         if self.max_requests == 0
             || self.max_requests > 128
-            || self.deadline_seconds == 0
-            || self.deadline_seconds > 3600
-            || (!self.checks.is_empty() && self.deadline_seconds <= 120)
+            || self
+                .deadline_seconds
+                .finite()
+                .is_some_and(|seconds| *seconds == 0 || *seconds > 3600)
             || self.affected_paths.is_empty()
             || self.affected_paths.len() > 256
             || self.checks.len() > 32
@@ -627,7 +633,9 @@ impl Profile {
                 return Err("hook requires an explicit executable profile".into());
             }
         }
-        validate_check_durations(&self.checks, &processes, self.deadline_seconds)?;
+        validate_check_durations(&self.checks, &processes, 0)?;
+        // Preserve the explicit profile bound until CLI activation is complete;
+        // preparing a finite profile must not make its launcher reject it.
         crate::mcp::validate(&self.mcp, &names)?;
         crate::mcp::validate_http(&self.mcp_http, &self.mcp)?;
         Ok(PreparedProfile {
@@ -641,7 +649,7 @@ impl Profile {
 fn validate_check_durations(
     checks: &[vcp_tools::verification::Requirement],
     processes: &[vcp_tools::process::Profile],
-    deadline_seconds: u32,
+    _legacy_deadline_seconds: u32,
 ) -> Result<(), String> {
     for check in checks {
         check
@@ -658,12 +666,6 @@ fn validate_check_durations(
             return Err(format!(
                 "check {} duration exceeds profile {} ceiling",
                 check.manifest, check.profile
-            ));
-        }
-        if requested > u64::from(deadline_seconds) * 1000 {
-            return Err(format!(
-                "check {} duration exceeds configured task deadline",
-                check.manifest
             ));
         }
     }

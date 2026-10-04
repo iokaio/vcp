@@ -101,13 +101,10 @@ pub(super) fn replay(
         != (CommandResult::Accepted {
             revision: binding.revision,
         })
-        || !store.state().events.iter().any(|event| {
-            event.watermark == receipt.watermark
-                && event.event.workspace == access.workspace
-                && event.event.session == access.session
-                && event.event.actor == access.actor
-                && event.event.correlation == command
-        })
+        || !store
+            .receipt_events(&access.workspace, &access.session, &receipt)
+            .map_err(|_| failure(Code::StoreUnavailable))?
+            .any(|event| event.event.actor == access.actor && event.event.correlation == command)
     {
         return Err(failure(Code::StoreUnavailable));
     }

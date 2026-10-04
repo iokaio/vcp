@@ -49,7 +49,7 @@ mod tests {
             cap: Money {
                 currency: currency.clone(),
                 micros: Micros::new(2000),
-            },
+            }.into(),
             protected: Micros::new(200),
             price: PriceSnapshot {
                 id: "a".repeat(64),

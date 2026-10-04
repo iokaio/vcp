@@ -9,6 +9,7 @@ pub mod backup_manager;
 pub mod backup_run;
 pub mod canonical_tools;
 pub mod history_retention;
+pub mod execution_diagnostics;
 #[cfg(windows)]
 pub mod restore_search;
 #[cfg(windows)]
@@ -113,7 +114,7 @@ pub struct Config {
     pub binding: Binding,
     pub actor: ActorId,
     pub root_task: TaskId,
-    pub cap: Money,
+    pub cap: vcp_domain::accounting::MonetaryLimit,
     pub protected: Micros,
     pub price: PriceSnapshot,
     pub input_ceiling: Units,
@@ -256,6 +257,22 @@ impl Drop for OutputCapture {
     }
 }
 impl CanonicalHost {
+    /// Read-only phase counters from this owner's already validated store.
+    pub fn store_diagnostics(&self) -> Result<vcp_store::StoreDiagnostics, String> {
+        self.worker
+            .run_cleanup(|context| Ok(context.engine.store().diagnostics().clone()))
+    }
+    pub fn execution_diagnostics(&self, scope: Scope) -> Result<execution_diagnostics::Snapshot, String> {
+        self.worker.run_cleanup(move |context| {
+            let task: vcp_domain::task::Task = context.engine.store().state().record(vcp_store::contract::Collection::Task, scope.task.as_str(), &context.config.workspace)?.decode()?;
+            if task.scope != scope || task.redaction.is_some() { return Err("diagnostic scope unavailable".into()); }
+            Ok(context.diagnostics.snapshot().for_scope(&scope))
+        })
+    }
+    fn diagnostic_span(&self, thread: ThreadId, phase: execution_diagnostics::Phase) -> Result<execution_diagnostics::Span, String> {
+        let binding = self.binding(thread)?;
+        self.worker.run_cleanup(move |context| Ok(context.begin_diagnostic(&binding, phase, None)))
+    }
     /// Persist the explicitly admitted root cap before a CLI can detach or
     /// select another task. Reopening never replaces an existing ledger cap.
     pub fn initialize_root_budget(&self) -> Result<(), String> {
@@ -359,6 +376,12 @@ impl CanonicalHost {
     pub fn snapshot(&self) -> Result<State, String> {
         self.worker
             .run_cleanup(|context| Ok(context.engine.store().state().clone()))
+    }
+    /// Current records only. This read does not dispatch work or copy retained
+    /// event/receipt payloads; its watermark is not an admission capability.
+    pub fn current_state(&self) -> Result<Arc<vcp_store::CurrentState>, String> {
+        self.worker
+            .run_cleanup(|context| Ok(context.engine.store().current_state()))
     }
     /// Explicit bounded local maintenance, never called by read-only inspection.
     pub fn maintain_memory(&self) -> Result<vcp_memory::runner::Progress, String> {
@@ -522,6 +545,7 @@ impl TurnStartAdmission for CanonicalHost {
     }
 }
 struct ModelPermit {
+    diagnostic: Option<execution_diagnostics::Span>,
     #[cfg(windows)]
     provider_slot: Option<provider_pacing::Slot>,
     host: CanonicalHost,
@@ -554,6 +578,7 @@ impl HostWorkPermit for ModelPermit {
         {
             return Ok(None);
         }
+        if let Some(span) = self.diagnostic.take() { span.finish(&Err::<(), ()>(())); }
         let Some(deadline) = self.deadline else {
             return Ok(None);
         };
@@ -737,9 +762,11 @@ impl HostWorkPermit for ModelPermit {
         let response_id = response_id.to_owned();
         let attempt = self.attempt.clone();
         let binding = self.binding.clone();
-        self.worker
+        let result = self.worker
             .run(move |context| context.complete(&binding, &attempt, usage, response_id))
-            .inspect_err(|_| self.worker.fence())?;
+            .inspect_err(|_| self.worker.fence());
+        if let Some(span) = self.diagnostic.take() { span.finish(&result); }
+        result?;
         self.runtime.complete()?;
         self.finished = true;
         #[cfg(windows)]
@@ -1070,7 +1097,11 @@ impl CanonicalHost {
             deadline = Some(deadline.map_or(slot.deadline, |value| value.min(slot.deadline)));
         }
         *body = prepared;
+        let diagnostic_binding = binding.clone();
+        let diagnostic_attempt = attempt.clone();
+        let diagnostic = self.worker.run_cleanup(move |context| Ok(context.begin_diagnostic(&diagnostic_binding, execution_diagnostics::Phase::ProviderExchange, Some(diagnostic_attempt)))).ok();
         Ok(Box::new(ModelPermit {
+            diagnostic,
             #[cfg(windows)]
             provider_slot: slot,
             host: self.clone(),

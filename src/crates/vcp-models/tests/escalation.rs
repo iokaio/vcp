@@ -172,6 +172,7 @@ fn input(catalog: &CatalogRevision, policy: &Policy) -> RoutingInput {
         input_tokens: Units::new(100),
         output_tokens: Units::new(50),
         available: money(10_000).into(),
+        candidate_requests: vec![],
         protected_verification: Micros::new(100),
         estimates: catalog.entries.iter().map(estimate).collect(),
     }

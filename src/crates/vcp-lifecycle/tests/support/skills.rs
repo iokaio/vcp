@@ -461,7 +461,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                 .unwrap();
             let id = host.lifecycle().attach_root(test.codex.clone()).unwrap();
             host.register(id, binding.clone()).unwrap();
-            host.configure_coding(id,CodingConfig {canonical_tools: Default::default(),operating:"Observe fixture evidence and preserve the explicit user constraint to keep marker.txt unchanged.".into(),affected_paths:vec!["marker.txt".into()],max_requests:3,deadline:Timestamp::new(now().get()+300_000)}).unwrap();
+            host.configure_coding(id,CodingConfig {canonical_tools: Default::default(),operating:"Observe fixture evidence and preserve the explicit user constraint to keep marker.txt unchanged.".into(),affected_paths:vec!["marker.txt".into()],max_requests:3,deadline:Timestamp::new(now().get()+300_000).into()}).unwrap();
             if mode == "discovery" {
                 host.skill_control(
                     id,
@@ -719,7 +719,7 @@ async fn retained_skills_are_lazy_attributed_and_cannot_override_denials_or_stal
                                     .into(),
                             affected_paths: vec!["marker.txt".into()],
                             max_requests: 3,
-                            deadline: Timestamp::new(now().get() + 300_000),
+                            deadline: Timestamp::new(now().get() + 300_000).into(),
                         },
                     )
                     .unwrap();
@@ -920,7 +920,7 @@ async fn skill_materialization_copies_verified_file_resources_through_patch_auth
                 operating: "Materialize the active skill helper when asked.".into(),
                 affected_paths: vec!["helper.py".into()],
                 max_requests: 3,
-                deadline: Timestamp::new(now().get() + 300_000),
+                deadline: Timestamp::new(now().get() + 300_000).into(),
             },
         )
         .unwrap();

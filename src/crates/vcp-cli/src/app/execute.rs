@@ -43,6 +43,9 @@ pub(super) async fn execute(
         pipe,
         key,
     } = locations;
+    // Resume policy and task selection share the same validated store owner.
+    // The later canonical host still reopens and checks selected_revision.
+    let mut selection_store = None;
     let requested = match &cli.command {
         ValidatedCommand::Run(run) => settings::autonomy(run.autonomy),
         _ => {
@@ -59,7 +62,7 @@ pub(super) async fn execute(
             let policy = vcp_engine::policy::optional(store.state(), &entry.config.workspace)
                 .map_err(|e| e.to_string())?;
             let mode = policy.map_or(PolicyAutonomy::Ask, |p| p.mode);
-            store.close().await.map_err(|e| e.to_string())?;
+            selection_store = Some(store);
             mode
         }
     };
@@ -105,7 +108,7 @@ pub(super) async fn execute(
             cap: Money {
                 currency: prepared.profile.provider.price.currency.clone(),
                 micros: cap.unwrap_or(Micros::ZERO),
-            },
+            }.into(),
             protected: Micros::ZERO,
             price: prepared.profile.provider.price.clone(),
             input_ceiling: prepared.profile.provider.max_input,
@@ -116,13 +119,9 @@ pub(super) async fn execute(
         }
     };
     if objective.is_none() {
-        let store = Store::open(
-            &config.canonical_root,
-            config.backend,
-            std::slice::from_ref(&cli.workspace),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+        let store = selection_store
+            .take()
+            .ok_or("resume selection owner unavailable")?;
         let selected = match &cli.command {
             ValidatedCommand::Resume(resume) => match &resume.task {
                 Some(id) => task_from(store.state(), &config.workspace, id),
@@ -204,8 +203,8 @@ pub(super) async fn execute(
     if objective.is_some() {
         config.root_task = TaskId::new();
         config.cap.micros = match &cli.command {
-            ValidatedCommand::Run(run) => run.budget,
-            _ => cap.ok_or("fork requires persisted budget cap")?,
+            ValidatedCommand::Run(run) => run.budget.into(),
+            _ => cap.ok_or("fork requires persisted budget cap")?.into(),
         };
         crate::model_preferences::retain_task(directory, &config.root_task, &prepared.profile)?;
     }
@@ -400,7 +399,7 @@ pub(super) async fn execute(
             }
         }
         if interactive {
-            return crate::terminal::run(&host,session,&scope,&profile.provider.compatibility.model,profile.deadline_seconds,&mut backup_triggers).await;
+            return crate::terminal::run(&host,session,&scope,&profile.provider.compatibility.model,*profile.deadline_seconds.finite().ok_or("terminal launch requires a finite deadline")?,&mut backup_triggers).await;
         }
         let mut execution_owner=crate::execution::RetainedExecution::claim(&host,session,&scope)?;
         let _stdin=if cli.control_stdin{
@@ -408,7 +407,7 @@ pub(super) async fn execute(
             Some(AbortOnDrop(tokio::spawn(async move{while let Ok(Some(reply))=input.next(&host).await{if reply.result.is_err(){eprintln!("vcp: structured control rejected");}}})))
         }else{None};
         let mut tick=tokio::time::interval(Duration::from_millis(250));
-        let deadline=tokio::time::sleep(Duration::from_secs(u64::from(profile.deadline_seconds)));tokio::pin!(deadline);
+        let deadline=tokio::time::sleep(Duration::from_secs(u64::from(*profile.deadline_seconds.finite().ok_or("batch launch requires a finite deadline")?)));tokio::pin!(deadline);
         lifecycle_pending=Some(execution_owner.start_submission(None));
         let mut active_turn=None;
         loop{tokio::select!{

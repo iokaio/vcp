@@ -459,7 +459,6 @@ impl Context {
         if request.task.as_str() != self.config.root_task.as_str()
             || request.scope.workspace.as_str() != self.config.workspace.as_str()
             || request.scope.session.as_str() != self.config.session.as_str()
-            || request.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
             || request.budget.currency != vcp_protocol::methods::Currency::Usd
             || self.config.cap.currency.code() != "USD"
         {

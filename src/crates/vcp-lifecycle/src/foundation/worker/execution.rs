@@ -15,6 +15,16 @@ impl Context {
         Ok(())
     }
     pub fn prepare_process(&self, binding: &ThreadBinding, request: Request) -> Result<Prepared> {
+        let span = self.begin_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::Phase::PolicyAdmission,
+            None,
+        );
+        let result = self.prepare_process_inner(binding, request);
+        span.finish(&result);
+        result
+    }
+    fn prepare_process_inner(&self, binding: &ThreadBinding, request: Request) -> Result<Prepared> {
         self.child_process_scope(binding)?;
         let identity = self.tool_identity(binding, "vcp_exec")?;
         let profile = self

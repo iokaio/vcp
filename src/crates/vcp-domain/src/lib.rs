@@ -14,6 +14,7 @@ pub mod memory_review;
 pub mod policy;
 pub mod public_diff;
 pub mod redaction;
+pub mod request_allocation;
 pub mod retention;
 pub mod retention_selector;
 pub mod revision;

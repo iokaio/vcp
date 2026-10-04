@@ -49,11 +49,12 @@ fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<Micros, Exclu
 fn estimate_cost(
     snapshot: &Snapshot,
     estimate: &CostEstimate,
-    input: &RoutingInput,
+    input_tokens: Units,
+    output_tokens: Units,
 ) -> std::result::Result<CostBreakdown, Exclusion> {
     if estimate.first_attempt.requests == Units::ZERO
-        || estimate.first_attempt.input < input.input_tokens
-        || estimate.first_attempt.output < input.output_tokens
+        || estimate.first_attempt.input < input_tokens
+        || estimate.first_attempt.output < output_tokens
     {
         return Err(Exclusion::InvalidCost);
     }
@@ -168,6 +169,21 @@ fn evaluate(
     owner_selected: bool,
 ) -> CandidateDecision {
     let mut row = empty(candidate.identity.clone());
+    let Some((input_tokens, output_tokens)) = input.request_for(&candidate.identity) else {
+        row.exclusions.push(Exclusion::ContextCapacity);
+        row.assumptions
+            .push("No valid request encoding/allocation for this candidate.".into());
+        return row;
+    };
+    if policy
+        .input_tokens
+        .is_some_and(|limit| input_tokens > limit)
+        || policy
+            .output_tokens
+            .is_some_and(|limit| output_tokens > limit)
+    {
+        row.exclusions.push(Exclusion::ContextCapacity);
+    }
     if input
         .retry_pin
         .as_ref()
@@ -223,7 +239,7 @@ fn evaluate(
         // ordinary input and both cache categories. Check that immediate bound
         // separately from the configured expected task cost used for ranking.
         row.assumptions.push("Input byte estimate is unqualified; immediate admission reserves the full endpoint input capacity for ordinary input, cache read and cache write.".into());
-        let bound = snapshot.reservation_input(input.input_tokens);
+        let bound = snapshot.reservation_input(input_tokens);
         let maximum = bound
             .get()
             .checked_mul(3)
@@ -235,7 +251,7 @@ fn evaluate(
                         input: Units::new(inclusive),
                         cache_read: bound,
                         cache_write: bound,
-                        output: input.output_tokens,
+                        output: output_tokens,
                         requests: Units::new(1),
                         ..Usage::default()
                     },
@@ -299,12 +315,11 @@ fn evaluate(
     {
         row.exclusions.push(Exclusion::DataPolicy);
     }
-    if input.input_tokens > snapshot.max_input
-        || input.output_tokens > snapshot.max_output
-        || input
-            .input_tokens
+    if input_tokens > snapshot.max_input
+        || output_tokens > snapshot.max_output
+        || input_tokens
             .get()
-            .checked_add(input.output_tokens.get())
+            .checked_add(output_tokens.get())
             .is_none_or(|total| total > snapshot.context.get())
     {
         row.exclusions.push(Exclusion::ContextCapacity);
@@ -342,7 +357,7 @@ fn evaluate(
         Some(estimate) => {
             row.assumptions.extend(estimate.assumptions.clone());
             row.evidence_refs.extend(estimate.evidence_refs.clone());
-            match estimate_cost(snapshot, estimate, input) {
+            match estimate_cost(snapshot, estimate, input_tokens, output_tokens) {
                 Err(Exclusion::UnknownCost) if input.available.micros.is_unbounded() => row
                     .assumptions
                     .push("Cost estimate incomplete; cost remains unknown.".into()),
@@ -449,17 +464,19 @@ fn select_inner(
     if input.catalog != catalog.id || input.policy != policy.id {
         return Err(Error::Stale);
     }
-    if policy
-        .input_tokens
-        .is_some_and(|limit| input.input_tokens > limit)
+    if input.candidate_requests.is_empty()
+        && policy
+            .input_tokens
+            .is_some_and(|limit| input.input_tokens > limit)
     {
         return Err(Error::Capability(
             "routing input exceeds selected policy limit",
         ));
     }
-    if policy
-        .output_tokens
-        .is_some_and(|limit| input.output_tokens > limit)
+    if input.candidate_requests.is_empty()
+        && policy
+            .output_tokens
+            .is_some_and(|limit| input.output_tokens > limit)
     {
         return Err(Error::Capability(
             "routing output exceeds selected policy limit",

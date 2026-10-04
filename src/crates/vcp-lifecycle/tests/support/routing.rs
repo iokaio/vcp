@@ -328,9 +328,9 @@ async fn retained_routing_cases(owner_http_only: bool) {
             if mode == "owner-assignment-http-fallback" {
                 // One failed primary (200) plus its cheaper replacement (100)
                 // fits, but reserving the primary twice would exceed this cap.
-                config.cap.micros = Micros::new(300);
+                config.cap.micros = Micros::new(300).into();
             } else if mode == "owner-assignment-http-budget" {
-                config.cap.micros = Micros::new(299);
+                config.cap.micros = Micros::new(299).into();
             }
             let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
             let mut binding = task(&host, &config, config.root_task.clone(), None);
@@ -575,7 +575,7 @@ async fn retained_routing_cases(owner_http_only: bool) {
                     } else {
                         1
                     },
-                    deadline: Timestamp::new(clock().get() + 300_000),
+                    deadline: Timestamp::new(clock().get() + 300_000).into(),
                 },
             )
             .unwrap();
@@ -718,11 +718,11 @@ async fn retained_routing_cases(owner_http_only: bool) {
                 if mode == "owner-assignment-http-fallback" {
                     assert_eq!(primary.quote.amount.micros, Micros::new(200));
                     assert_eq!(fallback.quote.amount.micros, Micros::new(100));
-                    assert_eq!(second.input.available.micros, Micros::new(100));
-                    assert!(second.input.available.micros < primary.quote.amount.micros);
+                    assert_eq!(second.input.available.micros, Micros::new(100).into());
+                    assert!(second.input.available.micros.exceeds(&primary.quote.amount.micros));
                     assert_eq!(
                         ledger.unresolved.get() + ledger.settled.get(),
-                        ledger.cap.get()
+                        ledger.cap.finite().expect("finite historical fixture").get()
                     );
                 }
                 assert!(second
@@ -952,7 +952,7 @@ async fn retained_routing_cases(owner_http_only: bool) {
                             operating: "Preserve retained routing policy.".into(),
                             affected_paths: vec!["file.txt".into()],
                             max_requests: 4,
-                            deadline: Timestamp::new(clock().get() + 300_000),
+                            deadline: Timestamp::new(clock().get() + 300_000).into(),
                         },
                     )
                     .unwrap();

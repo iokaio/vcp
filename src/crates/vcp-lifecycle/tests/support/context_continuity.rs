@@ -200,7 +200,7 @@ async fn run(backend: BackendKind, oversized: bool) {
                 operating: "Use observed sources and preserve uncertainty".into(),
                 affected_paths: vec!["evidence.txt".into()],
                 max_requests: 10,
-                deadline: Timestamp::new(now + 600_000),
+                deadline: Timestamp::new(now + 600_000).into(),
             },
         )
         .unwrap();
@@ -343,8 +343,8 @@ async fn run(backend: BackendKind, oversized: bool) {
             assert!(packet.current_state["task"]["objectives"].is_array());
             assert!(packet.current_state["continuity"]["original_base"].is_object());
             assert_eq!(
-                packet.remaining.get(),
-                packet.ledger.cap.get().saturating_sub(
+                packet.remaining.finite().expect("finite historical fixture").get(),
+                packet.ledger.cap.finite().expect("finite historical fixture").get().saturating_sub(
                     packet.ledger.settled.get()
                         + packet.ledger.active.get()
                         + packet.ledger.unresolved.get()

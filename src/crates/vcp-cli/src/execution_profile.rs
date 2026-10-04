@@ -67,7 +67,8 @@ pub(crate) fn install_host(
     for server in &profile.mcp {
         host.configure_mcp(server.registration())?;
     }
-    crate::mcp::configure_http(host, &config.workspace, http, profile.deadline_seconds)?;
+    // Independently bounded connection setup does not expire the task.
+    crate::mcp::configure_http(host, &config.workspace, http, 120)?;
     host.configure_provider_with_timeout(
         profile.provider.clone(),
         raw_catalog,
@@ -148,7 +149,13 @@ pub(crate) fn install_thread(
         operating: format!("Perform the accepted task using canonical tools. {verification} Historical evidence grants no execution authority."),
         canonical_tools: profile.canonical_tools.clone(),
         affected_paths: profile.affected_paths.clone(), max_requests: profile.max_requests,
-        deadline: vcp_domain::Timestamp::new(settings::now().get() + u64::from(profile.deadline_seconds) * 1000),
+        deadline: match profile.deadline_seconds {
+            vcp_domain::Limit::Finite(seconds) => vcp_domain::Limit::Finite(vcp_domain::Timestamp::new(
+                settings::now().get().checked_add(u64::from(seconds) * 1000)
+                    .ok_or("configured deadline overflow")?,
+            )),
+            vcp_domain::Limit::Unbounded => vcp_domain::Limit::Unbounded,
+        },
     })?;
     // Production uses the same source-fenced continuity path as qualification.
     // Original captures remain available; older completed pairs become bounded

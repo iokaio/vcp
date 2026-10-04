@@ -96,7 +96,7 @@ async fn execute_with_source(
     let (task, ledger) = selection?;
     config.session = task.scope.session.clone();
     config.root_task = task.scope.task.clone();
-    config.cap = vcp_domain::accounting::Money {
+    config.cap = vcp_domain::accounting::MonetaryLimit {
         currency: ledger.currency,
         micros: ledger.cap,
     };

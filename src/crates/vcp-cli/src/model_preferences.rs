@@ -2131,14 +2131,14 @@ mod tests {
         ceiling.policy = ceiling.policy.clone().seal().unwrap();
         current.max_requests = 2;
         current.max_transport_retries = 0;
-        current.deadline_seconds = 30;
+        current.deadline_seconds = 30.into();
         current.output_tokens = Some(Units::new(128));
 
         let merged =
             with_retained_models(current, RetainedModels::from_profile(&retained)).unwrap();
         assert_eq!(merged.max_requests, 2);
         assert_eq!(merged.max_transport_retries, 0);
-        assert_eq!(merged.deadline_seconds, 30);
+        assert_eq!(merged.deadline_seconds, 30.into());
         assert_eq!(merged.output_tokens, Some(Units::new(128)));
         let effective = merged.routing.as_ref().unwrap();
         effective.validate().unwrap();
@@ -2186,10 +2186,12 @@ mod tests {
             retry_pin: None,
             input_tokens: Units::new(1),
             output_tokens: Units::new(1),
+            candidate_requests: vec![],
             available: Money {
                 currency: "USD".to_owned().try_into().unwrap(),
                 micros: Micros::new(10_000_000),
-            },
+            }
+            .into(),
             protected_verification: Micros::ZERO,
             estimates: effective.estimates.clone(),
         };

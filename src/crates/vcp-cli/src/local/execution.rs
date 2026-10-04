@@ -242,7 +242,7 @@ impl Supervisor {
         if let Some(accepted) = self.retained_budget(&state)? {
             if accepted.budget.max_requests != profile.max_requests
                 || accepted.budget.deadline_seconds != profile.deadline_seconds
-                || accepted.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
+                || accepted.budget.cap_micros != self.config.cap.micros.map(|cap| cap.get().into())
             {
                 return Err("execution profile differs from original public run limits".into());
             }
@@ -303,12 +303,12 @@ impl Supervisor {
         &self,
         profile: &crate::settings::Profile,
     ) -> Result<tokio::time::Instant, String> {
-        let mut remaining = u64::from(profile.deadline_seconds) * 1000;
+        let mut remaining = u64::from(*profile.deadline_seconds.finite().ok_or("public launch requires a finite deadline")?) * 1000;
         if let Some(accepted) = self.retained_budget(&self.host.snapshot()?)? {
             let expires = accepted
                 .accepted_at
                 .get()
-                .checked_add(u64::from(accepted.budget.deadline_seconds) * 1000)
+                .checked_add(u64::from(*accepted.budget.deadline_seconds.finite().ok_or("retained run requires a finite deadline")?) * 1000)
                 .ok_or("original run deadline overflow")?;
             remaining = remaining.min(expires.saturating_sub(crate::settings::now().get()));
         }
@@ -519,6 +519,7 @@ fn pump(
                         codex_protocol::protocol::EventMsg::TurnComplete(_) => {
                             pending=Some(execution.start_completion());
                         }
+                        codex_protocol::protocol::EventMsg::Error(_) if execution.has_output_continuation().unwrap_or(false) => {},
                         codex_protocol::protocol::EventMsg::TurnAborted(_) | codex_protocol::protocol::EventMsg::Error(_) => { pause(&host, &scope); break; }
                         _ => {}
                     },
