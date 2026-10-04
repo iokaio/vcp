@@ -92,6 +92,14 @@ test('archive analysis verifies scoped retained bytes and rejects corruption or 
     descriptor.state = 'complete';
     fs.writeFileSync(path.join(root,'inspection-bundle.json'),bundleBytes);
     manifest.bundle.bytes = bundleBytes.length; manifest.bundle.sha256 = hash(bundleBytes); save();
+    bundle.fixture_observation_artifacts = ['missing-observation'];
+    const missingObservation = Buffer.from(JSON.stringify(bundle));
+    fs.writeFileSync(path.join(root,'inspection-bundle.json'),missingObservation);
+    manifest.bundle.bytes = missingObservation.length; manifest.bundle.sha256 = hash(missingObservation); save();
+    assert.throws(() => read(root),/not a complete verified archived artifact/);
+    delete bundle.fixture_observation_artifacts;
+    fs.writeFileSync(path.join(root,'inspection-bundle.json'),bundleBytes);
+    manifest.bundle.bytes = bundleBytes.length; manifest.bundle.sha256 = hash(bundleBytes); save();
     fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),'corrupt');
     assert.throws(() => read(root),/integrity mismatch/);
     fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),bytes);
@@ -116,6 +124,13 @@ test('skipped tool dispatch stays separate from completed processing and failed 
   assert.deepEqual(report.facts.lifecycle_statistics.groups.map(group => group.status),['skipped','succeeded','failed','interrupted']);
   assert.match(report.facts.lifecycle_statistics.interpretation,/not that an effect or verification passed/);
   assert.equal(report.assessment.quality,'requires_independent_scenario_gates');
+  bundle.lifecycle_diagnostics.observations[0].call_id='read-sibling';
+  assert.equal(analyze(bundle).facts.lifecycle_phases.observations[0].call_id,'read-sibling');
+  bundle.lifecycle_diagnostics.observations[0].call_id='x'.repeat(257);
+  assert.throws(() => analyze(bundle),/tool-call identity/);
+  bundle.lifecycle_diagnostics.observations[0].call_id='spoof\ncall';
+  assert.throws(() => analyze(bundle),/tool-call identity/);
+  delete bundle.lifecycle_diagnostics.observations[0].call_id;
   bundle.lifecycle_diagnostics.observations[0].status='invented_success';
   assert.throws(() => analyze(bundle),/Invalid diagnostic observation/);
 });

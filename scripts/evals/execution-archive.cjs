@@ -40,6 +40,9 @@ function readArchive(directory, readBundle) {
   let bytesRead = 0;
   const seen = new Set();
   const requests = new Map();
+  const requestedObservations = bundle.fixture_observation_artifacts ?? [];
+  if (!Array.isArray(requestedObservations) || requestedObservations.length > 64 || new Set(requestedObservations).size !== requestedObservations.length || requestedObservations.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id))) throw Error('Invalid fixture observation references');
+  const fixtureObservations = [];
   const repairs = [], allocations = [], checkpoints = [], contextProjections = [], partialCaptures = [];
   for (const row of manifest.artifacts) {
     const descriptor = row.descriptor, id = descriptor?.spec?.id;
@@ -57,8 +60,16 @@ function readArchive(directory, readBundle) {
       if (!requests.has(row.sha256)) requests.set(row.sha256,[]);
       requests.get(row.sha256).push(id);
     }
-    if (!['execution-completion-repair/1','verification-result/1','context-manifest/1','canonical-compaction-projection/1'].includes(descriptor.spec.schema)) continue;
+    if (!requestedObservations.includes(id) && !['execution-completion-repair/1','verification-result/1','context-manifest/1','canonical-compaction-projection/1'].includes(descriptor.spec.schema)) continue;
     const value = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));
+    if (requestedObservations.includes(id)) {
+      if (descriptor.spec.schema !== 'retained-output/1' || value.schema_version !== 1 || value.kind !== 'fixture_observed_verification_refresh' || !isDeepStrictEqual(value.scope,manifest.scope) || !['missing_verification','stale_verification'].includes(value.rejection) || (value.prior_verification != null && (typeof value.prior_verification !== 'string' || value.prior_verification.length > 128 || !/^[A-Za-z0-9_-]+$/.test(value.prior_verification))) || ![value.verified_source_sha256,value.current_source_sha256].every(hash => typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash))) throw Error('Invalid fixture refresh observation');
+      const verification = result.analysis.facts.verification.find(item => item.id === value.prior_verification);
+      fixtureObservations.push({artifact:id,kind:value.kind,rejection:value.rejection,prior_verification:value.prior_verification,
+        verification_present:!!verification,observed_prior_checks:verification?.checks ?? null,
+        verified_source_sha256:value.verified_source_sha256,current_source_sha256:value.current_source_sha256,
+        interpretation:'Captured fixture assertion of an observed typed rejection; no execution authority or independently attested causation.'});
+    }
     if (descriptor.spec.schema === 'execution-completion-repair/1') {
       const verification = result.analysis.facts.verification.find(item => item.id === value.verification);
       repairs.push({artifact:id,verification:value.verification,verification_present:!!verification,
@@ -78,8 +89,9 @@ function readArchive(directory, readBundle) {
       dropped:value.execution_diagnostics.dropped,observations:value.execution_diagnostics.observations?.length});
   }
   for (const allocation of allocations) allocation.request_artifacts = requests.get(allocation.request_sha256) ?? [];
+  if (fixtureObservations.length !== requestedObservations.length) throw Error('Fixture observation is not a complete verified archived artifact');
   result.archive = {manifest_sha256:manifestHash,backend:manifest.backend,fixture:manifest.fixture,
-    verified_artifacts:seen.size,verified_bytes:bytesRead,repairs,allocations,context_projections:contextProjections,partial_captures:partialCaptures,diagnostic_checkpoints:checkpoints,
+    verified_artifacts:seen.size,verified_bytes:bytesRead,repairs,allocations,context_projections:contextProjections,partial_captures:partialCaptures,fixture_observations:fixtureObservations,diagnostic_checkpoints:checkpoints,
     integrity:'Supplied bundle, manifest and artifact digests agree; this is not independent provenance or execution authority.',
     limitations:manifest.limitations,assessment:'Scripted outcome and semantic identity links; independent application quality remains a separate check.'};
   return result;

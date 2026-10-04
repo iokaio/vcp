@@ -37,6 +37,9 @@ pub struct Observation {
     pub scope: Scope,
     pub turn: Option<TurnId>,
     pub attempt: Option<AttemptId>,
+    /// Validated call identity only; arguments and output never enter timing data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
     /// Monotonic offset from this collector owner's origin, not wall time.
     pub started_micros: u64,
     pub elapsed_micros: u64,
@@ -118,6 +121,7 @@ impl Collector {
                             scope,
                             turn,
                             attempt,
+                            call_id: None,
                             started_micros,
                             elapsed_micros: 0,
                             status: Status::Active,
@@ -173,6 +177,18 @@ pub(crate) struct Span {
     id: Option<u64>,
 }
 impl Span {
+    pub(crate) fn with_call_id(self, call_id: &str) -> Self {
+        if !call_id.is_empty() && call_id.len() <= 256 && !call_id.chars().any(char::is_control) {
+            if let (Some(id), Ok(mut state)) = (self.id, self.collector.0.lock()) {
+                if let Some(active) = state.active.get_mut(&id) {
+                    if active.observation.phase == Phase::ToolDispatch {
+                        active.observation.call_id = Some(call_id.to_owned());
+                    }
+                }
+            }
+        }
+        self
+    }
     pub(crate) fn finish<T, E>(mut self, result: &Result<T, E>) {
         self.close(if result.is_ok() {
             Status::Succeeded
@@ -273,5 +289,28 @@ mod tests {
         assert_eq!(snapshot.observations.len(), RETAINED_SPANS);
         assert_eq!(snapshot.dropped, 44);
         assert_ne!(snapshot.owner, Collector::default().snapshot().owner);
+    }
+
+    #[test]
+    fn call_metadata_is_bounded_and_absent_from_legacy_non_tool_observations() {
+        let collector = Collector::default();
+        collector
+            .begin(Phase::ProviderExchange, scope(), None, None)
+            .with_call_id("not-a-tool")
+            .succeeded();
+        collector
+            .begin(Phase::ToolDispatch, scope(), None, None)
+            .with_call_id(&"x".repeat(257))
+            .failed();
+        collector
+            .begin(Phase::ToolDispatch, scope(), None, None)
+            .with_call_id("call\nspoof")
+            .skipped();
+        let snapshot = serde_json::to_value(collector.snapshot()).unwrap();
+        assert!(snapshot["observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|span| span.get("call_id").is_none()));
     }
 }

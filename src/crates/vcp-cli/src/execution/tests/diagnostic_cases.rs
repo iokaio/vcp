@@ -4,17 +4,32 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archives_context_omission_and_interrupted_provider_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        diagnostic_case(backend, false).await;
-        diagnostic_case(backend, true).await;
+        diagnostic_case(backend, false, false).await;
+        diagnostic_case(backend, true, false).await;
     }
 }
-async fn diagnostic_case(backend: BackendKind, interrupted: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archives_sibling_tool_calls_with_exact_diagnostic_identities() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        diagnostic_case(backend, false, true).await;
+    }
+}
+async fn diagnostic_case(backend: BackendKind, interrupted: bool, sibling: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let workspace = temporary.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
     let workspace = workspace.canonicalize().unwrap();
     fs::write(workspace.join("value.txt"), "41\n").unwrap();
-    let raw = serde_json::to_vec(&json!({"data":{"id":"fixture/model","endpoints":[{"tag":"fixture/region","status":0,"context_length":500000,"max_prompt_tokens":400000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();
+    let mut endpoint = json!({"data":{"id":"fixture/model","endpoints":[{"tag":"fixture/region","status":0,"context_length":500000,"max_prompt_tokens":400000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}});
+    let mut required_parameters = BTreeSet::from(["tools".into(), "max_tokens".into()]);
+    if sibling {
+        endpoint["data"]["endpoints"][0]["supported_parameters"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("parallel_tool_calls"));
+        required_parameters.insert("parallel_tool_calls".into());
+    }
+    let raw = serde_json::to_vec(&endpoint).unwrap();
     let snapshot = Snapshot::from_endpoints(
         &raw,
         Timestamp::ZERO,
@@ -31,7 +46,7 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool) {
             deny_data_collection: true,
             require_zdr: true,
             request_price_limit: "0.0001".into(),
-            required_parameters: BTreeSet::from(["tools".into(), "max_tokens".into()]),
+            required_parameters,
             qualified_reasoning_efforts: BTreeSet::new(),
         },
     )
@@ -152,7 +167,9 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool) {
         ),
     )
     .unwrap();
-    let fixture = if interrupted {
+    let fixture = if sibling {
+        "sibling-tool-calls"
+    } else if interrupted {
         "interrupted-provider"
     } else {
         "context-omission"
@@ -172,7 +189,13 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool) {
         } else {
             let item=if index==0 {json!({"type":"function_call","id":"read-item","call_id":"read-large","name":"vcp_read","arguments":json!({"path":"large.txt","max_bytes":200000,"start_line":null,"end_line":null}).to_string(),"status":"completed"})}
             else {json!({"type":"message","id":"omission-final","role":"assistant","status":"completed","content":[{"type":"output_text","text":"The middle marker is unavailable in this bounded request; consult the retained evidence.","annotations":[]}]})};
-            vec![json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("diagnostic-response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})]
+            let mut items=vec![item];
+            if sibling && index==0 {
+                items.push(json!({"type":"function_call","id":"sibling-item","call_id":"read-sibling","name":"vcp_read","arguments":json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}).to_string(),"status":"completed"}));
+            }
+            let mut events:Vec<_>=items.iter().enumerate().map(|(position,item)|json!({"type":"response.output_item.done","output_index":position,"item":item})).collect();
+            events.push(json!({"type":"response.completed","response":{"id":format!("diagnostic-response-{index}"),"status":"completed","output":items,"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}}));
+            events
         };
         ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(events.into_iter().map(|event|format!("data: {event}\n\n")).collect::<String>())
     }).mount(&server).await;
@@ -291,7 +314,7 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool) {
         );
     } else {
         assert_eq!(count.load(Ordering::SeqCst), 2);
-        assert_eq!(view.effects.len(), 1);
+        assert_eq!(view.effects.len(), if sibling { 2 } else { 1 });
         let second = requests.lock().unwrap()[1].to_string();
         assert!(!second.contains("OMITTED_MIDDLE_MARKER"));
         assert!(
@@ -316,6 +339,41 @@ async fn diagnostic_case(backend: BackendKind, interrupted: bool) {
     }
     let diagnostics = host.execution_diagnostics(scope.clone()).unwrap();
     use vcp_lifecycle::foundation::execution_diagnostics::{Phase, Status};
+    if sibling {
+        let calls: Vec<_> = diagnostics
+            .observations
+            .iter()
+            .filter(|span| span.phase == Phase::ToolDispatch)
+            .collect();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(
+            calls
+                .iter()
+                .filter_map(|span| span.call_id.as_deref())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["read-large", "read-sibling"])
+        );
+        assert_eq!(calls[0].attempt, calls[1].attempt);
+        assert!(calls.iter().all(|span| span.scope == scope
+            && span.turn.is_some()
+            && span.status == Status::Succeeded));
+        for artifact in artifacts
+            .iter()
+            .filter(|artifact| artifact.spec.schema == "canonical-coding-pair/1")
+        {
+            let pair: Value =
+                serde_json::from_slice(&host.read_artifact(artifact.spec.id.clone()).unwrap())
+                    .unwrap();
+            let matching = calls
+                .iter()
+                .find(|span| span.call_id.as_deref() == pair["parts"][0]["content"]["id"].as_str())
+                .unwrap();
+            assert_eq!(
+                matching.attempt.as_ref().unwrap().as_str(),
+                pair["attempt"].as_str().unwrap()
+            );
+        }
+    }
     assert!(diagnostics.observations.iter().any(|span| span.phase
         == if interrupted {
             Phase::ProviderExchange

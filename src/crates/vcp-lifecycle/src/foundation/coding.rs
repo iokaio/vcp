@@ -541,15 +541,18 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 .map_err(FunctionCallError::RespondToModel)?;
             let diagnostic_binding = binding.clone();
             let diagnostic_attempt = attempt.clone();
+            let diagnostic_call = normalized.id.clone();
             let diagnostic = self
                 .host
                 .worker
                 .run_cleanup(move |context| {
-                    Ok(context.begin_diagnostic(
-                        &diagnostic_binding,
-                        super::execution_diagnostics::Phase::ToolDispatch,
-                        Some(diagnostic_attempt),
-                    ))
+                    Ok(context
+                        .begin_diagnostic(
+                            &diagnostic_binding,
+                            super::execution_diagnostics::Phase::ToolDispatch,
+                            Some(diagnostic_attempt),
+                        )
+                        .with_call_id(&diagnostic_call))
                 })
                 .ok();
             let result: Result<Value, String> = async {

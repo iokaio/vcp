@@ -14,6 +14,7 @@ function phaseStatistics(snapshot, scope) {
     if (!Number.isSafeInteger(observation.sequence) || observation.sequence < 0 || identities.has(observation.sequence)) throw Error('Invalid or duplicate diagnostic sequence');
     identities.add(observation.sequence);
     if (!Number.isSafeInteger(observation.elapsed_micros) || observation.elapsed_micros < 0 || typeof observation.phase !== 'string' || !['active','succeeded','failed','interrupted','skipped'].includes(observation.status)) throw Error('Invalid diagnostic observation');
+    if (observation.call_id != null && (observation.phase !== 'tool_dispatch' || typeof observation.call_id !== 'string' || Buffer.byteLength(observation.call_id,'utf8') > 256 || !observation.call_id.length || /[\x00-\x1f\x7f-\x9f]/.test(observation.call_id))) throw Error('Invalid diagnostic tool-call identity');
     const key = JSON.stringify([observation.phase,observation.status]);
     if (!groups.has(key)) groups.set(key,{phase:observation.phase,status:observation.status,values:[]});
     groups.get(key).values.push(observation.elapsed_micros);

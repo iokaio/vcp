@@ -38,10 +38,16 @@ mod diagnostic_cases;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_driver_repairs_failed_checks_and_exports_scoped_evidence() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
-        repaired(backend).await;
+        repaired(backend, false).await;
     }
 }
-async fn repaired(backend: BackendKind) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_driver_refreshes_stale_verification_and_exports_evidence() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        repaired(backend, true).await;
+    }
+}
+async fn repaired(backend: BackendKind, stale_verification: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let workspace = temporary.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
@@ -206,7 +212,11 @@ async fn repaired(backend: BackendKind) {
     let captured = requests.clone();
     Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request:&wiremock::Request| {
         let index=calls.fetch_add(1,Ordering::SeqCst); captured.lock().unwrap().push(serde_json::from_slice(&request.body).unwrap());
-        let item=if index==0 || index==2 {json!({"type":"function_call","id":format!("item-{index}"),"call_id":format!("patch-{index}"),"name":"vcp_patch","arguments":json!({"patch":format!("*** Begin Patch\n*** Update File: value.txt\n@@\n-{}\n+{}\n*** End Patch",if index==0{41}else{43},if index==0{43}else{42})}).to_string(),"status":"completed"})} else {json!({"type":"message","id":format!("final-{index}"),"role":"assistant","status":"completed","content":[{"type":"output_text","text":"The change is ready for owner verification.","annotations":[]}]})};
+        let repair_index=if stale_verification {4} else {2};
+        let item=if index==0 || index==repair_index {json!({"type":"function_call","id":format!("item-{index}"),"call_id":format!("patch-{index}"),"name":"vcp_patch","arguments":json!({"patch":format!("*** Begin Patch\n*** Update File: value.txt\n@@\n-{}\n+{}\n*** End Patch",if index==0{41}else{43},if index==0{43}else{42})}).to_string(),"status":"completed"})}
+        else if stale_verification && index==1 {json!({"type":"function_call","id":"verify-item","call_id":"initial-verify","name":"vcp_verify","arguments":json!({"citations":[]}).to_string(),"status":"completed"})}
+        else if stale_verification && index==2 {json!({"type":"function_call","id":"read-item","call_id":"stale-read","name":"vcp_read","arguments":json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}).to_string(),"status":"completed"})}
+        else {json!({"type":"message","id":format!("final-{index}"),"role":"assistant","status":"completed","content":[{"type":"output_text","text":"The change is ready for owner verification.","annotations":[]}]})};
         let events=[json!({"type":"response.output_item.done","output_index":0,"item":item}),json!({"type":"response.completed","response":{"id":format!("driver-response-{index}"),"status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})];
         ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(events.into_iter().map(|event|format!("data: {event}\n\n")).collect::<String>())
     }).mount(&server).await;
@@ -267,6 +277,7 @@ async fn repaired(backend: BackendKind) {
     else {
         panic!("initial submission missing")
     };
+    let mut stale_observation = None;
     let repairs = tokio::time::timeout(Duration::from_secs(180), async {
         let mut repairs = 0;
         loop {
@@ -278,6 +289,24 @@ async fn repaired(backend: BackendKind) {
                 event.msg,
                 codex_protocol::protocol::EventMsg::TurnComplete(_)
             ) {
+                if stale_verification && repairs == 0 {
+                    let snapshot=host.snapshot().unwrap();
+                    let prior:Vec<Verification>=snapshot.records.values().filter(|row|row.collection==Collection::Verification).map(|row|row.decode().unwrap()).collect();
+                    assert_eq!(prior.len(),1);
+                    assert!(prior[0].checks.iter().any(|check|matches!(check.outcome,CheckOutcome::Failed{..})));
+                    let CompletionAttempt::Rejected(failure) = host.try_complete_coding_turn(session.id).unwrap() else {
+                        panic!("later effect requires current verification");
+                    };
+                    assert_eq!(failure.kind, CompletionRejection::StaleVerification, "{}", failure.message);
+                    let observation = json!({"schema_version":1,"kind":"fixture_observed_verification_refresh",
+                        "provenance":"asserted by the local CLI qualification fixture; no execution authority",
+                        "scope":scope,"prior_verification":prior[0].id,"rejection":failure.kind,
+                        "trigger":"completed_read_after_report","later_call":"stale-read",
+                        "verified_source_sha256":vcp_protocol::digest_bytes(b"43\n"),
+                        "current_source_sha256":vcp_protocol::digest_bytes(b"43\n")});
+                    let captured=host.capture(session.id,vcp_domain::artifact::Channel::Evidence,vcp_protocol::canonical_bytes(&observation).unwrap()).unwrap();
+                    stale_observation=Some(captured.spec.id);
+                }
                 match execution.start_completion().result().await.unwrap() {
                     LifecycleResult::Submitted(turn) => {
                         active = turn;
@@ -295,7 +324,10 @@ async fn repaired(backend: BackendKind) {
     .await
     .unwrap();
     assert_eq!(repairs, 1);
-    assert_eq!(count.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        if stale_verification { 6 } else { 4 }
+    );
     assert_eq!(
         fs::read_to_string(workspace.join("value.txt"))
             .unwrap()
@@ -315,6 +347,7 @@ async fn repaired(backend: BackendKind) {
         .filter(|record| record.collection == Collection::Verification)
         .map(|record| record.decode().unwrap())
         .collect();
+    assert_eq!(reports.len(), if stale_verification { 3 } else { 2 });
     assert!(reports.iter().any(|report| report
         .checks
         .iter()
@@ -323,7 +356,7 @@ async fn repaired(backend: BackendKind) {
         .checks
         .iter()
         .all(|check| check.outcome == CheckOutcome::Passed)));
-    let repair_wire = requests.lock().unwrap()[2].to_string();
+    let repair_wire = requests.lock().unwrap()[if stale_verification { 4 } else { 2 }].to_string();
     assert!(repair_wire.contains("Repair the observed failures"));
     let saved: Vec<_> = state
         .records
@@ -367,6 +400,9 @@ async fn repaired(backend: BackendKind) {
     )
     .unwrap();
     bundle["lifecycle_diagnostics"] = serde_json::to_value(&diagnostics).unwrap();
+    if let Some(artifact) = stale_observation {
+        bundle["fixture_observation_artifacts"] = json!([artifact]);
+    }
     if let Some(directory) = std::env::var_os("VCP_EXECUTION_EVIDENCE_ROOT") {
         export_fixture_evidence(
             &host,
@@ -375,7 +411,11 @@ async fn repaired(backend: BackendKind) {
             backend,
             &bundle,
             directory.into(),
-            "shared_driver_repairs_failed_checks_and_exports_scoped_evidence",
+            if stale_verification {
+                "shared-driver-stale-verification-refresh"
+            } else {
+                "shared_driver_repairs_failed_checks_and_exports_scoped_evidence"
+            },
         );
     }
     drop(execution);
@@ -404,7 +444,7 @@ async fn repaired(backend: BackendKind) {
     }
     assert_eq!(
         count.load(Ordering::SeqCst),
-        4,
+        if stale_verification { 6 } else { 4 },
         "read-only reopen cannot dispatch inference"
     );
     reopened_owner.close().await.unwrap();
