@@ -156,7 +156,10 @@ impl Fixture {
         let entry: WorkspaceEntry =
             serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
         assert_eq!(entry.config.backend, backend);
-        assert_eq!(entry.config.cap.micros.get(), 1);
+        assert_eq!(
+            entry.config.cap.micros,
+            vcp_domain::Limit::Finite(vcp_domain::Micros::new(1))
+        );
         let request = &entry.config.price.rates[&vcp_domain::accounting::ChargeCategory::Request];
         // Catalog rates use normalized units. Assert the exact one-request
         // cost, independently of that denominator, before testing admission.
@@ -216,7 +219,10 @@ fn no_dispatch(state: &State) -> Value {
         .filter(|row| row.collection == Collection::Ledger)
     {
         let ledger: Ledger = record.decode().unwrap();
-        assert_eq!(ledger.cap.get(), 1);
+        assert_eq!(
+            ledger.cap,
+            vcp_domain::Limit::Finite(vcp_domain::Micros::new(1))
+        );
         assert_eq!(ledger.active.get(), 0);
         assert_eq!(ledger.settled.get(), 0);
         assert_eq!(ledger.unresolved.get(), 0);

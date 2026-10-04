@@ -67,7 +67,7 @@ struct TaskSemantics {
 #[derive(Debug, PartialEq, Eq)]
 struct LedgerSemantics {
     currency: String,
-    cap: vcp_domain::Micros,
+    cap: vcp_domain::Limit<vcp_domain::Micros>,
     protected: vcp_domain::Micros,
     settled: vcp_domain::Micros,
     active: vcp_domain::Micros,
@@ -555,7 +555,7 @@ fn scope(entry: &WorkspaceEntry) -> Value {
     json!({"workspace":entry.config.workspace,"session":entry.config.session})
 }
 fn start(entry: &WorkspaceEntry) -> Value {
-    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":entry.config.cap.micros.get().to_string(),"currency":"USD","max_requests":8,"deadline_seconds":300}})
+    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":entry.config.cap.micros.finite().expect("finite parity fixture").get().to_string(),"currency":"USD","max_requests":8,"deadline_seconds":300}})
 }
 fn acquire(client: &mut wire::Client, entry: &WorkspaceEntry, name: &str) {
     let lease = client.rpc(2, "controller/read", json!({"scope":scope(entry)}));

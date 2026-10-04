@@ -103,7 +103,8 @@ async fn output_loss_case(backend: BackendKind) {
         cap: Money {
             currency: "USD".to_owned().try_into().unwrap(),
             micros: Micros::new(1_000_000),
-        },
+        }
+        .into(),
         protected: Micros::ZERO,
         price: prepared.profile.provider.price.clone(),
         input_ceiling: prepared.profile.provider.max_input,
@@ -233,7 +234,7 @@ async fn output_loss_case(backend: BackendKind) {
             operating: "Inspect assigned source and report public observations.".into(),
             affected_paths: vec!["value.txt".into()],
             max_requests: 8,
-            deadline: Timestamp::new(vcp_cli::settings::now().get() + 120_000),
+            deadline: Timestamp::new(vcp_cli::settings::now().get() + 120_000).into(),
         },
     )
     .unwrap();

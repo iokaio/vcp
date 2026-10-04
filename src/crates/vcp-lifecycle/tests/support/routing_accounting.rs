@@ -647,7 +647,7 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
                 deadline: Timestamp::new(2000),
             },
             ledger_revision: before_ledger.revision,
-            remaining: Micros::new(975),
+            remaining: Micros::new(975).into(),
             estimated_request: Micros::new(30),
             estimated_handoff: Micros::ZERO,
             unresolved: Micros::new(25),

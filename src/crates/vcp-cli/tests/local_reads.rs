@@ -55,7 +55,7 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
             revision,
             policy: PolicyRevision::ZERO,
             currency: "USD".to_owned().try_into().unwrap(),
-            cap: Micros::new(u64::MAX),
+            cap: Micros::new(u64::MAX).into(),
             protected: Micros::ZERO,
             // No provider/reservation evidence exists in this offline fixture.
             settled: Micros::ZERO,
@@ -144,7 +144,10 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
         assert_eq!(usage["result"]["kind"], "usage");
         let totals = &usage["result"]["value"];
         assert_eq!(totals["currency"], "USD");
-        assert_eq!(totals["cap_micros"], "18446744073709551615");
+        assert_eq!(
+            totals["cap_micros"],
+            json!({"version":1,"kind":"finite","value":"18446744073709551615"})
+        );
         assert_eq!(totals["settled_micros"], "0");
         assert_eq!(totals["reserved_micros"], "0");
         assert_eq!(totals["unresolved_micros"], "0");

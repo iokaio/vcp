@@ -228,7 +228,8 @@ impl Fixture {
             cap: Money {
                 currency: currency.clone(),
                 micros: Micros::new(1_000_000),
-            },
+            }
+            .into(),
             protected: Micros::ZERO,
             price: PriceSnapshot {
                 id: "a".repeat(64),

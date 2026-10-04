@@ -199,7 +199,7 @@ async fn public_usage_preserves_actual_settlements_reservations_unknown_liabilit
 
         let watermark = engine.store().state().watermark;
         let view = engine.public_usage(&access(), &request).unwrap();
-        assert_eq!(view.cap_micros.as_str(), "18446744073709551615");
+        assert_eq!(view.cap_micros, vcp_domain::Limit::Finite(u64::MAX.into()));
         assert_eq!(view.settled_micros.as_str(), "9007199254740993");
         assert_eq!(view.reserved_micros.as_str(), "11");
         assert_eq!(view.unresolved_micros.as_str(), "13");
