@@ -13,8 +13,8 @@ use vcp_domain::{
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_store::{
-    contract::{key, CanonicalStore, Collection, Mutation, Record, State, Transaction},
-    Store,
+    contract::{key, CanonicalStore, Collection, Mutation, Record, Transaction},
+    CurrentStateView, Store,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -68,7 +68,7 @@ fn job_id(cursor: &CommandId, origin: &EventId) -> Result<CommandId> {
         origin,
     ))?))?)
 }
-fn task(state: &State, access: &Access, scope: &Scope) -> Result<Task> {
+fn task(state: CurrentStateView<'_>, access: &Access, scope: &Scope) -> Result<Task> {
     if scope.workspace != access.workspace || !access.allows_task(&scope.task) {
         return Err(Error::Access);
     }
@@ -80,7 +80,7 @@ fn task(state: &State, access: &Access, scope: &Scope) -> Result<Task> {
     }
     Ok(value)
 }
-fn unfenced(state: &State, access: &Access, scope: &Scope) -> Result<()> {
+fn unfenced(state: CurrentStateView<'_>, access: &Access, scope: &Scope) -> Result<()> {
     let mut current = task(state, access, scope)?;
     let mut seen = std::collections::BTreeSet::new();
     loop {
@@ -140,7 +140,7 @@ fn job_record(value: &Job) -> Result<Record> {
     );
     Ok(record)
 }
-fn jobs(state: &State, workspace: &WorkspaceId) -> Result<Vec<Job>> {
+fn jobs(state: CurrentStateView<'_>, workspace: &WorkspaceId) -> Result<Vec<Job>> {
     state
         .records
         .values()
@@ -156,7 +156,7 @@ fn jobs(state: &State, workspace: &WorkspaceId) -> Result<Vec<Job>> {
         })
         .collect()
 }
-fn transaction(state: &State, mutations: Vec<Mutation>) -> Transaction {
+fn transaction(state: CurrentStateView<'_>, mutations: Vec<Mutation>) -> Transaction {
     Transaction {
         id: TransactionId::new(),
         expected_watermark: state.watermark,
@@ -168,8 +168,8 @@ fn transaction(state: &State, mutations: Vec<Mutation>) -> Transaction {
 
 /// Atomically preserve pending jobs before advancing the event cursor. Limits
 /// stop before an unqueued event; a replay returns its existing durable job.
-pub async fn enqueue(
-    store: &mut Store,
+pub async fn enqueue<S: CanonicalStore>(
+    store: &mut S,
     access: &Access,
     scope: &Scope,
     extractor: &ExtractorSpec,
@@ -178,14 +178,14 @@ pub async fn enqueue(
 ) -> Result<Enqueued> {
     limits.validate()?;
     extractor.validate()?;
-    access::authorize(store.state(), access, true)?;
-    let root = task(store.state(), access, scope)?;
-    if root.parent.is_some() || root.root != scope.task || through > store.state().watermark {
+    access::authorize(store.current(), access, true)?;
+    let root = task(store.current(), access, scope)?;
+    if root.parent.is_some() || root.root != scope.task || through > store.current().watermark {
         return Err(Error::Invalid("ingestion stream root or watermark".into()));
     }
     let id = cursor_id(scope, extractor)?;
     let previous: Option<Cursor> = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Claim, id.as_str()))
         .map(Record::decode)
@@ -209,7 +209,7 @@ pub async fn enqueue(
         after: Units::ZERO,
         scanned_through: Watermark::ZERO,
     });
-    let mut pending = jobs(store.state(), &access.workspace)?
+    let mut pending = jobs(store.current(), &access.workspace)?
         .iter()
         .filter(|j| !j.state.finished())
         .count();
@@ -219,95 +219,109 @@ pub async fn enqueue(
     let mut quota_reached = false;
     let start = usize::try_from(cursor.after.get())
         .map_err(|_| Error::Invalid("ingestion cursor overflow".into()))?;
-    if start > store.state().events.len() {
+    let source_watermark = store.current().watermark;
+    let end = store.history_event_count().await?;
+    if start as u64 > end {
         return Err(Error::Invalid(
             "ingestion cursor exceeds retained event stream".into(),
         ));
     }
-    for (offset, event) in store
-        .state()
-        .events
-        .iter()
-        .enumerate()
-        .skip(start)
-        .take(limits.scanned_events)
-    {
-        if event.watermark > through {
-            break;
+    let mut offset = start as u64;
+    let scan_end = end.min(offset.saturating_add(limits.scanned_events as u64));
+    'scan: while offset < scan_end {
+        let count = (scan_end - offset).min(64) as usize;
+        let page = store.history_events(offset.checked_sub(1), count).await?;
+        if page.is_empty() || page.len() > count {
+            return Err(Error::Conflict("ingestion history page incomplete"));
         }
-        let kind = serde_json::to_value(&event.event.kind)?;
-        let selected = event.event.workspace == access.workspace
-            && event.event.session == scope.session
-            && kind.as_str().is_some_and(|kind| {
-                extractor
-                    .event_kinds
-                    .iter()
-                    .any(|candidate| candidate == kind)
-            });
-        if selected {
-            if let Some(origin_task) = &event.event.task {
-                let origin: Task = store
-                    .state()
-                    .record(Collection::Task, origin_task.as_str(), &access.workspace)?
-                    .decode()?;
-                if origin.root == scope.task {
-                    task(store.state(), access, &origin.scope)?;
-                    let id = job_id(&cursor.id, &event.event.id)?;
-                    if !store
-                        .state()
-                        .records
-                        .contains_key(&key(Collection::Claim, id.as_str()))
-                    {
-                        let value = Job {
-                            document_type: DocumentType::Job,
-                            schema_version: 1,
-                            id: id.clone(),
-                            scope: origin.scope,
-                            root: scope.task.clone(),
-                            revision: Revision::ZERO,
-                            cursor: cursor.id.clone(),
-                            extractor: extractor.clone(),
-                            origin: event.event.id.clone(),
-                            origin_watermark: event.watermark,
-                            state: JobState::Pending,
-                            attempts: Units::ZERO,
-                            max_attempts: Units::new(limits.attempts),
-                            lease: None,
-                            not_before: Timestamp::ZERO,
-                            last_failure: None,
-                            results: vec![],
-                            finding: None,
-                        };
-                        let record = job_record(&value)?;
-                        let size = canonical_bytes(&record)?.len();
-                        if added.len() >= limits.new_jobs
-                            || pending >= limits.pending_jobs
-                            || bytes + size > limits.batch_bytes
+        for event in &page {
+            if event.watermark > through {
+                break 'scan;
+            }
+            let kind = serde_json::to_value(&event.event.kind)?;
+            let selected = event.event.workspace == access.workspace
+                && event.event.session == scope.session
+                && kind.as_str().is_some_and(|kind| {
+                    extractor
+                        .event_kinds
+                        .iter()
+                        .any(|candidate| candidate == kind)
+                });
+            if selected {
+                if let Some(origin_task) = &event.event.task {
+                    let origin: Task = store
+                        .current()
+                        .record(Collection::Task, origin_task.as_str(), &access.workspace)?
+                        .decode()?;
+                    if origin.root == scope.task {
+                        task(store.current(), access, &origin.scope)?;
+                        let id = job_id(&cursor.id, &event.event.id)?;
+                        if !store
+                            .current()
+                            .records
+                            .contains_key(&key(Collection::Claim, id.as_str()))
                         {
-                            quota_reached = true;
-                            break;
+                            let value = Job {
+                                document_type: DocumentType::Job,
+                                schema_version: 1,
+                                id: id.clone(),
+                                scope: origin.scope,
+                                root: scope.task.clone(),
+                                revision: Revision::ZERO,
+                                cursor: cursor.id.clone(),
+                                extractor: extractor.clone(),
+                                origin: event.event.id.clone(),
+                                origin_watermark: event.watermark,
+                                state: JobState::Pending,
+                                attempts: Units::ZERO,
+                                max_attempts: Units::new(limits.attempts),
+                                lease: None,
+                                not_before: Timestamp::ZERO,
+                                last_failure: None,
+                                results: vec![],
+                                finding: None,
+                            };
+                            let record = job_record(&value)?;
+                            let size = canonical_bytes(&record)?.len();
+                            if added.len() >= limits.new_jobs
+                                || pending >= limits.pending_jobs
+                                || bytes + size > limits.batch_bytes
+                            {
+                                quota_reached = true;
+                                break 'scan;
+                            }
+                            bytes += size;
+                            pending += 1;
+                            added.push(id);
+                            mutations.push(Mutation::Put {
+                                expected: None,
+                                record,
+                            });
                         }
-                        bytes += size;
-                        pending += 1;
-                        added.push(id);
-                        mutations.push(Mutation::Put {
-                            expected: None,
-                            record,
-                        });
                     }
                 }
             }
+            offset += 1;
+            cursor.after = Units::new(offset);
+            cursor.scanned_through = event.watermark;
         }
-        cursor.after = Units::new(offset as u64 + 1);
-        cursor.scanned_through = event.watermark;
     }
     let next = usize::try_from(cursor.after.get())
         .map_err(|_| Error::Invalid("ingestion cursor overflow".into()))?;
-    let caught_up = store
-        .state()
-        .events
-        .get(next)
-        .is_none_or(|event| event.watermark > through);
+    let caught_up = if next as u64 == end {
+        true
+    } else {
+        let rows = store
+            .history_events((next as u64).checked_sub(1), 1)
+            .await?;
+        if rows.len() != 1 {
+            return Err(Error::Conflict("ingestion history page incomplete"));
+        }
+        rows[0].watermark > through
+    };
+    if store.current().watermark != source_watermark {
+        return Err(Error::Conflict("ingestion source changed"));
+    }
     // Track examined events, not our own queue-only transaction watermark;
     // otherwise every idle poll would persist another cursor transaction.
     let changed = previous
@@ -323,7 +337,7 @@ pub async fn enqueue(
             expected: previous.as_ref().map(|p| p.revision),
             record: cursor_record(&cursor)?,
         });
-        let tx = transaction(store.state(), mutations);
+        let tx = transaction(store.current(), mutations);
         // The same bound also covers the cursor and transaction envelope.
         if canonical_bytes(&tx)?.len() > limits.batch_bytes {
             return Err(Error::Invalid(
@@ -340,9 +354,9 @@ pub async fn enqueue(
     })
 }
 
-pub fn inspect(store: &Store, access: &Access) -> Result<Vec<Job>> {
-    access::authorize(store.state(), access, false)?;
-    Ok(jobs(store.state(), &access.workspace)?
+pub fn inspect<S: CanonicalStore>(store: &S, access: &Access) -> Result<Vec<Job>> {
+    access::authorize(store.current(), access, false)?;
+    Ok(jobs(store.current(), &access.workspace)?
         .into_iter()
         .filter(|j| access.allows_task(&j.scope.task))
         .collect())
@@ -351,7 +365,7 @@ pub fn inspect(store: &Store, access: &Access) -> Result<Vec<Job>> {
 async fn update(store: &mut Store, mut job: Job, expected: Revision) -> Result<Job> {
     job.revision = expected.next()?;
     let tx = transaction(
-        store.state(),
+        store.current(),
         vec![Mutation::Put {
             expected: Some(expected),
             record: job_record(&job)?,
@@ -361,13 +375,13 @@ async fn update(store: &mut Store, mut job: Job, expected: Revision) -> Result<J
     Ok(job)
 }
 fn load(store: &Store, access: &Access, id: &CommandId) -> Result<Job> {
-    access::authorize(store.state(), access, true)?;
+    access::authorize(store.current(), access, true)?;
     let value: Job = store
-        .state()
+        .current()
         .record(Collection::Claim, id.as_str(), &access.workspace)?
         .decode()?;
     value.validate()?;
-    task(store.state(), access, &value.scope)?;
+    task(store.current(), access, &value.scope)?;
     Ok(value)
 }
 
@@ -386,7 +400,7 @@ pub async fn lease(
     if job.revision != expected {
         return Err(Error::Conflict("stale ingestion job"));
     }
-    unfenced(store.state(), access, &job.scope)?;
+    unfenced(store.current(), access, &job.scope)?;
     if job.state.finished()
         || job.not_before > now
         || job.lease.as_ref().is_some_and(|l| l.expires_at > now)
@@ -399,7 +413,7 @@ pub async fn lease(
         job.last_failure = Some("bounded extraction attempts exhausted".into());
         return update(store, job, expected).await;
     }
-    let active = jobs(store.state(), &access.workspace)?
+    let active = jobs(store.current(), &access.workspace)?
         .iter()
         .filter(|j| j.lease.as_ref().is_some_and(|l| l.expires_at > now))
         .count();
@@ -451,7 +465,7 @@ pub async fn complete(
     owns(&job, access, token, now)?;
     for id in &results {
         let result: ProposalResult = store
-            .state()
+            .current()
             .record(Collection::Projection, id.as_str(), &access.workspace)?
             .decode()?;
         result.validate()?;
@@ -459,7 +473,7 @@ pub async fn complete(
             return Err(Error::Access);
         }
         let proposal: vcp_domain::memory::ProposalRecord = store
-            .state()
+            .current()
             .record(
                 Collection::Claim,
                 result.proposal.as_str(),
@@ -538,6 +552,128 @@ mod tests {
     };
     use vcp_protocol::event::{EventInput, EventKind};
     use vcp_store::BackendKind;
+
+    struct PagedOwner {
+        store: Store,
+        reads: std::cell::Cell<usize>,
+        fail_after: Option<usize>,
+        empty: bool,
+    }
+    impl CanonicalStore for PagedOwner {
+        fn state(&self) -> &vcp_store::contract::State {
+            panic!("ingestion read complete history")
+        }
+        fn current(&self) -> CurrentStateView<'_> {
+            self.store.current()
+        }
+        async fn history_event_count(&self) -> vcp_store::Result<u64> {
+            self.store.history_event_count().await
+        }
+        async fn history_events(
+            &self,
+            after: Option<u64>,
+            limit: usize,
+        ) -> vcp_store::Result<Vec<vcp_protocol::event::EventEnvelope>> {
+            self.reads.set(self.reads.get() + 1);
+            if self.fail_after.is_some_and(|n| self.reads.get() >= n) {
+                return Err(vcp_store::Error::Unavailable(
+                    "injected ingestion page failure",
+                ));
+            }
+            if self.empty {
+                return Ok(vec![]);
+            }
+            self.store.history_events(after, limit.min(2)).await
+        }
+        async fn transact(
+            &mut self,
+            transaction: Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            self.store.transact(transaction).await
+        }
+    }
+    #[tokio::test]
+    async fn short_history_pages_preserve_queue_quota_cursor_and_read_failure_atomicity() {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            let (_temp, mut store, access, scope) = fixture(backend).await;
+            let first = store.history_events(None, 1).await.unwrap()[0]
+                .event
+                .clone();
+            let mut tx = transaction(store.current(), vec![]);
+            tx.events = (0..70)
+                .map(|_| {
+                    let mut event = first.clone();
+                    event.id = EventId::new();
+                    event
+                })
+                .collect();
+            store.transact(tx).await.unwrap();
+            let through = store.current().watermark;
+            let mut owner = PagedOwner {
+                store,
+                reads: std::cell::Cell::new(0),
+                fail_after: None,
+                empty: false,
+            };
+            let bounded = Limits {
+                scanned_events: 65,
+                new_jobs: 64,
+                pending_jobs: 256,
+                batch_bytes: 2 * 1024 * 1024,
+                ..limits()
+            };
+            let first = enqueue(&mut owner, &access, &scope, &extractor(), through, bounded)
+                .await
+                .unwrap();
+            assert_eq!(first.cursor.after.get(), 64);
+            assert_eq!(first.jobs.len(), 64);
+            assert!(first.quota_reached && !first.caught_up);
+            assert!(
+                owner.reads.get() > 2,
+                "short pages must continue rather than imply EOF"
+            );
+            let prior = owner.current().watermark;
+            owner.fail_after = Some(owner.reads.get() + 2);
+            assert!(
+                enqueue(&mut owner, &access, &scope, &extractor(), through, bounded)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(owner.current().watermark, prior);
+            assert_eq!(inspect(&owner, &access).unwrap().len(), 64);
+            owner.fail_after = None;
+            owner.empty = true;
+            assert!(
+                enqueue(&mut owner, &access, &scope, &extractor(), through, bounded)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(owner.current().watermark, prior);
+            owner.empty = false;
+            let rest = enqueue(&mut owner, &access, &scope, &extractor(), through, bounded)
+                .await
+                .unwrap();
+            assert_eq!(rest.cursor.after.get(), 71);
+            assert_eq!(rest.jobs.len(), 7);
+            assert!(rest.caught_up && !rest.quota_reached);
+            let jobs = inspect(&owner, &access).unwrap();
+            assert_eq!(jobs.len(), 71);
+            assert_eq!(
+                jobs.iter()
+                    .map(|job| &job.origin)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len(),
+                71
+            );
+            let prior = owner.current().watermark;
+            let retry = enqueue(&mut owner, &access, &scope, &extractor(), through, bounded)
+                .await
+                .unwrap();
+            assert!(retry.jobs.is_empty() && retry.caught_up);
+            assert_eq!(owner.current().watermark, prior);
+            owner.store.close().await.unwrap();
+        }
+    }
 
     fn limits() -> Limits {
         Limits {
@@ -637,7 +773,7 @@ mod tests {
             .unwrap(),
         ];
         let mut tx = transaction(
-            store.state(),
+            store.current(),
             records
                 .into_iter()
                 .map(|record| Mutation::Put {
@@ -680,7 +816,7 @@ mod tests {
     }
     async fn set_state(store: &mut Store, scope: &Scope, state: TaskState) {
         let mut task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)
             .unwrap()
             .decode()
@@ -697,7 +833,7 @@ mod tests {
         )
         .unwrap();
         let tx = transaction(
-            store.state(),
+            store.current(),
             vec![Mutation::Put {
                 expected: Some(expected),
                 record,
@@ -710,14 +846,14 @@ mod tests {
     async fn queue_reopen_retry_and_pause_preserve_exactly_one_origin_job() {
         for backend in [BackendKind::Sqlite, BackendKind::Files] {
             let (temp, mut store, access, scope) = fixture(backend).await;
-            let through = store.state().watermark;
+            let through = store.current().watermark;
             let first = enqueue(&mut store, &access, &scope, &extractor(), through, limits())
                 .await
                 .unwrap();
             assert!(first.caught_up);
             assert_eq!(first.jobs.len(), 1);
             let id = first.jobs[0].clone();
-            let watermark = store.state().watermark;
+            let watermark = store.current().watermark;
             let retry = enqueue(
                 &mut store,
                 &access,
@@ -730,7 +866,7 @@ mod tests {
             .unwrap();
             assert!(retry.jobs.is_empty());
             assert_eq!(
-                store.state().watermark,
+                store.current().watermark,
                 watermark,
                 "idle polls cannot write themselves into backlog"
             );
@@ -775,7 +911,7 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(done.state, JobState::Completed);
-            let watermark = store.state().watermark;
+            let watermark = store.current().watermark;
             let replay = complete(
                 &mut store,
                 &access,
@@ -788,7 +924,7 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(done, replay);
-            assert_eq!(store.state().watermark, watermark);
+            assert_eq!(store.current().watermark, watermark);
             store.close().await.unwrap();
         }
     }
@@ -796,7 +932,7 @@ mod tests {
     #[tokio::test]
     async fn expired_leases_reject_late_results_and_retries_end_visibly() {
         let (_temp, mut store, access, scope) = fixture(BackendKind::Sqlite).await;
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         let queued = enqueue(
             &mut store,
             &access,
