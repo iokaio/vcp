@@ -4,8 +4,8 @@ use std::{path::Path, sync::Arc};
 type Execution = Option<Arc<execution::Supervisor>>;
 use vcp_domain::{ids::RootId, workspace::Workspace};
 use vcp_engine::{
-    rpc::{capabilities_for_methods, RpcHost, RpcSession},
     Access,
+    rpc::{RpcHost, RpcSession, capabilities_for_methods},
 };
 use vcp_lifecycle::foundation::{CanonicalHost, Config};
 use vcp_protocol::{
@@ -122,7 +122,12 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
     if let Some(publisher) = &boot.request.publisher {
         publisher.validate(boot.request.role)?;
     }
-    let (_selection, config, data) = selection(&boot.request)?;
+    let (_selection, mut config, data) = selection(&boot.request)?;
+    // Only an explicitly selected execution owner adopts this branch policy.
+    // Read-only attachment retains the stored configuration without mutation.
+    if boot.request.execution.is_some() {
+        config.cap.micros = vcp_domain::Limit::Unbounded;
+    }
     // This acquires the real canonical writer and performs crash recovery. No
     // provider request, root thread or task is created by attachment.
     let (host, owner) = CanonicalHost::open(config.clone())?;

@@ -25,7 +25,7 @@ pub(super) struct Locations<'a> {
 pub(super) async fn execute(
     cli: ValidatedCli,
     profile: settings::Profile,
-    cap: Option<Micros>,
+    _legacy_cap: Option<Micros>,
     entry: Option<WorkspaceEntry>,
     locations: Locations<'_>,
 ) -> Result<u8, String> {
@@ -106,10 +106,10 @@ pub(super) async fn execute(
             },
             actor: ActorId::new(),
             root_task: TaskId::new(),
-            cap: Money {
+            cap: MonetaryLimit {
                 currency: prepared.profile.provider.price.currency.clone(),
-                micros: cap.unwrap_or(Micros::ZERO),
-            }.into(),
+                micros: vcp_domain::Limit::Unbounded,
+            },
             protected: Micros::ZERO,
             price: prepared.profile.provider.price.clone(),
             input_ceiling: prepared.profile.provider.max_input,
@@ -195,7 +195,8 @@ pub(super) async fn execute(
                 )
                 .and_then(|r| r.decode())
                 .map_err(|_| "task has no durable budget admission; start a new run")?;
-            config.cap.micros = ledger.cap;
+            let _original_cap = ledger.cap;
+            config.cap.micros = vcp_domain::Limit::Unbounded;
         }
         config.session = selected.scope.session;
         config.root_task = selected.scope.task;
@@ -203,8 +204,8 @@ pub(super) async fn execute(
     if objective.is_some() {
         config.root_task = TaskId::new();
         config.cap.micros = match &cli.command {
-            ValidatedCommand::Run(run) => run.budget.into(),
-            _ => cap.ok_or("fork requires persisted budget cap")?.into(),
+            ValidatedCommand::Run(run) => run.budget,
+            _ => vcp_domain::Limit::Unbounded,
         };
         crate::model_preferences::retain_task(directory, &config.root_task, &prepared.profile)?;
     }
@@ -337,7 +338,7 @@ pub(super) async fn execute(
             identity: Some(registered_identity),
         },
     )?;
-    host.initialize_root_budget()?;
+    host.configure_execution_constraints(vcp_domain::Limit::Unbounded)?;
     let scope = Scope {
         workspace: config.workspace.clone(),
         session: config.session.clone(),
@@ -415,7 +416,7 @@ pub(super) async fn execute(
             }
         }
         if interactive {
-            return crate::terminal::run(&host,session,&scope,&profile.provider.compatibility.model,*profile.deadline_seconds.finite().ok_or("terminal launch requires a finite deadline")?,&mut backup_triggers).await;
+            return crate::terminal::run(&host,session,&scope,&profile.provider.compatibility.model,profile.deadline_seconds,&mut backup_triggers).await;
         }
         let mut execution_owner=crate::execution::RetainedExecution::claim(&host,session,&scope)?;
         let _stdin=if cli.control_stdin{
@@ -423,7 +424,7 @@ pub(super) async fn execute(
             Some(AbortOnDrop(tokio::spawn(async move{while let Ok(Some(reply))=input.next(&host).await{if reply.result.is_err(){eprintln!("vcp: structured control rejected");}}})))
         }else{None};
         let mut tick=tokio::time::interval(Duration::from_millis(250));
-        let deadline=tokio::time::sleep(Duration::from_secs(u64::from(*profile.deadline_seconds.finite().ok_or("batch launch requires a finite deadline")?)));tokio::pin!(deadline);
+        let deadline=crate::execution::wait_deadline(crate::execution::deadline_after(profile.deadline_seconds));tokio::pin!(deadline);
         lifecycle_pending=Some(execution_owner.start_submission(None));
         let mut active_turn=None;
         loop{tokio::select!{
@@ -469,7 +470,9 @@ pub(super) async fn execute(
         && crate::outcome::Outcome::read(&host, &scope)
             .is_ok_and(|outcome| outcome.conditions.required_input)
     {
-        eprintln!("vcp: approval required; one-shot execution will close this owner. Use an interactive terminal or local attachment for live hook approval and explicit resume; inspect durable evidence before recovery.");
+        eprintln!(
+            "vcp: approval required; one-shot execution will close this owner. Use an interactive terminal or local attachment for live hook approval and explicit resume; inspect durable evidence before recovery."
+        );
     }
     if let Some(mut job) = lifecycle_pending {
         drop(host.hold_execution());

@@ -30,6 +30,7 @@ pub(super) mod decision;
 mod escalation;
 #[cfg(windows)]
 mod execution;
+mod execution_constraints;
 #[cfg(windows)]
 mod hooks;
 #[cfg(windows)]
@@ -234,6 +235,7 @@ pub struct Context {
     interrupted_capture: bool,
     response_recovery: Vec<ArtifactDescriptor>,
     owner_alive: bool,
+    execution_deadline: Option<vcp_domain::Limit<Timestamp>>,
     authority_pending: bool,
     public_mode: bool,
     public_controller: Option<public_connection::CurrentController>,
@@ -442,6 +444,7 @@ impl Context {
             interrupted_capture,
             response_recovery,
             owner_alive: true,
+            execution_deadline: None,
             authority_pending: false,
             public_mode: false,
             public_controller: None,

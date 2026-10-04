@@ -141,7 +141,7 @@ fn money_has_exact_micros_and_rejects_ambiguous_or_overflowing_values() {
 }
 
 #[test]
-fn task_file_is_bounded_utf8_data_and_budget_is_required() {
+fn task_file_is_bounded_utf8_data_and_execution_cap_is_explicitly_unbounded() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("task with spaces.md");
     let parse = || {
@@ -154,7 +154,8 @@ fn task_file_is_bounded_utf8_data_and_budget_is_required() {
     let cap = parse_usd("1").unwrap();
     let literal = "$(Write-Output private)\nUnicode: 日本語 🦀\r\n";
     std::fs::write(&path, format!("\u{feff}{literal}")).unwrap();
-    assert!(parse().validate(None).is_err());
+    assert!(parse().validate(None).unwrap().budget.is_unbounded());
+    assert!(parse().validate(Some(cap)).unwrap().budget.is_unbounded());
     assert_eq!(parse().validate(Some(cap)).unwrap().objective, literal);
     for bytes in [
         vec![0xff, 0xfe],

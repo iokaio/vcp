@@ -256,11 +256,19 @@ async fn output_limit_recovery_applies_one_complete_large_patch_with_exact_admis
     run_coding_modes(&["large_patch"]).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn completed_responses_with_unknown_cost_preserve_liability_without_duplicate_effects() {
+    run_coding_modes(&["missing_cost", "missing_cost_unbounded"]).await;
+}
+
 async fn run_coding_modes(modes: &[&'static str]) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for &requested_mode in modes {
+            let unknown_cost = requested_mode == "missing_cost_unbounded";
             let pending_reopen = requested_mode == "incomplete_pending_reopen";
-            let mode = if pending_reopen {
+            let mode = if unknown_cost {
+                "complete"
+            } else if pending_reopen {
                 "incomplete_usage"
             } else {
                 requested_mode
@@ -286,6 +294,9 @@ async fn run_coding_modes(modes: &[&'static str]) {
             let executable = temp.path().join("fixture.exe");
             std::fs::copy(env!("CARGO_BIN_EXE_vcp-process-fixture"), &executable).unwrap();
             let mut config = config(&temp.path().join("canonical"), &workspace, backend);
+            if unknown_cost {
+                config.cap.micros = vcp_domain::Limit::Unbounded;
+            }
             if matches!(mode, "incomplete_usage" | "large_patch") {
                 // The host ceiling may exceed this fixed provider's 8000-token
                 // capacity; every actual request/reservation must still fit.
@@ -437,7 +448,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
             let captured_bytes = wire_bytes.clone();
             let calls = count.clone();
             let directory = workspace.clone();
-            let routing_owner = host.clone();
+            let routing_owner = mode.starts_with("routed_allocation").then(|| host.clone());
             let large_contents = (0..512)
                 .map(|line| {
                     format!("line {line:04}: complete patch preserves every distinct row\n")
@@ -461,7 +472,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     return ResponseTemplate::new(429).insert_header("retry-after", "0").set_body_string("local candidate unavailable");
                 }
                 if mode == "routed_allocation" && index == 4 {
-                    super::routing_output::select_edits(&routing_owner, vec![vcp_lifecycle::foundation::routing_state::Edit::Pin(Some(vcp_models::routing::Pin {
+                    super::routing_output::select_edits(routing_owner.as_ref().unwrap(), vec![vcp_lifecycle::foundation::routing_state::Edit::Pin(Some(vcp_models::routing::Pin {
                         candidate: vcp_models::routing::ModelEndpoint { model:"fixture/stronger".into(), endpoint:"fixture/stronger-region".into() }, fallback_candidates: Default::default(),
                     }))]);
                 }
@@ -531,7 +542,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         output.push(sibling);
                     }
                 } else { events.push(ev_assistant_message("done", "Observed the file change.")); }
-                let cost = if mode=="missing_cost" {serde_json::Value::Null}else if body["model"] == "fixture/stronger" {serde_json::json!(0.0002)}else{serde_json::json!(0.0001)};
+                let cost = if unknown_cost || mode=="missing_cost" {serde_json::Value::Null}else if body["model"] == "fixture/stronger" {serde_json::json!(0.0002)}else{serde_json::json!(0.0001)};
                 if mode=="stale_instructions" { std::fs::write(directory.join("AGENTS.md"), "concurrent human guidance").unwrap(); }
                 if mode == "large_patch" && index == 0 {
                     events.push(serde_json::json!({"type":"response.incomplete","response":{"id":format!("coding-{index}"),"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":output,"usage":{"input_tokens":1000,"output_tokens":4096,"total_tokens":5096,"cost":cost}}}));
@@ -1330,7 +1341,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
             }
             assert_eq!(
                 view.ledgers[&config.root_task].settled.get(),
-                if matches!(mode, "missing_cost" | "deadline") {
+                if unknown_cost || matches!(mode, "missing_cost" | "deadline") {
                     0
                 } else {
                     if mode == "incomplete_usage" {
@@ -1342,6 +1353,22 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     }
                 }
             );
+            if unknown_cost {
+                assert!(view.ledgers[&config.root_task].unresolved > Micros::ZERO);
+                assert_eq!(view.ledgers[&config.root_task].active, Micros::ZERO);
+                let attempts: Vec<vcp_domain::accounting::Attempt> = host
+                    .snapshot()
+                    .unwrap()
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Attempt)
+                    .map(|row| row.decode().unwrap())
+                    .collect();
+                assert_eq!(attempts.len(), expected);
+                assert!(attempts.iter().all(|attempt| attempt.phase
+                    == vcp_domain::accounting::ReservationState::ReconciliationPending
+                    && attempt.send_intent.is_some()));
+            }
             assert!(codex_extension_api::HostWorkAdmission::admit_tool(
                 &host,
                 id,
@@ -1376,7 +1403,27 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 assert!(restored.effects.is_empty());
                 owner.close().await.unwrap();
             }
-            if mode == "complete" {
+            if unknown_cost {
+                let (reopened, owner) = CanonicalHost::open(config.clone()).unwrap();
+                let restored = reopened.project().unwrap();
+                assert_eq!(
+                    restored.ledgers[&config.root_task].unresolved,
+                    view.ledgers[&config.root_task].unresolved
+                );
+                assert_eq!(restored.ledgers[&config.root_task].settled, Micros::ZERO);
+                assert_eq!(restored.effects.len(), view.effects.len());
+                assert_eq!(
+                    count.load(Ordering::SeqCst),
+                    expected,
+                    "reopen sends no provider request"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(workspace.join("file.txt")).unwrap(),
+                    "after\n"
+                );
+                owner.close().await.unwrap();
+            }
+            if mode == "complete" && !unknown_cost {
                 std::fs::write(
                     workspace.join("AGENTS.md"),
                     "instruction version three after reopen",

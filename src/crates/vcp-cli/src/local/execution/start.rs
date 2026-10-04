@@ -30,9 +30,7 @@ impl Supervisor {
         let profile = &prepared.profile;
         if self.config.cap.currency.code() != "USD"
             || request.budget.currency != methods::Currency::Usd
-            || request.budget.cap_micros != self.config.cap.micros.map(|cap| cap.get().into())
             || request.budget.max_requests != profile.max_requests
-            || request.budget.deadline_seconds != profile.deadline_seconds
         {
             return Err(failure(Code::PolicyDenied, Some(operation)));
         }
@@ -92,6 +90,8 @@ impl Supervisor {
         turn: methods::Id,
     ) -> Result<(), String> {
         let scope = ticket.scope().clone();
+        self.host
+            .configure_execution_constraints(vcp_domain::Limit::Unbounded)?;
         let credential = vcp_engine::capture::ProviderCredential::from_config(
             self.configuration.provider_credential.clone(),
         );
@@ -132,7 +132,7 @@ impl Supervisor {
         crate::execution_profile::install_thread(&self.host, session.id, &profile)?;
         state.configured = true;
         let expires = self.execution_expiry(&profile)?;
-        state.deadline = Some(expires);
+        state.deadline = expires;
         let turn = TurnId::parse(turn.as_str()).map_err(|_| "invalid accepted turn")?;
         state.pump = Some(pump(
             self.host.clone(),

@@ -278,6 +278,15 @@ impl CanonicalHost {
     pub fn initialize_root_budget(&self) -> Result<(), String> {
         self.worker.run(|context| context.initialize_root_budget())
     }
+    /// Record this intentional execution's effective constraints and executable
+    /// identity. Historical accepted requests remain unchanged.
+    pub fn configure_execution_constraints(
+        &self,
+        deadline: vcp_domain::Limit<Timestamp>,
+    ) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.configure_execution_constraints(deadline))
+    }
     /// Enable the explicit OpenRouter contract for every retained request.
     /// Reopening an enabled store requires fresh configuration and context.
     pub fn configure_provider(

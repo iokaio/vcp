@@ -150,7 +150,7 @@ pub fn local_path(path: &Path, workspace: &Path) -> Result<PathBuf, String> {
                 _ => {
                     return Err(
                         "local drive required; network and device roots are rejected".into(),
-                    )
+                    );
                 }
             },
             _ => return Err("local drive required".into()),
@@ -490,8 +490,8 @@ mod request_limit_tests {
         assert_eq!(configured.output_ceiling().unwrap(), Units::new(16384));
         assert_eq!(configured.max_transport_retries, 0);
         selected["provider_timeout_seconds"] = serde_json::json!(360);
-        // Transport liveness is independently bounded. The outer finite task
-        // deadline remains effective without invalidating this profile value.
+        // Transport configuration remains readable independently of the legacy
+        // elapsed task limit; prepared execution explicitly suspends that limit.
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(
             configured.provider_timeout().unwrap(),
@@ -507,6 +507,15 @@ mod request_limit_tests {
         selected["deadline_seconds"] = serde_json::json!(900);
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(configured.provider_timeout_seconds, Some(360));
+        assert_eq!(configured.deadline_seconds, vcp_domain::Limit::Finite(900));
+        let effective: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert!(effective
+            .prepare(Autonomy::Autonomous)
+            .unwrap()
+            .profile
+            .deadline_seconds
+            .is_unbounded());
+        assert_eq!(selected["deadline_seconds"], serde_json::json!(900));
         assert_eq!(
             configured.provider_timeout().unwrap(),
             Duration::from_secs(360)
@@ -528,7 +537,7 @@ impl Profile {
         startup_provider_timeout(self.provider_timeout_seconds, 0)
     }
 
-    pub fn prepare(self, requested: Autonomy) -> Result<PreparedProfile, String> {
+    pub fn prepare(mut self, requested: Autonomy) -> Result<PreparedProfile, String> {
         self.output_ceiling()?;
         self.provider_timeout()?;
         if self.max_transport_retries > 2 {
@@ -634,8 +643,9 @@ impl Profile {
             }
         }
         validate_check_durations(&self.checks, &processes, 0)?;
-        // Preserve the explicit profile bound until CLI activation is complete;
-        // preparing a finite profile must not make its launcher reject it.
+        // EE-01: legacy profile values remain readable evidence; this branch
+        // executes with elapsed-time enforcement explicitly suspended.
+        self.deadline_seconds = vcp_domain::Limit::Unbounded;
         crate::mcp::validate(&self.mcp, &names)?;
         crate::mcp::validate_http(&self.mcp_http, &self.mcp)?;
         Ok(PreparedProfile {
@@ -694,7 +704,7 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
     let _base_pin = match root.hold(Some(Path::new("workspaces")), true) {
         Ok(pin) => pin,
         Err(vcp_repository::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(None)
+            return Ok(None);
         }
         Err(_) => return Err("workspace registry is unavailable or redirected".into()),
     };
@@ -725,7 +735,7 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
             Err(vcp_repository::Error::Io(error))
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                continue
+                continue;
             }
             Err(_) => return Err("workspace descriptor is unavailable or redirected".into()),
         };
@@ -746,7 +756,9 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
     }
     if found.is_none() {
         if let Some(id) = moved {
-            return Err(format!("workspace root moved; run vcp rebind {id} at this root to reconcile its retained history"));
+            return Err(format!(
+                "workspace root moved; run vcp rebind {id} at this root to reconcile its retained history"
+            ));
         }
     }
     Ok(found)

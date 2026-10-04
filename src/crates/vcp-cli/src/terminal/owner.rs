@@ -143,7 +143,7 @@ pub async fn run(
     session: &Session,
     scope: &Scope,
     model: &str,
-    seconds: u32,
+    seconds: vcp_domain::Limit<u32>,
     backup_triggers: &mut crate::backup_triggers::Triggers,
 ) -> Result<(), String> {
     let mut execution = crate::execution::RetainedExecution::claim(host, session, scope)?;
@@ -192,7 +192,7 @@ pub async fn run(
     let mut cleanup_previews = std::collections::BTreeMap::new();
     let result = async {
     let mut tick = tokio::time::interval(Duration::from_millis(200));
-    let deadline = tokio::time::sleep(Duration::from_secs(u64::from(seconds)));
+    let deadline = crate::execution::wait_deadline(crate::execution::deadline_after(seconds));
     tokio::pin!(deadline);
     let mut expired = false;
     let mut last = String::new();

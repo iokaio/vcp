@@ -1290,11 +1290,35 @@ impl Context {
         )?;
         #[cfg(windows)]
         self.observe_coding_allocation(binding, attempt, &normalized)?;
-        let Some(amount) = normalized
+        if let Some(amount) = normalized
             .usage
             .as_ref()
             .and_then(|usage| usage.cost.clone())
-        else {
+        {
+            let actor = self.actor();
+            #[cfg(feature = "qualification")]
+            self.qualification_model_dispatch_point(
+                crate::foundation::model_dispatch_qualification::Point::BeforeSettlement,
+                attempt,
+            )?;
+            self.runtime.block_on(vcp_budget::observe(
+                self.engine.store_mut(),
+                UsageObservation {
+                    id: ObservationId::new(),
+                    scope: binding.scope.clone(),
+                    attempt: attempt.clone(),
+                    provider_request: response_id.into(),
+                    mode: UsageMode::Cumulative {
+                        version: Units::new(1),
+                    },
+                    amount,
+                    final_usage: true,
+                    raw: descriptor.spec.id.clone(),
+                    correction: None,
+                },
+                &actor,
+            ))?;
+        } else {
             // The response writer is already finalized and removed. Persist the
             // receipt lookup identity before retain_unknown, whose interrupted
             // capture path otherwise has no writer from which to create it.
@@ -1310,31 +1334,18 @@ impl Context {
                 provider.error_sources.remove(attempt);
             }
             self.retain_unknown(binding, attempt, &reason, false)?;
-            return self.pause_root(&reason);
-        };
-        let actor = self.actor();
-        #[cfg(feature = "qualification")]
-        self.qualification_model_dispatch_point(
-            crate::foundation::model_dispatch_qualification::Point::BeforeSettlement,
-            attempt,
-        )?;
-        self.runtime.block_on(vcp_budget::observe(
-            self.engine.store_mut(),
-            UsageObservation {
-                id: ObservationId::new(),
-                scope: binding.scope.clone(),
-                attempt: attempt.clone(),
-                provider_request: response_id.into(),
-                mode: UsageMode::Cumulative {
-                    version: Units::new(1),
-                },
-                amount,
-                final_usage: true,
-                raw: descriptor.spec.id.clone(),
-                correction: None,
-            },
-            &actor,
-        ))?;
+            // Only a fully observed, validated complete response can proceed
+            // with financial-only uncertainty. Unknown send/outcome, incomplete
+            // output and availability-liability fences retain their behavior.
+            let complete = normalized.status == stream::Status::Completed
+                && normalized.terminal_diagnostic.is_none();
+            let unbounded = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?
+                .cap
+                .is_unbounded();
+            if !complete || !unbounded {
+                return self.pause_root(&reason);
+            }
+        }
         let admitted = vcp_budget::attempt(
             self.engine.store().current(),
             attempt,

@@ -506,8 +506,8 @@ impl Context {
         }
         Ok(())
     }
-    /// Explicit finite acceptance limits survive reconstruction and cannot be
-    /// widened by a later profile. Explicit unbounded dimensions stay unbounded.
+    /// Accepted facts remain available; a trusted owner may explicitly record a
+    /// new effective policy without rewriting those original facts.
     pub(super) fn check_public_start_window(
         &self,
     ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>> {
@@ -525,18 +525,25 @@ impl Context {
         else {
             return Ok(None);
         };
-        if let vcp_domain::Limit::Finite(seconds) = accepted.budget.deadline_seconds {
-            let deadline = accepted
-                .accepted_at
-                .get()
-                .checked_add(
-                    u64::from(seconds)
-                        .checked_mul(1000)
-                        .ok_or("deadline overflow")?,
-                )
-                .ok_or("deadline overflow")?;
-            if now().get() >= deadline {
-                return Err("original public run budget expired or widened".into());
+        if let Some(vcp_domain::Limit::Finite(deadline)) = self.execution_deadline {
+            if now() >= deadline {
+                return Err("effective public run deadline elapsed".into());
+            }
+        }
+        if self.execution_deadline.is_none() {
+            if let vcp_domain::Limit::Finite(seconds) = accepted.budget.deadline_seconds {
+                let deadline = accepted
+                    .accepted_at
+                    .get()
+                    .checked_add(
+                        u64::from(seconds)
+                            .checked_mul(1000)
+                            .ok_or("deadline overflow")?,
+                    )
+                    .ok_or("deadline overflow")?;
+                if now().get() >= deadline {
+                    return Err("original public run budget expired or widened".into());
+                }
             }
         }
         let cap = accepted
@@ -545,7 +552,12 @@ impl Context {
             .finite()
             .map(|value| value.as_str().parse::<u64>())
             .transpose()?;
-        if cap.is_some_and(|cap| {
+        let effective_cap = if self.execution_deadline.is_some() {
+            self.config.cap.micros.finite().map(|amount| amount.get())
+        } else {
+            cap
+        };
+        if effective_cap.is_some_and(|cap| {
             self.config
                 .cap
                 .micros
@@ -561,7 +573,8 @@ impl Context {
             .record(Collection::Ledger, scope.task.as_str(), &scope.workspace)?
             .decode()?;
         if ledger.scope != scope
-            || cap.is_some_and(|cap| ledger.cap.finite().is_none_or(|amount| amount.get() > cap))
+            || effective_cap
+                .is_some_and(|cap| ledger.cap.finite().is_none_or(|amount| amount.get() > cap))
         {
             return Err("public run ledger exceeds original cap".into());
         }

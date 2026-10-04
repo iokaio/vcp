@@ -97,7 +97,7 @@ use vcp_domain::{
     task::{Task, TaskState},
     workspace::{Scope, Trust, Workspace},
 };
-use vcp_engine::{rpc::RpcHost, Access};
+use vcp_engine::{Access, rpc::RpcHost};
 use vcp_lifecycle::foundation::{
     CanonicalHost, CanonicalOwner, Config, PublicConnection, PublicResumeAdmission,
     PublicResumeOutcome, PublicResumeTicket, ThreadBinding,
@@ -240,10 +240,7 @@ impl Supervisor {
         let prepared = loaded.profile.prepare(policy.mode)?;
         let profile = &prepared.profile;
         if let Some(accepted) = self.retained_budget(&state)? {
-            if accepted.budget.max_requests != profile.max_requests
-                || accepted.budget.deadline_seconds != profile.deadline_seconds
-                || accepted.budget.cap_micros != self.config.cap.micros.map(|cap| cap.get().into())
-            {
+            if accepted.budget.max_requests != profile.max_requests {
                 return Err("execution profile differs from original public run limits".into());
             }
         }
@@ -302,20 +299,27 @@ impl Supervisor {
     fn execution_expiry(
         &self,
         profile: &crate::settings::Profile,
-    ) -> Result<tokio::time::Instant, String> {
-        let mut remaining = u64::from(*profile.deadline_seconds.finite().ok_or("public launch requires a finite deadline")?) * 1000;
+    ) -> Result<Option<tokio::time::Instant>, String> {
+        let Some(seconds) = profile.deadline_seconds.finite() else {
+            return Ok(None);
+        };
+        let mut remaining = u64::from(*seconds) * 1000;
         if let Some(accepted) = self.retained_budget(&self.host.snapshot()?)? {
-            let expires = accepted
-                .accepted_at
-                .get()
-                .checked_add(u64::from(*accepted.budget.deadline_seconds.finite().ok_or("retained run requires a finite deadline")?) * 1000)
-                .ok_or("original run deadline overflow")?;
-            remaining = remaining.min(expires.saturating_sub(crate::settings::now().get()));
+            if let Some(seconds) = accepted.budget.deadline_seconds.finite() {
+                let expires = accepted
+                    .accepted_at
+                    .get()
+                    .checked_add(u64::from(*seconds) * 1000)
+                    .ok_or("original run deadline overflow")?;
+                remaining = remaining.min(expires.saturating_sub(crate::settings::now().get()));
+            }
         }
         if remaining == 0 {
             return Err("original run deadline elapsed".into());
         }
-        Ok(tokio::time::Instant::now() + std::time::Duration::from_millis(remaining))
+        Ok(Some(
+            tokio::time::Instant::now() + std::time::Duration::from_millis(remaining),
+        ))
     }
 
     async fn resume(
@@ -362,6 +366,8 @@ impl Supervisor {
             let _ = pump.await;
         }
         let (prepared, policy) = self.prepare_profile(state.policy.as_deref())?;
+        self.host
+            .configure_execution_constraints(vcp_domain::Limit::Unbounded)?;
         let profile = if state.session.is_none() {
             let http = crate::mcp::prepare_http_with(&prepared.profile.mcp_http, |name| {
                 self.configuration.credentials.get(name).cloned().ok_or(())
@@ -428,11 +434,11 @@ impl Supervisor {
                 return Ok(receipt);
             }
             state.configured = true;
-            state.deadline = Some(expires);
+            state.deadline = expires;
         }
         // Only a new durable acceptance can submit work. Canonical admission
         // independently rechecks controller loss between commit and submission.
-        let expires = state.deadline.ok_or("execution deadline unavailable")?;
+        let expires = state.deadline;
         state.pump = Some(pump(self.host.clone(), scope, execution, None, expires));
         Ok(receipt)
     }
@@ -483,10 +489,10 @@ fn pump(
     scope: Scope,
     mut execution: crate::execution::RetainedExecution,
     accepted: Option<TurnId>,
-    expires: tokio::time::Instant,
+    expires: Option<tokio::time::Instant>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let deadline = tokio::time::sleep_until(expires);
+        let deadline = crate::execution::wait_deadline(expires);
         tokio::pin!(deadline);
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
         let mut pending = Some(execution.start_submission(accepted));

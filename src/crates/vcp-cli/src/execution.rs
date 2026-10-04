@@ -7,12 +7,26 @@ use vcp_domain::{
     task::{Task, TaskState},
     workspace::Scope,
 };
-use vcp_lifecycle::foundation::verification::{CompletionAttempt, CompletionRejection};
 use vcp_lifecycle::foundation::CanonicalHost;
+use vcp_lifecycle::foundation::verification::{CompletionAttempt, CompletionRejection};
 use vcp_store::contract::Collection;
 
 #[cfg(all(test, windows, feature = "qualification"))]
 mod tests;
+
+/// A suspended elapsed deadline has no timer and no artificial far-future date.
+pub(crate) async fn wait_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+pub(crate) fn deadline_after(seconds: vcp_domain::Limit<u32>) -> Option<tokio::time::Instant> {
+    seconds.finite().map(|seconds| {
+        tokio::time::Instant::now() + std::time::Duration::from_secs(u64::from(*seconds))
+    })
+}
 
 pub fn event_for_turn(event: &Event, turn: &str) -> bool {
     use codex_protocol::protocol::EventMsg;
@@ -218,7 +232,7 @@ async fn complete(
                         Completion::Rejected(error)
                     } else {
                         Completion::RequiredApproval
-                    })
+                    });
                 }
             };
             Ok(
