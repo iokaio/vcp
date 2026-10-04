@@ -78,6 +78,53 @@ fn reference_scoped(
 }
 
 #[tokio::test]
+async fn command_pages_keep_canonical_order_and_receipt_only_history() {
+    let mut source = state(1);
+    for index in 0..80 {
+        let mut transaction = common::initial();
+        transaction.id = TransactionId::new();
+        transaction.expected_watermark = source.watermark;
+        transaction.mutations.clear();
+        transaction.events[0].id = EventId::new();
+        transaction.events[0].correlation = CommandId::parse(format!("command-{index}")).unwrap();
+        transaction.command.as_mut().unwrap().command = transaction.events[0].correlation.clone();
+        source = source.prepare(&transaction).unwrap().0;
+    }
+    // Retained receipts remain canonical even when their events were pruned.
+    source.events.clear();
+    source.sequences.clear();
+    let mut pages = Memory::default();
+    let catalog = Catalog::from_validated_state(&mut pages, &source)
+        .await
+        .unwrap();
+    let expected = source
+        .commands
+        .iter()
+        .map(|(key, row)| (key.clone(), row.clone()))
+        .collect::<Vec<_>>();
+    for limit in [1, 7, 64, 4096] {
+        let mut actual = Vec::new();
+        loop {
+            let after = actual
+                .last()
+                .map(|(key, _): &(String, CommandReceipt)| key.as_str());
+            let next = catalog
+                .command_page(&mut pages, after, limit)
+                .await
+                .unwrap();
+            if next.is_empty() {
+                break;
+            }
+            actual.extend(next);
+        }
+        assert_eq!(actual, expected);
+    }
+    assert!(catalog.command_page(&mut pages, None, 0).await.is_err());
+    pages.failed = true;
+    assert!(catalog.command_page(&mut pages, None, 1).await.is_err());
+}
+
+#[tokio::test]
 async fn exact_catalog_rows_and_receipt_contracts_match_complete_reference() {
     let state = state(73);
     let mut pages = Memory::default();

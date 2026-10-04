@@ -346,6 +346,45 @@ impl Catalog {
         Ok(Some(receipt))
     }
 
+    /// Complete canonical command-key order, including receipt-only retained
+    /// history. Scope and disclosure checks remain the consumer's obligation.
+    pub(crate) async fn command_page(
+        &self,
+        pages: &mut impl Pages,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, CommandReceipt)>> {
+        self.validate()?;
+        if limit == 0 || limit > PAGE_ROWS {
+            return Err(Error::Limit("history command page"));
+        }
+        let entries = self.commands.page(pages, after, limit).await?;
+        let mut result = Vec::new();
+        let mut bytes = 0usize;
+        for row in entries {
+            let blob: Blob = serde_json::from_value(row.value)?;
+            if !result.is_empty() && blob.bytes > (MAX_COMMIT_BYTES - bytes) as u64 {
+                break;
+            }
+            let receipt: CommandReceipt = read_object(pages, &blob).await?;
+            if row.key != command_key(&receipt.workspace, &receipt.command)
+                || receipt.watermark > self.watermark
+            {
+                return Err(Error::Corruption("history command locator identity"));
+            }
+            let size = crate::contract::encoded_len(&(&row.key, &receipt))?;
+            if size > MAX_COMMIT_BYTES {
+                return Err(Error::Limit("command history row"));
+            }
+            if size > MAX_COMMIT_BYTES - bytes {
+                break;
+            }
+            bytes += size;
+            result.push((row.key, receipt));
+        }
+        Ok(result)
+    }
+
     pub(crate) async fn scoped_command(
         &self,
         pages: &mut impl Pages,

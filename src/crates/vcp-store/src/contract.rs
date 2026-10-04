@@ -69,7 +69,7 @@ pub const MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
 // their object keys changes byte order, not encoded length. Count that length
 // directly instead of allocating and sorting another complete JSON tree on
 // every replayed commit. Digests and persisted bytes still use canonical_bytes.
-fn encoded_len(value: &impl Serialize) -> Result<usize> {
+pub(crate) fn encoded_len(value: &impl Serialize) -> Result<usize> {
     #[derive(Default)]
     struct Counter(usize);
     impl std::io::Write for Counter {

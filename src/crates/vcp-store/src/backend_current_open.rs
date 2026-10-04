@@ -3,16 +3,27 @@
 //! The existing Store will consume these parts when its live API is migrated.
 use super::*;
 use crate::{canonical_lock::CanonicalLock, history_index::io, private_paths::Directory};
+#[path = "store_current_owner.rs"]
+mod owner;
 
 pub(crate) struct Opened {
     pub(crate) backend: Backend,
-    pub(crate) owner: DurableOwner,
+    pub(crate) owner: std::sync::Arc<DurableOwner>,
     pub(crate) pages: Option<Directory>,
+    pub(crate) spool: crate::artifact::Spool,
+    pub(crate) artifact_limit: u64,
+    pub(crate) poisoned: bool,
+    pub(crate) diagnostics: crate::StoreDiagnostics,
+    pub(crate) current: std::sync::OnceLock<std::sync::Arc<crate::CurrentState>>,
     _data: File,
     _root: Directory,
     _lock: CanonicalLock,
 }
 impl Opened {
+    pub(crate) async fn history(&self) -> Result<crate::backend::history::CurrentCommitReader<'_>> {
+        self.ensure_healthy()?;
+        self.backend.history_current(&self._lock, &self.owner).await
+    }
     /// Transfers the actual exclusive owner lock for the backend lifetime.
     /// Opens only existing data and performs full replay; a supplied descriptor
     /// digest is not an admission certificate or permission to skip its prefix.
@@ -22,6 +33,25 @@ impl Opened {
         origin_digest: &str,
         diagnostics: &mut crate::StoreDiagnostics,
     ) -> Result<Self> {
+        Self::open_with_artifact_limit(
+            lock,
+            kind,
+            origin_digest,
+            crate::artifact::DEFAULT_ARTIFACT_LIMIT,
+            diagnostics,
+        )
+        .await
+    }
+    pub(crate) async fn open_with_artifact_limit(
+        lock: CanonicalLock,
+        kind: BackendKind,
+        origin_digest: &str,
+        artifact_limit: u64,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<Self> {
+        if artifact_limit == 0 || artifact_limit > crate::artifact::DEFAULT_ARTIFACT_LIMIT {
+            return Err(Error::Limit("artifact capacity"));
+        }
         let root = Directory::locked_root(&lock)?;
         for name in [
             "canonical.sqlite",
@@ -136,12 +166,51 @@ impl Opened {
             let _ = backend.close().await;
             return Err(error);
         }
+        let artifact_started = Instant::now();
+        let spool = (|| {
+            let spool = crate::artifact::Spool::open(
+                &root.path.join("spool"),
+                lock.forbidden(),
+                artifact_limit,
+            )?;
+            for record in owner
+                .semantic()
+                .current()
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+            {
+                let descriptor: vcp_domain::artifact::ArtifactDescriptor = record.decode()?;
+                if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
+                    spool.verify(&descriptor)?;
+                    diagnostics.verified_artifacts =
+                        diagnostics.verified_artifacts.saturating_add(1);
+                }
+            }
+            Ok::<_, Error>(spool)
+        })();
+        diagnostics
+            .artifact_verification
+            .record(artifact_started, spool.is_ok());
+        let spool = match spool {
+            Ok(spool) => spool,
+            Err(error) => {
+                let _ = backend.close().await;
+                return Err(error);
+            }
+        };
         // `base` and its complete archival State are released here. The returned
         // owner contains only current records and authenticated durable roots.
+        diagnostics.current_watermark = owner.semantic().current().watermark.get();
         Ok(Self {
             backend,
-            owner,
+            owner: std::sync::Arc::new(owner),
             pages,
+            spool,
+            artifact_limit,
+            poisoned: false,
+            diagnostics: diagnostics.clone(),
+            current: std::sync::OnceLock::new(),
             _data: data,
             _root: root,
             _lock: lock,
@@ -155,6 +224,7 @@ impl Opened {
             _data,
             _root,
             _lock,
+            ..
         } = self;
         let result = backend.close().await;
         drop((owner, pages, _data, _root, _lock));

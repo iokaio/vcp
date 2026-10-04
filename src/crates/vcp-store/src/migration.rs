@@ -105,7 +105,7 @@ impl ActiveRoot {
                 return Err(Error::Corruption("active root missing"));
             }
             let mut store = Store::open(&root, activation.backend, forbidden).await?;
-            if store.state().watermark < activation.watermark {
+            if store.current_state().watermark < activation.watermark {
                 return Err(Error::Corruption("active root regressed"));
             }
             store
@@ -121,8 +121,8 @@ impl ActiveRoot {
                 generation: 0,
                 root: id,
                 backend: kind,
-                watermark: store.state().watermark,
-                logical_sha256: digest_bytes(&canonical_bytes(store.state())?),
+                watermark: store.current_state().watermark,
+                logical_sha256: store.prefix_digest(store.current_state().watermark).await?,
                 previous: prior,
             };
             immutable_file(
@@ -184,7 +184,14 @@ impl ActiveRoot {
         drop(replacement);
         // A fresh open, not the converter's success flag, validates the candidate.
         let mut replacement = Store::open(&destination, kind, &self.forbidden).await?;
-        if replacement.state() != self.store.state() {
+        let source_watermark = self.store.current_state().watermark;
+        let source_digest = self.store.prefix_digest(source_watermark).await?;
+        let replacement_digest = replacement
+            .prefix_digest(replacement.current_state().watermark)
+            .await?;
+        if replacement.current_state().watermark != source_watermark
+            || replacement_digest != source_digest
+        {
             return Err(Error::Corruption("replacement differs from pinned source"));
         }
         let activation = Activation {
@@ -196,8 +203,8 @@ impl ActiveRoot {
                 .ok_or(Error::Limit("activation generation"))?,
             root: id,
             backend: kind,
-            watermark: replacement.state().watermark,
-            logical_sha256: digest_bytes(&canonical_bytes(replacement.state())?),
+            watermark: replacement.current_state().watermark,
+            logical_sha256: replacement_digest,
             previous: digest_bytes(&canonical_bytes(&self.activation)?),
         };
         replacement

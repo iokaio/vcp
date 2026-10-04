@@ -446,11 +446,12 @@ pub(crate) fn redact_record(
     };
     Ok(next)
 }
-pub(crate) fn unprotected(
-    state: &State,
+pub(crate) fn unprotected<'a>(
+    state: impl Into<crate::CurrentStateView<'a>>,
     workspace: &WorkspaceId,
     task: Option<&TaskId>,
 ) -> Result<()> {
+    let state = state.into();
     let root = task
         .map(|id| {
             state

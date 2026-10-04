@@ -2,8 +2,8 @@
 //! A real native generation/artifact pin, paired with owner-admitted roots.
 //! There is no constructor from a decoded descriptor or same-watermark DTO.
 use super::*;
+use crate::store_history_reader::ReadPages;
 use crate::{history_index::Pages, portable_snapshot::complete::Archive, snapshot_inputs::Inputs};
-use sqlx::{sqlite::SqliteConnectOptions, SqliteConnection};
 
 pub(crate) struct PinnedDurableSnapshot {
     owner: Arc<DurableOwner>,
@@ -12,25 +12,6 @@ pub(crate) struct PinnedDurableSnapshot {
     forbidden: Vec<PathBuf>,
     _artifacts: Vec<ArtifactPin>,
     _root_pin: File,
-}
-enum ReadPages {
-    Files(Directory),
-    Sqlite {
-        db: SqliteConnection,
-        _file: File,
-        _root: Directory,
-    },
-}
-impl Pages for ReadPages {
-    async fn read(&mut self, digest: &str, limit: usize) -> Result<Vec<u8>> {
-        match self {
-            Self::Files(directory) => io::Files::new(directory).read(digest, limit).await,
-            Self::Sqlite { db, .. } => io::Sqlite::new(db).read(digest, limit).await,
-        }
-    }
-    async fn write(&mut self, _: &str, _: &[u8]) -> Result<()> {
-        Err(Error::Access)
-    }
 }
 impl StagedCurrent<'_> {
     pub(crate) async fn snapshot(&self) -> Result<PinnedDurableSnapshot> {
@@ -52,40 +33,7 @@ impl StagedCurrent<'_> {
                 artifacts.push(self.source.spool.pin(&descriptor.spec.id)?);
             }
         }
-        let pages = match self.source.kind {
-            BackendKind::Files => {
-                ReadPages::Files(Directory::canonical_child(self.source, "history-pages")?)
-            }
-            BackendKind::Sqlite => {
-                let root = Directory::canonical_root(self.source)?;
-                let path = root.path.join("canonical.sqlite");
-                reject_link(&path)?;
-                let mut options = OpenOptions::new();
-                options.read(true);
-                #[cfg(windows)]
-                {
-                    use std::os::windows::fs::OpenOptionsExt;
-                    options.custom_flags(0x0020_0000).share_mode(1 | 2);
-                }
-                let file = options.open(&path)?;
-                if !crate::private_paths::allowed_handle(&file, false)? {
-                    return Err(Error::Access);
-                }
-                let db = SqliteConnection::connect_with(
-                    &SqliteConnectOptions::new()
-                        .filename(path)
-                        .read_only(true)
-                        .create_if_missing(false)
-                        .busy_timeout(std::time::Duration::from_millis(100)),
-                )
-                .await?;
-                ReadPages::Sqlite {
-                    db,
-                    _file: file,
-                    _root: root,
-                }
-            }
-        };
+        let pages = ReadPages::from_locked(self.source.canonical_lock(), self.source.kind)?;
         Ok(PinnedDurableSnapshot {
             owner: Arc::clone(&self.owner),
             pages,
@@ -97,8 +45,47 @@ impl StagedCurrent<'_> {
     }
 }
 impl PinnedDurableSnapshot {
+    /// Capture only an actual held native owner, never independently supplied
+    /// history/current descriptors that happen to name the same watermark.
+    pub(crate) fn from_opened(
+        source: &crate::backend::current_publication::open::Opened,
+    ) -> Result<Self> {
+        source.ensure_healthy()?;
+        let lock = source.canonical_lock();
+        let root_pin = snapshot_pin::acquire(lock.root())?;
+        let mut artifacts = Vec::new();
+        for record in source
+            .current()
+            .records
+            .values()
+            .filter(|record| record.collection == Collection::Artifact)
+        {
+            let descriptor: ArtifactDescriptor = record.decode()?;
+            if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
+                artifacts.push(source.spool.pin(&descriptor.spec.id)?);
+            }
+        }
+        Ok(Self {
+            owner: Arc::clone(&source.owner),
+            pages: ReadPages::from_locked(lock, source.kind())?,
+            spool: source.spool.clone(),
+            forbidden: lock.forbidden().to_vec(),
+            _artifacts: artifacts,
+            _root_pin: root_pin,
+        })
+    }
     pub(crate) fn current(&self) -> crate::CurrentStateView<'_> {
         self.owner.semantic().current().into()
+    }
+    pub(crate) async fn archive_state(&mut self) -> Result<State> {
+        self.owner.archive_state(&mut self.pages).await
+    }
+    pub(crate) async fn logical_digest(&mut self) -> Result<String> {
+        self.owner
+            .semantic()
+            .catalog()
+            .legacy_digest(&mut self.pages, self.owner.semantic().current().into())
+            .await
     }
     pub(crate) async fn capture(
         &mut self,
@@ -129,18 +116,7 @@ impl PinnedDurableSnapshot {
             _artifacts,
             _root_pin,
         } = self;
-        let result = match pages {
-            ReadPages::Files(directory) => {
-                drop(directory);
-                Ok(())
-            }
-            ReadPages::Sqlite { db, _file, _root } => {
-                let result = db.close().await.map_err(Error::from);
-                drop(_file);
-                drop(_root);
-                result
-            }
-        };
+        let result = pages.close().await;
         drop(owner);
         drop(spool);
         drop(forbidden);

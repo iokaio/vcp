@@ -67,6 +67,11 @@ impl Snapshot {
     pub fn state(&self) -> &State {
         &self.state
     }
+    /// Explicit complete archival DTO for legacy export/rewrite boundaries.
+    /// Live queries use current records and fallible bounded history instead.
+    pub async fn archive_state(&mut self) -> Result<State> {
+        Ok(self.state.clone())
+    }
 }
 /// Unknown/legacy durable pins fail closed. A vault job may release source
 /// leases only with its explicit inactive marker and no retained source refs.
@@ -324,6 +329,13 @@ impl Store {
     pub fn state(&self) -> &State {
         &self.state
     }
+    /// Explicit complete archival DTO for legacy export/rewrite boundaries.
+    pub async fn archive_state(&self) -> Result<State> {
+        if self.poisoned {
+            return Err(Error::Unavailable("canonical state uncertain"));
+        }
+        Ok(self.state.clone())
+    }
     /// Process-local diagnostics without reading payloads or changing durable state.
     pub fn diagnostics(&self) -> &crate::StoreDiagnostics {
         &self.diagnostics
@@ -529,7 +541,7 @@ impl Store {
                 .await?;
         let mut copied = BTreeSet::new();
         for record in snapshot
-            .state
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -583,11 +595,15 @@ impl Store {
             }
         }
         history.close().await?;
-        if target.state != snapshot.state {
+        let source_watermark = snapshot.current().watermark;
+        let source_digest = self.prefix_digest(source_watermark).await?;
+        if target.current().watermark != source_watermark
+            || target.prefix_digest(source_watermark).await? != source_digest
+        {
             return Err(Error::Corruption("conversion changed logical view"));
         }
         target.checkpoint()?;
-        let evidence = serde_json::json!({"version":1,"watermark":self.state.watermark,"logical_sha256":crate::legacy_state_stream::digest(&self.state)?,"source_backend":self.kind,"target_backend":kind});
+        let evidence = serde_json::json!({"version":1,"watermark":source_watermark,"logical_sha256":source_digest,"source_backend":self.kind,"target_backend":kind});
         immutable_file(
             &target.root.join("conversion.json"),
             &canonical_bytes(&evidence)?,
@@ -704,7 +720,7 @@ impl Store {
         workspace: &WorkspaceId,
         task: Option<&TaskId>,
     ) -> Result<()> {
-        crate::redaction_contract::unprotected(&self.state, workspace, task)
+        crate::redaction_contract::unprotected(self.current(), workspace, task)
     }
     /// Remove only sealed-chain retired payloads under live reader/writer leases.
     /// The active canonical root and routing/lock records are never deleted.
@@ -741,6 +757,7 @@ impl Store {
             return Err(Error::Unavailable("reopen before rewrite"));
         }
         let _snapshot = self.snapshot()?;
+        let source = self.archive_state().await?;
         let history = crate::rewrite::receipts(&self.anchor)?;
         if history.len() >= crate::rewrite::MAX_REWRITES {
             return Err(Error::Limit("rewrite activation count"));
@@ -755,15 +772,10 @@ impl Store {
         immutable_file(
             &destination.join("private-rewrite.json"),
             &canonical_bytes(
-                &serde_json::json!({"version":1,"root":id,"source":crate::legacy_state_stream::digest(&self.state)?}),
+                &serde_json::json!({"version":1,"root":id,"source":crate::legacy_state_stream::digest(&source)?}),
             )?,
         )?;
-        crate::replay_base::ReplayBase::write(
-            &destination,
-            &self.state,
-            &baseline,
-            &self.prefixes,
-        )?;
+        crate::replay_base::ReplayBase::write(&destination, &source, &baseline, &self.prefixes)?;
         immutable_file(
             &destination.join("format.json"),
             &canonical_bytes(&Format {
@@ -791,7 +803,7 @@ impl Store {
             self.artifact_limit,
         )
         .await?;
-        if replacement.state != baseline {
+        if replacement.archive_state().await? != baseline {
             return Err(Error::Corruption("rewrite reopened state differs"));
         }
         let mut pending = history
@@ -813,7 +825,7 @@ impl Store {
             root: id,
             backend: self.kind,
             watermark: baseline.watermark,
-            source_digest: crate::legacy_state_stream::digest(&self.state)?,
+            source_digest: crate::legacy_state_stream::digest(&source)?,
             state_digest: crate::legacy_state_stream::digest(&baseline)?,
             previous: history
                 .last()

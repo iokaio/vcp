@@ -44,6 +44,8 @@ pub mod rewrite;
 pub mod snapshot_inputs;
 pub mod snapshot_jobs;
 mod store;
+#[cfg(test)]
+mod store_history_reader;
 pub mod trust_store;
 pub mod vault_crypto;
 pub mod vault_publish;

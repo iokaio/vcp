@@ -28,6 +28,7 @@ async fn real_snapshot_outlives_store_keeps_exact_cut_and_blocks_cleanup_until_c
         let expected = store.state().clone();
         let staged = store.stage_current().await.unwrap();
         let mut snapshot = staged.snapshot().await.unwrap();
+        assert!(!snapshot.pages.connected());
         drop(staged);
         store.close().await.unwrap();
         assert_eq!(snapshot._artifacts.len(), 1);
@@ -36,6 +37,7 @@ async fn real_snapshot_outlives_store_keeps_exact_cut_and_blocks_cleanup_until_c
             .collect_unreferenced(&artifact.spec.id)
             .unwrap());
         assert_eq!(snapshot.current().watermark, expected.watermark);
+        assert!(!snapshot.pages.connected());
         assert!(snapshot_pin::cleanup(&root).unwrap().is_none());
         let mut store = Store::open(&root, kind, &[workspace.clone()])
             .await
