@@ -97,7 +97,6 @@ impl MaskFacts {
         check: &dyn Fn() -> Result<()>,
     ) -> Result<()> {
         let current = store.current();
-        let watermark = current.watermark;
         let mut wanted_origins = BTreeSet::new();
         let mut wanted_commands = BTreeSet::new();
         // Dependency discovery only: malformed later rows must still be reported
@@ -120,10 +119,30 @@ impl MaskFacts {
                 }
             }
         }
+        self.resolve_wanted(
+            store,
+            &access.workspace,
+            &wanted_origins,
+            &wanted_commands,
+            check,
+        )
+        .await
+    }
+
+    async fn resolve_wanted<S: CanonicalStore>(
+        &mut self,
+        store: &S,
+        workspace: &WorkspaceId,
+        wanted_origins: &BTreeSet<EventId>,
+        wanted_commands: &BTreeSet<CommandId>,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<()> {
+        let current = store.current();
+        let watermark = current.watermark;
         let mut masks = Vec::new();
         for (ordinal, row) in current.records.values().enumerate() {
             check()?;
-            if row.collection == Collection::Tombstone && row.workspace == access.workspace {
+            if row.collection == Collection::Tombstone && &row.workspace == workspace {
                 // The shared removal evaluator remains the authority for schema,
                 // workspace, range and deletion checks, in its original order.
                 if let Ok(mask) = row.decode::<RetentionMask>() {
@@ -147,7 +166,7 @@ impl MaskFacts {
                 if row.watermark > watermark {
                     return Err(Error::Invalid("origin retention watermark".into()));
                 }
-                if row.event.workspace != access.workspace {
+                if &row.event.workspace != workspace {
                     continue;
                 }
                 let wanted_origin = wanted_origins.contains(&row.event.id);
@@ -182,6 +201,31 @@ impl MaskFacts {
         self.needed = false;
         Ok(())
     }
+}
+
+pub(crate) async fn proposal_removed_store_with_check<S: CanonicalStore>(
+    store: &S,
+    workspace: &WorkspaceId,
+    proposal: &Proposal,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<bool> {
+    let mut facts = MaskFacts::default();
+    let first = super::proposal_removed_with_history(
+        store.current(),
+        workspace,
+        proposal,
+        check,
+        &mut facts,
+    );
+    if !facts.needed {
+        return first;
+    }
+    let origins = proposal.origins.iter().cloned().collect();
+    let commands = BTreeSet::from([proposal.command.clone()]);
+    facts
+        .resolve_wanted(store, workspace, &origins, &commands, check)
+        .await?;
+    super::proposal_removed_with_history(store.current(), workspace, proposal, check, &mut facts)
 }
 
 /// Same navigation contract as `origin_links_with_check`, using only current

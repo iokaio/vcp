@@ -19,6 +19,7 @@ use vcp_store::{
 
 mod origin_links;
 pub use origin_links::origin_links_store_with_check;
+pub(crate) use origin_links::proposal_removed_store_with_check;
 
 #[derive(Serialize)]
 pub struct EvidenceView {

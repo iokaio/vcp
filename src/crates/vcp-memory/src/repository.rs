@@ -51,7 +51,8 @@ fn rejection(rule: &str, message: &str) -> Resolution {
         validated_evidence: vec![],
     }
 }
-fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
+async fn current(store: &Store, access: &Access) -> Result<Vec<Version>> {
+    let state = store.current();
     let mut result = Vec::new();
     for record in state.records.values().filter(|r| {
         r.workspace == access.workspace
@@ -63,7 +64,14 @@ fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
             let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
             if row.value["document_type"] == vcp_domain::redaction::VERSION {
                 let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
-                access::redacted_scope(state, access, &version.scope, &version.sources)?;
+                access::redacted_scope_store(
+                    store,
+                    access,
+                    &version.scope,
+                    &version.sources,
+                    &|| Ok(()),
+                )
+                .await?;
                 continue;
             }
             let version: Version = state
@@ -73,10 +81,17 @@ fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
             if !access.allows_task(&version.scope.task) {
                 return Err(Error::Access);
             }
-            if crate::history::removed(state, &access.workspace, &version)? {
+            if crate::history::proposal_removed_store_with_check(
+                store,
+                &access.workspace,
+                &version.proposal,
+                &|| Ok(()),
+            )
+            .await?
+            {
                 continue;
             }
-            access::version_scope(state, access, &version)?;
+            access::version_scope_store(store, access, &version, &|| Ok(())).await?;
             result.push(version);
         }
     }
@@ -500,13 +515,23 @@ pub(crate) async fn propose_inner(
                     .iter()
                     .any(|key| prior.origin_output_keys.contains(key))
             {
-                access::redacted_scope(store.state(), access, &prior.scope, &prior.sources)?;
+                access::redacted_scope_store(store, access, &prior.scope, &prior.sources, &|| {
+                    Ok(())
+                })
+                .await?;
                 return Err(Error::Conflict(
                     "proposal identity belongs to purged content",
                 ));
             }
         }
-        if crate::history::proposal_removed(store.state(), &access.workspace, &proposal)? {
+        if crate::history::proposal_removed_store_with_check(
+            store,
+            &access.workspace,
+            &proposal,
+            &|| Ok(()),
+        )
+        .await?
+        {
             return Err(Error::Access);
         }
         // The stable origin/extractor/output mapping survives lost acknowledgements.
@@ -545,15 +570,15 @@ pub(crate) async fn propose_inner(
                 // foreign evidence. Their bounded rejection receipt contains
                 // no derived claim; retain exact retry behavior for them.
                 if result.resolution.outcome != Outcome::Rejected {
-                    access::proposal_scope(store.state(), access, &previous.proposal)?;
+                    access::proposal_scope_store(store, access, &previous.proposal, &|| Ok(()))
+                        .await?;
                 }
-                access::resolution_scope(store.state(), access, &result.resolution)?;
+                access::resolution_scope_store(store, access, &result.resolution, &|| Ok(()))
+                    .await?;
                 let receipt = store
-                    .state()
-                    .transactions
-                    .get(&result.transaction)
-                    .ok_or(Error::Conflict("missing canonical memory receipt"))?
-                    .clone();
+                    .transaction_receipt(&result.transaction)
+                    .await?
+                    .ok_or(Error::Conflict("missing canonical memory receipt"))?;
                 let indexing = result
                     .intent
                     .as_ref()
@@ -599,7 +624,7 @@ pub(crate) async fn propose_inner(
             .next()?;
         let context = GovernanceContext {
             workspace: access.workspace.clone(),
-            current: current(store.state(), access)?,
+            current: current(store, access).await?,
             evidence: evidence(store, access, &proposal)?,
             head: head.as_ref().and_then(|h| h.current.clone()),
         };

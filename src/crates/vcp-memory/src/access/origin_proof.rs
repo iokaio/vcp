@@ -78,6 +78,30 @@ impl OriginProof for ResolvedOrigins {
     }
 }
 
+pub(crate) async fn proposal_scope_store<S: CanonicalStore>(
+    store: &S,
+    access: &Access,
+    proposal: &vcp_domain::memory::Proposal,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<()> {
+    resolve(store, check, |current, history| {
+        super::proposal_scope_with_history(current, access, proposal, history)
+    })
+    .await
+}
+
+pub(crate) async fn resolution_scope_store<S: CanonicalStore>(
+    store: &S,
+    access: &Access,
+    resolution: &vcp_domain::memory::Resolution,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<()> {
+    resolve(store, check, |current, history| {
+        super::resolution_scope_with_history(current, access, resolution, history)
+    })
+    .await
+}
+
 pub(crate) async fn version_scope_store<S: CanonicalStore>(
     store: &S,
     access: &Access,
