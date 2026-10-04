@@ -69,6 +69,7 @@ function analyze(bundle) {
   };
   const verification = records('verification').filter(row => row.collection === 'verification' && row.record).map(row => ({
     id:row.record.id,
+    evidence:row.record.outputs ?? [],fingerprint:row.record.fingerprint ?? null,steering:row.record.steering ?? null,
     checks:(row.record.checks ?? []).map(check => ({requirement:check.specification,outcome:check.outcome,exit_code:check.exit_code,evidence:check.output})),
     outstanding_issues:row.record.outstanding_issues ?? [],unresolved_effects:row.record.unresolved_effects ?? [],
   }));
@@ -90,6 +91,7 @@ function analyze(bundle) {
 }
 
 function read(file) {
+  if (fs.statSync(file).isDirectory()) return require('./execution-archive.cjs').readArchive(file,read);
   const bytes = fs.readFileSync(file);
   if (bytes.length > 32 * 1024 * 1024) throw Error('Bundle input exceeds 32 MiB');
   const text = new TextDecoder('utf-8',{fatal:true}).decode(bytes);
@@ -107,7 +109,7 @@ module.exports = {analyze,read};
 if (require.main === module) {
   try {
     const [flag, output, ...inputs] = process.argv.slice(2);
-    if (flag !== '--out' || !output || !inputs.length) throw Error('Usage: node analyze-execution-bundle.cjs --out <new-report.json> <bundle.json|jsonl> [...]');
+    if (flag !== '--out' || !output || !inputs.length) throw Error('Usage: node analyze-execution-bundle.cjs --out <new-report.json> <bundle.json|jsonl|archive-directory> [...]');
     const report = {schema_version:1,created_at:new Date().toISOString(),runs:inputs.map(read)};
     fs.writeFileSync(output, `${JSON.stringify(report,null,2)}\n`, {flag:'wx'});
     process.stdout.write(`Analyzed ${report.runs.length} bundle(s); independent quality and causal review required.\n`);

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {analyze} = require('../../../scripts/evals/analyze-execution-bundle.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
+const {analyze,read} = require('../../../scripts/evals/analyze-execution-bundle.cjs');
 function fixture() {
   const event = (id,cause,kind) => ({event:{event:{id,causation:cause,kind,workspace:'w',session:'s',task:'t'}},artifact_links:[]});
   return {schema_version:1,kind:'inspection_bundle',source_watermark:'9',task:{scope:{workspace:'w',session:'s',task:'t'},state:'completed'},
@@ -49,4 +53,46 @@ test('phase statistics separate incomplete and failed observations and preserve 
   bundle.lifecycle_diagnostics.observations[0].scope = bundle.task.scope;
   bundle.lifecycle_diagnostics.observations.push(bundle.lifecycle_diagnostics.observations[0]);
   assert.throws(() => analyze(bundle),/duplicate diagnostic/);
+});
+
+test('archive analysis verifies scoped retained bytes and rejects corruption or escaping references', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(),'vcp-archive-'));
+  const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+  try {
+    const bundle = fixture();
+    const bytes = Buffer.from(JSON.stringify({schema_version:1,verification:'v',reason_code:'execution.verification_repair',repeats:1,threshold:3,pause_requested:false}));
+    const descriptor = {spec:{id:'artifact-1',scope:bundle.task.scope,schema:'execution-completion-repair/1'},state:'complete',length:String(bytes.length),sha256:hash(bytes)};
+    bundle.views.tools = [{items:[{collection:'artifact',visibility:'available',record:descriptor}]}];
+    bundle.views.verification[0].items = [{collection:'verification',record:{id:'v',checks:[{specification:'check',outcome:{status:'failed'},exit_code:1,output:'check-output'}]}}];
+    const bundleBytes = Buffer.from(JSON.stringify(bundle));
+    fs.writeFileSync(path.join(root,'inspection-bundle.json'),bundleBytes);
+    fs.mkdirSync(path.join(root,'artifacts'));
+    fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),bytes);
+    const manifest = {schema_version:1,scope:bundle.task.scope,bundle:{path:'inspection-bundle.json',bytes:bundleBytes.length,sha256:hash(bundleBytes)},
+      artifacts:[{descriptor,path:'artifacts/artifact-1.bin',bytes:bytes.length,sha256:hash(bytes)}]};
+    const save = () => {
+      const value = Buffer.from(JSON.stringify(manifest));
+      fs.writeFileSync(path.join(root,'manifest.json'),value);
+      fs.writeFileSync(path.join(root,'manifest.sha256'),hash(value));
+    };
+    save();
+    const report = read(root);
+    assert.equal(report.archive.verified_artifacts,1);
+    assert.equal(report.archive.repairs[0].verification_present,true);
+    assert.equal(report.archive.repairs[0].observed_checks[0].exit_code,1);
+    assert.equal(report.analysis.assessment.quality,'requires_independent_scenario_gates');
+    fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),'corrupt');
+    assert.throws(() => read(root),/integrity mismatch/);
+    fs.writeFileSync(path.join(root,'artifacts/artifact-1.bin'),bytes);
+    manifest.artifacts[0].path = '../private.bin'; save();
+    assert.throws(() => read(root),/artifact identity/);
+    manifest.artifacts[0].path = 'artifacts/artifact-1.bin';
+    manifest.scope = {...bundle.task.scope,task:'foreign'}; save();
+    assert.throws(() => read(root),/scope/);
+    fs.writeFileSync(path.join(root,'manifest.sha256'),'0'.repeat(64));
+    assert.throws(() => read(root),/manifest hash/);
+  } finally {
+    if (path.dirname(root) !== fs.realpathSync(os.tmpdir()) && path.dirname(root) !== path.resolve(os.tmpdir())) throw Error('Unexpected fixture cleanup path');
+    fs.rmSync(root,{recursive:true,force:true});
+  }
 });
