@@ -297,6 +297,27 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     result.map_err(|_| Error::Unavailable("secret write failed"))
 }
 
+/// Stream into one create-only owner file. A failed producer or sync removes
+/// only that owned handle; no partial result can be published by the caller.
+pub(crate) fn write_private_with(
+    path: &Path,
+    produce: impl FnOnce(&mut File) -> Result<()>,
+) -> Result<()> {
+    let mut file = private_file(path)?;
+    let result = produce(&mut file).and_then(|()| file.sync_all().map_err(Error::from));
+    if result.is_err() {
+        remove_owned(&file, path).map_err(|_| {
+            Error::Unavailable("stream write failed; owned recovery cleanup pending")
+        })?;
+    }
+    drop(file);
+    result
+}
+
+#[cfg(test)]
+#[path = "private_stream_tests.rs"]
+mod stream_tests;
+
 /// Mark only the already-owned file for deletion, without a path-based race.
 #[cfg(windows)]
 pub(crate) fn remove_owned(file: &File, _path: &Path) -> Result<()> {

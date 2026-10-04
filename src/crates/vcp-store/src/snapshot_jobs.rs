@@ -25,6 +25,8 @@ use vcp_domain::{
     workspace::Workspace, CommandId, Revision, TransactionId, Watermark, WorkspaceId,
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
+#[path = "snapshot_job_ciphertext.rs"]
+mod ciphertext;
 
 const TAG: &str = "vcp_snapshot_job_v1";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -617,9 +619,7 @@ impl Jobs {
             return Err(Error::Unavailable("snapshot encryption cancelled"));
         }
         let finalization = encrypted.finalization();
-        let mut bytes = Vec::new();
-        encrypted.copy_ciphertext(&mut bytes)?;
-        persist(&directory.join("object.age"), &bytes, &finalization.sha256)?;
+        ciphertext::persist_ciphertext(&directory.join("object.age"), &mut encrypted)?;
         let metadata = canonical_bytes(&finalization)?;
         persist(&marker, &metadata, &digest_bytes(&metadata))?;
 
