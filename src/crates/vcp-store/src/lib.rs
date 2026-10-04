@@ -6,6 +6,7 @@ pub mod artifact;
 mod backend;
 pub mod contract;
 mod current_state;
+mod current_size;
 mod diagnostics;
 pub mod export_contract;
 mod forecast_contract;

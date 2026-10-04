@@ -117,6 +117,7 @@ fn generated_observed_replay_agrees_with_reference_at_every_transaction() {
     let mut reference = State::default();
     let mut observed = State::default();
     let mut size = StateSize::measure(&observed).unwrap();
+    let mut current_size = crate::current_size::CurrentSize::measure((&reference).into()).unwrap();
     let mut diagnostics = crate::StoreDiagnostics::new(BackendKind::Files);
     let mut transaction = common::initial();
     for index in 0..80 {
@@ -189,6 +190,34 @@ fn generated_observed_replay_agrees_with_reference_at_every_transaction() {
         assert_eq!(expected_error, observed_error, "invalid step {index}");
         assert_eq!(observed, reference, "rejection mutated step {index}");
         let (next, commit) = reference.prepare(&transaction).unwrap();
+        let touched = transaction
+            .mutations
+            .iter()
+            .map(|mutation| match mutation {
+                Mutation::Put { record, .. } => record.key(),
+                Mutation::DropProjection { id, .. } => key(Collection::Projection, id),
+            })
+            .collect();
+        current_size = current_size
+            .next((&reference).into(), (&next).into(), &touched)
+            .unwrap();
+        current_size.validate((&next).into()).unwrap();
+        let current = crate::CurrentState::from_state(&next);
+        let view = crate::CurrentStateView::from(&current);
+        assert_eq!(
+            canonical_bytes(&current).unwrap(),
+            canonical_bytes(&view).unwrap()
+        );
+        assert_eq!(
+            current_size.bytes(),
+            canonical_bytes(&current).unwrap().len()
+        );
+        assert_eq!(
+            current_size.bytes(),
+            crate::current_size::CurrentSize::measure(view)
+                .unwrap()
+                .bytes()
+        );
         observed = observed
             .into_replayed_observed(&commit, &mut diagnostics, &mut size)
             .unwrap();

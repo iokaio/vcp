@@ -4,7 +4,7 @@ use crate::{
     contract::{key, Collection, Record, SharedStateValue, State},
     Error, Result,
 };
-use serde::Serialize;
+use serde::{ser::SerializeStruct, Serialize, Serializer};
 use std::collections::BTreeMap;
 use vcp_domain::{SessionId, SessionSeq, Watermark, WorkspaceId};
 
@@ -15,6 +15,18 @@ pub struct CurrentStateView<'a> {
     pub watermark: Watermark,
     pub records: &'a BTreeMap<String, Record>,
     pub sequences: &'a BTreeMap<SessionId, SessionSeq>,
+}
+// The borrowed view has exactly the same versioned projection encoding as the
+// owned current snapshot. It never supplies legacy whole-State commitments.
+impl Serialize for CurrentStateView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut value = serializer.serialize_struct("CurrentState", 4)?;
+        value.serialize_field("schema_version", &1u32)?;
+        value.serialize_field("watermark", &self.watermark)?;
+        value.serialize_field("records", self.records)?;
+        value.serialize_field("sequences", self.sequences)?;
+        value.end()
+    }
 }
 impl<'a> From<&'a State> for CurrentStateView<'a> {
     fn from(state: &'a State) -> Self {
@@ -76,11 +88,24 @@ pub struct CurrentState {
 }
 impl CurrentState {
     pub(crate) fn from_state(state: &State) -> Self {
+        Self::from_parts(
+            state.watermark,
+            state.records.clone(),
+            state.sequences.clone(),
+        )
+    }
+    /// Build the current portion of a candidate. Construction alone confers no
+    /// canonical validity; the preparation pipeline checks it before publication.
+    pub(crate) fn from_parts(
+        watermark: Watermark,
+        records: SharedStateValue<BTreeMap<String, Record>>,
+        sequences: BTreeMap<SessionId, SessionSeq>,
+    ) -> Self {
         Self {
             schema_version: 1,
-            watermark: state.watermark,
-            records: state.records.clone(),
-            sequences: state.sequences.clone(),
+            watermark,
+            records,
+            sequences,
         }
     }
     pub fn record(
