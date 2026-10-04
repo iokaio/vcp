@@ -278,3 +278,43 @@ async fn failed_object_staging_and_cancelled_or_over_limit_pack_cannot_finish() 
     assert!(index.finish().is_err());
     assert_eq!(pages.data.get(&digest_bytes(b"x")).unwrap(), b"x");
 }
+
+#[tokio::test]
+async fn object_closure_ignores_tree_shape_but_rejects_same_count_replacement() {
+    let mut left = Memory::default();
+    let mut right = Memory::default();
+    let mut other = Memory::default();
+    let mut indexed = IndexedPages::new(&mut left);
+    for n in 0..70 {
+        let bytes = format!("closure-object-{n}").into_bytes();
+        indexed.write(&digest_bytes(&bytes), &bytes).await.unwrap();
+    }
+    let expected = indexed.finish().unwrap();
+    let mut indexed = IndexedPages::new(&mut right);
+    for n in (0..70).rev() {
+        let bytes = format!("closure-object-{n}").into_bytes();
+        indexed.write(&digest_bytes(&bytes), &bytes).await.unwrap();
+    }
+    let reordered = indexed.finish().unwrap();
+    assert_ne!(
+        expected.root, reordered.root,
+        "fixture must exercise different physical index shapes"
+    );
+    expected
+        .verify_same(&mut left, &reordered, &mut right, &|| Ok(()))
+        .await
+        .unwrap();
+    let mut indexed = IndexedPages::new(&mut other);
+    for n in 1..=70 {
+        let bytes = format!("closure-object-{n}").into_bytes();
+        indexed.write(&digest_bytes(&bytes), &bytes).await.unwrap();
+    }
+    let replaced = indexed.finish().unwrap();
+    assert_eq!(replaced.count(), expected.count());
+    assert!(matches!(
+        expected
+            .verify_same(&mut left, &replaced, &mut other, &|| Ok(()))
+            .await,
+        Err(Error::Corruption("neutral object closure differs"))
+    ));
+}

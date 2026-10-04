@@ -83,6 +83,40 @@ impl ObjectSet {
     pub(crate) fn count(&self) -> u64 {
         self.root.count()
     }
+    /// Exact reachable-object closure without retaining the digest set. Both
+    /// indexes are authenticated; physical tree shape is not semantic identity.
+    pub(crate) async fn verify_same(
+        &self,
+        source: &mut impl Pages,
+        other: &Self,
+        destination: &mut impl Pages,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<()> {
+        self.root.validate_table(Table::ArchiveObjects)?;
+        other.root.validate_table(Table::ArchiveObjects)?;
+        if self.count() != other.count() {
+            return Err(Error::Corruption("neutral object closure count"));
+        }
+        let mut after = None;
+        let mut count = 0u64;
+        loop {
+            check()?;
+            let left = self.root.page(source, after.as_deref(), 64).await?;
+            let right = other.root.page(destination, after.as_deref(), 64).await?;
+            if left != right {
+                return Err(Error::Corruption("neutral object closure differs"));
+            }
+            if left.is_empty() {
+                break;
+            }
+            count += left.len() as u64;
+            after = left.last().map(|row| row.key.clone());
+        }
+        if count != self.count() {
+            return Err(Error::Corruption("neutral object closure length"));
+        }
+        Ok(())
+    }
 }
 
 struct Output<'a, W> {

@@ -40,6 +40,25 @@ fn scope(current: CurrentStateView<'_>, workspace: &WorkspaceId) -> Result<()> {
     Ok(())
 }
 impl Canonical {
+    pub(crate) fn workspace(&self) -> &WorkspaceId {
+        &self.workspace
+    }
+    pub(crate) async fn copy_objects(
+        &self,
+        source: &mut impl Pages,
+        destination: &mut impl Pages,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<()> {
+        self.current
+            .copy_objects(source, destination, check)
+            .await?;
+        self.catalog
+            .copy_objects(source, destination, check)
+            .await?;
+        self.originals
+            .copy_objects(source, destination, check)
+            .await
+    }
     pub(crate) async fn capture(
         owner: &DurableOwner,
         source: &mut impl Pages,

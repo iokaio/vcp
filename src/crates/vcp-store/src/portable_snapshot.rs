@@ -28,6 +28,9 @@ pub(crate) mod artifacts;
 #[path = "portable_snapshot_canonical.rs"]
 pub(crate) mod canonical;
 #[cfg(test)]
+#[path = "portable_snapshot_complete.rs"]
+pub(crate) mod complete;
+#[cfg(test)]
 #[path = "portable_snapshot_inputs.rs"]
 pub(crate) mod inputs;
 #[path = "portable_snapshot_wire.rs"]
