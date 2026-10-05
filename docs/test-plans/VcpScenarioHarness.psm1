@@ -1123,12 +1123,14 @@ function Get-WorkspaceManifest {
     param([Parameter(Mandatory)][string]$Path, [switch]$IncludeGenerated, [switch]$ForCheckpoint)
     $root = (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\')
     $manifest = [ordered]@{}
-    $pending = [System.Collections.Generic.Stack[string]]::new()
-    $pending.Push($root)
+    $pending = [System.Collections.Generic.Stack[object]]::new()
+    $pending.Push(@{ Path = $root; Relative = '' })
     while ($pending.Count) {
         $directory = $pending.Pop()
-        foreach ($entry in Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop) {
-            $relative = $entry.FullName.Substring($root.Length + 1).Replace('\', '/')
+        foreach ($entry in Get-ChildItem -LiteralPath $directory.Path -Force -ErrorAction Stop) {
+            # FileInfo.FullName may expand a Windows 8.3 root alias that
+            # Resolve-Path retained. Build keys from traversed names instead.
+            $relative = $directory.Relative + $entry.Name
             if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
                 # Record links without walking outside the workspace or into cycles.
                 $manifest[$relative] = 'link:' + $entry.LinkTarget
@@ -1141,7 +1143,7 @@ function Get-WorkspaceManifest {
                 if ($ForCheckpoint -and $entry.Name -in 'models', 'models-repro', 'reports' -and $relative.Contains('/')) { $excluded = $false }
                 if (-not $IncludeGenerated -and $excluded) { continue }
                 if ($IncludeGenerated) { $manifest[$relative + '/'] = 'directory' }
-                $pending.Push($entry.FullName)
+                $pending.Push(@{ Path = $entry.FullName; Relative = $relative + '/' })
             }
             else {
                 $manifest[$relative] = Get-Sha256 $entry.FullName

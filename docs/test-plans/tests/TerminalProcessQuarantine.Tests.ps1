@@ -17,9 +17,19 @@ function Artifact($F, [string]$Schema, [string]$Channel, [byte[]]$Bytes) {
         spec=@{id=$id;schema=$Schema;channel=$Channel;scope=$F.scope;omissions=@('authentication_headers','recovery_material')} }
     return @{collection='artifact';id=$id;visibility='available';record=$descriptor;fixture_path=$path}
 }
-function Fixture {
+function Fixture([switch]$ShortPaths) {
     $base=Join-Path $env:TEMP ('vcp-terminal-quarantine-'+[guid]::NewGuid().ToString('N'))
-    $root=Join-Path $base 'scenario'; $workspace=Join-Path $base 'workspace'
+    $directoryBase=$base
+    if ($ShortPaths) {
+        [void][IO.Directory]::CreateDirectory($base)
+        # Hosted Windows TEMP can contain an 8.3 alias. On volumes without
+        # short-name generation, this still exercises the same proof boundary.
+        $fso=New-Object -ComObject Scripting.FileSystemObject
+        try { $directoryBase=$fso.GetFolder($base).ShortPath }
+        finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($fso) }
+        Write-Host "Short-path alias differs: $($directoryBase -ine $base)"
+    }
+    $root=Join-Path $directoryBase 'scenario'; $workspace=Join-Path $directoryBase 'workspace'
     [void][IO.Directory]::CreateDirectory($workspace)
     [IO.File]::WriteAllText((Join-Path $workspace 'README.md'),'original source')
     $hash=(Get-FileHash -LiteralPath (Join-Path $workspace 'README.md')).Hash.ToLowerInvariant()
@@ -54,6 +64,12 @@ try {
     $proof=Assert-CampaignFailedProcess $f.effect $f.bundle $f.root $f.workspace
     Check ($proof.application_success -eq $false -and $proof.exit_code -eq 1 -and $proof.external_effects -eq 'opaque') 'Failed/opaque outcome was promoted to success.'
     Assert-CampaignProcessProofFiles $proof $f.root $f.workspace; $checks++
+    $f=Fixture -ShortPaths; $allRoots.Add($f.base); Seal $f
+    $proof=Assert-CampaignFailedProcess $f.effect $f.bundle $f.root $f.workspace
+    Check ($proof.exit_code -eq 1 -and -not $proof.application_success) 'Short-path failed outcome was promoted to success.'
+    Assert-CampaignProcessProofFiles $proof $f.root $f.workspace; $checks++
+    [IO.File]::WriteAllText((Join-Path $f.workspace 'README.md'),'changed through short path')
+    Reject {Assert-CampaignFailedProcess $f.effect $f.bundle $f.root $f.workspace} 'Short-path source mutation was accepted.'
     foreach($mutation in @(
         {param($f) $f.effect.state='unknown'},
         {param($f) $f.effect.state='cancelled'},
