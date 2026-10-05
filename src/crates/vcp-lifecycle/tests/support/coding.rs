@@ -231,6 +231,11 @@ async fn instruction_refresh_retains_typed_unexecuted_call_before_reissue() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn coding_source_access_rejects_stale_instructions_before_dispatch() {
+    run_coding_modes(&["stale_instructions"]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn output_limit_continuation_preserves_partial_evidence_and_stops_without_progress() {
     run_coding_modes(&["incomplete_usage"]).await;
 }
