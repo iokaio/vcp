@@ -36,6 +36,8 @@ Record the operation IDs used by independent checks and separate application ide
 
 ## Evidence review and acceptance
 
+The automated implementation is [engagements/run.ps1](engagements/run.ps1), with [usage and prerequisite evidence](engagements/README.md). Its independent oracle shapes are specified in [contract-A.md](engagements/contract-A.md) and [contract-B.md](engagements/contract-B.md); these clarify new endpoint/UI/audit field names without replacing original A/B acceptance. The runner groups B2/B3's transaction and idempotency checks together, then performs browser work and explicit pause/reopen/resume before fault repair. Its matrix maps those executed checks back to B1–B6. Offline fixtures qualify the runner only; they do not establish that either larger engagement has passed.
+
 Each workload needs a stage-by-stage matrix of passed, failed, blocked and untested criteria with concrete artifact references. Analyze observed quality, diagnostic completeness and fast-state/context behavior separately. Report actual phase sample counts, known and unknown usage, allocation changes, source-range reuse, repairs, explicit stop/reopen behavior and evidence omissions. Do not sum overlapping timings or claim a stable percentile from one observation.
 
 An unchanged repeated failure is investigated before another paid attempt. A no-progress pause retains its evidence and requires deliberate resume. Any unavailable credential, provider authorization, database prerequisite or independent gate is an explicit missing criterion. These workload definitions do not waive pending engine work or count as execution evidence; the owner's approved collection policy governs execution constraints.
