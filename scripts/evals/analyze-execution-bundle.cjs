@@ -4,6 +4,7 @@
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const {isDeepStrictEqual} = require('node:util');
+const {encodingStatistics} = require('./encoding-statistics.cjs');
 
 function phaseStatistics(snapshot, scope) {
   if (!snapshot) return {available:false,reason:'not_collected',groups:[]};
@@ -94,7 +95,8 @@ function analyze(bundle) {
         || typeof owner !== 'string' || !owner.length || owners.has(owner)) throw Error('Invalid retained diagnostic owner or source event');
     owners.add(owner);
     return {event:receipt.event,watermark:receipt.watermark,capture_boundary:receipt.capture_boundary,
-      statistics:phaseStatistics(receipt.snapshot,scope)};
+      statistics:phaseStatistics(receipt.snapshot,scope),
+      encoding_statistics:encodingStatistics(receipt.snapshot,scope,'retained_owner_snapshot')};
   });
   // Never combine overlapping snapshots, owners, or process-relative clocks.
   const phases = bundle.lifecycle_diagnostics ?? retained.at(-1)?.snapshot;
@@ -103,6 +105,7 @@ function analyze(bundle) {
     facts:{task_state:bundle.task.state,event_count:events.size,event_kinds:eventKinds,causal_edges:edges,record_observations:recordObservations,verification,accounting,effects,
       store_phases:bundle.store_diagnostics ?? null,lifecycle_phases:phases ?? null,
       lifecycle_source:phaseSource,retained_lifecycle_statistics:retainedStatistics,
+      encoding_statistics:encodingStatistics(phases,scope,phaseSource),
       lifecycle_statistics:phaseStatistics(phases,scope)},
     gaps:filteredGaps,
     relationship_semantics:'Record groups are explicit shared identities; only causal_edges assert recorded causation. Retained-with-omissions may describe intentional credential omission, not missing execution evidence.',

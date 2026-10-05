@@ -13,6 +13,126 @@ function fixture() {
       {rows:[event('repair','failed','effect'),event('passed','repair','verification')],next_cursor:null}],
     views:{tools:[{items:[]}],verification:[{items:[]}],costs:[{items:[{collection:'ledger',record:{scope:{task:'t'},settled:'100',active:'0',unresolved:'900'}}]}]}};
 }
+
+function encodingSnapshot(scope,owner='codec-owner') {
+  return {schema_version:1,available:true,owner,window:'current_owner_only',complete_history:false,
+    snapshot_micros:1000,capacity:256,dropped:0,observations:[],encoding_available:true,encodings_dropped:0,
+    encodings:[{scope,turn:'turn-1',attempt:null,purpose:'candidate_fit',catalog:'a'.repeat(64),reasoning:'high',
+      request_sha256:'b'.repeat(64),started_micros:10,elapsed_micros:40,
+      work:{encode_calls:3,encode_failures:1,encoded_bytes:1200,encode_micros:20,
+        validation_calls:0,validation_failures:0,validation_micros:0}}]};
+}
+
+test('encoding summaries distinguish missing legacy collectors and observed empty windows', () => {
+  const bundle=fixture();
+  assert.equal(analyze(bundle).facts.encoding_statistics.reason,'not_collected');
+  const snapshot=encodingSnapshot(bundle.task.scope);
+  delete snapshot.encoding_available; delete snapshot.encodings; delete snapshot.encodings_dropped;
+  bundle.lifecycle_diagnostics=snapshot;
+  const legacy=analyze(bundle).facts.encoding_statistics;
+  assert.equal(legacy.reason,'legacy_not_collected');
+  assert.equal(legacy.available,false);
+  assert.equal(legacy.retained_rows,undefined,'absence must not claim zero measured work');
+  snapshot.encoding_available=false;
+  assert.equal(analyze(bundle).facts.encoding_statistics.reason,'collector_unavailable');
+  snapshot.encoding_available=true;
+  const empty=analyze(bundle).facts.encoding_statistics;
+  assert.equal(empty.retained_rows,0);
+  assert.equal(empty.partial_window,true);
+  assert.equal(empty.complete_history,false);
+});
+
+test('encoding work separates purposes candidates and owner windows without adding nested clocks', () => {
+  const bundle=fixture();
+  const snapshot=encodingSnapshot(bundle.task.scope);
+  const validation={...structuredClone(snapshot.encodings[0]),purpose:'sealed_validation',
+    work:{encode_calls:1,encode_failures:0,encoded_bytes:600,encode_micros:7,
+      validation_calls:1,validation_failures:0,validation_micros:12}};
+  snapshot.encodings.push(validation,{...structuredClone(snapshot.encodings[0]),catalog:'c'.repeat(64)});
+  snapshot.encodings_dropped=9;
+  bundle.history[1].rows[1].event.event.kind='diagnostic';
+  bundle.retained_lifecycle_diagnostics=[{event:'passed',watermark:'9',capture_boundary:'owner_drained',snapshot}];
+  let facts=analyze(bundle).facts;
+  assert.equal(facts.encoding_statistics.source,'retained_owner_snapshot');
+  assert.equal(facts.encoding_statistics.groups.length,3);
+  assert.equal(facts.encoding_statistics.dropped_rows,9);
+  assert.equal(facts.encoding_statistics.dropped_rows_scope,'owner_wide_before_scope_filter');
+  const group=facts.encoding_statistics.groups[1];
+  assert.equal(group.encode_micros,7); assert.equal(group.validation_micros,12);
+  assert.equal(group.total_micros,undefined); assert.equal(group.tokens,undefined);
+  assert.equal(group.attribution[0].attempt,null);
+  assert.equal(group.attribution[0].request_sha256,'b'.repeat(64));
+  assert.match(facts.encoding_statistics.interpretation,/never add validation and encoding time/);
+  bundle.lifecycle_diagnostics={...encodingSnapshot(bundle.task.scope,'new-owner'),encodings:[]};
+  facts=analyze(bundle).facts;
+  assert.equal(facts.encoding_statistics.owner,'new-owner');
+  assert.equal(facts.encoding_statistics.retained_rows,0);
+  assert.equal(facts.retained_lifecycle_statistics[0].encoding_statistics.owner,'codec-owner');
+  assert.equal(facts.retained_lifecycle_statistics[0].encoding_statistics.retained_rows,3);
+});
+
+test('failed encoding and short-circuited sealed validation retain distinct measured work', () => {
+  const bundle=fixture(); const snapshot=encodingSnapshot(bundle.task.scope);
+  const row=snapshot.encodings[0];
+  snapshot.encodings=[{...structuredClone(row),purpose:'compaction_trial',request_sha256:null},
+    {...structuredClone(row),purpose:'final_assembly'},
+    {...structuredClone(row),purpose:'sealed_validation',work:{encode_calls:0,encode_failures:0,
+      encoded_bytes:0,encode_micros:0,validation_calls:1,validation_failures:1,validation_micros:3}}];
+  bundle.lifecycle_diagnostics=snapshot;
+  const groups=analyze(bundle).facts.encoding_statistics.groups;
+  assert.deepEqual(groups.map(g=>g.purpose),['compaction_trial','final_assembly','sealed_validation']);
+  assert.equal(groups[2].validation_failures,1); assert.equal(groups[2].encode_calls,0);
+  assert.equal(groups[0].attribution[0].request_sha256,null);
+  snapshot.encodings[2].work={encode_calls:1,encode_failures:1,encoded_bytes:0,encode_micros:1,
+    validation_calls:1,validation_failures:0,validation_micros:3};
+  assert.throws(()=>analyze(bundle),/Inconsistent encoding/);
+});
+
+test('encoding parsing rejects inconsistent counters bounds unsafe sums and invented attribution', () => {
+  for (const mutate of [
+    s=>{s.encoding_available=null;}, s=>{s.encoding_available=false;},
+    s=>{s.encodings=null;}, s=>{s.encodings_dropped=-1;},
+    s=>{s.encodings=Array(65).fill(s.encodings[0]);},
+    s=>{s.encodings[0].scope={...s.encodings[0].scope,task:'foreign'};},
+    s=>{s.encodings[0].attempt='invented-attempt';},
+    s=>{s.encodings[0].purpose='unrecognized';},
+    s=>{s.encodings[0].catalog='not-a-digest';},
+    s=>{s.encodings[0].started_micros=999;},
+    s=>{s.encodings[0].work.encode_failures=4;},
+    s=>{s.encodings[0].work.encode_micros=41;},
+    s=>{s.encodings[0].work.validation_calls=1;},
+    s=>{s.encodings[0].work.encoded_bytes=Number.MAX_SAFE_INTEGER+1;},
+    s=>{s.encodings[0].work.encode_failures=3;},
+    s=>{s.encodings[0].work.encoded_bytes=Number.MAX_SAFE_INTEGER; s.encodings.push(structuredClone(s.encodings[0]));},
+  ]) {
+    const bundle=fixture(); bundle.lifecycle_diagnostics=encodingSnapshot(bundle.task.scope);
+    mutate(bundle.lifecycle_diagnostics);
+    assert.throws(()=>analyze(bundle),/Encoding|encoding/);
+  }
+});
+
+test('bounded serialized encoding summaries parse through the existing bundle reader', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'vcp-encoding-analysis-'));
+  try {
+    const bundle=fixture(); bundle.lifecycle_diagnostics=encodingSnapshot(bundle.task.scope);
+    const row=bundle.lifecycle_diagnostics.encodings[0];
+    bundle.lifecycle_diagnostics.encodings=Array.from({length:64},(_,i)=>({...structuredClone(row),turn:`turn-${i}`}));
+    bundle.lifecycle_diagnostics.encodings_dropped=6;
+    const file=path.join(root,'bundle.json');
+    fs.writeFileSync(file,JSON.stringify(bundle));
+    const report=read(file);
+    assert.equal(report.analysis.facts.encoding_statistics.retained_rows,64);
+    const group=report.analysis.facts.encoding_statistics.groups[0];
+    assert.equal(group.observations,64); assert.equal(group.encode_calls,192);
+    assert.equal(group.encode_failures,64); assert.equal(group.encoded_bytes,76800);
+    assert.equal(group.encode_micros,1280); assert.equal(group.attribution.length,64);
+    assert.equal(report.analysis.facts.lifecycle_statistics.groups.length,0);
+    assert.equal(report.source_sha256,crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+  } finally {
+    if (path.dirname(root) !== fs.realpathSync(os.tmpdir()) && path.dirname(root) !== path.resolve(os.tmpdir())) throw Error('Unexpected fixture cleanup path');
+    fs.rmSync(root,{recursive:true,force:true});
+  }
+});
 test('uncertain effects retain null outcomes and only explicit output identity links', () => {
   const bundle=fixture();
   bundle.views.tools[0].items.push({collection:'effect',visibility:'available',record:{id:'effect-1',scope:bundle.task.scope,state:'outcome_unknown',execution:'execution-1',exit_code:null,observed_changes:['plan-1'],reason:'observation interrupted'}});
