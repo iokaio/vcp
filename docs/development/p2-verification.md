@@ -72,6 +72,10 @@ requires tests, with Surefire's plain console reports and color disabled.
 Dependencies must already be resolved through authorized process execution.
 The parser reconciles distinct `package.Class.method` results with every running
 class's nonempty count, the aggregate count and a single successful build.
+Surefire's ordinary method signatures, including JUnit-injected arguments such
+as `method(Path)` for `@TempDir`, normalize to the same bare method identity.
+Malformed signatures and overloaded or repeated results that collide after
+normalization fail closed; parameterized invocation labels are not collapsed.
 Missing method results, skipped/error/failure counts, duplicate names and
 multiple aggregate summaries fail closed. This qualifies ordinary single-project
 Surefire output; reactor builds, localized output and test engines that omit or

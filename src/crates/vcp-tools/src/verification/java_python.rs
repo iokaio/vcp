@@ -59,7 +59,7 @@ fn maven(stdout: &str, stderr: &str) -> Result<BTreeSet<String>, &'static str> {
             }
         } else if row.contains(" -- Time elapsed: ") {
             let captures = test_result.captures(row).ok_or("Maven test did not pass")?;
-            let name = &captures[1];
+            let name = maven_method_name(&captures[1])?;
             if name.chars().any(char::is_control) || !passed.insert(name.to_owned()) {
                 return Err("duplicate or malformed Maven test result");
             }
@@ -92,6 +92,49 @@ fn maven(stdout: &str, stderr: &str) -> Result<BTreeSet<String>, &'static str> {
         return Err("Maven test results lack class summaries");
     }
     Ok(passed)
+}
+
+/// Surefire includes parameter types for ordinary JUnit methods with injected
+/// arguments (for example @TempDir Path). Owner requirements identify methods,
+/// not the injection signature. Normalize only a complete Java type signature;
+/// the caller rejects collisions, so overloads and repeated invocations cannot
+/// silently turn into one observed acceptance test.
+fn maven_method_name(name: &str) -> Result<&str, &'static str> {
+    let Some((method, suffix)) = name.split_once('(') else {
+        return if name.contains(')') {
+            Err("malformed Maven method signature")
+        } else {
+            Ok(name)
+        };
+    };
+    let parameters = suffix
+        .strip_suffix(')')
+        .ok_or("malformed Maven method signature")?;
+    let identifier = |word: &str| {
+        let mut characters = word.chars();
+        characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || matches!(first, '_' | '$'))
+            && characters.all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '$')
+            })
+    };
+    let qualified = |word: &str| word.split('.').all(identifier);
+    if !method.contains('.') || !qualified(method) {
+        return Err("malformed Maven method identity");
+    }
+    if !parameters.is_empty() {
+        for parameter in parameters.split(',') {
+            let mut java_type = parameter.trim_matches(' ');
+            while let Some(element) = java_type.strip_suffix("[]") {
+                java_type = element;
+            }
+            if !qualified(java_type) {
+                return Err("malformed Maven parameter type");
+            }
+        }
+    }
+    Ok(method)
 }
 
 fn pytest(stdout: &str, stderr: &str) -> Result<BTreeSet<String>, &'static str> {
@@ -199,6 +242,57 @@ mod tests {
         }
         assert!(maven(MAVEN, "[ERROR] An additional failure\n").is_err());
         assert!(maven(MAVEN, "[INFO] BUILD FAILURE\n").is_err());
+    }
+
+    #[test]
+    fn maven_injected_parameters_preserve_method_identity_without_hiding_ambiguity() {
+        let injected = MAVEN
+            .replace("AcceptanceTest.first --", "AcceptanceTest.first(Path) --")
+            .replace(
+                "AcceptanceTest.second --",
+                "AcceptanceTest.second(java.nio.file.Path, TestInfo) --",
+            );
+        assert_eq!(maven(&injected, "").unwrap(), maven(MAVEN, "").unwrap());
+        for signature in [
+            "first()",
+            "first(Path[])",
+            "first(example.Outer$Inner, int[])",
+        ] {
+            let output = MAVEN.replace(
+                "AcceptanceTest.first --",
+                &format!("AcceptanceTest.{signature} --"),
+            );
+            assert_eq!(maven(&output, "").unwrap(), maven(MAVEN, "").unwrap());
+        }
+        for malformed in [
+            "first(Path",
+            "firstPath)",
+            "first(Path))",
+            "first((Path))",
+            "first(,Path)",
+            "first(Path,)",
+            "first(Path argument)",
+            "first(Path)[1]",
+            "first(Path)(Path)",
+            "first(Path) extra",
+            "first(java..Path)",
+            "first([])",
+            "first(\tPath)",
+        ] {
+            let output = MAVEN.replace(
+                "AcceptanceTest.first --",
+                &format!("AcceptanceTest.{malformed} --"),
+            );
+            assert!(maven(&output, "").is_err(), "{malformed}");
+        }
+        for overloaded in ["first", "first(Path)", "first(TestInfo)"] {
+            let output = injected.replace(
+                "AcceptanceTest.second(java.nio.file.Path, TestInfo)",
+                &format!("AcceptanceTest.{overloaded}"),
+            );
+            assert!(maven(&output, "").is_err(), "ambiguous method {overloaded}");
+        }
+        assert!(maven(&injected.replace("Tests run: 2", "Tests run: 3"), "").is_err());
     }
 
     #[test]
