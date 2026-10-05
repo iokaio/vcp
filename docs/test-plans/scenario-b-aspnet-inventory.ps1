@@ -341,6 +341,35 @@ function Test-Tests([string]$Stage, [int]$MinTests, [string[]]$Required = @()) {
             $true })
 }
 
+function Test-DomainModel([string]$Stage) {
+    [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'domain-model' -Description 'independent compiled StockMovement validation and exact Reason enum satisfy T1' -Test {
+            $build = @($ctx.Gates | Where-Object { $_.stage -eq $Stage -and $_.id -eq 'build' })
+            Assert-That ($build.Count -gt 0 -and $build[-1].outcome -eq 'pass') 'A fresh successful application build is required for the independent model probe.'
+            $native = $ctx.Stages | Where-Object stage -eq $Stage | Select-Object -Last 1
+            Assert-That ($native -and $native.Run -and $native.Run.ExitCode -eq 0 -and -not $native.Run.TimedOut -and
+                $native.Run.InvalidLines -eq 0 -and $native.task -eq $native.Run.Scope.task) 'The exact stage must have a completed successful native run before probing its model.'
+            $evidence = Join-Path $ctx.Logs "$Stage/domain-probe-$([guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory -Path $evidence | Out-Null
+            $project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../scripts/evals/inventory-domain-probe/InventoryDomainProbe.csproj'))
+            $output = Join-Path $evidence 'build'
+            $compile = Invoke-Tool -Ctx $ctx -Stage $Stage -Label 'domain-probe-build' -FilePath $dotnet -ArgumentList @(
+                'build', $project, '--artifacts-path', $output, "-p:TargetFramework=$tfm", '--nologo', '-v:q')
+            Assert-That ($compile.ExitCode -eq 0) ('Independent evaluator build failed: ' + (Get-Tail ($compile.Output + $compile.Errors)))
+            $probe = Join-Path $output 'bin/InventoryDomainProbe/debug/InventoryDomainProbe.dll'
+            $assembly = Join-Path $ws "src/Inventory.Web/bin/Debug/$tfm/Inventory.Web.dll"
+            $report = Join-Path $evidence 'result.json'
+            $run = Invoke-Tool -Ctx $ctx -Stage $Stage -Label 'domain-probe' -FilePath $dotnet -ArgumentList @(
+                $probe, '--workspace', $ws, '--assembly', $assembly, '--terminal-jsonl', $native.Run.StdoutPath, '--out', $report)
+            Assert-That (Test-Path -LiteralPath $report -PathType Leaf) ('Independent evaluator did not produce evidence: ' + (Get-Tail ($run.Output + $run.Errors)))
+            Assert-That ((Get-Item -LiteralPath $report).Length -le 65536) 'Independent evaluator report exceeds bound.'
+            Add-Asset -Ctx $ctx -Description "$Stage independent domain probe" -Path $report
+            $assessment = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+            $failures = @($assessment.checks | Where-Object { -not $_.Passed } | ForEach-Object Id)
+            Assert-That ($run.ExitCode -eq 0 -and $assessment.schema -eq 'vcp-inventory-domain-probe/1' -and $assessment.passed -and $failures.Count -eq 0) (
+                'Actual compiled model failed independent checks: ' + ($failures -join ', ') + '. Restore the documented nonzero Quantity validation and Reason enum; do not weaken generated tests.')
+            $true })
+}
+
 function Test-Migrations([string]$Stage, [string[]]$Names) {
     $migration = Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'migrations' -Description "migrations present: $($Names -join ', '); database update applies them" -Test {
             $list = Invoke-Dotnet $Stage 'ef-migrations-list' @('tool', 'run', 'dotnet-ef', 'migrations', 'list', '--project', 'src/Inventory.Web', '--no-build')
@@ -892,7 +921,7 @@ listing at most 10 findings ordered by severity.
     }
 
     # --- T1 ----------------------------------------------------------------
-    $gatesT1 = { param($s) Test-Build $s; Test-Tests $s 4 $namesT1; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected }
+    $gatesT1 = { param($s) Test-Build $s; Test-Tests $s 4 $namesT1; Test-DomainModel $s; Test-Migrations $s @('InitialCreate'); Test-ProtectedUnchanged $s $protected }
     $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-data' -Title 'Domain model, EF Core, InitialCreate' -Prompt $promptT1 -Config $profiles['T1']
     if ($t1) { Test-StageExit $ctx $t1 'T1-data'; & $gatesT1 'T1-data'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-data' -Config $profiles['T1'] -GateScript $gatesT1) }
     Save-Checkpoint $ctx 'T1: data model and InitialCreate'

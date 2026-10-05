@@ -156,6 +156,18 @@ The qualified correction now waits for the admitted operation's result or actual
 
 The legacy archive dependency in `inspect-bundle` is now removed in candidate 0.2.28. One pinned current/history cut supplies the authorized bounded bundle; 19 focused tests and the actual both-store live-control fixture passed, followed by real A T1 collection. This resolves the collector's legacy archive ceiling, while Store replay time remains a separate bottleneck. Per-bundle limits, omitted/redacted visibility, exact diagnostic-event identity and failure-on-read-error remain enforced.
 
+## B-10 — Expired observation cursor interrupts healthy execution
+
+Candidate 0.2.28 passed full A T1, then stopped T2 while draining the session's earlier events. The JSONL stream records `cursor_gap: snapshot_expired` after sequence 672. CLI drainage propagates this as a fatal error; cleanup interrupts the active provider exchange. The terminal result is correctly uncertain, so the saved task cannot simply be retried. Full A finished failed with 48/52 required gates and $0.910247 observed settlement plus additional unknown cost. Missing UI artifacts are downstream of the interruption, not a separate completed-implementation verdict.
+
+The targeted correction renews only an expired authenticated event snapshot from the last fully delivered page, checks unchanged scope/authority/deletion and nonregressing sequence/watermark, and retains the original finite end. Other gaps, failed reads and failed output remain errors. This avoids increasing a lease timeout and prevents an active producer from extending the drain indefinitely. Qualification must exercise mid-drain expiry, changed authority/retention, repeated expiry without progress, finite-cut preservation and writer failure. A new candidate must then prove the actual affected boundary; the original failed run remains retained.
+
+## B-11 — Generated test names do not establish the Inventory domain contract
+
+During B T1, the model temporarily changed its own named zero-quantity validation test to accept zero. It later restored rejection, but its `Reason` property remained a string despite the required enum. The original external T1 gate checks passing test names and counts, so it could miss incorrect assertions or an untested enum requirement. These are in-progress observations; no final B verdict has been manufactured.
+
+An independent evaluator now loads the freshly built model outside the generated test suite and checks the stated StockMovement enum and quantity validation behavior. It binds assembly/dependency hashes, requires a completed native stage and detects source changes while checking. Future harness runs invoke it after an owner-controlled fresh build and feed failures through ordinary repair. Seven compiled model fixtures, nine wiring assertions and 74 existing harness checks passed (`artifacts/ee07-domain-probe-checkpoint.json`). It does not replace original gates or qualify SQL persistence, API behavior or other domain requirements. Current B execution is untouched; the real model check remains unrun. The alternative is a protected external test project compiled against the application; trusting self-authored assertions alone is insufficient evidence for this observed gap.
+
 ## Continuation rules
 
 1. For each blocker, name the specific invariant or dependency before changing code. Distinguish a real missing capability from a failing fixture or stale expectation.
