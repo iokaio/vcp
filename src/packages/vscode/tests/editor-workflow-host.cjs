@@ -23,7 +23,7 @@ exports.run=async()=>{
       return undefined;
     });
     replace(target.window,'showOpenDialog',async()=>[vscode.Uri.file(input.profile)]);
-    const answers={'Task objective':'Qualify editor versioned buffer changes','Configured task cost cap (USD)':'1','Configured maximum requests':'8','Configured task deadline (seconds)':'300','Provider credential':'synthetic-cli-qualification'};
+    const answers={'Task objective':'Qualify editor versioned buffer changes','Configured maximum requests':'8','Provider credential':'synthetic-cli-qualification'};
     replace(target.window,'showInputBox',async options=>{assert(Object.hasOwn(answers,options.title));return answers[options.title];});
     replace(target.window,'showWarningMessage',async(message,options,...choices)=>choices.includes('Apply')?'Apply':undefined);
     replace(target.window,'showInformationMessage',async()=>undefined);

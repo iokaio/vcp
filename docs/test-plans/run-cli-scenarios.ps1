@@ -468,7 +468,7 @@ try {
         $preparation = if ($metadataRefreshed) { 'Endpoint metadata refreshed without inference using retained adapter evidence. Scenario budget unchanged. See provider-refresh.json.' } else { 'No provider setup or qualification performed.' }
         Write-Utf8File (Join-Path $setupCtx.Results 'summary.md') ("# Installed provider selection`n`nMetadata: $generation`n`n$preparation`n`nCommands: $($setupCtx.CommandLog)`n`nSelection evidence: provider-selection.json`n")
     }
-    if ($Mode -eq 'Full') { Write-Host "Scenario budget: $TurnBudgetUsd USD per turn; $MaxScenarioUsd USD scenario ceiling." }
+    if ($Mode -eq 'Full') { Write-Host 'Execution collection: spending and elapsed-time caps are suspended. Observed and unknown costs are retained in the run evidence.' }
     $parameters = @{
         ProviderGeneration = $generation; Vcp = $executable; RunRoot = $invocationRoot; ProjectPath = $ProjectPath
         TurnBudgetUsd = $TurnBudgetUsd; MaxScenarioUsd = $MaxScenarioUsd; MaxRepairTurns = $MaxRepairTurns
