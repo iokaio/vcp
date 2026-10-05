@@ -16,7 +16,7 @@ There is no current blanket permission or budget hold. The owner's explicit "App
 
 | Blocker | What it prevents | State | Work that can continue |
 |---|---|---|---|
-| B-01: resident-history API contract | Integrated caller qualification and bounded steady-state memory | Public Store and ordinary callers migrated; scoped diagnostic bundle still uses legacy archive | Move bundle collection to a pinned current/history cut and qualify actual-driver regressions |
+| B-01: resident-history API contract | Integrated caller qualification and bounded steady-state memory | Public Store, ordinary callers and scoped bundles migrated; 19 bounded-collection tests passed | Qualify the integrated candidate and actual-driver regressions |
 | B-02: snapshot, archive and migration ownership | End-to-end large-history backup/restore | New streamed jobs and actual CLI publication qualified; 66 MiB Files-to-SQLite round trip passed | Integrate final candidate and retain exact test-binary provenance; bounded cold reopen remains separate |
 | B-03: historical integrity versus cold-open target | Claiming bounded cold reopen with equivalent validation | Open; full semantic replay retained | Deliver fast current access and eviction independently; measure replay phases and remove demonstrated duplicate work |
 | B-04: derived timers and finite-only pricing types | Complete financial/deadline suspension in provider execution | Routed, startup, new-child and retained-child conversion fixtures qualified | Qualify the integrated local candidate; preserve grant expiry and uncertain-outcome fences |
@@ -27,6 +27,8 @@ There is no current blanket permission or budget hold. The owner's explicit "App
 | B-09: canonical worker abandons a healthy operation after 30 seconds | Sustained work as canonical validation grows | Reproduced by full A; result-ownership fix passed three focused tests | Build changed candidate and qualify sustained execution; saved failed attempt remains unresolved |
 
 ## B-01 — Current/history caller qualification
+
+**Final bundle migration checkpoint.** Offline and live inspection now collect from one pinned current/history reader. Nineteen focused tests passed, covering reference parity, short pages, masked/denied and failed reads, exact receipt meaning, bounded diagnostic expansion, actual Files/SQLite append/reopen consistency, and a lazy synthetic 66 MiB unrelated-history stream. Independent review found no remaining issue. Production inspection has no full-archive fallback. The synthetic stream proves the consumer's bound, not a new native large-history test; prior durable fixtures remain separate evidence. Integrated candidate qualification follows this local commit.
 
 **Evidence and cause.** The former [`Store`](../../src/crates/vcp-store/src/store.rs) retained `State`, replay-base state and state-size bookkeeping. Its `CanonicalStore::state() -> &State` and default readers required historical event/command payloads to remain resident. The coordinated migration has now removed this production contract. Current-record reads remain synchronous; historical reads are explicit, fallible and bounded. Remaining old test/caller references are compile failures to resolve, not a reason to reintroduce an implicit full-archive fallback.
 

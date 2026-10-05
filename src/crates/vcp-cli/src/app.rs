@@ -131,7 +131,7 @@ fn bounded_records(
         json!({"watermark":watermark,"workspace":workspace,"truncated":records.len()<selected.len(),"records":records}),
     )
 }
-fn inspection_access<'a>(
+pub(crate) fn inspection_access<'a>(
     state: impl Into<vcp_store::CurrentStateView<'a>>,
     workspace: &WorkspaceId,
 ) -> Result<vcp_audit::history::Access, String> {
@@ -191,11 +191,14 @@ pub async fn query_store(
                 .map_err(|e| e.to_string())?
         }
         Query::Sessions | Query::Task { .. } => query_current(store.current(), workspace, request)?,
-        Query::InspectBundle { .. } => {
-            // Explicit diagnostic export owns a complete archival DTO. Routine
-            // task/session/continuation queries use bounded live readers above.
-            let archive = store.archive_state().await.map_err(|e| e.to_string())?;
-            query(&archive, workspace, request)?
+        Query::InspectBundle { task } => {
+            let snapshot = store.snapshot().map_err(|e| e.to_string())?;
+            crate::inspection_bundle::collect_store(
+                &snapshot,
+                &inspection_access(snapshot.current(), workspace)?,
+                task,
+            )
+            .await?
         }
         Query::Agents { task, offset } => {
             let task = task_from(store.current(), workspace, task)?;

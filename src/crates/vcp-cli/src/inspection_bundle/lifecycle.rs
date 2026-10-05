@@ -34,47 +34,113 @@ pub(super) fn retained(
         {
             continue;
         }
-        if event.data["version"] != 1 || event.data["capture_boundary"] != "owner_drained" {
-            return Err("unsupported retained execution diagnostics".into());
-        }
-        let snapshot: Snapshot =
-            serde_json::from_value(event.data["execution_diagnostics"].clone())
-                .map_err(|_| "invalid retained execution diagnostics")?;
-        let source_watermark: vcp_domain::Watermark =
-            serde_json::from_value(event.data["source_watermark"].clone())
-                .map_err(|_| "invalid diagnostic source watermark")?;
-        if source_watermark >= envelope.watermark {
-            return Err("diagnostic source cut must precede its retention event".into());
-        }
-        let mut sequences = BTreeSet::new();
-        if snapshot.schema_version != 1
-            || snapshot.owner.is_empty()
-            || snapshot.window != "current_owner_only"
-            || snapshot.complete_history
-            || snapshot.capacity != 256
-            || snapshot.observations.len() > snapshot.capacity
-            || snapshot.observations.iter().any(|observation| {
-                observation.scope != *scope
-                    || !sequences.insert(observation.sequence)
-                    || observation
-                        .started_micros
-                        .checked_add(observation.elapsed_micros)
-                        .is_none_or(|end| end > snapshot.snapshot_micros)
-                    || observation.call_id.as_ref().is_some_and(|id| {
-                        observation.phase != Phase::ToolDispatch
-                            || id.is_empty()
-                            || id.len() > 256
-                            || id.chars().any(char::is_control)
-                    })
-            })
-        {
-            return Err("retained execution diagnostic scope or window invalid".into());
-        }
-        // General history summaries truncate large payloads. Resolve only IDs
-        // already authorized above, preserving compacted/purged visibility.
-        retained.push(json!({"event":event.id,"watermark":envelope.watermark,
+        retained.push(validate(envelope, scope)?);
+    }
+    Ok(retained)
+}
+
+fn validate(envelope: &vcp_protocol::event::EventEnvelope, scope: &Scope) -> Result<Value, String> {
+    let event = &envelope.event;
+    if event.data["version"] != 1 || event.data["capture_boundary"] != "owner_drained" {
+        return Err("unsupported retained execution diagnostics".into());
+    }
+    let snapshot: Snapshot = serde_json::from_value(event.data["execution_diagnostics"].clone())
+        .map_err(|_| "invalid retained execution diagnostics")?;
+    let source_watermark: vcp_domain::Watermark =
+        serde_json::from_value(event.data["source_watermark"].clone())
+            .map_err(|_| "invalid diagnostic source watermark")?;
+    if source_watermark >= envelope.watermark {
+        return Err("diagnostic source cut must precede its retention event".into());
+    }
+    let mut sequences = BTreeSet::new();
+    if snapshot.schema_version != 1
+        || snapshot.owner.is_empty()
+        || snapshot.window != "current_owner_only"
+        || snapshot.complete_history
+        || snapshot.capacity != 256
+        || snapshot.observations.len() > snapshot.capacity
+        || snapshot.observations.iter().any(|observation| {
+            observation.scope != *scope
+                || !sequences.insert(observation.sequence)
+                || observation
+                    .started_micros
+                    .checked_add(observation.elapsed_micros)
+                    .is_none_or(|end| end > snapshot.snapshot_micros)
+                || observation.call_id.as_ref().is_some_and(|id| {
+                    observation.phase != Phase::ToolDispatch
+                        || id.is_empty()
+                        || id.len() > 256
+                        || id.chars().any(char::is_control)
+                })
+        })
+    {
+        return Err("retained execution diagnostic scope or window invalid".into());
+    }
+    // General history summaries truncate large payloads. Resolve only IDs
+    // already authorized above, preserving compacted/purged visibility.
+    Ok(json!({"event":event.id,"watermark":envelope.watermark,
             "source_watermark":source_watermark,
-            "capture_boundary":"owner_drained", "snapshot":snapshot}));
+            "capture_boundary":"owner_drained", "snapshot":snapshot}))
+}
+
+pub(super) async fn retained_store(
+    reader: &impl vcp_store::CanonicalHistory,
+    history: &[Value],
+    scope: &Scope,
+    remaining_bytes: usize,
+) -> Result<Vec<Value>, String> {
+    let watermark = reader.current().watermark;
+    let mut retained = Vec::new();
+    let mut retained_bytes = 0usize;
+    let mut seen = BTreeSet::new();
+    // Query pages preserve global ordinal order. Resolve only visible Diagnostic
+    // identities, never masked/compacted rows or an unscoped historical scan.
+    for row in history
+        .iter()
+        .flat_map(|page| page["rows"].as_array().into_iter().flatten())
+    {
+        if row["visibility"] != "retained_raw_history"
+            || !row["event"]["redaction"].is_null()
+            || row["event"]["event"]["kind"] != "diagnostic"
+        {
+            continue;
+        }
+        let id = vcp_domain::EventId::parse(
+            row["event"]["event"]["id"]
+                .as_str()
+                .ok_or("visible diagnostic identity missing")?,
+        )
+        .map_err(|e| e.to_string())?;
+        if !seen.insert(id.clone()) {
+            return Err("duplicate visible diagnostic identity".into());
+        }
+        let envelope = reader
+            .history_event(&id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("visible diagnostic event missing")?;
+        let event = &envelope.event;
+        if event.id != id || envelope.watermark > watermark {
+            return Err("visible diagnostic identity or source cut mismatch".into());
+        }
+        if event.kind != EventKind::Diagnostic
+            || envelope.redaction.is_some()
+            || event.workspace != scope.workspace
+            || event.session != scope.session
+            || event.task.as_ref() != Some(&scope.task)
+        {
+            return Err("visible diagnostic scope mismatch".into());
+        }
+        if event.data.get("execution_diagnostics").is_some() {
+            let value = validate(&envelope, scope)?;
+            retained_bytes = retained_bytes
+                .checked_add(serde_json::to_vec(&value).map_err(|e| e.to_string())?.len())
+                .ok_or("inspection bundle byte limit exceeded")?;
+            if retained_bytes > remaining_bytes {
+                return Err("inspection bundle byte limit exceeded by retained diagnostics".into());
+            }
+            retained.push(value);
+        }
     }
     Ok(retained)
 }

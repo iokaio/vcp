@@ -257,7 +257,7 @@ fn validate_start_root(
 }
 
 /// The same genesis and receipt proof through bounded owner-pinned reads.
-pub async fn retained_start_budget_store<S: CanonicalStore>(
+pub async fn retained_start_budget_store<S: vcp_store::CanonicalHistory>(
     store: &S,
     scope: &Scope,
 ) -> Result<Option<RetainedStartBudget>, PublicError> {

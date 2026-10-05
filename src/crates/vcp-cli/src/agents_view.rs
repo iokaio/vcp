@@ -9,7 +9,7 @@ use vcp_domain::{
 };
 use vcp_protocol::event::EventEnvelope;
 use vcp_store::{
-    contract::{CanonicalStore, Collection, State},
+    contract::{Collection, State},
     CurrentStateView,
 };
 
@@ -176,7 +176,7 @@ pub(crate) fn page_reader(
 }
 
 pub async fn page_store(
-    store: &impl CanonicalStore,
+    store: &impl vcp_store::CanonicalHistory,
     scope: &Scope,
     now: Timestamp,
     offset: usize,

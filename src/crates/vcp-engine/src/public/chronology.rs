@@ -52,7 +52,7 @@ pub(crate) async fn current_public_turn_checked<S: CanonicalStore>(
 }
 /// Full proofs must visit every ordinal, including after the first matching row.
 /// Short nonempty pages are byte boundaries, never evidence of absence.
-pub(crate) async fn visit_history<S: CanonicalStore>(
+pub(crate) async fn visit_history<S: vcp_store::CanonicalHistory>(
     store: &S,
     visit: impl FnMut(&EventEnvelope) -> Result<(), PublicError>,
 ) -> Result<(), PublicError> {
@@ -63,7 +63,7 @@ pub(crate) async fn visit_history<S: CanonicalStore>(
             HistoryVisitError::Evidence(error) => error,
         })
 }
-async fn try_visit_history<S: CanonicalStore>(
+async fn try_visit_history<S: vcp_store::CanonicalHistory>(
     store: &S,
     mut visit: impl FnMut(&EventEnvelope) -> Result<(), PublicError>,
 ) -> Result<(), HistoryVisitError> {

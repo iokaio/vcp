@@ -189,7 +189,7 @@ pub fn records(state: &State, access: &Access, query: &InspectionQuery) -> Resul
 }
 
 /// Bounded live history under the same serialized owner and current source cut.
-pub async fn records_store<S: CanonicalStore>(
+pub async fn records_store<S: vcp_store::CanonicalHistory>(
     store: &S,
     access: &Access,
     query: &InspectionQuery,

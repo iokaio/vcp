@@ -248,8 +248,14 @@ async fn handle(
             crate::app::Query::Inspect { request } => {
                 serde_json::to_value(host.inspect(request)?).map_err(|e| e.to_string())
             }
-            query @ crate::app::Query::InspectBundle { .. } => {
-                let mut value = crate::app::query(&host.snapshot()?, workspace, &query)?;
+            crate::app::Query::InspectBundle { task } => {
+                let reader = host.history_reader()?;
+                let mut value = crate::inspection_bundle::collect_store(
+                    &reader,
+                    &crate::app::inspection_access(reader.current(), workspace)?,
+                    &task,
+                )
+                .await?;
                 value["store_diagnostics"] =
                     serde_json::to_value(host.store_diagnostics()?).map_err(|e| e.to_string())?;
                 let scope: vcp_domain::workspace::Scope =

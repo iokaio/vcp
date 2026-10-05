@@ -12,7 +12,7 @@ use vcp_domain::{
 };
 use vcp_protocol::{canonical_bytes, digest_bytes, event::EventEnvelope};
 use vcp_store::{
-    contract::{CanonicalStore, Collection, State},
+    contract::{Collection, State},
     CurrentStateView,
 };
 
@@ -118,14 +118,14 @@ fn query_scoped(
 }
 
 /// Live-owner history reads use authenticated ordinal pages, never a synthetic State.
-pub async fn query_store<S: CanonicalStore>(
+pub async fn query_store<S: vcp_store::CanonicalHistory>(
     store: &S,
     access: &Access,
     query: &Query,
 ) -> Result<Page> {
     query_store_scoped(store, access, query, None, &|| Ok(())).await
 }
-pub async fn query_store_session<S: CanonicalStore>(
+pub async fn query_store_session<S: vcp_store::CanonicalHistory>(
     store: &S,
     access: &Access,
     query: &Query,
@@ -135,7 +135,7 @@ pub async fn query_store_session<S: CanonicalStore>(
 }
 /// Cooperatively preserve the caller's cancellation/deadline budget between
 /// bounded reads, including the exact newer-visible count. Failure returns no page.
-pub async fn query_store_session_with_check<S: CanonicalStore>(
+pub async fn query_store_session_with_check<S: vcp_store::CanonicalHistory>(
     store: &S,
     access: &Access,
     query: &Query,
@@ -144,12 +144,12 @@ pub async fn query_store_session_with_check<S: CanonicalStore>(
 ) -> Result<Page> {
     query_store_scoped(store, access, query, Some(session), check).await
 }
-async fn query_store_scoped<S: CanonicalStore>(
+async fn query_store_scoped<S: vcp_store::CanonicalHistory, F: Fn() -> Result<()> + ?Sized>(
     store: &S,
     access: &Access,
     query: &Query,
     session: Option<&SessionId>,
-    check: &dyn Fn() -> Result<()>,
+    check: &F,
 ) -> Result<Page> {
     check()?;
     let current = store.current();
@@ -212,7 +212,7 @@ async fn query_store_scoped<S: CanonicalStore>(
     check()?;
     projection.finish(newer)
 }
-pub(crate) async fn read_page<S: CanonicalStore>(
+pub(crate) async fn read_page<S: vcp_store::CanonicalHistory>(
     store: &S,
     next: u64,
     end: u64,

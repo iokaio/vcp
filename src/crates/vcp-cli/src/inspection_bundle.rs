@@ -14,8 +14,14 @@ use vcp_domain::{
 };
 use vcp_store::contract::{Collection, State};
 
-mod diagnostics;
+mod bounded;
+#[cfg(test)]
+mod bounded_native_tests;
+#[cfg(test)]
+mod bounded_tests;
+pub use bounded::collect_store;
 mod constraints;
+mod diagnostics;
 mod lifecycle;
 
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;

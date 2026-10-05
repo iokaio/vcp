@@ -4,6 +4,8 @@ Approved October 4, 2026. Branch: `feature/execution-engine-refinements`. Delive
 
 ## Current integration checkpoint
 
+EE-00c/02c ordinary offline and live `inspect-bundle` now read one pinned current/history cut through the narrow read-only `CanonicalHistory` contract. They no longer materialize the legacy full-history DTO. Existing audit access, compaction/redaction, receipt meaning, page limits and the final 16 MiB bundle bound remain; retained diagnostic expansion is charged before accumulation. Nineteen focused tests passed in 0.36 seconds, including reference parity, short pages, denied/failed reads, diagnostic masking, explicit unknown receipt evidence and actual Files/SQLite snapshot append/reopen. A lazy synthetic 66 MiB unrelated-history stream verifies bounded consumer behavior; it is separate from prior durable large-history fixtures. Independent review found no remaining issue. Evidence: `.codex-tmp-ee00-bounded-inspection-final-tests.log`. The integrated distributable candidate and full scenario checks remain next.
+
 Candidate 0.2.27 is built from clean source `bb849189` and verified as `vcp 0.2.27`. Its read-only reopen of the unchanged 249-commit live probe took 11.898 seconds, including 9.080 seconds of validation, versus 17.323/14.555 seconds previously with identical validation/input counts. Ingestion and redaction time decreased while event validation remained about 6.7 seconds. Uncontrolled caches and concurrent qualification prevent a causal speedup or p95 claim; the two-second target remains open. This candidate predates the worker-result fix and streamed default. B's fresh DryRun passed 13/13 prerequisite checks with no inference; full B remains unrun. Exact provenance and limitations are in the [experiment record](../test-plans/execution-engine-experiments.md#candidate-0227-retained-history-measurement-and-b-preflight).
 
 EE-01d/02 actual full A exposed a fixed 30-second canonical worker wait that abandoned a result while the admitted operation could still commit. The worker now waits for the actual result or disconnection, retaining bounded queue admission, explicit fences, self-reentry rejection and genuine unknown-outcome handling. Three tests passed in 30.76 seconds, including real greater-than-30-second operations on Files/SQLite and explicit fencing during an in-flight operation. Provider/process/grant bounds are unchanged. The failed 0.2.26 T1 and its pending attempt remain retained; no automatic resend or invented no-send proof is used. New candidate and full A/B qualification remain required. Evidence: `artifacts/ee01-canonical-worker-outcome-checkpoint.json` and blocker B-09.
@@ -53,29 +55,29 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | ID | Increment | Dependencies | State |
 |---|---|---|---|
 | EE-00a | Evidence and quality definitions | Plan review | complete |
-| EE-00b | Phase instrumentation | EE-00a | in progress |
-| EE-00c | Bundle integration and reconstruction | EE-00a/b | scripted repair, omission and interrupted-provider archives verified; remaining joins in progress |
-| EE-01a | Harness deadline/spend removal | EE-00a/b | in progress; user clarification approved and fresh automatic review accepted |
-| EE-01b | Versioned explicit limit representation | EE-00a | in progress; core/schema slice verified |
-| EE-01c | Financial admission with durable attempt fences | EE-01b | unknown-price representation and actual routed/reopen fixture passed both stores; integrated regression/performance qualification pending |
-| EE-01d | Derived bounds and start/resume conversion | EE-01b/c | explicit old-task conversion verified; provider pacing/deadline integration in progress |
-| EE-01e | Settlement/retention separation and test disposition | EE-01a–d | in progress; startup retention and disposition verified |
+| EE-00b | Phase instrumentation | EE-00a | implemented; original-owner timing retention verified in scripted and live runs |
+| EE-00c | Bundle integration and reconstruction | EE-00a/b | scripted repair/live allocation archives verified; bounded collection passed 19 tests; final live candidate pending |
+| EE-01a | Harness deadline/spend removal | EE-00a/b | implemented; live probe and first full-A attempt exercised the changed harness |
+| EE-01b | Versioned explicit limit representation | EE-00a | implemented across core, schema, SDK and editor; full candidate qualification pending |
+| EE-01c | Financial admission with durable attempt fences | EE-01b | unknown-price routed/reopen fixture passed both stores; full routing rerun and integrated A/B pending |
+| EE-01d | Derived bounds and start/resume conversion | EE-01b/c | startup, pacing, old-task and child conversions qualified; worker-result fix awaits live candidate |
+| EE-01e | Settlement/retention separation and test disposition | EE-01a–d | startup retention and removal of automatic billing waits qualified; full A/B pending |
 | EE-02a | Consolidate opens and reconstruction | EE-00b | in progress; duplicate replay and SQL paging verified |
 | EE-02b | Incremental validation | EE-00b | in progress; exact byte accounting verified |
-| EE-02c | Separate hot state and retained history | EE-02b | public Store and pinned snapshots activated; 66 MiB history fixture passed both stores; downstream and archive-job integration pending |
+| EE-02c | Separate hot state and retained history | EE-02b | current Store, pinned readers, bounded bundles and streamed jobs activated; native large history/restore qualified; final candidate pending |
 | EE-02d | Verified checkpoint/index hydration | EE-02c and documented integrity design | planned |
 | EE-03a | Bounded output, CI fixtures and artifact access | EE-00a | implemented; codec, authorized reader and redaction fixtures passed |
 | EE-03b | File/range working-set index | EE-03a | implemented; seven-file reconstruction and coalescing fixtures passed |
-| EE-03c1 | Per-request allocation contract | EE-01b/c, EE-03a | in progress; allocator and fixed-provider fixtures passed |
-| EE-03c2 | Routed allocation and encoding order | EE-03c1 | in progress; candidate routing/admission fixtures passed |
-| EE-03c3 | Truncation evidence and continuation | EE-03c1; integrate c2 | in progress; retained continuation fixtures passed |
+| EE-03c1 | Per-request allocation contract | EE-01b/c, EE-03a | implemented; allocator fixtures and six exact live request/allocation joins passed |
+| EE-03c2 | Routed allocation and encoding order | EE-03c1 | candidate routing/admission fixtures passed; final routing rerun pending |
+| EE-03c3 | Truncation evidence and continuation | EE-03c1; integrate c2 | retained continuation fixtures passed; live probe had no truncated responses |
 | EE-03d | Conditional caching/encoding refinements | Measured EE-06 need and applicable EE-03 inputs | planned |
 | EE-04a | Shared-driver completion repair | EE-00a/c; current full requirement set | implemented; same-task CLI repair and typed approval/refresh fixtures passed |
 | EE-04b | Focused selection and freshness refinement | EE-04a | implemented; focused/full separation passed; conservative freshness retained |
 | EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | implemented; repeated-failure pause, public reason and deliberate resume/cancel passed |
 | EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | mocked integration and small live recorded-checkpoint resume passed; full A/B pending |
-| EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | small live repair and checkpoint flow passed; retained execution-owner timings qualified on both-store scripted driver; new live candidate pending |
-| EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | workloads defined; live qualification unrun |
+| EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | small live repair/checkpoint passed; owner timings, exact allocation archive and repeated-open observations analyzed; integrated candidate pending |
+| EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | full A failed on diagnosed worker timeout; B preflight passed; engagement runner qualified offline; full acceptance outstanding |
 | EE-08 | Deferred selective constraints, if needed | Sufficient EE-07 data and separate owner decision | deferred |
 
 ## Traceability

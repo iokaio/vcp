@@ -128,3 +128,57 @@ impl HistoryReader {
         })
     }
 }
+
+// Every read uses the same retained Snapshot and the existing worker runtime.
+// No command/mutation authority or archival materialization is fabricated.
+impl vcp_store::CanonicalHistory for HistoryReader {
+    fn current(&self) -> vcp_store::CurrentStateView<'_> {
+        HistoryReader::current(self)
+    }
+    async fn history_event_count(&self) -> vcp_store::Result<u64> {
+        let snapshot = Arc::clone(&self.snapshot);
+        self.worker
+            .run_cleanup(move |context| {
+                Ok(context.runtime.block_on(snapshot.history_event_count())?)
+            })
+            .map_err(history_error)
+    }
+    async fn history_events(
+        &self,
+        after: Option<u64>,
+        limit: usize,
+    ) -> vcp_store::Result<Vec<EventEnvelope>> {
+        self.page(after, limit)
+            .map(|page| page.events)
+            .map_err(history_error)
+    }
+    async fn history_event_at(&self, ordinal: u64) -> vcp_store::Result<Option<EventEnvelope>> {
+        self.event_at(ordinal).map_err(history_error)
+    }
+    async fn history_event(&self, id: &EventId) -> vcp_store::Result<Option<EventEnvelope>> {
+        self.event(id.clone()).map_err(history_error)
+    }
+    async fn command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+        digest: &str,
+    ) -> vcp_store::Result<Option<CommandReceipt>> {
+        let receipt = self
+            .command(workspace.clone(), command.clone())
+            .map_err(history_error)?;
+        if receipt
+            .as_ref()
+            .is_some_and(|receipt| receipt.digest != digest)
+        {
+            return Err(vcp_store::Error::Conflict(
+                "command ID reused with different meaning",
+            ));
+        }
+        Ok(receipt)
+    }
+}
+
+fn history_error(error: String) -> vcp_store::Error {
+    vcp_store::Error::Io(std::io::Error::other(error))
+}
