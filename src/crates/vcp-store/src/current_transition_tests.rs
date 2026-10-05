@@ -221,10 +221,23 @@ async fn preparation_owns_no_archival_state_and_unavailable_history_cannot_issue
     assert_eq!(result.commit(), &expected.1);
     assert_eq!(cut.current().watermark.get(), 1);
     pages.failed = true;
+    let mut diagnostics = crate::StoreDiagnostics::new(crate::BackendKind::Files);
     assert!(matches!(
-        prepare(&mut pages, &cut, &tx).await,
+        prepare_observed(&mut pages, &cut, &tx, Some(&mut diagnostics)).await,
         Err(Error::Unavailable(_))
     ));
+    assert_eq!(diagnostics.history_reads.physical_started, 1);
+    assert_eq!(diagnostics.history_reads.physical_failed, 1);
+    assert_eq!(
+        diagnostics.validation_history_reads.events.physical_failed,
+        1
+    );
+    assert_eq!(diagnostics.validation_phases.events.failed, 1);
+    assert_eq!(diagnostics.validation_phases.redaction.completed, 0);
+    assert_eq!(
+        diagnostics.validation_history_reads.redaction,
+        crate::HistoryReads::default()
+    );
     pages.failed = false;
     for bytes in pages.objects.values_mut() {
         bytes[0] ^= 1;

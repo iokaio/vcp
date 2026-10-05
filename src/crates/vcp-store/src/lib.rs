@@ -50,7 +50,9 @@ pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
 pub use canonical_history::CanonicalHistory;
 pub use current_state::{CurrentState, CurrentStateView};
-pub use diagnostics::{StoreDiagnostics, StorePhase, ValidationPhases};
+pub use diagnostics::{
+    HistoryReadPhases, HistoryReads, StoreDiagnostics, StorePhase, ValidationPhases,
+};
 pub use history::{CommandHistoryPage, EventHistoryPage};
 pub use store::{snapshot_pin_active, Snapshot, Store};
 

@@ -3,6 +3,81 @@ mod common;
 use vcp_store::{contract::CanonicalStore, BackendKind, Store};
 
 #[tokio::test]
+async fn physical_history_reads_are_aggregated_by_replay_phase_on_both_backends() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("canonical");
+        let mut store = Store::open(&root, backend, &[]).await.unwrap();
+        let initial = common::initial();
+        store.transact(initial.clone()).await.unwrap();
+        for index in 1..=3 {
+            let mut event = initial.events[0].clone();
+            event.id = vcp_domain::EventId::parse(format!("read-observation-{index}")).unwrap();
+            store
+                .transact(vcp_store::contract::Transaction {
+                    id: vcp_domain::TransactionId::parse(format!("read-observation-{index}"))
+                        .unwrap(),
+                    expected_watermark: store.current().watermark,
+                    mutations: vec![],
+                    events: vec![event],
+                    command: None,
+                })
+                .await
+                .unwrap();
+        }
+        let expected = store.archive_state().await.unwrap();
+        let before_rejection = store.diagnostics().clone();
+        assert!(store
+            .transact(vcp_store::contract::Transaction {
+                id: vcp_domain::TransactionId::parse("duplicate-event-rejected").unwrap(),
+                expected_watermark: store.current().watermark,
+                mutations: vec![],
+                events: vec![initial.events[0].clone()],
+                command: None,
+            })
+            .await
+            .is_err());
+        let rejected = store.diagnostics();
+        assert_eq!(rejected.validation_phases.events.failed, 1);
+        assert!(
+            rejected.validation_history_reads.events.physical_started
+                > before_rejection
+                    .validation_history_reads
+                    .events
+                    .physical_started
+        );
+        assert_eq!(rejected.history_reads.physical_failed, 0);
+        assert_eq!(
+            rejected.validation_phases.redaction,
+            before_rejection.validation_phases.redaction
+        );
+        store.close().await.unwrap();
+        let reopened = Store::open(&root, backend, &[]).await.unwrap();
+        assert_eq!(reopened.archive_state().await.unwrap(), expected);
+        let observed = reopened.diagnostics();
+        let total = observed.history_reads;
+        assert!(total.physical_started > 0);
+        assert_eq!(total.physical_started, total.physical_completed);
+        assert_eq!(total.physical_failed, 0);
+        assert!(total.physical_bytes > 0);
+        let events = observed.validation_history_reads.events;
+        assert!(events.physical_started > 0);
+        assert!(events.physical_bytes > 0);
+        assert!(events.index_misses > 0);
+        let redaction = observed.validation_history_reads.redaction;
+        assert!(redaction.index_hits > 0);
+        assert!(redaction.payload_hits > 0);
+        assert_eq!(redaction.physical_started, 0);
+        assert!(events.physical_started <= total.physical_started);
+        assert_eq!(observed.validation_phases.events.completed, 4);
+        let json = serde_json::to_value(observed).unwrap();
+        assert!(json.get("history_reads").is_some());
+        assert!(json.get("validation_history_reads").is_some());
+        reopened.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn diagnostics_explain_replay_and_failed_or_duplicate_work_without_changing_state() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temporary = tempfile::tempdir().unwrap();

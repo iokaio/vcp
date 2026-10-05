@@ -63,6 +63,15 @@ async fn repeated_traversal_reuses_verified_pages_but_next_operation_reads_again
         assert!(reads > 1);
         assert_eq!(root.page(&mut session, None, 80).await.unwrap(), first);
         assert_eq!(session.inner.reads, reads);
+        let observed = session.observations();
+        assert_eq!(observed.physical_started, reads as u64);
+        assert_eq!(observed.physical_completed, reads as u64);
+        assert_eq!(observed.physical_failed, 0);
+        assert!(observed.physical_bytes > 0);
+        assert!(observed.index_hits > 0);
+        assert_eq!(observed.index_misses, reads as u64);
+        assert_eq!(observed.index_admitted, reads as u64);
+        assert_eq!(observed.payload_hits, 0);
     }
     memory.fail_read = true;
     let mut session = ReadSession::new(&mut memory);
@@ -71,6 +80,9 @@ async fn repeated_traversal_reuses_verified_pages_but_next_operation_reads_again
         Err(Error::Unavailable("memo physical read"))
     ));
     assert!(session.verified.entries.is_empty());
+    assert_eq!(session.observations().physical_started, 1);
+    assert_eq!(session.observations().physical_failed, 1);
+    assert_eq!(session.observations().physical_bytes, 0);
 }
 
 #[tokio::test]
@@ -97,6 +109,7 @@ async fn hits_recheck_table_and_complete_link_commitment() {
         assert!(root.load(&mut session, &different).await.is_err());
     }
     assert_eq!(session.inner.reads, 1);
+    assert_eq!(session.observations().index_rejected_hits, 5);
 }
 
 #[tokio::test]
@@ -163,15 +176,18 @@ async fn memo_limits_do_not_limit_valid_history_or_skip_uncached_reads() {
         .await
         .unwrap();
     assert_eq!(session.inner.reads, reads + 1);
+    assert_eq!(session.observations().index_refused_entries, 2);
     session.verified = VerifiedPages {
         entries: BTreeMap::new(),
         bytes: MAX_BYTES,
+        ..Default::default()
     };
     root.load(&mut session, root.head.as_ref().unwrap())
         .await
         .unwrap();
     assert!(session.verified.entries.is_empty());
     assert_eq!(session.verified.bytes, MAX_BYTES);
+    assert_eq!(session.observations().index_refused_bytes, 1);
 }
 
 #[tokio::test]
@@ -304,4 +320,55 @@ async fn chunk_memo_bounds_fall_back_without_limiting_valid_history() {
     assert!(session.chunks.is_empty());
     assert_eq!(session.chunk_bytes, MAX_BYTES);
     assert_eq!(session.inner.reads, reads + 2);
+    assert_eq!(session.observations().payload_admitted, MAX_ENTRIES as u64);
+    assert_eq!(session.observations().payload_refused_entries, 2);
+    assert_eq!(session.observations().payload_refused_bytes, 1);
+}
+
+#[tokio::test]
+async fn read_counters_preserve_totals_across_write_invalidation_and_errors() {
+    let mut memory = Memory::default();
+    let root = fixture(&mut memory, 1).await;
+    let bytes = b"bounded payload".to_vec();
+    let digest = vcp_protocol::digest_bytes(&bytes);
+    memory.rows.insert(digest.clone(), bytes.clone());
+    let mut session = ReadSession::new(&mut memory);
+    root.page(&mut session, None, 1).await.unwrap();
+    session.read(&digest, 64).await.unwrap();
+    let before = session.observations();
+    session.read(&digest, 64).await.unwrap();
+    let hit = session.observations().since(before);
+    assert_eq!(hit.payload_hits, 1);
+    assert_eq!(hit.physical_started, 0);
+    session.inner.fail_write = true;
+    assert!(session.write(&digest, &bytes).await.is_err());
+    assert_eq!(
+        session.observations().physical_started,
+        before.physical_started
+    );
+    assert_eq!(session.observations().index_admitted, before.index_admitted);
+    session.inner.fail_read = true;
+    assert!(session.read(&digest, 64).await.is_err());
+    let failure = session.observations().since(before);
+    assert_eq!(failure.physical_started, 1);
+    assert_eq!(failure.physical_completed, 1);
+    assert_eq!(failure.physical_failed, 1);
+    assert_eq!(failure.physical_bytes, 0);
+}
+
+#[test]
+fn history_read_diagnostics_decode_legacy_defaults_and_saturate() {
+    let old: crate::HistoryReadPhases = serde_json::from_str("{}").unwrap();
+    assert_eq!(old, crate::HistoryReadPhases::default());
+    let mut counts: HistoryReads = serde_json::from_str(r#"{"physical_started":1}"#).unwrap();
+    assert_eq!(counts.physical_failed, 0);
+    counts.add(HistoryReads {
+        physical_started: u64::MAX,
+        ..Default::default()
+    });
+    assert_eq!(counts.physical_started, u64::MAX);
+    assert_eq!(
+        serde_json::from_value::<HistoryReads>(serde_json::to_value(counts).unwrap()).unwrap(),
+        counts
+    );
 }

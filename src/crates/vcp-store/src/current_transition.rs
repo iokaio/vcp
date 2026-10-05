@@ -69,7 +69,25 @@ pub(crate) async fn prepare_observed(
     // Discard verified physical index observations at this operation boundary,
     // including cancellation/error; the next operation must read its own pages.
     let mut read_session = crate::history_index::memo::ReadSession::new(pages);
-    let pages = &mut read_session;
+    let result = prepare_in_session(
+        &mut read_session,
+        source,
+        transaction,
+        diagnostics.as_deref_mut(),
+    )
+    .await;
+    if let Some(diagnostics) = diagnostics {
+        diagnostics.history_reads.add(read_session.observations());
+    }
+    result
+}
+
+async fn prepare_in_session(
+    pages: &mut crate::history_index::memo::ReadSession<'_, impl Pages>,
+    source: &AdmittedCut,
+    transaction: &Transaction,
+    mut diagnostics: Option<&mut crate::StoreDiagnostics>,
+) -> Result<Outcome> {
     let mut history = ResolvedHistory::new(source);
     let proposed = match history
         .run(pages, |history| {
@@ -85,8 +103,13 @@ pub(crate) async fn prepare_observed(
     macro_rules! phase {
         ($name:ident, $operation:expr) => {{
             let started = std::time::Instant::now();
+            let reads_before = pages.observations();
             let result = $operation.await;
             if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                diagnostics
+                    .validation_history_reads
+                    .$name
+                    .add(pages.observations().since(reads_before));
                 diagnostics
                     .validation_phases
                     .$name

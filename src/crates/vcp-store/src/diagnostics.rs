@@ -3,6 +3,9 @@
 use crate::BackendKind;
 use serde::Serialize;
 use std::time::Instant;
+#[path = "diagnostics_history.rs"]
+mod history;
+pub use history::{HistoryReadPhases, HistoryReads};
 
 /// A completed phase count and its cumulative monotonic duration. Timings may
 /// overlap: validation is included in preparation/replay, which are included in open.
@@ -66,6 +69,13 @@ pub struct StoreDiagnostics {
     pub preparation: StorePhase,
     pub validation: StorePhase,
     pub validation_phases: ValidationPhases,
+    /// All reads reached during current preparation, including proposal and
+    /// publication predicates. Phase counters below are subsets, not additive.
+    /// Totals are merged when preparation returns success or error. Dropping
+    /// its future before return does not merge that operation's totals; phase
+    /// counters may already include phases completed before cancellation.
+    pub history_reads: HistoryReads,
+    pub validation_history_reads: HistoryReadPhases,
     pub append: StorePhase,
     pub checkpoint: StorePhase,
     pub replayed_commits: u64,
@@ -99,6 +109,8 @@ impl StoreDiagnostics {
             preparation: StorePhase::default(),
             validation: StorePhase::default(),
             validation_phases: ValidationPhases::default(),
+            history_reads: HistoryReads::default(),
+            validation_history_reads: HistoryReadPhases::default(),
             append: StorePhase::default(),
             checkpoint: StorePhase::default(),
             replayed_commits: 0,
