@@ -565,10 +565,12 @@ function Test-Model([string]$Stage, [double]$MinMacroF1, [switch]$Sentiment) {
                 Assert-Probability $json.sentiment_confidence 'sentiment confidence'
             }
             $true })
-    [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'input-errors' -Description 'missing file and missing text column -> exit 4' -Test {
-            $missing = Invoke-Python $Stage 'evaluate-missing' @('-m', 'textlab', 'evaluate', '--model-dir', $models, '--data', (Join-Path $ctx.Temp 'nope.csv'), '--output', (Join-Path $ctx.Temp 'nope.json'))
-            $column = Invoke-Python $Stage 'predict-missing-column' @('-m', 'textlab', 'predict', '--model-dir', $models, '--input', $missingColumnPath, '--output', (Join-Path $ctx.Temp 'nope.csv'))
-            Assert-That ($missing.ExitCode -eq 4 -and $column.ExitCode -eq 4) "exits: missing file $($missing.ExitCode), missing column $($column.ExitCode)"; $true })
+    [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'input-errors' -Description 'evaluate --data with missing file and predict --input with missing text column -> exit 4 each' -Test {
+            $missingArguments = @('-m', 'textlab', 'evaluate', '--model-dir', $models, '--data', (Join-Path $ctx.Temp 'nope.csv'), '--output', (Join-Path $ctx.Temp 'nope.json'))
+            $columnArguments = @('-m', 'textlab', 'predict', '--model-dir', $models, '--input', $missingColumnPath, '--output', (Join-Path $ctx.Temp 'nope.csv'))
+            $missing = Invoke-Python $Stage 'evaluate-missing' $missingArguments
+            $column = Invoke-Python $Stage 'predict-missing-column' $columnArguments
+            Assert-That ($missing.ExitCode -eq 4 -and $column.ExitCode -eq 4) "evaluate --data (missing file): expected exit 4, actual $($missing.ExitCode); predict --input (CSV missing text column): expected exit 4, actual $($column.ExitCode). Python argument arrays: evaluate=$(ConvertTo-Json -InputObject $missingArguments -Compress); predict=$(ConvertTo-Json -InputObject $columnArguments -Compress)"; $true })
     return $models
 }
 
