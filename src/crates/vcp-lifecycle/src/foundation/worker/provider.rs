@@ -540,13 +540,23 @@ impl Context {
         } else {
             None
         };
-        request::validate_sealed_with_effort(
+        let validation_now = now();
+        let mut encoding = self.encoding_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::EncodingPurpose::SealedValidation,
+            &ready.snapshot,
+            reasoning_effort,
+        );
+        encoding.request(&ready.context.sealed().manifest.request_sha256);
+        request::validate_sealed_with_effort_observed(
             &ready.context,
             &ready.snapshot,
             &ready.schemas,
-            now(),
+            validation_now,
             reasoning_effort,
+            &mut encoding.work.borrow_mut(),
         )?;
+        drop(encoding);
         let output_ceiling = if ready.routing.is_some() {
             self.current_output_ceiling()?
         } else {

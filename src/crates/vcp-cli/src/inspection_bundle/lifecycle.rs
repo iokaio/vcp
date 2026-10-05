@@ -59,6 +59,25 @@ fn validate(envelope: &vcp_protocol::event::EventEnvelope, scope: &Scope) -> Res
         || snapshot.complete_history
         || snapshot.capacity != 256
         || snapshot.observations.len() > snapshot.capacity
+        || snapshot.encodings.len() > 64
+        || (!snapshot.encoding_available
+            && (!snapshot.encodings.is_empty() || snapshot.encodings_dropped != 0))
+        || snapshot.encodings.iter().any(|encoding| {
+            encoding.scope != *scope
+                || encoding
+                    .started_micros
+                    .checked_add(encoding.elapsed_micros)
+                    .is_none_or(|end| end > snapshot.snapshot_micros)
+                || encoding.work.encode_failures > encoding.work.encode_calls
+                || encoding.work.validation_failures > encoding.work.validation_calls
+                || encoding.work.encode_micros > encoding.elapsed_micros
+                || encoding.work.validation_micros > encoding.elapsed_micros
+                || encoding.catalog.len() != 64
+                || !encoding.catalog.bytes().all(|b| b.is_ascii_hexdigit())
+                || encoding.request_sha256.as_ref().is_some_and(|digest| {
+                    digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+        })
         || snapshot.observations.iter().any(|observation| {
             observation.scope != *scope
                 || !sequences.insert(observation.sequence)
@@ -225,5 +244,57 @@ mod tests {
         assert!(super::super::collect(&state, &access, &task)
             .unwrap_err()
             .contains("scope or window"));
+    }
+
+    #[test]
+    fn retained_encoding_work_preserves_availability_and_rejects_scope_or_counter_spoofing() {
+        let (mut state, access, task) = super::super::tests::fixture();
+        let scope = state
+            .record(
+                vcp_store::contract::Collection::Task,
+                task.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode::<vcp_domain::task::Task>()
+            .unwrap()
+            .scope;
+        let row = json!({"scope":scope,"turn":null,"attempt":null,"purpose":"sealed_validation",
+            "catalog":"a".repeat(64),"reasoning":null,"request_sha256":"b".repeat(64),
+            "started_micros":10,"elapsed_micros":50,
+            "work":{"encode_calls":1,"encode_failures":0,"encoded_bytes":1000,"encode_micros":20,
+                "validation_calls":1,"validation_failures":0,"validation_micros":30}});
+        let event = state.events.last_mut().unwrap();
+        event.event.kind = EventKind::Diagnostic;
+        event.event.data = json!({"version":1,"capture_boundary":"owner_drained","source_watermark":"0",
+            "execution_diagnostics":{"schema_version":1,"owner":"prior-owner","window":"current_owner_only",
+                "snapshot_micros":100,"complete_history":false,"available":true,"capacity":256,"dropped":0,
+                "observations":[],"encoding_available":true,"encodings_dropped":2,"encodings":[row]}});
+        let expected = event.event.data.clone();
+        let bundle = super::super::collect(&state, &access, &task).unwrap();
+        assert_eq!(
+            bundle["retained_lifecycle_diagnostics"][0]["snapshot"]["encoding_available"],
+            true
+        );
+        assert_eq!(
+            bundle["retained_lifecycle_diagnostics"][0]["snapshot"]["encodings"][0]["work"]
+                ["encoded_bytes"],
+            1000
+        );
+        for mutation in 0..5 {
+            let mut data = expected.clone();
+            let snapshot = &mut data["execution_diagnostics"];
+            match mutation {
+                0 => snapshot["encodings"][0]["scope"]["task"] = json!(vcp_domain::TaskId::new()),
+                1 => snapshot["encodings"][0]["work"]["encode_failures"] = json!(2),
+                2 => snapshot["encodings"][0]["work"]["validation_micros"] = json!(51),
+                3 => snapshot["encoding_available"] = json!(false),
+                _ => snapshot["encodings"] = json!(vec![row.clone(); 65]),
+            }
+            state.events.last_mut().unwrap().event.data = data;
+            assert!(super::super::collect(&state, &access, &task)
+                .unwrap_err()
+                .contains("scope or window"));
+        }
     }
 }

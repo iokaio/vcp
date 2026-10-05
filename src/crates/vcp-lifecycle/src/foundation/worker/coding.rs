@@ -1081,16 +1081,24 @@ impl Context {
             None
         };
         self.ensure_coding_ledger()?;
+        let encoding = self.encoding_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::EncodingPurpose::CompactionTrial,
+            &codec_snapshot,
+            codec_effort,
+        );
         let parts =
             self.compact_coding_parts(binding, parts, &current, retention_capacity, |parts| {
-                Ok(request::encode_with_effort(
+                Ok(request::encode_with_effort_observed(
                     parts,
                     &codec_envelope,
                     &schemas,
                     &codec_snapshot,
                     codec_effort,
+                    &mut encoding.work.borrow_mut(),
                 )?)
             })?;
+        drop(encoding);
         let snapshot = self.select_coding_snapshot(binding, &parts, &schemas)?;
         let reasoning_effort = self.current_reasoning_effort()?;
         let allocation = self.coding_request_allocation(binding, &snapshot)?;
@@ -1098,6 +1106,12 @@ impl Context {
             request::envelope(&snapshot, allocation.output_limit, Units::new(512), now())?;
         let mut probes = instructions.probes;
         probes.extend(working_set_probes);
+        let mut encoding = self.encoding_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::EncodingPurpose::FinalAssembly,
+            &snapshot,
+            reasoning_effort,
+        );
         let sealed = assemble_with_input_target(
             parts,
             current.clone(),
@@ -1107,13 +1121,20 @@ impl Context {
             &Utf8ByteCeiling,
             Some(allocation.input_target),
             |parts, envelope, schemas| {
-                request::encode_with_effort(parts, envelope, schemas, &snapshot, reasoning_effort)
-                    .map_err(|_| {
-                        vcp_context::manifest::Error::Incompatible("canonical provider codec")
-                    })
+                request::encode_with_effort_observed(
+                    parts,
+                    envelope,
+                    schemas,
+                    &snapshot,
+                    reasoning_effort,
+                    &mut encoding.work.borrow_mut(),
+                )
+                .map_err(|_| vcp_context::manifest::Error::Incompatible("canonical provider codec"))
             },
         )?
         .with_allocation(allocation)?;
+        encoding.request(&sealed.manifest.request_sha256);
+        drop(encoding);
         let state = self
             .coding
             .get_mut(&binding.scope.task)

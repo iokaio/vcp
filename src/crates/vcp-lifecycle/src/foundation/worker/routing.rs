@@ -454,7 +454,13 @@ impl Context {
                     now(),
                 )
                 .ok()?;
-                vcp_context::selection::assemble_with_input_target(
+                let mut encoding = self.encoding_diagnostic(
+                    binding,
+                    crate::foundation::execution_diagnostics::EncodingPurpose::CandidateFit,
+                    snapshot,
+                    configuration.policy.reasoning_effort,
+                );
+                let result = vcp_context::selection::assemble_with_input_target(
                     parts.to_vec(),
                     sizing_revisions.clone(),
                     envelope,
@@ -463,20 +469,23 @@ impl Context {
                     &vcp_context::selection::Utf8ByteCeiling,
                     Some(allocation.input_target),
                     |selected, envelope, schemas| {
-                        vcp_models::request::encode_with_effort(
+                        vcp_models::request::encode_with_effort_observed(
                             selected,
                             envelope,
                             schemas,
                             snapshot,
                             configuration.policy.reasoning_effort,
+                            &mut encoding.work.borrow_mut(),
                         )
                         .map_err(|_| {
                             vcp_context::manifest::Error::Incompatible("candidate provider codec")
                         })
                     },
-                )
-                .ok()
-                .map(|sealed| routing::CandidateRequest {
+                );
+                if let Ok(sealed) = &result {
+                    encoding.request(&sealed.manifest.request_sha256);
+                }
+                result.ok().map(|sealed| routing::CandidateRequest {
                     candidate: candidate.identity.clone(),
                     input_tokens: sealed.manifest.input_estimate,
                     output_tokens: allocation.output_limit,

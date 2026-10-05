@@ -5,6 +5,60 @@ use std::collections::{BTreeMap, BTreeSet};
 use vcp_context::manifest::{Content, Envelope, Kind, Part, VerifiedContext};
 use vcp_domain::{Timestamp, Units};
 
+/// Aggregate local codec work, never token usage or financial evidence.
+/// Validation elapsed time includes its inner encoding; do not sum the two.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncodingWork {
+    pub encode_calls: u64,
+    pub encode_failures: u64,
+    pub encoded_bytes: u64,
+    pub encode_micros: u64,
+    pub validation_calls: u64,
+    pub validation_failures: u64,
+    pub validation_micros: u64,
+}
+fn work_micros(started: std::time::Instant) -> u64 {
+    started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+pub fn encode_with_effort_observed(
+    parts: &[Part],
+    envelope: &Envelope,
+    schemas: &Value,
+    snapshot: &Snapshot,
+    effort: Option<crate::reasoning::Effort>,
+    work: &mut EncodingWork,
+) -> Result<Vec<u8>> {
+    let started = std::time::Instant::now();
+    let result = encode_with_effort(parts, envelope, schemas, snapshot, effort);
+    work.encode_calls = work.encode_calls.saturating_add(1);
+    work.encode_micros = work.encode_micros.saturating_add(work_micros(started));
+    match &result {
+        Ok(bytes) => work.encoded_bytes = work.encoded_bytes.saturating_add(bytes.len() as u64),
+        Err(_) => work.encode_failures = work.encode_failures.saturating_add(1),
+    }
+    result
+}
+
+pub fn validate_sealed_with_effort_observed(
+    context: &VerifiedContext,
+    snapshot: &Snapshot,
+    schemas: &Value,
+    now: Timestamp,
+    effort: Option<crate::reasoning::Effort>,
+    work: &mut EncodingWork,
+) -> Result<()> {
+    let started = std::time::Instant::now();
+    let result = validate_sealed_inner(context, snapshot, schemas, now, effort, Some(work));
+    work.validation_calls = work.validation_calls.saturating_add(1);
+    work.validation_micros = work.validation_micros.saturating_add(work_micros(started));
+    if result.is_err() {
+        work.validation_failures = work.validation_failures.saturating_add(1);
+    }
+    result
+}
+
 #[derive(Clone, Debug)]
 pub struct Tools(BTreeMap<String, Value>);
 impl Tools {
@@ -357,6 +411,17 @@ pub fn validate_sealed_with_effort(
     now: Timestamp,
     effort: Option<crate::reasoning::Effort>,
 ) -> Result<()> {
+    validate_sealed_inner(context, snapshot, schemas, now, effort, None)
+}
+
+fn validate_sealed_inner(
+    context: &VerifiedContext,
+    snapshot: &Snapshot,
+    schemas: &Value,
+    now: Timestamp,
+    effort: Option<crate::reasoning::Effort>,
+    work: Option<&mut EncodingWork>,
+) -> Result<()> {
     snapshot.current(now)?;
     let sealed = context.sealed();
     let m = &sealed.manifest;
@@ -374,7 +439,17 @@ pub fn validate_sealed_with_effort(
         || m.input_estimate > snapshot.max_input
         || m.estimate_method != "utf8-byte-ceiling/1"
         || m.schemas_sha256 != vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(schemas)?)
-        || encode_with_effort(&m.included, &m.envelope, schemas, snapshot, effort)? != sealed.body()
+        || match work {
+            Some(work) => encode_with_effort_observed(
+                &m.included,
+                &m.envelope,
+                schemas,
+                snapshot,
+                effort,
+                work,
+            )?,
+            None => encode_with_effort(&m.included, &m.envelope, schemas, snapshot, effort)?,
+        } != sealed.body()
     {
         return Err(Error::Stale);
     }

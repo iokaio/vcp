@@ -313,19 +313,39 @@ impl Context {
         phase: super::execution_diagnostics::Phase,
         attempt: Option<AttemptId>,
     ) -> super::execution_diagnostics::Span {
+        self.diagnostics.begin(
+            phase,
+            binding.scope.clone(),
+            self.current_diagnostic_turn(binding),
+            attempt,
+        )
+    }
+    fn current_diagnostic_turn(&self, binding: &ThreadBinding) -> Option<vcp_domain::TurnId> {
         let store = self.engine.store();
         let current = store.current_state();
-        let turn = self.runtime.block_on(self.diagnostic_turn.resolve(
-            &current,
-            &binding.scope,
-            || async {
-                vcp_engine::public::current_public_turn_store(store, &binding.scope)
-                    .await
-                    .map(|turn| turn.map(|turn| turn.id))
-            },
-        ));
-        self.diagnostics
-            .begin(phase, binding.scope.clone(), turn, attempt)
+        self.runtime.block_on(
+            self.diagnostic_turn
+                .resolve(&current, &binding.scope, || async {
+                    vcp_engine::public::current_public_turn_store(store, &binding.scope)
+                        .await
+                        .map(|turn| turn.map(|turn| turn.id))
+                }),
+        )
+    }
+    pub(super) fn encoding_diagnostic(
+        &self,
+        binding: &ThreadBinding,
+        purpose: super::execution_diagnostics::EncodingPurpose,
+        snapshot: &vcp_models::catalog::Snapshot,
+        effort: Option<vcp_models::reasoning::Effort>,
+    ) -> super::execution_diagnostics::EncodingSession {
+        self.diagnostics.encoding(
+            binding.scope.clone(),
+            self.current_diagnostic_turn(binding),
+            purpose,
+            &snapshot.id,
+            effort,
+        )
     }
     fn close(self) -> Result<()> {
         self.runtime.block_on(self.engine.into_store().close())?;

@@ -252,6 +252,11 @@ async fn routed_candidate_usage_does_not_shrink_a_smaller_fresh_candidate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn encoding_diagnostics_attribute_actual_routed_trials_and_sealed_requests() {
+    run_coding_modes(&["encoding_routed"]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn output_limit_recovery_applies_one_complete_large_patch_with_exact_admission() {
     run_coding_modes(&["large_patch"]).await;
 }
@@ -316,7 +321,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 // capacity; every actual request/reservation must still fit.
                 config.output_ceiling = Units::new(16_000);
             }
-            if mode.starts_with("routed_allocation") {
+            if mode.starts_with("routed_allocation") || mode == "encoding_routed" {
                 config.output_ceiling = Units::new(4096);
             }
             let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
@@ -410,6 +415,16 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     .unwrap();
             } else {
                 host.configure_provider(snapshot, raw).unwrap();
+            }
+            let mut encoding_catalogs = std::collections::BTreeSet::new();
+            if mode == "encoding_routed" {
+                let mut routing =
+                    super::routing::routing_configuration(vcp_models::routing::Profile::Low, false);
+                for estimate in &mut routing.estimates {
+                    estimate.first_attempt.output = Units::new(4096);
+                }
+                encoding_catalogs.extend(routing.catalog.entries.iter().map(|candidate| candidate.snapshot.as_ref().unwrap().id.clone()));
+                host.configure_routing(routing).unwrap();
             }
             if unpriced {
                 let mut routing = super::routing::routing_configuration(vcp_models::routing::Profile::Low, false);
@@ -525,7 +540,9 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 }
                 let mut events = vec![];
                 let mut output = vec![];
-                if mode == "invalid_call_usage" {
+                if mode == "encoding_routed" {
+                    events.push(ev_assistant_message("encoding-done", "The exact encoded request was observed."));
+                } else if mode == "invalid_call_usage" {
                     let arguments = serde_json::json!({"path":"file.txt","max_bytes":678}).to_string();
                     let mut item = serde_json::json!({"type":"function_call","id":"invalid-item","call_id":"invalid-call","name":"vcp_read","arguments":"","status":"in_progress"});
                     events.push(serde_json::json!({"type":"response.output_item.added","output_index":0,"item":item}));
@@ -746,6 +763,57 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 );
                 assert_eq!(allocations[1].previous_output_limit, Some(Units::new(4096)));
                 assert_eq!(allocations[1].previous_output, Some(Units::new(4096)));
+                owner.close().await.unwrap();
+                test.codex.shutdown_and_wait().await.unwrap();
+                continue;
+            }
+            if mode == "encoding_routed" {
+                let scope = host.project().unwrap().tasks[&config.root_task]
+                    .scope
+                    .clone();
+                let diagnostics = host.execution_diagnostics(scope.clone()).unwrap();
+                use vcp_lifecycle::foundation::execution_diagnostics::EncodingPurpose;
+                let candidates: std::collections::BTreeSet<_> = diagnostics
+                    .encodings
+                    .iter()
+                    .filter(|row| row.purpose == EncodingPurpose::CandidateFit)
+                    .map(|row| row.catalog.clone()).collect();
+                assert_eq!(candidates, encoding_catalogs, "candidate sizing must retain exact catalog attribution");
+                assert!(diagnostics.encodings.iter().all(|row| row.scope == scope && row.attempt.is_none()));
+                for purpose in [EncodingPurpose::CandidateFit, EncodingPurpose::FinalAssembly, EncodingPurpose::SealedValidation] {
+                    assert!(diagnostics.encodings.iter().any(|row| row.purpose == purpose && row.work.encode_calls > 0), "missing {purpose:?}; sent={} task={:?} encodings={:?}", count.load(Ordering::SeqCst), host.project().unwrap().tasks[&config.root_task], diagnostics.encodings);
+                }
+                assert!(diagnostics
+                    .encodings
+                    .iter()
+                    .any(|row| row.purpose == EncodingPurpose::CandidateFit
+                        && row.work.encode_calls >= 2));
+                // The independent ring may omit early stages in a long turn;
+                // require the latest actual requests, not unlimited retention.
+                for bytes in wire_bytes.lock().unwrap().iter().rev().take(2) {
+                    let digest = vcp_protocol::digest_bytes(bytes);
+                    assert!(diagnostics.encodings.iter().any(|row| row.purpose
+                        == EncodingPurpose::SealedValidation
+                        && row.request_sha256.as_deref() == Some(digest.as_str())
+                        && row.work.validation_calls == 1
+                        && row.work.validation_failures == 0
+                        && row.work.encode_calls == 1
+                        && row.work.encoded_bytes == bytes.len() as u64));
+                }
+                assert_eq!(count.load(Ordering::SeqCst), 1);
+                assert!(host.project().unwrap().effects.is_empty());
+                if let Some(directory) = std::env::var_os("VCP_TEST_ENCODING_EVIDENCE") {
+                    let directory = std::path::PathBuf::from(directory);
+                    std::fs::create_dir_all(&directory).unwrap();
+                    let path =
+                        directory.join(format!("routed-{backend:?}-{}.json", EventId::new()));
+                    let file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(path)
+                        .unwrap();
+                    serde_json::to_writer(file, &serde_json::json!({"kind":"actual_routed_codec_diagnostics", "backend":format!("{backend:?}"), "scope":scope,"snapshot":diagnostics})).unwrap();
+                }
                 owner.close().await.unwrap();
                 test.codex.shutdown_and_wait().await.unwrap();
                 continue;

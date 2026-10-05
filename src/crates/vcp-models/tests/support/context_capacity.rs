@@ -46,6 +46,250 @@ fn capture(scope: &Scope, bytes: &[u8]) -> ArtifactDescriptor {
     }
 }
 
+fn foundations(revisions: &Revisions) -> (Vec<Part>, Vec<ArtifactDescriptor>) {
+    let mut descriptors = Vec::new();
+    let parts = [
+        (Kind::Operating, Trust::Operating),
+        (Kind::Objective, Trust::User),
+        (Kind::TaskState, Trust::Observed),
+    ]
+    .into_iter()
+    .map(|(kind, trust)| {
+        let descriptor = capture(&revisions.scope, b"required fixture");
+        let part = Part::captured_text(
+            descriptor.spec.id.to_string(),
+            kind,
+            trust,
+            &descriptor,
+            b"required fixture",
+            true,
+            0,
+            "fixture".into(),
+        )
+        .unwrap();
+        descriptors.push(descriptor);
+        part
+    })
+    .collect();
+    (parts, descriptors)
+}
+
+#[test]
+fn encoding_work_preserves_codec_bytes_errors_and_sealed_short_circuit_order() {
+    let snapshot = Snapshot::from_endpoints(
+        &serde_json::to_vec(&catalog()).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compat(),
+    )
+    .unwrap();
+    let env = super::envelope(
+        &snapshot,
+        Units::new(100),
+        Units::new(512),
+        Timestamp::new(30),
+    )
+    .unwrap();
+    let schemas = tools();
+    let mut work = EncodingWork::default();
+    let expected = encode(&[], &env, &schemas, &snapshot).unwrap();
+    assert_eq!(
+        encode_with_effort_observed(&[], &env, &schemas, &snapshot, None, &mut work).unwrap(),
+        expected
+    );
+    assert_eq!(
+        (work.encode_calls, work.encode_failures, work.encoded_bytes),
+        (1, 0, expected.len() as u64)
+    );
+    let mut stale = env.clone();
+    stale.catalog = "wrong catalog".into();
+    for (env, schemas) in [(&stale, json!(null)), (&env, json!(null))] {
+        let plain = encode(&[], env, &schemas, &snapshot).unwrap_err();
+        let observed = encode_with_effort_observed(&[], env, &schemas, &snapshot, None, &mut work)
+            .unwrap_err();
+        assert_eq!(format!("{plain:?}"), format!("{observed:?}"));
+    }
+    assert_eq!(
+        (work.encode_calls, work.encode_failures, work.encoded_bytes),
+        (3, 2, expected.len() as u64)
+    );
+    let revisions = revisions();
+    let (parts, descriptors) = foundations(&revisions);
+    let sealed = vcp_context::selection::assemble(
+        parts,
+        revisions,
+        env,
+        schemas.clone(),
+        vec![],
+        &vcp_context::selection::Utf8ByteCeiling,
+        |parts, env, schemas| {
+            encode(parts, env, schemas, &snapshot)
+                .map_err(|_| vcp_context::manifest::Error::Incompatible("fixture codec"))
+        },
+    )
+    .unwrap();
+    let verified = sealed
+        .verify_captures(|_, id, _| {
+            Ok((
+                descriptors
+                    .iter()
+                    .find(|d| d.spec.id == *id)
+                    .unwrap()
+                    .clone(),
+                b"required fixture".to_vec(),
+            ))
+        })
+        .unwrap();
+    let mut work = EncodingWork::default();
+    validate_sealed_with_effort_observed(
+        &verified,
+        &snapshot,
+        &schemas,
+        Timestamp::new(30),
+        None,
+        &mut work,
+    )
+    .unwrap();
+    assert_eq!(
+        (
+            work.validation_calls,
+            work.validation_failures,
+            work.encode_calls
+        ),
+        (1, 0, 1)
+    );
+    assert!(work.validation_micros >= work.encode_micros);
+    let mut changed = snapshot.clone();
+    changed.id = "different admitted catalog".into();
+    let mut failed = EncodingWork::default();
+    let plain = validate_sealed(&verified, &changed, &schemas, Timestamp::new(30)).unwrap_err();
+    let observed = validate_sealed_with_effort_observed(
+        &verified,
+        &changed,
+        &schemas,
+        Timestamp::new(30),
+        None,
+        &mut failed,
+    )
+    .unwrap_err();
+    assert_eq!(format!("{plain:?}"), format!("{observed:?}"));
+    assert_eq!(
+        (
+            failed.validation_calls,
+            failed.validation_failures,
+            failed.encode_calls,
+            failed.encode_failures
+        ),
+        (1, 1, 1, 1)
+    );
+    for (now, schemas) in [
+        (Timestamp::new(1001), json!(null)),
+        (Timestamp::new(30), json!(null)),
+    ] {
+        let mut failed = EncodingWork::default();
+        let plain = validate_sealed(&verified, &snapshot, &schemas, now).unwrap_err();
+        let observed = validate_sealed_with_effort_observed(
+            &verified,
+            &snapshot,
+            &schemas,
+            now,
+            None,
+            &mut failed,
+        )
+        .unwrap_err();
+        assert_eq!(format!("{plain:?}"), format!("{observed:?}"));
+        assert_eq!(
+            (
+                failed.validation_calls,
+                failed.validation_failures,
+                failed.encode_calls
+            ),
+            (1, 1, 0)
+        );
+    }
+}
+
+#[test]
+fn encoding_work_counts_actual_optional_selection_trials_without_changing_manifest() {
+    let mut source = catalog();
+    source["data"]["endpoints"][0]["context_length"] = json!(200_000);
+    source["data"]["endpoints"][0]["max_prompt_tokens"] = json!(190_000);
+    let snapshot = Snapshot::from_endpoints(
+        &serde_json::to_vec(&source).unwrap(),
+        Timestamp::new(10),
+        Timestamp::new(1000),
+        compat(),
+    )
+    .unwrap();
+    let revisions = revisions();
+    let env = super::envelope(
+        &snapshot,
+        Units::new(100),
+        Units::new(512),
+        Timestamp::new(30),
+    )
+    .unwrap();
+    let mut parts = foundations(&revisions).0;
+    parts.extend(
+        (0..3)
+            .map(|n| {
+                let bytes = format!("optional fixture {n}").into_bytes();
+                let descriptor = capture(&revisions.scope, &bytes);
+                Part::captured_text(
+                    descriptor.spec.id.to_string(),
+                    Kind::Evidence,
+                    Trust::Untrusted,
+                    &descriptor,
+                    &bytes,
+                    false,
+                    n,
+                    "fixture".into(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>(),
+    );
+    let work = std::cell::RefCell::new(EncodingWork::default());
+    let observed = vcp_context::selection::assemble(
+        parts.clone(),
+        revisions.clone(),
+        env.clone(),
+        tools(),
+        vec![],
+        &vcp_context::selection::Utf8ByteCeiling,
+        |parts, env, schemas| {
+            encode_with_effort_observed(
+                parts,
+                env,
+                schemas,
+                &snapshot,
+                None,
+                &mut work.borrow_mut(),
+            )
+            .map_err(|_| vcp_context::manifest::Error::Incompatible("fixture codec"))
+        },
+    )
+    .unwrap();
+    let plain = vcp_context::selection::assemble(
+        parts,
+        revisions,
+        env,
+        tools(),
+        vec![],
+        &vcp_context::selection::Utf8ByteCeiling,
+        |parts, env, schemas| {
+            encode(parts, env, schemas, &snapshot)
+                .map_err(|_| vcp_context::manifest::Error::Incompatible("fixture codec"))
+        },
+    )
+    .unwrap();
+    assert_eq!(observed.body(), plain.body());
+    assert_eq!(observed.manifest_digest(), plain.manifest_digest());
+    let work = work.into_inner();
+    assert_eq!((work.encode_calls, work.encode_failures), (5, 0)); // mandatory, 3 optional trials, final
+    assert!(work.encoded_bytes > observed.body().len() as u64);
+}
+
 #[test]
 fn verbose_recent_pair_fits_both_history_windows_using_actual_codec() {
     let revisions = revisions();
