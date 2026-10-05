@@ -196,6 +196,29 @@ impl Opened {
         transaction: Transaction,
         observe: &impl Fn(Barrier),
     ) -> Result<Receipt> {
+        self.transact_inner(&transaction, None, observe).await
+    }
+    /// Import/conversion carries original bytes through the normal preparation
+    /// and publication path. Their parsed commit must exactly equal its result.
+    pub(crate) async fn transact_original(
+        &mut self,
+        payload: &[u8],
+        observe: &impl Fn(Barrier),
+    ) -> Result<Receipt> {
+        self.ensure_healthy()?;
+        if payload.is_empty() || payload.len() > crate::contract::MAX_COMMIT_BYTES {
+            return Err(Error::Limit("original commit payload"));
+        }
+        let original: Commit = serde_json::from_slice(payload)?;
+        self.transact_inner(&original.transaction, Some((&original, payload)), observe)
+            .await
+    }
+    async fn transact_inner(
+        &mut self,
+        transaction: &Transaction,
+        original: Option<(&Commit, &[u8])>,
+        observe: &impl Fn(Barrier),
+    ) -> Result<Receipt> {
         self.ensure_healthy()?;
         let preparation_started = Instant::now();
         let outcome = async {
@@ -208,7 +231,7 @@ impl Opened {
                     self.owner
                         .prepare_observed(
                             &mut io::Files::new(directory),
-                            &transaction,
+                            transaction,
                             Some(&mut self.diagnostics),
                         )
                         .await
@@ -217,7 +240,7 @@ impl Opened {
                     self.owner
                         .prepare_observed(
                             &mut io::Sqlite::new(db),
-                            &transaction,
+                            transaction,
                             Some(&mut self.diagnostics),
                         )
                         .await
@@ -230,12 +253,31 @@ impl Opened {
             .record(preparation_started, outcome.is_ok());
         let prepared = match outcome? {
             Outcome::Duplicate(receipt) => {
+                if let Some((expected, bytes)) = original {
+                    let prior = read!(
+                        self,
+                        pages,
+                        self.owner.originals().get(&mut pages, receipt.watermark)
+                    )?
+                    .ok_or(Error::Corruption("original duplicate body missing"))?;
+                    if expected.receipt != receipt
+                        || prior.commit != *expected
+                        || prior.bytes != bytes
+                    {
+                        return Err(Error::Corruption("original duplicate differs"));
+                    }
+                }
                 self.diagnostics.duplicate_transactions =
                     self.diagnostics.duplicate_transactions.saturating_add(1);
                 return Ok(receipt);
             }
             Outcome::Prepared(prepared) => prepared,
         };
+        if original.is_some_and(|(expected, _)| expected != prepared.commit()) {
+            return Err(Error::Corruption(
+                "original commit differs from preparation",
+            ));
+        }
         for mutation in &transaction.mutations {
             if let Mutation::Put { record, .. } = mutation {
                 if record.collection == Collection::Artifact {
@@ -244,7 +286,10 @@ impl Opened {
             }
         }
         observe(Barrier::Prepared);
-        let payload = canonical_bytes(prepared.commit())?;
+        let payload: std::borrow::Cow<'_, [u8]> = match original {
+            Some((_, bytes)) => std::borrow::Cow::Borrowed(bytes),
+            None => std::borrow::Cow::Owned(canonical_bytes(prepared.commit())?),
+        };
         let receipt = prepared.commit().receipt.clone();
         self.poisoned = true;
         let append_started = Instant::now();

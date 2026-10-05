@@ -433,6 +433,20 @@ impl Store {
         }
         self.core.spool.collect_unreferenced(id)
     }
+    /// Replay one bounded original body through the existing complete semantic
+    /// preparation and native publication path. No import authority is granted.
+    pub(crate) async fn transact_original(&mut self, payload: &[u8]) -> Result<Receipt> {
+        #[cfg(feature = "qualification")]
+        let observer = self.observer.clone();
+        let observe = move |barrier| {
+            #[cfg(feature = "qualification")]
+            if let Some(observer) = &observer {
+                observer(barrier);
+            }
+            let _ = barrier;
+        };
+        self.core.transact_original(payload, &observe).await
+    }
     /// Logical conversion replays immutable transactions in a newly created root.
     /// The source owner remains held and source bytes are never edited by conversion.
     /// Historical artifact prefixes are verified after copying current retained data.
@@ -450,15 +464,17 @@ impl Store {
         }
         validate_private_location(destination, forbidden)?;
         let snapshot = self.snapshot()?;
-        let base = self
-            .core
-            .verified_base()
-            .await?
-            .map(|value| value.state)
-            .unwrap_or_default();
-        if base.watermark != Watermark::ZERO {
+        let base = self.core.verified_base().await?;
+        if let Some(base) = &base {
             fs::create_dir_all(destination)?;
-            crate::replay_base::ReplayBase::write(destination, &base, &base, &self.prefixes)?;
+            // The admitted legacy base is canonical. Preserve its original
+            // source commitment and exact encoding, not a newly invented base.
+            let bytes = canonical_bytes(base)?;
+            immutable_file(&destination.join("replay-base.json"), &bytes)?;
+            immutable_file(
+                &destination.join("replay-base.seal"),
+                digest_bytes(&bytes).as_bytes(),
+            )?;
             immutable_file(
                 &destination.join("format.json"),
                 &canonical_bytes(&Format {
@@ -466,7 +482,7 @@ impl Store {
                     backend: kind,
                 })?,
             )?;
-            self.copy_retained_artifacts(destination, &base)?;
+            self.copy_retained_artifacts(destination, &base.state)?;
         }
         let mut target =
             Store::open_with_artifact_limit(destination, kind, forbidden, self.core.artifact_limit)
@@ -518,9 +534,8 @@ impl Store {
         }
         let mut history = self.core.history().await?;
         while let Some(original) = history.next_original().await? {
-            let commit = original.commit;
-            let receipt = target.transact(commit.transaction.clone()).await?;
-            if receipt != commit.receipt {
+            let receipt = target.transact_original(&original.bytes).await?;
+            if receipt != original.commit.receipt {
                 return Err(Error::Corruption("conversion changed receipt"));
             }
         }
@@ -886,3 +901,7 @@ fn validate_private_location(path: &Path, forbidden: &[PathBuf]) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "store_original_append_tests.rs"]
+mod original_append_tests;
