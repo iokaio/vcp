@@ -1383,6 +1383,28 @@ async fn coding_budget_denial_is_durable_before_any_provider_send() {
 }
 
 #[cfg(windows)]
+struct ForbiddenAutomaticReceipts(AtomicUsize);
+#[cfg(windows)]
+impl vcp_lifecycle::foundation::reconciliation::ReceiptSource for ForbiddenAutomaticReceipts {
+    fn fetch<'a>(
+        &'a self,
+        _: &'a str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<vcp_lifecycle::foundation::reconciliation::ReceiptFetch, String>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err("billing transport must not run inside inference".into())
+        })
+    }
+}
+
+#[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_liability() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
@@ -1397,6 +1419,8 @@ async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_l
             None,
         )
         .await;
+        let receipts = Arc::new(ForbiddenAutomaticReceipts(AtomicUsize::new(0)));
+        host.configure_receipt_source(receipts.clone()).unwrap();
         let root = temp.path().join("pacing");
         std::fs::create_dir(&root).unwrap();
         for index in 0..2 {
@@ -1428,6 +1452,7 @@ async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_l
                 if previous.len() == 1 {
                     ResponseTemplate::new(429)
                         .insert_header("retry-after", "0")
+                        .insert_header("x-generation-id", "gen-unsettled-paced")
                         .set_body_string("synthetic shared rate limit")
                 } else {
                     assert_eq!(previous.len(), 2, "only one bounded retry is allowed");
@@ -1447,6 +1472,16 @@ async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_l
             .await;
         turn(&test).await;
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        assert_eq!(
+            receipts.0.load(Ordering::SeqCst),
+            0,
+            "normal retry/pacing cannot poll financial metadata"
+        );
+        assert_eq!(
+            host.pending_provider_charges().unwrap().len(),
+            1,
+            "unknown prior charge remains available for explicit maintenance"
+        );
         let observed = observed.lock().unwrap();
         assert_eq!(observed.len(), 2);
         assert!(

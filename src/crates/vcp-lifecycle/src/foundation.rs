@@ -357,14 +357,9 @@ impl CanonicalHost {
         )?)
     }
     fn from_worker(worker: worker::Worker) -> Result<(Self, CanonicalOwner), String> {
-        // Recovery may fence startup on an acknowledged aborted response. Replay
-        // already captured authoritative receipts under the exclusive owner
-        // before binding a retained thread; registration cannot precede this
-        // settlement. This performs no metadata GET or provider submission.
-        worker.run_cleanup(|context| {
-            context.replay_provider_receipts()?;
-            Ok(())
-        })?;
+        // Opening an owner does not perform billing maintenance. Retained
+        // receipts and unresolved attempts remain available to explicit
+        // reconciliation; recovery keeps its independent dispatch fences.
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
         let memory_owner_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         #[cfg(windows)]
@@ -722,7 +717,6 @@ impl HostWorkPermit for ModelPermit {
             }
             #[cfg(windows)]
             {
-                let _ = self.host.reconcile_pending(self.thread).await?;
                 let slot = self
                     .host
                     .acquire_provider_slot(self.thread, Some(self.purpose), self.deadline)
@@ -963,7 +957,6 @@ impl HostWorkAdmission for CanonicalHost {
                 } else {
                     None
                 };
-                let _ = self.reconcile_pending(thread).await?;
                 let slot = self
                     .acquire_provider_slot(thread, Some(purpose), deadline)
                     .await?;
@@ -1058,7 +1051,8 @@ impl CanonicalHost {
                         if error == "provider rotation deadline expired before submission"
                             && deadline.is_none_or(|deadline| std::time::Instant::now() < deadline) =>
                     {
-                        let _ = self.reconcile_pending(thread).await?;
+                        // Renew the cancellable queue observation without
+                        // polling or replaying financial receipts.
                     }
                     Err(error) => return Err(error),
                 }

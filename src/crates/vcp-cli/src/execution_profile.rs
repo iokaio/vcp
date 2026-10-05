@@ -52,7 +52,7 @@ pub(crate) fn install_host(
     config: &Config,
     prepared: PreparedProfile,
     http: Vec<crate::mcp::PreparedHttp>,
-    credential: &ProviderCredential,
+    _credential: &ProviderCredential,
     resolve: impl FnMut(&str) -> Result<String, ()>,
 ) -> Result<Profile, String> {
     let PreparedProfile {
@@ -60,6 +60,10 @@ pub(crate) fn install_host(
         raw_catalog,
         processes,
     } = prepared;
+    #[cfg(feature = "qualification")]
+    if let Some(endpoint) = &profile.qualification_endpoint {
+        qualification_transport(endpoint, _credential)?;
+    }
     host.configure_canonical_tools(profile.canonical_tools.clone())?;
     for process in processes {
         host.configure_process_profile(process)?;
@@ -74,24 +78,8 @@ pub(crate) fn install_host(
         raw_catalog,
         profile.provider_timeout()?,
     )?;
-    #[cfg(windows)]
-    {
-        let receipt_credential =
-            ProviderCredential::from_config(credential.header_for_transport().to_owned());
-        #[cfg(feature = "qualification")]
-        let receipts = if let Some(endpoint) = &profile.qualification_endpoint {
-            qualification_transport(endpoint, credential)?;
-            crate::provider_reconciliation::OpenRouterReceipts::new_qualification(
-                receipt_credential,
-                endpoint,
-            )?
-        } else {
-            crate::provider_reconciliation::OpenRouterReceipts::new(receipt_credential)?
-        };
-        #[cfg(not(feature = "qualification"))]
-        let receipts = crate::provider_reconciliation::OpenRouterReceipts::new(receipt_credential)?;
-        host.configure_receipt_source(std::sync::Arc::new(receipts))?;
-    }
+    // Billing transport is installed only by the explicit reconciliation
+    // command. Ordinary execution preserves unknown charges without polling.
     #[cfg(windows)]
     {
         // Scenario --data-dir roots deliberately differ. Request capacity and

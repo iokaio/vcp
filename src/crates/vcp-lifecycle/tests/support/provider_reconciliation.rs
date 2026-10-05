@@ -311,6 +311,20 @@ async fn provider_reconciliation_missing_identity_and_unavailable_receipts_remai
             let source = Arc::new(Unavailable(AtomicUsize::new(0)));
             host.configure_receipt_source(source.clone()).unwrap();
             let id = test.codex.session_configured().thread_id;
+            // Even a failed normal admission must not run billing maintenance.
+            // This invalid envelope cannot gain a send permit or another attempt.
+            let before = host.snapshot().unwrap();
+            let mut invalid = serde_json::Value::Null;
+            assert!(codex_extension_api::HostWorkAdmission::admit_model_async(
+                &host,
+                id,
+                &mut invalid,
+                codex_extension_api::HostModelPurpose::Turn
+            )
+            .await
+            .is_err());
+            assert_eq!(source.0.load(Ordering::SeqCst), 0);
+            assert_eq!(host.snapshot().unwrap(), before);
             for _ in 0..2 {
                 host.reconcile_pending(id).await.unwrap();
             }
@@ -329,7 +343,7 @@ async fn provider_reconciliation_missing_identity_and_unavailable_receipts_remai
 
 #[cfg(feature = "qualification")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn provider_reconciliation_replays_captured_receipt_after_settlement_interruption() {
+async fn provider_reconciliation_requires_explicit_maintenance_after_settlement_interruption() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (host, owner, binding, test, settings) = failed(&temp, backend, true, None).await;
@@ -363,8 +377,21 @@ async fn provider_reconciliation_replays_captured_receipt_after_settlement_inter
         drop(test);
         drop(host);
         let (reopened, owner) = reopen(settings).await;
-        // Replaying through a registered reopened owner requires no metadata GET
-        // and cannot restart inference. A fresh retained thread attaches paused.
+        // EE-01e supersedes automatic owner-open billing repair. The retained
+        // receipt is still usable, but opening must preserve unresolved money.
+        let before = reopened.snapshot().unwrap();
+        assert_eq!(
+            vcp_budget::ledger(&before, &binding.scope).unwrap().unresolved,
+            Micros::new(100)
+        );
+        assert_eq!(
+            before.records.values().filter(|row| row.collection == Collection::Settlement).count(),
+            0
+        );
+        let report = reopened.reconcile_root_pending().await.unwrap();
+        assert!(matches!(report.observations.as_slice(), [ReconciliationStatus::Settled { amount, .. }] if *amount == Micros::ZERO));
+        // Explicit maintenance uses retained receipts without a metadata GET or
+        // new inference. A fresh retained thread still attaches paused.
         let server = start_mock_server().await;
         let starter = reopened.clone();
         let root = std::path::PathBuf::from(

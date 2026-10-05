@@ -15,6 +15,10 @@ use vcp_domain::{
 };
 use vcp_models::catalog::Snapshot;
 
+#[cfg(test)]
+#[path = "settings_provider_estimates_tests.rs"]
+mod provider_estimates_tests;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
@@ -602,16 +606,13 @@ impl Profile {
             4 * 1024 * 1024,
         )?;
         self.provider.current(now()).map_err(|e| e.to_string())?;
-        let expected = Snapshot::from_endpoints(
-            &raw_catalog,
-            self.provider.observed_at,
-            self.provider.valid_until,
-            self.provider.compatibility.clone(),
-        )
-        .map_err(|e| e.to_string())?;
-        if expected != self.provider {
-            return Err("provider snapshot does not match captured catalog".into());
-        }
+        // Verify the exact captured interpretation before deriving the current
+        // owner's unbounded estimate policy. Missing tariffs remain unknown;
+        // malformed prices, changed capabilities and identities still fail.
+        self.provider = self
+            .provider
+            .for_execution(&raw_catalog, vcp_domain::Limit::Unbounded)
+            .map_err(|e| e.to_string())?;
         if let Some(routing) = &self.routing {
             routing.validate()?;
         }
