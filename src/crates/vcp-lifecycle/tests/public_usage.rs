@@ -14,7 +14,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     methods,
 };
-use vcp_store::{artifact::ArtifactWriter, BackendKind, Store};
+use vcp_store::{artifact::ArtifactWriter, contract::CanonicalStore, BackendKind, Store};
 fn id(value: &str) -> Result<methods::Id, String> {
     value.to_owned().try_into().map_err(|e| format!("{e}"))
 }
@@ -29,7 +29,7 @@ fn money(amount: u64) -> Money {
 async fn reserve(engine: &mut Engine<Store>, name: &str, amount: u64) -> Attempt {
     let captured = artifact(engine, name, b"synthetic request", false).await;
     let scope = captured.spec.scope.clone();
-    let ledger = vcp_budget::ledger(engine.store().state(), &scope).unwrap();
+    let ledger = vcp_budget::ledger(engine.store().current(), &scope).unwrap();
     let price = PriceSnapshot {
         id: "a".repeat(64),
         provider: "synthetic".into(),
@@ -197,12 +197,12 @@ async fn public_usage_preserves_actual_settlements_reservations_unknown_liabilit
         .await
         .unwrap();
 
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         let view = engine.public_usage(&access(), &request).unwrap();
         assert_eq!(view.cap_micros, vcp_domain::Limit::Finite(u64::MAX.into()));
         assert_eq!(view.settled_micros.as_str(), "9007199254740993");
-        assert_eq!(view.reserved_micros.as_str(), "11");
-        assert_eq!(view.unresolved_micros.as_str(), "13");
+        assert_eq!(view.reserved_micros.0.known(), Some(Micros::new(11)));
+        assert_eq!(view.unresolved_micros.0.known(), Some(Micros::new(13)));
         assert!(!view.overrun);
         request.target = Some(id("other").unwrap());
         assert_eq!(
@@ -222,12 +222,12 @@ async fn public_usage_preserves_actual_settlements_reservations_unknown_liabilit
             engine.public_usage(&revoked, &request),
             Err(QueryError::Access)
         );
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
         let mut engine =
             Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
         assert_eq!(engine.public_usage(&access(), &request).unwrap(), view);
-        let ledger = vcp_budget::ledger(engine.store().state(), &task_scope).unwrap();
+        let ledger = vcp_budget::ledger(engine.store().current(), &task_scope).unwrap();
         vcp_budget::configure(
             engine.store_mut(),
             &task_scope,

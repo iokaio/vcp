@@ -143,7 +143,7 @@ impl Fixture {
             binding: Revision::ZERO,
             grants: BTreeMap::new(),
             allocation: Micros::new(1000),
-            deadline: Timestamp::new(1000),
+            deadline: Timestamp::new(1000).into(),
             snapshot: ArtifactId::new(),
             snapshot_digest: vcp_protocol::digest_bytes(
                 &vcp_protocol::canonical_bytes(&base).unwrap(),

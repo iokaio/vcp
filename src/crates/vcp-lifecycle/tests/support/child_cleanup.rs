@@ -127,7 +127,7 @@ async fn child_cleanup_retains_durable_intent_and_results_and_reconciles_only_or
                     write_paths: BTreeSet::new(),
                     untracked_inputs: BTreeSet::from(["file.txt".into()]),
                     allocation: Micros::new(400),
-                    deadline: Timestamp::new(u64::MAX),
+                    deadline: Timestamp::new(u64::MAX).into(),
                     required_checks: vec![],
                 },
                 &snapshotter,

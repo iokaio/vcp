@@ -167,7 +167,7 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
                         write_paths: BTreeSet::new(),
                         untracked_inputs: BTreeSet::from(["file.txt".into()]),
                         allocation: Micros::new(125),
-                        deadline: Timestamp::new(u64::MAX),
+                        deadline: Timestamp::new(u64::MAX).into(),
                         required_checks: vec![],
                     },
                     &snapshotter,

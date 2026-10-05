@@ -88,6 +88,14 @@ fn safe_path(path: &str) -> bool {
                         .is_some_and(|s| s.len() == 1 && s.as_bytes()[0].is_ascii_digit())
             }))
 }
+/// Execution-time ceilings are distinct from the expiry of authority grants.
+pub fn deadline_within(child: Limit<Timestamp>, parent: Limit<Timestamp>) -> bool {
+    match (child, parent) {
+        (_, Limit::Unbounded) => true,
+        (Limit::Finite(child), Limit::Finite(parent)) => child <= parent,
+        (Limit::Unbounded, Limit::Finite(_)) => false,
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChildSpec {
@@ -107,7 +115,7 @@ pub struct ChildSpec {
     pub binding: Revision,
     pub grants: BTreeMap<GrantId, Revision>,
     pub allocation: Micros,
-    pub deadline: Timestamp,
+    pub deadline: Limit<Timestamp>,
     pub snapshot: ArtifactId,
     pub snapshot_digest: String,
     /// Immutable host registration artifact; no path supplied by a model is authority.
@@ -145,14 +153,16 @@ impl ChildSpec {
         Ok(())
     }
     pub fn within(&self, parent: &Self) -> bool {
+        // Funding is checked against the authoritative root ledger during
+        // canonical graph admission, including every finite ancestor cap.
+        // This predicate preserves only assignment scope and time ceilings.
         self.model_policy == parent.model_policy
             && self.effects.is_subset(&parent.effects)
-            && self.allocation <= parent.allocation
             && self
                 .paths
                 .iter()
                 .all(|p| parent.paths.iter().any(|allowed| allowed.covers(p)))
-            && self.deadline <= parent.deadline
+            && deadline_within(self.deadline, parent.deadline)
             && (parent.mode != ChildMode::ReadOnly || self.mode == ChildMode::ReadOnly)
     }
 }

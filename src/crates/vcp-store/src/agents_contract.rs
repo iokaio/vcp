@@ -176,6 +176,19 @@ pub(super) fn validate_current(state: CurrentStateView<'_>) -> Result<()> {
                 &graph.scope.workspace,
             )?
             .decode()?;
+        // Preserve the historical structural allocation ceiling on finite
+        // roots, including loaded/replay-base state. Later actual charges may
+        // overrun; this check concerns only declared parent/child allocations.
+        if !ledger.cap.is_unbounded()
+            && graph.children.values().any(|child| {
+                graph
+                    .children
+                    .get(&child.parent)
+                    .is_some_and(|parent| child.allocation > parent.allocation)
+            })
+        {
+            return Err(Error::Corruption("child allocation exceeds finite parent"));
+        }
         for row in state
             .records
             .values()
@@ -308,7 +321,9 @@ fn capacity(state: CurrentStateView<'_>, graph: &TaskGraph) -> Result<()> {
         }) {
             let reservation: Reservation = row.decode()?;
             if &reservation.scope.task == parent && !cap.is_unbounded() {
-                let liability = reservation.liability.known()
+                let liability = reservation
+                    .liability
+                    .known()
                     .ok_or(Error::Corruption("unpriced finite allocation exposure"))?;
                 used = used
                     .checked_add(reservation.charged.get())

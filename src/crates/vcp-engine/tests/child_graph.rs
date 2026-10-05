@@ -6,6 +6,8 @@ use vcp_domain::{
 use vcp_engine::{agents::*, *};
 use vcp_protocol::command::*;
 use vcp_store::{artifact::ArtifactWriter, contract::*, BackendKind, Store};
+#[path = "child_graph/deadlines.rs"]
+mod deadlines;
 
 struct CurrentOwner(Store);
 impl vcp_store::contract::reference::ReferenceStore for CurrentOwner {
@@ -107,7 +109,7 @@ impl Fixture {
             binding: Revision::ZERO,
             grants: BTreeMap::new(),
             allocation: Micros::new(amount),
-            deadline: Timestamp::new(100),
+            deadline: Timestamp::new(100).into(),
             snapshot: self.artifact.clone(),
             snapshot_digest: self.digest.clone(),
             registration: None,
@@ -173,6 +175,13 @@ impl Fixture {
     }
 }
 async fn fixture(path: &std::path::Path, backend: BackendKind) -> Fixture {
+    fixture_with_cap(path, backend, Limit::Finite(Micros::new(1000))).await
+}
+async fn fixture_with_cap(
+    path: &std::path::Path,
+    backend: BackendKind,
+    cap: Limit<Micros>,
+) -> Fixture {
     let scope = Scope {
         workspace: WorkspaceId::new(),
         session: SessionId::new(),
@@ -271,7 +280,7 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> Fixture {
         revision: Revision::ZERO,
         policy: PolicyRevision::ZERO,
         currency: "USD".to_string().try_into().unwrap(),
-        cap: vcp_domain::Limit::Finite(Micros::new(1000)),
+        cap,
         protected: Micros::new(100),
         settled: Micros::ZERO,
         active: Micros::ZERO.into(),
@@ -406,7 +415,7 @@ async fn native_child_workspace_and_eligibility_require_only_current_records() {
         let mut f = fixture(temp.path(), backend).await;
         let id = TaskId::new();
         let spec = f.child(600);
-        let deadline = spec.deadline;
+        let deadline = *spec.deadline.finite().unwrap();
         let command = f.create(id.clone(), spec);
         f.issue(Some(f.scope.task.clone()), Revision::new(1), command)
             .await
@@ -753,7 +762,9 @@ async fn nested_assignments_cannot_widen_scope_or_form_parent_dependency_deadloc
     assert!(too_broad.validate().is_err());
     let mut too_large = graph.clone();
     too_large.children.get_mut(&child).unwrap().allocation = Micros::new(201);
-    assert!(too_large.validate().is_err());
+    // Graph shape does not know the effective root financial policy. Actual
+    // finite over-allocation is rejected by canonical admission (deadlines.rs).
+    assert!(too_large.validate().is_ok());
     let mut deadlock = graph.clone();
     deadlock
         .children
@@ -887,6 +898,7 @@ async fn nested_grants_require_the_complete_declared_chain() {
     .unwrap();
     let child = TaskId::new();
     let mut spec = f.child(200);
+    spec.deadline = Limit::Unbounded;
     spec.grants.insert(grant.id.clone(), grant.revision);
     let command = f.create(child.clone(), spec);
     f.issue(Some(f.scope.task.clone()), Revision::new(1), command)

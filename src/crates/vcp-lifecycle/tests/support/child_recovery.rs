@@ -221,7 +221,7 @@ async fn fresh_owner_recovers_registered_child_edits_and_keeps_sibling_paused() 
                         binding: workspace_state.binding.revision,
                         grants: BTreeMap::new(),
                         allocation: Micros::new(100),
-                        deadline: Timestamp::new(u64::MAX),
+                        deadline: Timestamp::new(u64::MAX).into(),
                         snapshot: inputs.snapshot,
                         snapshot_digest: inputs.snapshot_digest,
                         registration: Some(inputs.registration),

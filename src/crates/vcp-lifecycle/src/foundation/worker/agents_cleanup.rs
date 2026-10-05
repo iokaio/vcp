@@ -64,7 +64,7 @@ mod tests {
             binding: Revision::ZERO,
             grants: BTreeMap::new(),
             allocation: Micros::new(1),
-            deadline: Timestamp::new(10),
+            deadline: Timestamp::new(10).into(),
             snapshot: ArtifactId::new(),
             snapshot_digest: "x".repeat(64),
             registration: None,

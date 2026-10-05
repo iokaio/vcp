@@ -84,7 +84,7 @@ fn fixture() -> (State, State, TaskId, ArtifactId) {
                 binding: Revision::ZERO,
                 grants: Default::default(),
                 allocation: Micros::new(10),
-                deadline: Timestamp::new(10000),
+                deadline: Timestamp::new(10000).into(),
                 snapshot: artifact.spec.id.clone(),
                 snapshot_digest: artifact.sha256.clone(),
                 registration: None,
@@ -121,6 +121,74 @@ fn fixture() -> (State, State, TaskId, ArtifactId) {
         &ledger,
     );
     (before, after, child.scope.task, artifact.spec.id)
+}
+
+#[test]
+fn loaded_nested_allocations_follow_root_policy_without_rejecting_actual_overrun() {
+    let (_, mut state, parent, artifact) = fixture();
+    let root = common::task().scope.task;
+    let mut graph: TaskGraph = state.records[&key(Collection::Projection, &graph_id(&root))]
+        .decode()
+        .unwrap();
+    let mut nested_task: Task = state.records[&key(Collection::Task, parent.as_str())]
+        .decode()
+        .unwrap();
+    nested_task.scope.task = TaskId::new();
+    nested_task.parent = Some(parent.clone());
+    insert(
+        &mut state,
+        Collection::Task,
+        nested_task.scope.task.as_str(),
+        &nested_task,
+    );
+    let mut input: ArtifactDescriptor = state.records
+        [&key(Collection::Artifact, artifact.as_str())]
+        .decode()
+        .unwrap();
+    input.spec.id = ArtifactId::new();
+    input.spec.scope.task = parent.clone();
+    insert(
+        &mut state,
+        Collection::Artifact,
+        input.spec.id.as_str(),
+        &input,
+    );
+    let mut nested = graph.children[&parent].clone();
+    nested.parent = parent;
+    nested.snapshot = input.spec.id;
+    nested.allocation = Micros::new(11);
+    graph
+        .children
+        .insert(nested_task.scope.task.clone(), nested);
+    insert(&mut state, Collection::Projection, &graph_id(&root), &graph);
+    let mut ledger: Ledger = state.records[&key(Collection::Ledger, root.as_str())]
+        .decode()
+        .unwrap();
+    ledger
+        .allocations
+        .insert(nested_task.scope.task.clone(), Micros::new(11));
+    insert(&mut state, Collection::Ledger, root.as_str(), &ledger);
+    assert!(matches!(
+        validate_current((&state).into()),
+        Err(Error::Corruption("child allocation exceeds finite parent"))
+    ));
+    ledger.cap = vcp_domain::Limit::Unbounded;
+    insert(&mut state, Collection::Ledger, root.as_str(), &ledger);
+    validate_current((&state).into()).unwrap();
+    ledger.cap = Micros::new(100).into();
+    ledger
+        .allocations
+        .insert(nested_task.scope.task.clone(), Micros::new(9));
+    ledger.settled = Micros::new(1000);
+    ledger.overrun = true;
+    graph
+        .children
+        .get_mut(&nested_task.scope.task)
+        .unwrap()
+        .allocation = Micros::new(9);
+    insert(&mut state, Collection::Projection, &graph_id(&root), &graph);
+    insert(&mut state, Collection::Ledger, root.as_str(), &ledger);
+    validate_current((&state).into()).unwrap();
 }
 
 #[test]

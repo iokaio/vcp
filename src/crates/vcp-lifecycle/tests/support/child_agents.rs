@@ -349,7 +349,7 @@ pub(super) async fn child_case_with_schedule(
         write_paths: BTreeSet::new(),
         untracked_inputs: snapshot_inputs.clone(),
         allocation: Micros::new(400),
-        deadline: Timestamp::new(u64::MAX),
+        deadline: Timestamp::new(u64::MAX).into(),
         required_checks: vec![],
     };
     let template_case = helper_name.is_some();
@@ -454,7 +454,7 @@ pub(super) async fn child_case_with_schedule(
                     binding: current.binding.revision,
                     grants: BTreeMap::new(),
                     allocation: Micros::new(400),
-                    deadline: Timestamp::new(u64::MAX),
+                    deadline: Timestamp::new(u64::MAX).into(),
                     snapshot: inputs.snapshot,
                     snapshot_digest: inputs.snapshot_digest,
                     registration: Some(inputs.registration),

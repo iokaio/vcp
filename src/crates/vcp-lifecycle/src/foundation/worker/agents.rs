@@ -111,11 +111,15 @@ impl Context {
             || spec.policy != policy.revision
             || spec.binding != workspace.binding.revision
             || spec.parent_steering != parent.steering
-            || spec.deadline <= now()
+            || spec
+                .deadline
+                .finite()
+                .is_some_and(|deadline| *deadline <= now())
         {
             return Err("child assignment requires current parent, authority and deadline".into());
         }
-        if !vcp_engine::agents::current_scope(self.engine.store().current(), &parent, &spec, now())? {
+        if !vcp_engine::agents::current_scope(self.engine.store().current(), &parent, &spec, now())?
+        {
             return Err("child grant ceiling is no longer current".into());
         }
         Ok(Some((graph, spec)))

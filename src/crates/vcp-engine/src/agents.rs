@@ -69,7 +69,10 @@ pub fn inherited_grant<'a>(
             || assignment.authority != grant.authority
             || assignment.binding != grant.binding
             || assignment.policy != grant.policy
-            || assignment.deadline <= now
+            || assignment
+                .deadline
+                .finite()
+                .is_some_and(|deadline| *deadline <= now)
         {
             return Ok(false);
         }
@@ -100,7 +103,10 @@ pub fn current_scope<'a>(
         || child.binding != workspace.binding.revision
         || child.policy != policy.revision
         || workspace.trust != Trust::Trusted
-        || child.deadline <= now
+        || child
+            .deadline
+            .finite()
+            .is_some_and(|deadline| *deadline <= now)
         || child
             .paths
             .iter()
@@ -241,7 +247,11 @@ fn eligibility_for_state(
     if !current_scope(state, &parent, child, now)? {
         blockers.push(Blocker::Scope);
     }
-    if child.deadline <= now {
+    if child
+        .deadline
+        .finite()
+        .is_some_and(|deadline| *deadline <= now)
+    {
         blockers.push(Blocker::Deadline);
     }
     if !graph.ready.contains_key(&child_task.scope.task) {

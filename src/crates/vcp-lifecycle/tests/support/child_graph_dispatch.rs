@@ -252,7 +252,7 @@ impl Fixture {
                         .map(String::from)
                         .collect(),
                     allocation: Micros::new(400),
-                    deadline: Timestamp::new(u64::MAX),
+                    deadline: Timestamp::new(u64::MAX).into(),
                     required_checks: vec![],
                 },
                 &self.snapshotter,

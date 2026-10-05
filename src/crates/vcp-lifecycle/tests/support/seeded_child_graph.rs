@@ -550,7 +550,7 @@ async fn seeded_child_stop_reopen_preserves_graph_and_root_liability() {
                                             .map(String::from)
                                             .collect(),
                                         allocation: Micros::new(400),
-                                        deadline: Timestamp::new(u64::MAX),
+                                        deadline: Timestamp::new(u64::MAX).into(),
                                         required_checks: vec![],
                                     },
                                     &f.snapshotter,
@@ -576,7 +576,7 @@ async fn seeded_child_stop_reopen_preserves_graph_and_root_liability() {
                                     write_paths: BTreeSet::new(),
                                     untracked_inputs: BTreeSet::new(),
                                     allocation: Micros::new(400),
-                                    deadline: Timestamp::new(u64::MAX),
+                                    deadline: Timestamp::new(u64::MAX).into(),
                                     required_checks: vec![],
                                 },
                                 &f.snapshotter,

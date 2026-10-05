@@ -1078,6 +1078,59 @@ async fn terminal_delegation_variant(pause_active: bool, child_count: usize, har
         })
         .collect();
     assert_eq!(children.len(), child_count);
+    let graph: vcp_domain::agents::TaskGraph = state
+        .record(
+            vcp_store::contract::Collection::Projection,
+            &vcp_domain::agents::graph_id(&entry.config.root_task),
+            &entry.config.workspace,
+        )
+        .unwrap()
+        .decode()
+        .unwrap();
+    assert!(graph
+        .children
+        .values()
+        .all(|child| child.deadline.is_unbounded()));
+    let mut requests = std::collections::BTreeMap::new();
+    let mut results = Vec::new();
+    for row in state
+        .records
+        .values()
+        .filter(|row| row.collection == vcp_store::contract::Collection::Artifact)
+    {
+        let descriptor: vcp_domain::artifact::ArtifactDescriptor = row.decode().unwrap();
+        if descriptor.spec.schema != "retained-output/1"
+            || descriptor.spec.channel != vcp_domain::artifact::Channel::Evidence
+            || descriptor.length.get() > 65536
+        {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        store.spool().read(&descriptor, &mut bytes).unwrap();
+        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+        match value["schema"].as_str() {
+            Some("delegation-execution-constraints/1") => {
+                assert_eq!(descriptor.spec.scope.task, entry.config.root_task);
+                assert_eq!(value["original_request"]["seconds"], 120);
+                assert_eq!(value["effective"]["deadline"]["kind"], "unbounded");
+                assert_eq!(value["status"], "requested_before_admission");
+                requests.insert(descriptor.spec.id.to_string(), value);
+            }
+            Some("delegation-execution-result/1") => results.push(value),
+            _ => {}
+        }
+    }
+    assert_eq!(requests.len(), child_count);
+    assert_eq!(results.len(), child_count);
+    for result in results {
+        assert!(requests.contains_key(result["request_evidence"].as_str().unwrap()));
+        assert!(graph
+            .children
+            .contains_key(&vcp_domain::TaskId::parse(result["child"].as_str().unwrap()).unwrap()));
+        assert_eq!(result["status"], "registered_and_materialized");
+    }
     if pause_active {
         for record in state
             .records
