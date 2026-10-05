@@ -41,6 +41,7 @@ fn profiles_reject_model_authority_environment_credentials_and_implicit_shells()
             "DOTNET_STARTUP_HOOKS".into(),
             "synthetic-override.dll".into(),
         )]),
+        BTreeMap::from([("NUGET_PACKAGES".into(), r"C:\synthetic\packages".into())]),
         BTreeMap::from([("PATH".into(), "one".into()), ("Path".into(), "two".into())]),
     ] {
         assert!(Profile::new(
@@ -53,6 +54,39 @@ fn profiles_reject_model_authority_environment_credentials_and_implicit_shells()
         )
         .is_err());
     }
+    for name in ["APPDATA", "LOCALAPPDATA", "ProgramFiles(x86)"] {
+        for value in ["relative", r"C:relative"] {
+            assert!(Profile::new(
+                "p".into(),
+                r"C:\synthetic\program.exe".into(),
+                Mode::Direct,
+                BTreeMap::from([(name.into(), value.into())]),
+                BTreeSet::new(),
+                true
+            )
+            .is_err());
+        }
+    }
+    let environment = BTreeMap::from([
+        ("APPDATA".into(), r"C:\synthetic\owned\roaming".into()),
+        ("LOCALAPPDATA".into(), r"C:\synthetic\owned\local".into()),
+        ("ProgramFiles(x86)".into(), r"C:\Program Files (x86)".into()),
+    ]);
+    let profile = Profile::new(
+        "p".into(),
+        r"C:\synthetic\program.exe".into(),
+        Mode::Direct,
+        environment.clone(),
+        BTreeSet::new(),
+        true,
+    )
+    .unwrap();
+    // The owner supplied these exact public paths; admission adds no ambient
+    // SDK hooks, package locations or credential-bearing environment variables.
+    assert_eq!(
+        serde_json::to_value(&profile).unwrap()["environment"],
+        serde_json::to_value(&environment).unwrap()
+    );
 }
 #[test]
 fn dotnet_bootstrap_directories_are_explicit_public_profile_authority() {

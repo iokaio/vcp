@@ -323,6 +323,8 @@ Design notes, each based on the current source:
   profile environment before inference. These probes check bootstrap compatibility;
   native broker tests check execution authority and isolation. See the
   [A/B runtime investigation](run-review-20261003-130226.md).
+  The allowlist excludes `USERPROFILE` and `JAVA_HOME`; other user folders resolve
+  through Windows APIs where supported.
 - **`reduced_isolation: true` with no required isolation** mirrors the repository's own
   execution fixtures. Toolchains need to read SDK, cache and package locations outside the
   workspace. This is an explicit owner choice for a test machine; review it before reusing

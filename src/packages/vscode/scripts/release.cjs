@@ -159,6 +159,22 @@ function compileRelease(repo, reviewedCommit, output) {
   const npmRoot = path.join(path.dirname(process.execPath), 'node_modules/npm');
   const npmCli = path.join(npmRoot, 'bin/npm-cli.js');
   const nodeHash = provenance.fileHash(process.execPath), npmHash = toolHash(npmRoot);
+  // A cache selects downloaded bytes, not npm configuration or executable
+  // behavior. Forward only this location explicitly; locked integrity still
+  // verifies every downloaded package and all npm_config_* variables stay out.
+  const caches = Object.entries(process.env).filter(([name, value]) => /^npm_config_cache$/i.test(name) && value);
+  check(caches.length <= 1, 'Ambiguous release npm cache');
+  const cache = caches[0]?.[1];
+  if (cache) {
+    // Root-relative Windows paths can select another drive in npm's child cwd.
+    check(path.isAbsolute(cache) && (process.platform !== 'win32' || path.parse(cache).root.length > 1),
+      'Release npm cache requires an absolute directory');
+    for (let current = path.resolve(cache);; current = path.dirname(current)) {
+      check(!fs.lstatSync(current).isSymbolicLink(), 'Redirected release npm cache refused');
+      if (current === path.dirname(current)) break;
+    }
+    check(fs.lstatSync(cache).isDirectory(), 'Release npm cache requires a directory');
+  }
   const environment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^npm_config_/i.test(name)));
   const userConfig = path.join(output, 'npm-user.conf'), globalConfig = path.join(output, 'npm-global.conf');
   fs.writeFileSync(userConfig, '', { flag: 'wx' }); fs.writeFileSync(globalConfig, '', { flag: 'wx' });
@@ -175,7 +191,8 @@ function compileRelease(repo, reviewedCommit, output) {
   };
   for (const name of ['sdk-ts', 'vscode']) {
     const directory = path.join(repo, 'src/packages', name);
-    const command = [npmCli, 'ci', '--offline', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', userConfig, '--globalconfig', globalConfig];
+    const command = [npmCli, 'ci', '--offline', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--userconfig', userConfig, '--globalconfig', globalConfig,
+      ...(cache ? ['--cache', cache] : [])];
     const installLog = run(name, 'install', command, directory, 180000);
     // Never let package resolution fall back to an unrelated ancestor compiler.
     const compiler = path.join(directory, 'node_modules/typescript/bin/tsc');

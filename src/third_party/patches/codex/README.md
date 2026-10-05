@@ -221,6 +221,18 @@ already include these changes; normal builds never apply patches.
     to `0.2.6`, matching the installer, SDK and VSIX candidate containing the
     independent CLI scenario and runtime fixes. External dependencies remain unchanged.
 
+    `0048-windows-cli-codegen.patch` adds an original VCP package override of
+    sixteen release codegen units for `vcp-cli`. BETA-08's measured `0.2.10`
+    production build spent 517.1 seconds in the final engine compilation unit;
+    the `0.2.11` candidate reduced that unit to 443.51 seconds and the complete
+    production stage from 16m30s to 15m22s in one fresh comparison.
+    The global release setting remains four units; other package settings,
+    thin LTO, optimization, debug
+    information and static CRT settings are unchanged. Both candidates passed
+    23 bounded raw-executable smokes; full installed/runtime qualification is
+    unrun. See the beta candidate guide for memory/size tradeoffs and evidence.
+    The retained Apache-2.0 terms remain unchanged.
+
 49. `0049-async-provider-admission.patch` awaits the host's pre-budget model and
     retry admission hooks, allowing shared provider pacing without holding a
     canonical store lock. Default hosts retain their synchronous behavior.
@@ -239,10 +251,12 @@ Use [the reconstruction procedure](../../../../docs/development/codex-source.md#
 in a fresh disposable directory. Original and resulting per-file hashes remain
 separate, and unchanged files retain their prior transformation labels.
 
-Local setup preparation maintains the final 
+Candidate preparation maintains the final
 `local-candidate-product-version.patch` to synchronize only
 the VCP CLI Cargo.lock package version. Its destination version, selection
 digest and resulting lock inventory are refreshed together before each
 new local candidate; original upstream acquisition evidence is retained.
 
 `0051-dotnet-verification-lock.patch` restores the P2-06 native .NET verification dependency from VCP commit 2f77ebb4; it adds the already-pinned workspace quick-xml 0.41.0 dependency to vcp-tools without changing upstream versions.
+
+Main's `0050-dotnet-verification-lock.patch` has identical bytes to `0051-dotnet-verification-lock.patch`; the merged series applies that dependency change once, retaining the latter name. The historical `0.2.10` timing candidate reserved the version after locally recorded `0.2.9`.

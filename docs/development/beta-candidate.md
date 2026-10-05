@@ -68,6 +68,20 @@ image selection is mutable; the packet records the actual image and OS version,
 native compiler hashes and measured build resources. This changes build capacity,
 not the supported Windows envelope or the clean-host qualification requirement.
 
+The workflow caches download inputs in dedicated temporary Cargo and npm homes,
+using exact OS, architecture, tool-pin and lockfile save keys. A fallback retains
+the same platform and tool pins while allowing downloads from a prior lockfile;
+this keeps a product-version-only lock change from discarding the download cache.
+Only npm's `_cacache`,
+Cargo registry indexes/archives and Git object databases are retained. Extracted
+registry sources, Git checkouts, configuration, credentials and compiled targets
+are excluded. Cache hits still run locked installation and source verification.
+Rust 1.95.0 is provisioned at every checkpoint; the qualification-only 1.98.0
+toolchain is provisioned when `-StopAfter installed-editor` selects native tests.
+Strict SDK/extension compilation passes the selected ordinary absolute npm cache
+directory explicitly to its offline install. Other npm configuration overrides
+remain filtered, and package integrity and compiler provenance checks still run.
+
 The build provisions npm locks without install scripts and explicitly runs
 `cargo +1.95.0 fetch --locked --target x86_64-pc-windows-msvc` before the offline
 production recipe. No compiled Cargo target cache is restored. Production uses a
@@ -75,6 +89,80 @@ new target directory. Qualification uses a different target directory and never
 supplies its executable to packaging. The strict recipe checks original locked
 archives, extracted registry files and pinned Git checkouts before and after
 compilation. A cache change fails the build.
+
+Production builds also request Cargo's stable [HTML timings report](https://doc.rust-lang.org/cargo/reference/timings.html).
+The original `cargo-timing.html` and a bounded `cargo-timings.json` summary remain
+beside the build receipt after compiled-target cleanup. The receipt binds both
+digests and records input-verification, Cargo, post-verification and total wall
+times through timing-report preservation. Receipt writing and final strict
+receipt verification are excluded from that diagnostic total; candidate stage
+start/end timestamps measure the complete production stage. Shared evidence
+includes the verified JSON observations; HTML scripts
+are never evaluated or shared. Unit timings and Cargo scheduler concurrency do
+not measure threads inside rustc, and missing compiler sections remain null.
+Previously produced receipts without timing diagnostics remain supported.
+
+The [October 3 baseline](https://github.com/iokaio/vcp/actions/runs/37140357261)
+spent 25m05s in production build/verification, 1m29s provisioning compiler/editor/
+Cargo inputs and 24s installing npm tools. Its Cargo supervision measured 1,421s
+elapsed, 11,480.5 CPU seconds and 14.7 GiB peak committed memory. Different source
+revisions and runner images prevent treating historical durations as a controlled
+comparison. Download caching affects provisioning; no faster fresh compilation
+is claimed until a measured build demonstrates it.
+
+The [0.2.10 production observation](https://github.com/iokaio/vcp/actions/runs/37159335053)
+passed with empty download caches: 16m30s for the complete production stage,
+944s of Cargo supervision, 8,341.9 CPU seconds and 13.61 GiB peak committed
+memory on 16 logical processors. Of 1,359 Cargo units, the final `vcp` binary
+took 517.10s and `codex-core` took 180.11s. Only the final binary remained active
+from 469.70s to 943.79s; Cargo does not expose its internal compiler sections.
+The verified engine and launcher both report `0.2.10`. This was a production-only
+checkpoint, without packaging, signing, installation or installed qualification.
+
+The [same-commit warm-cache observation](https://github.com/iokaio/vcp/actions/runs/37160727999)
+also passed, stopping at portable contracts. Both exact download keys restored.
+Cache restore plus npm/compiler/editor/Cargo provisioning totaled 73s cold and
+70s warm; npm installation remained 20s in both, while compiler/editor/Cargo
+provisioning fell from 52s to 43s and cache restoration cost 7s instead of 1s.
+This single comparison demonstrates cache reuse, with only a small observed
+time saving; it does not establish reduced Rust compilation time.
+
+The [0.2.11 codegen observation](https://github.com/iokaio/vcp/actions/runs/37161917463)
+passed with a package-only release override of 16 codegen units for `vcp-cli`.
+Retain this override: production build/verification improved by 68s (6.9%) in the
+fresh comparison, and the final CLI unit improved by 73.59s (14.2%). The global
+release setting remains four units; other package settings, ThinLTO,
+optimization, debug information, static CRT and 16
+Cargo jobs remain unchanged. Both observations contained 1,359 units, identical
+recorded compiler/native-tool bytes and Rust flags; `codex-core` changed from
+180.11s to 179.60s. The new version restored both prior download stores through
+the platform/tool-scoped fallback and saved new exact lock keys.
+
+| Observation | `0.2.10`, CLI units 4 | `0.2.11`, CLI units 16 |
+| --- | ---: | ---: |
+| Complete production stage | 16m30s | 15m22s |
+| Cargo supervision elapsed | 944s | 878s |
+| Final `vcp` unit | 517.10s | 443.51s |
+| Job CPU seconds | 8,341.9 | 8,669.4 |
+| Peak committed memory | 13.61 GiB | 14.97 GiB |
+| Engine bytes | 205,189,632 | 206,815,744 |
+| Launcher bytes | 7,425,536 | 7,428,608 |
+
+The tradeoff was 3.9% more CPU time, 1.36 GiB more peak committed memory and a
+0.8% larger engine. This is one comparison on the 16-processor runner pool,
+not a repeated performance qualification. Its stable binary-unit report does
+not separate frontend/codegen/link time, so it does not prove which subphase
+improved. Preserve both versioned candidate packets.
+
+All 72 SHA-256 entries in each production packet and all 56 entries in the warm
+packet verified after download. Actual engine/launcher version probes agreed
+with `0.2.10` and `0.2.11`. Each version passed the same 23 bounded raw-executable
+smokes: help/version, doctor, empty-history reads/refusals, Files/SQLite future
+backend preferences, configuration/path refusals and private synthetic launcher
+selection, forwarding and tamper refusal. Original executable bytes remained
+unchanged. These smokes used no provider operations, registered installation or
+existing user state; they do not qualify populated canonical stores, active-task
+cancellation, runtime throughput, signed setup/VSIX or installed editor behavior.
 
 The orchestrator is also available for a controlled Windows builder after the
 three npm development lockfiles have been installed:

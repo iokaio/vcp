@@ -25,6 +25,7 @@ $out = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ([guid]::NewGuid().ToStri
 New-Item -ItemType Directory -Path $out | Out-Null
 $progressPath=Join-Path $out 'build-progress.json'
 $buildPhase='build-input-verification'
+$phaseWatch = [Diagnostics.Stopwatch]::StartNew()
 Write-VcpBuildPhase -ProgressPath $progressPath -Phase $buildPhase -Status running
 Write-Information 'VCP_BUILD_PHASE phase=build-input-verification status=running' -InformationAction Continue
 trap {
@@ -101,7 +102,7 @@ foreach ($name in @('RUSTFLAGS','RUSTC_BOOTSTRAP','CARGO_ENCODED_RUSTFLAGS','RUS
 if (@(Get-ChildItem Env: | Where-Object Name -like 'CARGO_PROFILE_RELEASE_*').Count) { throw 'Release profile overrides are not allowed' }
 $rustflags = @('-C','link-arg=/STACK:8388608','-C','target-feature=+crt-static')
 $env:CARGO_ENCODED_RUSTFLAGS = $rustflags -join [char]31
-$arguments = @('+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--bin','vcp-launch','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$Jobs",'--message-format=json-render-diagnostics')
+$arguments = @('+1.95.0','build','--locked','--offline','--release','--no-default-features','-p','vcp-cli','--bin','vcp','--bin','vcp-launch','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$Jobs",'--message-format=json-render-diagnostics','--timings')
 $log = Join-Path $out 'build.log'
 $dependenciesBefore = Join-Path $out 'dependencies-before.json'
 $dependenciesAfter = Join-Path $out 'dependencies-after.json'
@@ -114,9 +115,11 @@ $started = [DateTime]::UtcNow
 Write-Output "Production build evidence: $out"
 $cargoApplication=(Get-Command cargo -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 $buildPhase='cargo'
+$inputSeconds = $phaseWatch.Elapsed.TotalSeconds
 Write-Information 'VCP_BUILD_PHASE phase=cargo status=running' -InformationAction Continue
 $buildProcess=Invoke-VcpBuildProcess -Executable $cargoApplication -Arguments $arguments -WorkingDirectory $workspace -LogPath $log -ProgressPath $progressPath -MsvcTelemetryExecutable $msvcTelemetry
 $code=$buildProcess.exit_code
+$cargoEndedSeconds = $phaseWatch.Elapsed.TotalSeconds
 $buildPhase='post-verification'
 $buildMetrics=@{JobCpuSeconds=$buildProcess.job_cpu_seconds;JobPeakCommittedMemoryBytes=$buildProcess.job_peak_committed_memory_bytes;BeforeCleanup=$buildProcess.before_cleanup;
     MsvcServices=@{policy=$buildProcess.msvc_service_policy;planned_cleanup=$buildProcess.planned_service_cleanup;completion=$buildProcess.completion}}
@@ -187,6 +190,17 @@ if ($receipt.exit_code -eq 0) {
     } catch { $receipt.exit_code = 1; $receipt.failure = $_.Exception.Message }
 }
 $receiptPath = Join-Path $out 'build-receipt.json'
+if ($receipt.exit_code -eq 0) {
+    try {
+        # Preserve the exact report before pair cleanup removes cargo-target.
+        # Only its normalized, bounded JSON observations enter shared packets.
+        $timingBinding = & node (Join-Path $PSScriptRoot 'release/cargo-timings.cjs') (Join-Path $target 'cargo-timings/cargo-timing.html') $out
+        if ($LASTEXITCODE -ne 0) { throw 'Cargo timing report preservation failed' }
+        $receipt.cargo_timings = $timingBinding | ConvertFrom-Json
+    } catch { $receipt.exit_code = 1; $receipt.failure = $_.Exception.Message }
+}
+$totalSeconds = $phaseWatch.Elapsed.TotalSeconds
+$receipt.phase_timings = @{measurement='Input verification through timing-report preservation; excludes receipt write and final strict receipt verification.'; input_verification_seconds=$inputSeconds; cargo_seconds=($cargoEndedSeconds - $inputSeconds); post_verification_seconds=($totalSeconds - $cargoEndedSeconds); total_seconds=$totalSeconds}
 $receipt | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $receiptPath -Encoding utf8NoBOM
 if ($receipt.exit_code -ne 0) {
     $detail = if ($receipt.failure) { $receipt.failure } else { "Cargo exited $($receipt.cargo_exit_code)" }

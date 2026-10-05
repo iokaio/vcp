@@ -225,6 +225,10 @@
       "sha256": "b44703088214423be8469993ed6a80cd2b0570f455680d4bcdcfde9981c2d35f"
     },
     {
+      "path": "src/third_party/patches/codex/0048-windows-cli-codegen.patch",
+      "sha256": "d5e2ddcf5789099234f1abba3b4b7a9efaed48f98c7d429df2b6fe5d0342b461"
+    },
+    {
       "path": "src/third_party/patches/codex/0049-async-provider-admission.patch",
       "sha256": "63cc435963a11adc652eb9e977d25d9b92be2e3c9aac5234c54835fae6844bc8"
     },
@@ -242,7 +246,7 @@
     },
     {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
-      "sha256": "e1b2cf07ecc47e8b6952f67c35b5c2b18890e3dca47632839282c664de44c7e4"
+      "sha256": "bb0f1b0475713b4d8fd807163803555a0d4215b2a2f99a67fac08d054537c970"
     }
   ],
   "licenses": [

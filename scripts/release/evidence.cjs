@@ -161,6 +161,10 @@ function packet(runFile, output) {
     const buildOutputs = [];
     const build = receipt(receipts.build, 'receipts/build.json');
     const directory = path.dirname(receipts.build);
+    if (build.cargo_timings) {
+      require('./cargo-timings.cjs').verify(directory, build.cargo_timings);
+      log(path.join(directory, 'cargo-timings.json'), 'diagnostics/cargo-timings.json', build.cargo_timings.summary_sha256, true);
+    }
     // Exact public build inputs/logs only: no target tree, compiler caches or runtime fixtures.
     const source = { schema: 'vcp-release-source/1', commit: build.source_commit, dirty: false,
       files: build.inputs, content_sha256: build.source_content_sha256 };

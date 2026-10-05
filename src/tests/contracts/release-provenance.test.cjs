@@ -85,6 +85,55 @@ test('qualified release receipts retain their 16-job limit when local parallelis
     assert.throws(() => p.validateReceipt(receipt, selected, source, hash), /Unqualified build command/);
   }
 });
+test('current timing recipe binds diagnostics and phase durations while legacy receipts remain valid', () => {
+  const { selected, source, receipt } = fixture();
+  receipt.command.push('--timings');
+  receipt.cargo_timings = { schema: 'vcp-cargo-timings-binding/1', report_file: 'cargo-timing.html', report_sha256: hash,
+    summary_file: 'cargo-timings.json', summary_sha256: hash };
+  receipt.phase_timings = { measurement: 'Input verification through timing-report preservation; excludes receipt write and final strict receipt verification.',
+    input_verification_seconds: 1, cargo_seconds: 2, post_verification_seconds: 3, total_seconds: 6 };
+  assert.deepEqual(p.validateReceipt(receipt, selected, source, hash), receipt.release);
+  for (const mutate of [r => { delete r.cargo_timings; }, r => { delete r.phase_timings; },
+    r => { r.command[20] = '--timings=json'; }, r => { r.command.push('--timings'); },
+    r => { r.cargo_timings.summary_file = '../private.json'; }, r => { delete r.cargo_timings.report_sha256; },
+    r => { r.phase_timings.cargo_seconds = Infinity; }, r => { r.phase_timings.cargo_seconds = -1; },
+    r => { r.phase_timings.total_seconds = 20; }, r => { delete r.phase_timings.measurement; }]) {
+    const changed = structuredClone(receipt); mutate(changed);
+    assert.throws(() => p.validateReceipt(changed, selected, source, hash));
+  }
+});
+test('Cargo report parsing preserves unit timing and concurrency without evaluating HTML scripts', t => {
+  const timing = require('../../../scripts/release/cargo-timings.cjs'), root = temporary(t);
+  const units = [{ name: 'fixture', version: '1.0.0', target: ' fixture "bin"', start: 0.1, duration: 2,
+    sections: [['frontend', { start: 0.1, end: 0.5 }], ['codegen', { start: 0.5, end: 2 }]], private_path: 'C:\\private\\token' }];
+  const concurrency = [{ t: 0.1, active: 1, waiting: 0, inactive: 0 }, { t: 2.1, active: 0, waiting: 0, inactive: 0 }];
+  const html = rows => `<script>throw Error('must never execute');</script>\nconst UNIT_DATA = ${JSON.stringify(rows)};\nconst CONCURRENCY_DATA = ${JSON.stringify(concurrency)};\n`;
+  const file = path.join(root, 'report.html'); fs.writeFileSync(file, html(units));
+  const binding = timing.capture(file, root), summary = JSON.parse(timing.verify(root, binding));
+  assert.equal(summary.maximum_active_units, 1); assert.equal(summary.observed_seconds, 2.1);
+  assert.equal(summary.units[0].frontend_seconds, 0.4); assert.equal(summary.units[0].codegen_seconds, 1.5);
+  assert.equal(JSON.stringify(summary).includes('private'), false);
+  if (process.platform === 'win32') {
+    const redirected = path.join(root, 'redirect'); fs.symlinkSync(root, redirected, 'junction');
+    assert.throws(() => timing.verify(redirected, binding), /redirected/);
+    fs.unlinkSync(redirected);
+  }
+  fs.writeFileSync(path.join(root, 'cargo-timing.html'), html(units) + 'changed');
+  assert.throws(() => timing.verify(root, binding), /digest differs/);
+  fs.writeFileSync(path.join(root, 'cargo-timing.html'), html(units));
+  fs.writeFileSync(path.join(root, 'cargo-timings.json'), '{}');
+  assert.throws(() => timing.verify(root, binding), /digest differs/);
+  const rebound = { ...binding, summary_sha256: p.fileHash(path.join(root, 'cargo-timings.json')) };
+  assert.throws(() => timing.verify(root, rebound), /summary differs/);
+  fs.unlinkSync(path.join(root, 'cargo-timing.html'));
+  assert.throws(() => timing.verify(root, binding), /ENOENT/);
+  for (const changed of [{ ...units[0], name: '../private' }, { ...units[0], target: 'C:\\private' },
+    { ...units[0], duration: -1 }, { ...units[0], sections: [['frontend', { start: 2, end: 1 }]] }])
+    assert.throws(() => timing.summarize(Buffer.from(html([changed]))), /invalid/);
+  assert.throws(() => timing.summarize(Buffer.from(html(units) + 'const UNIT_DATA = [];\n')), /one UNIT_DATA/);
+  assert.throws(() => timing.summarize(Buffer.from('const UNIT_DATA = [globalThis.process.exit()];\nconst CONCURRENCY_DATA = [];\n')));
+  assert.throws(() => timing.summarize(Buffer.alloc(32 * 1024 * 1024 + 1)), /32 MiB/);
+});
 test('release source binds every tracked byte and rejects unselected or dirty source', t => {
   const root = temporary(t), git = args => execFileSync('git', ['-c', 'safe.directory=' + root.replaceAll('\\', '/'), ...args],
     { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();

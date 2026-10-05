@@ -642,6 +642,11 @@ strip = false
 # Balance parallel release code generation against binary size.
 codegen-units = 4
 
+# VCP modification: bounded Windows CLI code-generation comparison (BETA-08).
+# Preserve the retained release profile for every other package.
+[profile.release.package.vcp-cli]
+codegen-units = 16
+
 [profile.profiling]
 inherits = "release"
 debug = "full"
