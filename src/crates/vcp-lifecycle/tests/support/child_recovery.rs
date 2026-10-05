@@ -343,6 +343,63 @@ async fn fresh_owner_recovers_registered_child_edits_and_keeps_sibling_paused() 
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
         let (snapshot, raw) = provider_snapshot();
         host.configure_provider(snapshot, raw).unwrap();
+        let original = vcp_engine::agents::graph(
+            &host.snapshot().unwrap(),
+            &root_binding.scope,
+            &config.root_task,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(original.execution_time.is_empty());
+        host.configure_execution_constraints(vcp_domain::Limit::Finite(Timestamp::new(u64::MAX)))
+            .unwrap();
+        assert_eq!(
+            vcp_engine::agents::graph(
+                &host.snapshot().unwrap(),
+                &root_binding.scope,
+                &config.root_task,
+            )
+            .unwrap()
+            .unwrap(),
+            original,
+            "finite configuration cannot convert child assignments"
+        );
+        host.configure_execution_constraints(vcp_domain::Limit::Unbounded)
+            .unwrap();
+        let converted = vcp_engine::agents::graph(
+            &host.snapshot().unwrap(),
+            &root_binding.scope,
+            &config.root_task,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(converted.children, original.children);
+        assert_eq!(converted.execution_time.len(), children.len());
+        assert!(!converted.execution_time.contains_key(&cancelled));
+        for child in &children {
+            assert_eq!(
+                converted.effective_child(child).unwrap().deadline,
+                vcp_domain::Limit::Unbounded
+            );
+            assert_eq!(
+                converted.execution_time[child].original,
+                original.children[child].deadline
+            );
+            assert_eq!(current(&host, &config, child).state, TaskState::Paused);
+        }
+        host.configure_execution_constraints(vcp_domain::Limit::Unbounded)
+            .unwrap();
+        assert_eq!(
+            vcp_engine::agents::graph(
+                &host.snapshot().unwrap(),
+                &root_binding.scope,
+                &config.root_task,
+            )
+            .unwrap()
+            .unwrap(),
+            converted,
+            "retry must not append another child policy revision"
+        );
         let test = retained(&host, &workspace, &server).await;
         let root_thread = host.lifecycle().attach_root(test.codex.clone()).unwrap();
         host.register(root_thread, root_binding).unwrap();

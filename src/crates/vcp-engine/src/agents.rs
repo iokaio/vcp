@@ -5,6 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{accounting::Ledger, agents::*, policy::*, task::*, workspace::*, *};
 use vcp_store::contract::*;
 use vcp_store::CurrentStateView;
+#[path = "agents_execution_time.rs"]
+mod execution_time;
+pub use execution_time::NativeExecutionTimeEvidence;
 
 pub fn graph<'a>(
     state: impl Into<CurrentStateView<'a>>,
@@ -60,7 +63,7 @@ pub fn inherited_grant<'a>(
         }
         let Some(assignment) = graph
             .as_ref()
-            .and_then(|g| g.children.get(&cursor.scope.task))
+            .and_then(|g| g.effective_child(&cursor.scope.task))
         else {
             return Ok(false);
         };
@@ -207,7 +210,7 @@ fn eligibility_for_state(
     let Some(graph) = graph(state, &child_task.scope, &child_task.root)? else {
         return Ok(vec![Blocker::Scope]);
     };
-    let Some(child) = graph.children.get(&child_task.scope.task) else {
+    let Some(child) = graph.effective_child(&child_task.scope.task) else {
         return Ok(vec![Blocker::Scope]);
     };
     if graph.cleanup.contains_key(&child_task.scope.task) {
@@ -231,9 +234,9 @@ fn eligibility_for_state(
             blockers.push(Blocker::Ancestor);
             break;
         }
-        if let Some(spec) = graph.children.get(&ancestor.scope.task) {
+        if let Some(spec) = graph.effective_child(&ancestor.scope.task) {
             let owner = task(state, &ancestor.scope, &spec.parent)?;
-            if !current_scope(state, &owner, spec, now)? {
+            if !current_scope(state, &owner, &spec, now)? {
                 blockers.push(Blocker::Scope);
                 break;
             }
@@ -244,7 +247,7 @@ fn eligibility_for_state(
             .map(|id| task(state, &child_task.scope, id))
             .transpose()?;
     }
-    if !current_scope(state, &parent, child, now)? {
+    if !current_scope(state, &parent, &child, now)? {
         blockers.push(Blocker::Scope);
     }
     if child
@@ -437,6 +440,7 @@ pub(crate) fn create<'a>(
             ready: BTreeMap::new(),
             results: BTreeMap::new(),
             cleanup: BTreeMap::new(),
+            execution_time: BTreeMap::new(),
         }
     };
     if graph
@@ -505,7 +509,9 @@ impl<S: CanonicalStore> crate::Engine<S> {
         if graph.revision != evidence.expected_graph {
             return Err(vcp_domain::Error::Stale.into());
         }
-        let spec = graph.children.get(&evidence.child).ok_or(Error::Target)?;
+        let spec = graph
+            .effective_child(&evidence.child)
+            .ok_or(Error::Target)?;
         if (!graph.cleanup.contains_key(&evidence.child) && parent.state != TaskState::Running)
             || !child.state.terminal()
             || spec.parent != scope.task
@@ -575,13 +581,15 @@ impl<S: CanonicalStore> crate::Engine<S> {
         if graph.revision != evidence.expected_graph {
             return Err(vcp_domain::Error::Stale.into());
         }
-        let spec = graph.children.get(&evidence.child).ok_or(Error::Target)?;
+        let spec = graph
+            .effective_child(&evidence.child)
+            .ok_or(Error::Target)?;
         let child = task(self.store().current(), scope, &evidence.child)?;
         if spec.parent != scope.task
             || spec.actor != access.actor
             || parent.state != TaskState::Running
             || child.state != TaskState::Pending
-            || !current_scope(self.store().current(), &parent, spec, host.now)?
+            || !current_scope(self.store().current(), &parent, &spec, host.now)?
         {
             return Err(Error::Access);
         }

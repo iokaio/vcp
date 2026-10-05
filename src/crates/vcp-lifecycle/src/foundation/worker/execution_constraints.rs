@@ -47,6 +47,9 @@ impl Context {
         if ledger.scope != scope || ledger.cap != self.config.cap.micros {
             return Err("effective constraint ledger mismatch".into());
         }
+        if deadline.is_unbounded() {
+            self.suspend_retained_child_execution_time(&scope)?;
+        }
         let original = accepted.map(|accepted| serde_json::json!({"accepted_at":accepted.accepted_at,"budget":accepted.budget}));
         self.capture(&scope, Channel::Evidence, &vcp_protocol::canonical_bytes(&serde_json::json!({
             "version":1,"scope":scope,"recorded_at":now(),"original_acceptance":original,
@@ -56,6 +59,62 @@ impl Context {
             "origin":"trusted execution owner configuration","authority":"diagnostic evidence only"
         }))?, "execution-constraints/1")?;
         self.execution_deadline = Some(deadline);
+        Ok(())
+    }
+
+    fn suspend_retained_child_execution_time(&mut self, scope: &Scope) -> Result<()> {
+        let Some(graph) =
+            vcp_engine::agents::graph(self.engine.store().current(), scope, &scope.task)?
+        else {
+            return Ok(());
+        };
+        let mut selected = std::collections::BTreeSet::new();
+        for (id, spec) in &graph.children {
+            let task: Task = self
+                .engine
+                .store()
+                .current()
+                .record(Collection::Task, id.as_str(), &scope.workspace)?
+                .decode()?;
+            if !task.state.terminal()
+                && !spec.deadline.is_unbounded()
+                && !graph.execution_time.contains_key(id)
+            {
+                selected.insert(id.clone());
+            }
+        }
+        if selected.is_empty() {
+            return Ok(());
+        }
+        let originals: std::collections::BTreeMap<_, _> = selected
+            .iter()
+            .map(|id| (id.clone(), graph.children[id].deadline))
+            .collect();
+        let evidence = self.capture(scope, Channel::Evidence,
+            &vcp_protocol::canonical_bytes(&serde_json::json!({
+                "version":1,"scope":scope,"original_graph_revision":graph.revision,
+                "original_deadlines":originals,"effective_deadline":vcp_domain::Limit::<Timestamp>::Unbounded,
+                "actor":self.config.actor,"origin":"explicit trusted owner execution configuration",
+                "authority":"requested native transition; canonical graph revision is authoritative"
+            }))?, "child-execution-time/1")?;
+        let facts = vcp_engine::HostFacts {
+            now: now(),
+            policy: vcp_engine::policy::current(self.engine.store().current(), &scope.workspace)?
+                .revision,
+            may_execute: true,
+            resume: None,
+        };
+        self.runtime
+            .block_on(self.engine.suspend_child_execution_time(
+                scope,
+                vcp_engine::agents::NativeExecutionTimeEvidence {
+                    expected_graph: graph.revision,
+                    children: selected,
+                    evidence: evidence.spec.id,
+                },
+                &self.access,
+                &facts,
+            ))?;
         Ok(())
     }
 }

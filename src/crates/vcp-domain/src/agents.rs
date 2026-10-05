@@ -183,6 +183,23 @@ pub struct TaskGraph {
     /// Irreversible cleanup lease; the same intent survives interruption.
     #[serde(default)]
     pub cleanup: BTreeMap<TaskId, ChildCleanup>,
+    /// Explicit owner revisions of execution time; original assignments remain immutable.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub execution_time: BTreeMap<TaskId, ChildExecutionTime>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChildExecutionTime {
+    pub version: u32,
+    pub original: Limit<Timestamp>,
+    pub effective: Limit<Timestamp>,
+    pub graph_revision: Revision,
+    pub recorded_at: Timestamp,
+    pub actor: ActorId,
+    pub authority: AuthorityRevision,
+    pub policy: PolicyRevision,
+    pub binding: Revision,
+    pub evidence: ArtifactId,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -215,7 +232,31 @@ pub struct WorkspaceReady {
     pub native_identity: String,
 }
 impl TaskGraph {
+    /// Resolve an assignment from this validated graph without rewriting its original facts.
+    pub fn effective_child(&self, id: &TaskId) -> Option<ChildSpec> {
+        let mut child = self.children.get(id)?.clone();
+        if let Some(revision) = self.execution_time.get(id) {
+            child.deadline = revision.effective;
+        }
+        Some(child)
+    }
     pub fn validate(&self) -> Result<()> {
+        for (id, revision) in &self.execution_time {
+            let child = self.children.get(id).ok_or(Error::Scope)?;
+            if revision.version != 1
+                || revision.original != child.deadline
+                || revision.original.is_unbounded()
+                || revision.effective != Limit::Unbounded
+                || revision.graph_revision == Revision::ZERO
+                || revision.graph_revision > self.revision
+                || revision.actor != child.actor
+                || revision.authority != child.authority
+                || revision.policy != child.policy
+                || revision.binding != child.binding
+            {
+                return Err(Error::Invalid("child execution time revision"));
+            }
+        }
         if self
             .cleanup
             .keys()
@@ -274,8 +315,9 @@ impl TaskGraph {
                     .children
                     .get(cursor)
                     .ok_or(Error::Invalid("missing child parent"))?;
-                if let Some(parent) = self.children.get(&row.parent) {
-                    if !row.within(parent) {
+                if let Some(parent) = self.effective_child(&row.parent) {
+                    let effective = self.effective_child(cursor).ok_or(Error::Scope)?;
+                    if !effective.within(&parent) {
                         return Err(Error::Scope);
                     }
                 }

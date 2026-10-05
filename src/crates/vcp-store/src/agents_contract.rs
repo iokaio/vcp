@@ -52,6 +52,9 @@ pub(super) fn references(record: &Record) -> Result<BTreeSet<String>> {
             refs.insert(key(Collection::Effect, effect.as_str()));
         }
     }
+    for revision in graph.execution_time.values() {
+        refs.insert(key(Collection::Artifact, revision.evidence.as_str()));
+    }
     for cleanup in graph.cleanup.values() {
         for diagnostic in &cleanup.diagnostics {
             refs.insert(key(Collection::Artifact, diagnostic.artifact.as_str()));
@@ -87,6 +90,18 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
         current.dependencies = prior.dependencies.clone();
         if &current != prior {
             return Err(Error::Conflict("immutable child assignment"));
+        }
+    }
+    for (id, prior) in &before.execution_time {
+        if after.execution_time.get(id) != Some(prior) {
+            return Err(Error::Conflict("immutable child execution time revision"));
+        }
+    }
+    for (id, revision) in &after.execution_time {
+        if !before.execution_time.contains_key(id)
+            && (!before.children.contains_key(id) || revision.graph_revision != after.revision)
+        {
+            return Err(Error::Conflict("child execution time revision cut"));
         }
     }
     for (id, ready) in &before.ready {
@@ -168,6 +183,22 @@ pub(super) fn validate_current(state: CurrentStateView<'_>) -> Result<()> {
             .decode()?;
         if root.scope != graph.scope || root.parent.is_some() {
             return Err(Error::Corruption("graph root"));
+        }
+        for revision in graph.execution_time.values() {
+            let evidence: ArtifactDescriptor = state
+                .record(
+                    Collection::Artifact,
+                    revision.evidence.as_str(),
+                    &graph.scope.workspace,
+                )?
+                .decode()?;
+            if evidence.state != vcp_domain::artifact::CaptureState::Complete
+                || evidence.spec.scope != graph.scope
+                || evidence.spec.channel != vcp_domain::artifact::Channel::Evidence
+                || evidence.spec.schema != "child-execution-time/1"
+            {
+                return Err(Error::Corruption("child execution time evidence binding"));
+            }
         }
         let ledger: Ledger = state
             .record(
@@ -359,6 +390,52 @@ fn publication_records(
             .get(&key(Collection::Projection, &record.id))
             .map(Record::decode::<TaskGraph>)
             .transpose()?;
+        for (id, revision) in &graph.execution_time {
+            if previous
+                .as_ref()
+                .is_some_and(|prior| prior.execution_time.contains_key(id))
+            {
+                continue;
+            }
+            let prior = previous.as_ref().ok_or(Error::Conflict(
+                "child execution revision requires existing graph",
+            ))?;
+            let assignment = prior.children.get(id).ok_or(Error::Conflict(
+                "child execution revision requires existing assignment",
+            ))?;
+            let child: Task = after
+                .record(Collection::Task, id.as_str(), &graph.scope.workspace)?
+                .decode()?;
+            let workspace: vcp_domain::workspace::Workspace = after
+                .record(
+                    Collection::Workspace,
+                    graph.scope.workspace.as_str(),
+                    &graph.scope.workspace,
+                )?
+                .decode()?;
+            let authority: vcp_domain::policy::AuthorityDocument = after
+                .record(
+                    Collection::Access,
+                    graph.scope.workspace.as_str(),
+                    &graph.scope.workspace,
+                )?
+                .decode()?;
+            let vcp_domain::policy::AuthorityData::Policy { policy } = authority.data else {
+                return Err(Error::Conflict("child execution revision policy"));
+            };
+            if assignment.actor != revision.actor
+                || workspace.authority != revision.authority
+                || workspace.binding.revision != revision.binding
+                || policy.revision != revision.policy
+                || matches!(child.state, vcp_domain::task::TaskState::Running)
+                || child.state.terminal()
+                || graph.cleanup.contains_key(id)
+            {
+                return Err(Error::Conflict(
+                    "child execution revision requires current quiescent assignment",
+                ));
+            }
+        }
         if graph.children.keys().any(|id| {
             previous
                 .as_ref()

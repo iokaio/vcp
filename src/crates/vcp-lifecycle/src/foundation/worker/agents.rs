@@ -78,9 +78,12 @@ impl Context {
         Ok(Some((graph, spec)))
     }
     pub(super) fn child_assignment(&self, task: &TaskId) -> Result<Option<(TaskGraph, ChildSpec)>> {
-        let Some((graph, spec)) = self.child_assignment_record(task)? else {
+        let Some((graph, _)) = self.child_assignment_record(task)? else {
             return Ok(None);
         };
+        let spec = graph
+            .effective_child(task)
+            .ok_or("child has no effective assignment")?;
         if graph.cleanup.contains_key(task) {
             return Err("child workspace is leased for cleanup; only cleanup reconciliation and retained history are available".into());
         }

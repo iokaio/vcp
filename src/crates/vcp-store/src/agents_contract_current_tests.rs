@@ -63,6 +63,7 @@ fn fixture() -> (State, State, TaskId, ArtifactId) {
         ready: Default::default(),
         results: Default::default(),
         cleanup: Default::default(),
+        execution_time: Default::default(),
         children: BTreeMap::from([(
             child.scope.task.clone(),
             ChildSpec {

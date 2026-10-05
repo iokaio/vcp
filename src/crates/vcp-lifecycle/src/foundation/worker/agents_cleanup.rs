@@ -88,6 +88,7 @@ mod tests {
             ready: BTreeMap::new(),
             results: BTreeMap::new(),
             cleanup: BTreeMap::new(),
+            execution_time: BTreeMap::new(),
         }
     }
 

@@ -172,7 +172,8 @@ impl CanonicalHost {
                     return Err("child snapshot identity or size differs".into());
                 }
                 let mut bytes = Vec::new();
-                context.runtime
+                context
+                    .runtime
                     .block_on(vcp_audit::history::History::read_artifact(
                         context.engine.store(),
                         &context.history_access(),
@@ -463,8 +464,7 @@ impl CanonicalHost {
             )?
             .ok_or("child graph missing")?;
             let spec = graph
-                .children
-                .get(&selected)
+                .effective_child(&selected)
                 .ok_or("child assignment missing")?;
             if spec.parent != checked.scope.task {
                 return Err("child parent differs".into());
@@ -482,7 +482,7 @@ impl CanonicalHost {
             if !vcp_engine::agents::current_scope(
                 context.engine.store().current(),
                 &parent,
-                spec,
+                &spec,
                 worker::now(),
             )? {
                 return Err("child assignment is stale".into());
@@ -501,7 +501,8 @@ impl CanonicalHost {
                     return Err("child input identity or size differs".into());
                 }
                 let mut bytes = Vec::new();
-                context.runtime
+                context
+                    .runtime
                     .block_on(vcp_audit::history::History::read_artifact(
                         context.engine.store(),
                         &context.history_access(),
