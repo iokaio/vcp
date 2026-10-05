@@ -88,6 +88,21 @@ impl Artifacts {
         pages: &mut impl Pages,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Self> {
+        let source = Directory::open(spool.root(), forbidden)?;
+        Self::capture_admitted(current, workspace, spool, &source, forbidden, pages, check).await
+    }
+    pub(crate) async fn capture_admitted(
+        current: CurrentStateView<'_>,
+        workspace: &WorkspaceId,
+        spool: &Spool,
+        source: &Directory,
+        forbidden: &[PathBuf],
+        pages: &mut impl Pages,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Self> {
+        if source.path != spool.root() {
+            return Err(Error::Access);
+        }
         let mut parts = Root::empty(Table::ArchiveParts);
         for row in current
             .records
@@ -104,7 +119,8 @@ impl Artifacts {
                 continue;
             }
             let dir = spool.root().join(descriptor.spec.id.as_str());
-            let _directory = Directory::open(&dir, forbidden)?;
+            let _directory =
+                source.existing_child_excluding(descriptor.spec.id.as_str(), forbidden)?;
             reject_link(&dir.join("owner.lock"))?;
             let lock = fs::File::open(dir.join("owner.lock"))?;
             lock.try_lock_shared()

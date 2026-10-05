@@ -10,6 +10,7 @@ pub(crate) struct PinnedDurableSnapshot {
     legacy: Option<(crate::CurrentState, u64, String)>,
     pages: tokio::sync::Mutex<ReadPages>,
     spool: Spool,
+    spool_directory: crate::private_paths::Directory,
     forbidden: Vec<PathBuf>,
     _artifacts: Vec<ArtifactPin>,
     _root_pin: File,
@@ -41,6 +42,10 @@ impl StagedCurrent<'_> {
             legacy: None,
             pages: tokio::sync::Mutex::new(pages),
             spool: self.source.spool.clone(),
+            spool_directory: crate::private_paths::Directory::locked_root(
+                self.source.canonical_lock(),
+            )?
+            .existing_child("spool")?,
             forbidden: self.source.forbidden_roots.clone(),
             _artifacts: artifacts,
             _root_pin: root_pin,
@@ -101,6 +106,8 @@ impl PinnedDurableSnapshot {
             legacy,
             pages: tokio::sync::Mutex::new(ReadPages::from_locked(lock, source.kind())?),
             spool: source.spool.clone(),
+            spool_directory: crate::private_paths::Directory::locked_root(lock)?
+                .existing_child("spool")?,
             forbidden: lock.forbidden().to_vec(),
             _artifacts: artifacts,
             _root_pin: root_pin,
@@ -260,35 +267,19 @@ impl PinnedDurableSnapshot {
         inputs: &Inputs,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Archive> {
-        self.capture_with_forbidden(destination, workspace, inputs, &[], check)
-            .await
-    }
-    pub(crate) async fn capture_with_forbidden(
-        &mut self,
-        destination: &mut impl Pages,
-        workspace: &WorkspaceId,
-        inputs: &Inputs,
-        additional_forbidden: &[PathBuf],
-        check: &dyn Fn() -> Result<()>,
-    ) -> Result<Archive> {
         if self.legacy.is_some() {
             return Err(Error::Unavailable(
                 "streaming archive predates layout origin",
             ));
         }
-        let mut forbidden = self.forbidden.clone();
-        for root in additional_forbidden {
-            if !forbidden.contains(root) {
-                forbidden.push(root.clone());
-            }
-        }
-        Archive::capture(
+        Archive::capture_admitted(
             &self.owner,
             self.pages.get_mut(),
             destination,
             workspace,
             &self.spool,
-            &forbidden,
+            &self.spool_directory,
+            &self.forbidden,
             inputs,
             check,
         )
@@ -301,6 +292,7 @@ impl PinnedDurableSnapshot {
             owner,
             legacy,
             spool,
+            spool_directory,
             forbidden,
             _artifacts,
             _root_pin,
@@ -309,6 +301,7 @@ impl PinnedDurableSnapshot {
         drop(owner);
         drop(legacy);
         drop(spool);
+        drop(spool_directory);
         drop(forbidden);
         drop(_artifacts);
         drop(_root_pin);

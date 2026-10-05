@@ -24,11 +24,16 @@ async fn existing_job_stream_preparation_restart_encryption_and_full_archive_rep
             "restore",
             "targets",
             "other-trust",
+            "canonical",
         ] {
             fs::create_dir(temp.path().join(name)).unwrap();
         }
         let forbidden = vec![temp.path().join("vault")];
-        let jobs = Jobs::open(&temp.path().join("jobs"), &forbidden).unwrap();
+        // Production excludes the canonical source from destination scratch.
+        // Source reads derive authority from the held native owner instead.
+        let job_forbidden = vec![temp.path().join("vault"), temp.path().join("canonical")];
+        let jobs = Jobs::open(&temp.path().join("jobs"), &job_forbidden).unwrap();
+        assert!(PrivateStaging::open(&temp.path().join("canonical"), &job_forbidden).is_err());
         let staging = PrivateStaging::open(&temp.path().join("stage"), &forbidden).unwrap();
         let recovery = RecoveryDirectory::open(&temp.path().join("recovery"), &forbidden).unwrap();
         let keys = LocalKeys::generate().unwrap();
@@ -69,21 +74,13 @@ async fn existing_job_stream_preparation_restart_encryption_and_full_archive_rep
             .unwrap();
         let expected = store.archive_state().await.unwrap();
         let id = CommandId::new();
-        let captured = Jobs::capture_inputs_inner(&store, &workspace, Default::default()).unwrap();
-        let prepared = Jobs::prepare_inputs(captured, &|| false).await.unwrap();
-        // Exercise the production insertion and stages with the new format;
-        // public format selection changes only with its restore consumer.
+        // New public jobs select the streamed archive while retained legacy
+        // Captured jobs are covered by the unchanged restart contract.
         let capture = jobs
-            .begin_prepared_format(
-                &mut store,
-                id.clone(),
-                &workspace,
-                &trust,
-                prepared,
-                ArchiveFormat::Stream,
-            )
+            .begin(&mut store, id.clone(), &workspace, &trust)
             .await
             .unwrap();
+        assert_eq!(capture.job().archive_format, ArchiveFormat::Stream);
         assert!(jobs.prepare_detached(capture, &|| true).await.is_err());
         let job = Jobs::inspect(&store, &id, &workspace).unwrap();
         store.close().await.unwrap();

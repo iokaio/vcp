@@ -77,11 +77,30 @@ impl Archive {
         inputs: &Inputs,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Self> {
+        let admitted = crate::private_paths::Directory::open(spool.root(), forbidden)?;
+        Self::capture_admitted(
+            owner, source, scratch, workspace, spool, &admitted, forbidden, inputs, check,
+        )
+        .await
+    }
+    pub(crate) async fn capture_admitted(
+        owner: &DurableOwner,
+        source: &mut impl Pages,
+        scratch: &mut impl Pages,
+        workspace: &WorkspaceId,
+        spool: &Spool,
+        admitted: &crate::private_paths::Directory,
+        forbidden: &[PathBuf],
+        inputs: &Inputs,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Self> {
         let current = owner.semantic().current().into();
         let coverage = validate_inputs(inputs, current, workspace, spool, check)?;
         let canonical = Canonical::capture(owner, source, scratch, workspace, check).await?;
-        let artifacts =
-            Artifacts::capture(current, workspace, spool, forbidden, scratch, check).await?;
+        let artifacts = Artifacts::capture_admitted(
+            current, workspace, spool, admitted, forbidden, scratch, check,
+        )
+        .await?;
         let inputs = InputArchive::capture(inputs, scratch, check).await?;
         let archive = Self {
             format: wire::FORMAT.into(),

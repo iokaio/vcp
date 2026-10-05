@@ -76,8 +76,42 @@ impl Directory {
     pub(crate) fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Self::open_policy(path, forbidden, false)
     }
+    /// Hold an existing direct child of an already admitted directory. This
+    /// grants no creation authority and rechecks every no-follow native handle.
+    pub(crate) fn existing_child(&self, name: &str) -> Result<Self> {
+        if name.is_empty()
+            || name.len() > 256
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(Error::Access);
+        }
+        let child = Self::hold(&self.path.join(name), false)?;
+        if child.path.parent() != Some(self.path.as_path()) {
+            return Err(Error::Access);
+        }
+        Ok(child)
+    }
     pub(crate) fn open_cloud(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Self::open_policy(path, forbidden, true)
+    }
+    pub(crate) fn existing_child_excluding(
+        &self,
+        name: &str,
+        forbidden: &[PathBuf],
+    ) -> Result<Self> {
+        if forbidden.len() > 128 {
+            return Err(Error::Access);
+        }
+        let child = self.existing_child(name)?;
+        for root in forbidden {
+            let root = root.canonicalize()?;
+            if child.path.starts_with(&root) || root.starts_with(&child.path) {
+                return Err(Error::Access);
+            }
+        }
+        Ok(child)
     }
     fn open_policy(path: &Path, forbidden: &[PathBuf], cloud: bool) -> Result<Self> {
         if !path.is_absolute() || forbidden.is_empty() || forbidden.len() > 128 {

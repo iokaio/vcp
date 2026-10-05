@@ -63,11 +63,10 @@ impl Snapshot {
         destination: &mut impl crate::history_index::Pages,
         workspace: &WorkspaceId,
         inputs: &crate::snapshot_inputs::Inputs,
-        forbidden: &[PathBuf],
         check: &dyn Fn() -> Result<()>,
     ) -> Result<crate::portable_snapshot::complete::Archive> {
         self.inner
-            .capture_with_forbidden(destination, workspace, inputs, forbidden, check)
+            .capture(destination, workspace, inputs, check)
             .await
     }
     pub(crate) async fn verify_workspace(&self, workspace: &WorkspaceId) -> Result<()> {

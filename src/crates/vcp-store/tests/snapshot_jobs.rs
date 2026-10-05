@@ -13,6 +13,74 @@ use vcp_store::{
     BackendKind, Store,
 };
 
+/// Persist the historical Captured-job DTO, which predates archive_format.
+/// These fixtures qualify resumption/publication of existing v1 jobs while new
+/// jobs use the public streamed format. No production format override is added.
+async fn retain_legacy_capture(
+    store: &mut Store,
+    jobs_root: &std::path::Path,
+    id: &CommandId,
+    workspace: &vcp_domain::WorkspaceId,
+    trust: &LocalTrust,
+) {
+    let current = store.current_state();
+    let ws: vcp_domain::workspace::Workspace = current
+        .record(Collection::Workspace, workspace.as_str(), workspace)
+        .unwrap()
+        .decode()
+        .unwrap();
+    let pins: std::collections::BTreeSet<String> = current
+        .records
+        .values()
+        .filter(|row| {
+            matches!(
+                row.collection,
+                Collection::Artifact | Collection::Generation
+            )
+        })
+        .map(Record::key)
+        .collect();
+    let digest = store.snapshot().unwrap().logical_digest().await.unwrap();
+    let value = serde_json::json!({
+        "inputs": vcp_store::snapshot_inputs::Inputs::default(),
+        "schema_version": 1, "document_type": "vcp_snapshot_job_v1",
+        "id": id, "workspace": workspace, "revision": Revision::ZERO,
+        "watermark": current.watermark, "state_digest": digest,
+        "deletion": ws.deletion.get(), "authority": ws.authority.get(),
+        "source_root": store.root(), "staging_root": jobs_root.canonicalize().unwrap(),
+        "key_ref": trust.configuration().selected.key_ref,
+        "trust_revision": trust.configuration().revision,
+        "stage": "captured", "active": true, "inventory": null,
+        "archive_digest": null, "finalization": null, "publication": null,
+        "copy_identity": null, "pins": pins,
+    });
+    let historical: vcp_store::snapshot_jobs::Job = serde_json::from_value(value.clone()).unwrap();
+    assert!(serde_json::to_value(historical)
+        .unwrap()
+        .get("archive_format")
+        .is_none());
+    store
+        .transact(Transaction {
+            id: vcp_domain::TransactionId::new(),
+            expected_watermark: current.watermark,
+            mutations: vec![Mutation::Put {
+                expected: None,
+                record: Record {
+                    collection: Collection::SnapshotPin,
+                    id: id.to_string(),
+                    workspace: workspace.clone(),
+                    revision: Revision::ZERO,
+                    value,
+                    references: pins,
+                },
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
@@ -69,6 +137,7 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
             .unwrap();
         let original = (&store.archive_state().await.unwrap()).clone();
         let id = CommandId::new();
+        retain_legacy_capture(&mut store, &paths[0], &id, &workspace, &trust).await;
         let capture = jobs
             .begin(&mut store, id.clone(), &workspace, &trust)
             .await
@@ -557,6 +626,7 @@ fn snapshot_process_child() {
         let job = if let Ok(job) = Jobs::inspect(&store, &id, &ws) {
             job
         } else {
+            retain_legacy_capture(&mut store, &root.join("jobs"), &id, &ws, &trust).await;
             let capture = jobs
                 .begin(&mut store, id.clone(), &ws, &trust)
                 .await

@@ -75,7 +75,6 @@ impl Jobs {
                 &mut scratch,
                 &capture.job.workspace,
                 &capture.job.inputs,
-                &self.forbidden,
                 &check,
             )
             .await?;

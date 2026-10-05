@@ -27,6 +27,9 @@ use vcp_domain::{
 use vcp_protocol::{canonical_bytes, digest_bytes};
 #[path = "snapshot_job_ciphertext.rs"]
 mod ciphertext;
+#[cfg(test)]
+#[path = "snapshot_job_large_tests.rs"]
+mod large_tests;
 #[path = "snapshot_job_stream.rs"]
 mod stream;
 #[cfg(test)]
@@ -372,7 +375,7 @@ impl Jobs {
         trust: &LocalTrust,
         prepared: PreparedInputs,
     ) -> Result<Capture> {
-        self.begin_prepared_format(store, id, workspace, trust, prepared, ArchiveFormat::Legacy)
+        self.begin_prepared_format(store, id, workspace, trust, prepared, ArchiveFormat::Stream)
             .await
     }
     async fn begin_prepared_format(

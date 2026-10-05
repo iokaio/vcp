@@ -59,3 +59,36 @@ async fn canonical_child_does_not_treat_existing_file_as_directory() {
     assert_eq!(fs::read(path).unwrap(), b"preserve existing user bytes");
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn admitted_existing_children_are_read_only_and_preserve_source_exclusions() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(&temp.path().join("canonical"), BackendKind::Files, &[])
+        .await
+        .unwrap();
+    let root = Directory::canonical_root(&store).unwrap();
+    let spool = root.existing_child("spool").unwrap();
+    for name in ["", ".", "..", "../outside", "spool/child", "C:", "missing"] {
+        assert!(spool.existing_child(name).is_err());
+    }
+    assert!(!spool.path.join("missing").exists());
+    let artifact = spool.path.join("artifact-1");
+    fs::create_dir(&artifact).unwrap();
+    assert!(spool
+        .existing_child_excluding("artifact-1", &[artifact.clone()])
+        .is_err());
+    assert!(spool
+        .existing_child_excluding("artifact-1", &[root.path.clone()])
+        .is_err());
+    assert_eq!(
+        spool
+            .existing_child_excluding("artifact-1", &[])
+            .unwrap()
+            .path,
+        artifact
+    );
+    fs::write(spool.path.join("file"), b"retained").unwrap();
+    assert!(spool.existing_child("file").is_err());
+    assert_eq!(fs::read(spool.path.join("file")).unwrap(), b"retained");
+    store.close().await.unwrap();
+}

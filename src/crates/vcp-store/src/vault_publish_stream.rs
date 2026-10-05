@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Signed-age/2 adapters for the existing local trust and publication boundary.
-//! No production snapshot job selects this format before source qualification.
+//! New snapshot jobs use this transport; retained legacy jobs keep their format.
 use super::*;
 use crate::vault_crypto::stream::{self, Authenticated, StreamManifest};
 
