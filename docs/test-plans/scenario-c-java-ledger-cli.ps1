@@ -48,6 +48,34 @@ $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
 #region Toolchain
 
+function Resolve-LedgerMavenHome($Ctx) {
+    $mvn = (Get-Command 'mvn.cmd' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if ($mvn) { return Split-Path -Parent (Split-Path -Parent $mvn) }
+
+    # Baseline verification needs Maven before the first VCP task. Provision only
+    # this run's tools; do not install globally or change the user's environment.
+    $version = '3.9.16'
+    $expectedHash = 'ed41650d42485cfc243fad22158caf9cbb5dc408ce7a09ddb94dd42a019de929ca43065bfa450612cf12bf78b5cafa3884b96c090de326ff590448c933454af3'
+    $source = "https://archive.apache.org/dist/maven/maven-3/$version/binaries/apache-maven-$version-bin.zip"
+    $tools = Join-Path $Ctx.Root 'toolchains'
+    $mavenHome = Join-Path $tools "apache-maven-$version"
+    $archive = Join-Path $Ctx.Temp "apache-maven-$version-bin.zip"
+    Write-Step $Ctx "Maven is absent from PATH; provisioning Apache Maven $version in $tools (no inference)." 'phase'
+    try {
+        Invoke-WebRequest -Uri $source -OutFile $archive -TimeoutSec 120
+        $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA512).Hash
+        if ($actualHash -ine $expectedHash) { throw 'Apache Maven archive SHA512 does not match the pinned release checksum.' }
+        New-Item -ItemType Directory -Path $tools -Force | Out-Null
+        Expand-Archive -LiteralPath $archive -DestinationPath $tools
+        if (-not (Test-Path -LiteralPath (Join-Path $mavenHome 'bin/mvn.cmd') -PathType Leaf)) {
+            throw 'Apache Maven archive does not contain the expected binary distribution.'
+        }
+    }
+    catch { throw "Apache Maven 3.9+ is required; automatic setup failed: $($_.Exception.Message) Install Maven and add its bin directory to PATH, then rerun C." }
+    $Ctx.Notes.Add("Provisioned Apache Maven $version for this run from $source; verified SHA512 $expectedHash. User PATH and project files were not changed by toolchain setup.")
+    return $mavenHome
+}
+
 $javaCandidates = @()
 if ($env:JAVA_HOME) { $javaCandidates = @((Join-Path $env:JAVA_HOME 'bin\java.exe')) }
 $java = Find-Executable -Name 'java' -Candidates $javaCandidates
@@ -57,9 +85,7 @@ if (-not (Test-Path -LiteralPath $javac)) { throw "javac.exe not found next to $
 $javaVersionText = (& $java -version 2>&1 | Out-String)
 $javaMajor = if ($javaVersionText -match 'version "(\d+)') { [int]$Matches[1] } else { 0 }
 if ($javaMajor -lt 21) { throw "JDK $javaMajor found; 21 or later is required." }
-$mvn = (Get-Command 'mvn.cmd' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-if (-not $mvn) { throw 'Apache Maven (mvn.cmd) 3.9+ is required on PATH.' }
-$mavenHome = Split-Path -Parent (Split-Path -Parent $mvn)
+$mavenHome = Resolve-LedgerMavenHome $ctx
 $classworlds = Get-ChildItem -LiteralPath (Join-Path $mavenHome 'boot') -Filter 'plexus-classworlds-*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
 $m2conf = Join-Path $mavenHome 'bin\m2.conf'
 $mavenViaJava = $null

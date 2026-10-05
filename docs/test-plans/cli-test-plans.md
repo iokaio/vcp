@@ -72,10 +72,17 @@ tickets. Continuation of a single task is exercised separately:
 | Node.js 22.18+ (24 LTS recommended) with bundled npm | yes | | | |
 | .NET SDK 8+ (the selected SDK determines the target major) and SQL Server LocalDB (or a credential-free `-SqlConnectionString`) | | yes | | |
 | `sqlcmd` (optional, enables one advisory database gate) | | opt | | |
-| JDK 21+ (`JAVA_HOME` or PATH) and Apache Maven 3.9+ (`mvn.cmd` on PATH) | | | yes | |
+| JDK 21+ (`JAVA_HOME` or PATH); Maven 3.9+ on PATH or automatic run-local Maven setup | | | yes | |
 | Python 3.11+ (py launcher or python.exe, not the Store alias) | | | | yes |
 | git (optional; enables checkpoint commits for new projects) | opt | opt | opt | opt |
 | Internet access to npm, NuGet, Maven Central and PyPI (seeding, package restores, `npm ci`) | yes | yes | yes | yes |
+
+When C cannot find `mvn.cmd` on PATH, its harness downloads Apache Maven 3.9.16
+from `archive.apache.org`, verifies the pinned SHA512 release checksum before
+extraction, and installs it under that run's `toolchains/` directory. This setup
+runs before inference in both DryRun and Full modes; it does not change user PATH
+or install into the project. Download or integrity failures stop before paid
+stages and retain an actionable setup error. JDK 21+ remains a machine prerequisite.
 
 ### 2.2 Reuse the configured provider
 
@@ -865,7 +872,8 @@ These limitations need evidence from actual scenario runs:
    before paid stages. A failed probe blocks inference and retains its command output.
    This does not prove every later tool invocation will succeed.
 2. **Maven invocation (C).** Both the harness and VCP use `java.exe` with the classworlds
-   launcher rather than executing `mvn.cmd` as a native binary. Preflight requires Maven
+   launcher rather than executing `mvn.cmd` as a native binary. The harness provisions
+   a checksum-verified run-local distribution when `mvn.cmd` is absent. Preflight requires Maven
    3.9+ with the distribution's launcher jar and `bin/m2.conf`; a shim or unsupported layout
    fails before paid stages.
 3. **`dotnet-ef` inside VCP (B).** Arbitrary environment variables cannot be set through the profile allowlist, so
@@ -917,6 +925,7 @@ These limitations need evidence from actual scenario runs:
 | `tests/Harness.Tests.ps1` | Offline regressions for process handling, cost accounting, manifests and scorecards |
 | `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
 | `tests/ScenarioInitialization.Tests.ps1` | Toolchain/setup failures retain zero-spend fatal scorecards and summaries and close transcripts for all four scenarios |
+| `tests/MavenBootstrap.Tests.ps1` | C preserves installed Maven or provisions run-local tools; rejects failed downloads, checksum mismatches and invalid distributions |
 | `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
 | `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |
@@ -942,6 +951,7 @@ Before running a scenario, run the offline checks from the repository workspace 
 pwsh -NoProfile -File docs/test-plans/tests/Harness.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ScenarioGates.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ScenarioInitialization.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/MavenBootstrap.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProfileDeadlines.Tests.ps1
