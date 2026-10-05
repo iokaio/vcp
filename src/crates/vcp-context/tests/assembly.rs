@@ -759,7 +759,7 @@ async fn exact_context_views_resolve_to_captured_bytes_on_both_backends_after_re
         )
         .unwrap();
         let expected = sealed.body().to_vec();
-        drop(store);
+        store.close().await.unwrap();
         let reopened = Store::open(temp.path(), kind, &[]).await.unwrap();
         let verified = sealed
             .verify_captures(|scope, id, limit| {

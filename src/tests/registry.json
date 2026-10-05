@@ -8,6 +8,7 @@
       "cs2-developer",
       "cs3-webapp",
       "experiments",
+      "execution-analysis",
       "upstream-inventory",
       "upstream-source",
       "munarium-source",
@@ -46,6 +47,14 @@
     ]
   },
   "cases": {
+    "execution-analysis": {
+      "task_ids": ["EE-00c"],
+      "args": ["--test", "src/tests/contracts/execution-analysis.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "cs3-webapp": {
       "task_ids": ["CS-3"],
       "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs"],

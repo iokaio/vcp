@@ -144,7 +144,7 @@ jobs:
           VCP_SKILL_PLAYWRIGHT: ${{ github.workspace }}/src/tests/skills/browser/node_modules/playwright
         run: node --test src/tests/contracts/ported-skill-authoring.test.cjs src/tests/contracts/ported-webapp.test.cjs
   skill-runtime:
-    name: Skill runtime (Rust)
+    name: Portable Rust contracts
     if: github.event_name != 'workflow_dispatch' || !inputs.native_boundaries_only
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -174,6 +174,14 @@ jobs:
       # (ADR-068), so the frozen fixture contract runs in the Windows job.
       - name: Test descriptor, discovery and catalog contracts
         run: cargo test --locked -p vcp-extensions
+      # EE-03a/b/c: synthetic inputs exercise the production codec and context
+      # selection without private campaign spools, credentials or native tools.
+      - name: Test context selection and working-set reconstruction
+        run: cargo test --locked -p vcp-context --lib --test assembly --test working_set
+      - name: Test adaptive allocation boundaries
+        run: cargo test --locked -p vcp-models --lib allocation::tests
+      - name: Test verbose history with the production provider codec
+        run: cargo test --locked -p vcp-models --test provider context_capacity
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
