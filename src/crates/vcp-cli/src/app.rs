@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Native commands use canonical state and the retained controller.
 mod execute;
+#[cfg(test)]
+mod resume_selection_tests;
 use crate::{
     args::*,
     control,
@@ -225,17 +227,32 @@ fn task_from<'a>(
         .and_then(|r| r.decode())
         .map_err(|e| e.to_string())
 }
-async fn latest(
-    store: &Store,
+async fn resume_selection(
+    store: &impl CanonicalStore,
     workspace: &WorkspaceId,
+    task: Option<&TaskId>,
     session: Option<&SessionId>,
-) -> Result<Task, String> {
+) -> Result<(Task, Option<crate::continuation::Candidate>), String> {
+    // Explicit IDs retain task validation before any history read. Otherwise
+    // the history-ordered chooser decides which task's current row to decode.
+    let explicit = task
+        .map(|id| task_from(store.current(), workspace, id))
+        .transpose()?;
     let candidates = crate::continuation::candidates_store(store, workspace).await?;
+    if let Some(task) = explicit {
+        let summary = candidates
+            .into_iter()
+            .find(|row| row.task == task.scope.task);
+        return Ok((task, summary));
+    }
     let selected = candidates
-        .iter()
+        .into_iter()
         .find(|task| session.is_none_or(|s| s == &task.session))
         .ok_or("no unfinished task is available to resume")?;
-    task_from(store.current(), workspace, &selected.task)
+    let task = task_from(store.current(), workspace, &selected.task)?;
+    // Selection and display share this immutable store cut. The candidate is
+    // display context only; owner handoff still checks the selected revision.
+    Ok((task, Some(selected)))
 }
 struct DisplayOutput {
     jsonl: bool,
