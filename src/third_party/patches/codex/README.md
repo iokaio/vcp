@@ -242,6 +242,14 @@ already include these changes; normal builds never apply patches.
     Authentication headers stay inside the transport; other hosts retain their
     existing behavior.
 
+53. `0053-empty-provider-body-retry.patch` prefetches the first nonempty raw body
+    chunk for captured host requests before SSE header events are emitted. Empty
+    EOF, body decoding failures and first-byte idle timeouts reach the existing
+    typed host retry admission path. Received bytes are preserved and captured
+    once; partial responses retain the existing no-replay behavior. The absolute
+    host deadline and capture failures remain authoritative. Four focused unit
+    tests cover these boundaries. Ordinary uncaptured clients are unchanged.
+
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
 the layout has changed. Removing this patch is an explicit source-maintenance

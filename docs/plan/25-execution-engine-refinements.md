@@ -136,6 +136,32 @@ The current baseline lacks complete per-phase timing, so missing spans stay unkn
 
 ## Phase evidence and commits
 
+- EE-01/05 provider response-start recovery (October 5, local-only): C's retained
+  repair request `23f03307-b444-48fd-a6f7-2d8cd1c4856e` received no body bytes
+  after HTTP headers; the retained client reported a network error decoding the
+  response body. The old body-stream path bypassed host retry admission and fell
+  into the generic accounting pause. Captured requests now prefetch the first
+  nonempty body chunk before SSE emits events, so zero-byte EOF/network failures
+  use existing bounded retry admission, cancellation, cooldown and fresh attempt
+  identities. Partial responses are not replayed. Unknown charges remain recorded;
+  an exact empty-response retry proof and submitted successor distinguish billing
+  uncertainty from unresolved execution only after ordinary verified completion.
+  Five response-start/deadline unit tests passed. Native HTTP empty-EOF and
+  truncated-body recovery passed on Files and SQLite, including verified
+  completion, retained liability, restart and duplicate-proof rejection. The
+  separate zero-retry/exhaustion/partial-stream matrix and existing pause/owner
+  loss/steering cancellation regression passed on both stores. An initial negative
+  fixture incorrectly reused finite-qualified metadata under unbounded execution;
+  its failed log remains, and the corrected fixture uses the actual coding path.
+  Independent review found no blocker; five upstream selection contracts, all
+  7,940 recorded source hashes / 55 patch hashes, repository contracts, affected
+  formatting and diff checks passed. The full inventory walk was stopped because
+  it traversed preexisting build output; unlisted files were not checked. Evidence:
+  `.codex-tmp-empty-response-{api,native,cap,deadline,cancellation}-tests.log`.
+  No live provider outage or new distributable was exercised. This does not repair
+  C's separate missing Maven completion-check configuration or change
+  the running D task, account model selection, or historical failed scorecards.
+
 - EE-06 real execution feedback: added a fresh-project cart probe using the existing native driver and scenario harness, protected acceptance files, six independent Node tests, immutable inspection/analysis capture, and optional strict pause/resume qualification. Candidate 0.2.25 passed the normal repair (14/14 gates, seven requests, 36.9 seconds, $0.089195 settled). The pause variant reproduced an acknowledged pause during the next provider exchange (exit 7, 11/14 gates); the uncertain exchange remains fenced and no resume was attempted. Reopened bundles also lose execution-owner lifecycle observations. Exact run identities, evidence, limitations and next corrections are in the [experiment record](../test-plans/execution-engine-experiments.md#october-4-live-probe-results-candidate-0225). This qualifies a small repair, not full A/B, full financial suspension or larger-engagement acceptance.
 
 - EE-02c format and ownership transfer: the qualified migration stages and verifies an Origin under the real canonical lock, releases legacy State, and performs full native replay before returning the replacement owner. Format publication preserves exact prior marker bytes and atomically selects layout 3, causing older parsers to reject it. Four tests passed on both backends for transfer, same-watermark altered-source rejection and injected publication boundaries, including retry and corrupted-marker cases. Independent review found no concrete issue. These are injected failure tests, not hardware power-loss qualification. The next storage increment activates this path in public Store and removes its resident-history contract.

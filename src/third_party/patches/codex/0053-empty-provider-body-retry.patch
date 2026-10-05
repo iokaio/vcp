@@ -1,0 +1,180 @@
+diff --git a/codex-rs/codex-api/src/endpoint/responses.rs b/codex-rs/codex-api/src/endpoint/responses.rs
+index bff8c417..05209a35 100644
+--- a/codex-rs/codex-api/src/endpoint/responses.rs
++++ b/codex-rs/codex-api/src/endpoint/responses.rs
+@@ -182,6 +182,14 @@ impl<T: HttpTransport> ResponsesClient<T> {
+             stream_response.bytes = bounded_response_stream(stream_response.bytes, deadline);
+         }
+         if let Some(capture) = self.response_capture.clone() {
++            // VCP: keep zero-byte body failures inside the admitted request's
++            // typed retry path. Once SSE parsing starts, the caller owns the
++            // stream and must not replay a partially observed response.
++            stream_response.bytes = prefetch_response_body(
++                stream_response.bytes,
++                self.session.provider().stream_idle_timeout,
++            )
++            .await?;
+             stream_response.bytes = stream_response
+                 .bytes
+                 .map(move |item| {
+@@ -202,6 +210,39 @@ impl<T: HttpTransport> ResponsesClient<T> {
+     }
+ }
+ 
++// VCP: prefetch only for captured host requests, before synthetic header events
++// or provider events can escape. Preserve the first nonempty chunk verbatim;
++// the existing capture wrapper records it exactly once before SSE parsing.
++async fn prefetch_response_body(
++    mut bytes: codex_client::ByteStream,
++    idle_timeout: std::time::Duration,
++) -> Result<codex_client::ByteStream, ApiError> {
++    let deadline = tokio::time::Instant::now() + idle_timeout;
++    loop {
++        if tokio::time::Instant::now() >= deadline {
++            return Err(codex_client::TransportError::Timeout.into());
++        }
++        let item = tokio::time::timeout_at(deadline, bytes.next())
++            .await
++            .map_err(|_| codex_client::TransportError::Timeout)?;
++        match item {
++            Some(Ok(first)) if !first.is_empty() => {
++                return Ok(futures::stream::once(async move { Ok(first) })
++                    .chain(bytes)
++                    .boxed());
++            }
++            Some(Ok(_)) => tokio::task::yield_now().await,
++            Some(Err(error)) => return Err(error.into()),
++            None => {
++                return Err(codex_client::TransportError::Network(
++                    "provider response body closed before any bytes were received".into(),
++                )
++                .into());
++            }
++        }
++    }
++}
++
+ // VCP: one absolute deadline cannot be extended by response keepalives.
+ fn bounded_response_stream(
+     bytes: codex_client::ByteStream,
+@@ -217,7 +258,9 @@ fn bounded_response_stream(
+         let next = if tokio::time::Instant::now() >= deadline {
+             Err(())
+         } else {
+-            tokio::time::timeout_at(deadline, bytes.next()).await.map_err(|_| ())
++            tokio::time::timeout_at(deadline, bytes.next())
++                .await
++                .map_err(|_| ())
+         };
+         match next {
+             Ok(Some(item)) => Some((item, (bytes, false))),
+@@ -240,7 +283,8 @@ mod vcp_deadline_tests {
+     async fn absolute_deadline_stops_silent_and_keepalive_streams() {
+         for mode in 0..3 {
+             let bytes: codex_client::ByteStream = if mode == 2 {
+-                futures::stream::repeat_with(|| Ok(bytes::Bytes::from_static(b": buffered\n\n"))).boxed()
++                futures::stream::repeat_with(|| Ok(bytes::Bytes::from_static(b": buffered\n\n")))
++                    .boxed()
+             } else if mode == 1 {
+                 futures::stream::unfold((), |_| async {
+                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+@@ -272,3 +316,99 @@ mod vcp_deadline_tests {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod vcp_response_start_tests {
++    use super::*;
++    use codex_client::TransportError;
++    use std::time::Duration;
++
++    #[tokio::test]
++    async fn empty_body_and_decode_failure_remain_typed_transport_errors() {
++        for items in [
++            vec![],
++            vec![Ok(bytes::Bytes::new())],
++            vec![Err(TransportError::Network(
++                "error decoding response body".into(),
++            ))],
++            vec![
++                Ok(bytes::Bytes::new()),
++                Err(TransportError::Network("decode failure".into())),
++            ],
++        ] {
++            let result = prefetch_response_body(
++                futures::stream::iter(items).boxed(),
++                Duration::from_secs(1),
++            )
++            .await;
++            assert!(matches!(
++                result,
++                Err(ApiError::Transport(TransportError::Network(_)))
++            ));
++        }
++    }
++
++    #[tokio::test]
++    async fn first_bytes_are_preserved_and_later_failure_is_not_a_startup_retry() {
++        // Even an SSE comment or an incomplete event is observed response data.
++        for first in [b": keepalive\n\n".as_slice(), b"data: {".as_slice()] {
++            let first = bytes::Bytes::copy_from_slice(first);
++            let items = vec![
++                Ok(bytes::Bytes::new()),
++                Ok(first.clone()),
++                Err(TransportError::Network("later disconnect".into())),
++            ];
++            let mut stream = prefetch_response_body(
++                futures::stream::iter(items).boxed(),
++                Duration::from_secs(1),
++            )
++            .await
++            .unwrap();
++            assert_eq!(stream.next().await.unwrap().unwrap(), first);
++            assert!(matches!(
++                stream.next().await,
++                Some(Err(TransportError::Network(_)))
++            ));
++            assert!(stream.next().await.is_none());
++        }
++    }
++
++    #[tokio::test]
++    async fn idle_timeout_bounds_silent_and_empty_chunk_streams() {
++        for stream in [
++            futures::stream::pending().boxed(),
++            futures::stream::repeat_with(|| Ok(bytes::Bytes::new())).boxed(),
++        ] {
++            let result = tokio::time::timeout(
++                Duration::from_secs(2),
++                prefetch_response_body(stream, Duration::from_millis(20)),
++            )
++            .await
++            .unwrap();
++            assert!(matches!(
++                result,
++                Err(ApiError::Transport(TransportError::Timeout))
++            ));
++        }
++    }
++
++    #[tokio::test]
++    async fn host_deadline_and_capture_failure_are_not_reclassified_as_network_errors() {
++        let expired = bounded_response_stream(
++            futures::stream::pending().boxed(),
++            std::time::Instant::now(),
++        );
++        let result = prefetch_response_body(expired, Duration::from_secs(1)).await;
++        assert!(matches!(
++            result,
++            Err(ApiError::Transport(TransportError::Build(_)))
++        ));
++        let failed =
++            futures::stream::iter([Err(TransportError::Build("capture failed".into()))]).boxed();
++        let result = prefetch_response_body(failed, Duration::from_secs(1)).await;
++        assert!(matches!(
++            result,
++            Err(ApiError::Transport(TransportError::Build(_)))
++        ));
++    }
++}

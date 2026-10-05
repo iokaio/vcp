@@ -1110,6 +1110,14 @@ impl Context {
             "provider failure retained before bounded retry",
             false,
         )?;
+        if http_status.is_none()
+            && matches!(
+                failure,
+                vcp_models::retry::Failure::Transient | vcp_models::retry::Failure::Timeout
+            )
+        {
+            self.record_empty_response_retry(&attempt)?;
+        }
         self.capture(
             &binding.scope,
             Channel::Evidence,
