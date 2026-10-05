@@ -6,6 +6,7 @@ mod local_fixture;
 use local_fixture::*;
 use serde_json::{json, Value};
 use vcp_domain::task::{Task, TaskState};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind};
 
 fn initialize(client: &mut Client) {
@@ -78,7 +79,7 @@ async fn compiled_cancel_retries_and_task_reads_keep_controller_connection_open(
         assert!(client.finish().await.0.success());
         let store = fixture.reopen().await;
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -89,8 +90,7 @@ async fn compiled_cancel_retries_and_task_reads_keep_controller_connection_open(
             .unwrap();
         assert_eq!(task.state, TaskState::Cancelled);
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|receipt| receipt.command.as_str() == "cancel-once")
@@ -116,8 +116,7 @@ async fn compiled_observer_can_inspect_but_cannot_cancel_a_task() {
         assert!(client.finish().await.0.success());
         let store = fixture.reopen().await;
         assert_offline_paused(&store, &fixture.config);
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|receipt| receipt.command.as_str() == "observer-cancel"));

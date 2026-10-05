@@ -13,6 +13,7 @@ use std::{
 };
 use vcp_domain::{task::Task, Timestamp};
 use vcp_models::routing as model;
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind};
 
 fn policy() -> model::Policy {
@@ -104,7 +105,7 @@ async fn compiled_sdk_optimizer_commands_reconcile_without_provider_dispatch() {
             .await
             .unwrap();
         let workspace: vcp_domain::workspace::Workspace = seed
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 entry.config.workspace.as_str(),
@@ -151,7 +152,7 @@ async fn compiled_sdk_optimizer_commands_reconcile_without_provider_dispatch() {
             .await
             .unwrap();
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 entry.config.root_task.as_str(),
@@ -162,15 +163,14 @@ async fn compiled_sdk_optimizer_commands_reconcile_without_provider_dispatch() {
             .unwrap();
         assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
         for command in ["optimizer-session-report", "optimizer-workspace-report"] {
-            let receipts: Vec<_> = store
-                .state()
+            let archive = store.archive_state().await.unwrap();
+            let receipts: Vec<_> = archive
                 .commands
                 .values()
                 .filter(|receipt| receipt.command.as_str() == command)
                 .collect();
             assert_eq!(receipts.len(), 1);
-            assert!(store
-                .state()
+            assert!((&store.archive_state().await.unwrap())
                 .events
                 .iter()
                 .any(|event| event.event.correlation == receipts[0].command
@@ -178,13 +178,12 @@ async fn compiled_sdk_optimizer_commands_reconcile_without_provider_dispatch() {
                     && event.event.actor == entry.config.actor
                     && event.watermark == receipts[0].watermark));
         }
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|r| r.command.as_str() == "optimizer-no-preview"));
         let workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 entry.config.workspace.as_str(),

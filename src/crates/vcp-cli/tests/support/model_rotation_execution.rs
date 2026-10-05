@@ -4,6 +4,7 @@ use super::*;
 use std::{collections::BTreeMap, sync::Mutex};
 use vcp_cli::model_preferences::{ChoicePreferences, Preferences};
 use vcp_domain::{accounting::RequestRole, Micros};
+use vcp_store::contract::CanonicalStore;
 
 const FIRST: &str = "fixture/rotation-first";
 const PEER: &str = "fixture/rotation-peer";
@@ -213,14 +214,14 @@ async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generati
             );
             let store = reopen(&entry).await;
             let task: Task = store
-                .state()
+                .current()
                 .record(Collection::Task, task_id.as_str(), &entry.config.workspace)
                 .unwrap()
                 .decode()
                 .unwrap();
             assert_eq!(task.state, TaskState::Completed);
             let attempts = store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|record| record.collection == Collection::Attempt)
@@ -247,7 +248,7 @@ async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generati
                 rejected as usize
             );
             let ledgers = store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|record| record.collection == Collection::Ledger)

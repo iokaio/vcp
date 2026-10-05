@@ -393,10 +393,13 @@ async fn changed_base_revision_content_or_chain_refuses_start_and_resume_without
                 assert!(server.received_requests().await.unwrap().is_empty());
                 assert!(!fixture.data.join("mcp-observed.txt").exists());
                 let store = reopen(&entry).await;
-                assert!(!store.state().commands.values().any(|receipt| matches!(
-                    receipt.command.as_str(),
-                    "compiled-start-once" | "import-resume"
-                )));
+                assert!(!(&store.archive_state().await.unwrap())
+                    .commands
+                    .values()
+                    .any(|receipt| matches!(
+                        receipt.command.as_str(),
+                        "compiled-start-once" | "import-resume"
+                    )));
                 store.close().await.unwrap();
                 // Invalid persisted imports also refuse the ordinary CLI before
                 // provider work; valid new revisions can be selected on relaunch.

@@ -5,6 +5,7 @@
 use serde_json::Value;
 use std::{fs, path::Path};
 use vcp_domain::{task::Task, workspace::Workspace, SessionId, TaskId, WorkspaceId};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 #[tokio::test]
@@ -32,7 +33,7 @@ async fn retained_predecessors_reopen_after_descendant_activation() {
         assert!(!inventory.is_empty() && inventory.len() <= 4096);
         verify_bytes(root, &inventory);
         let store = Store::open(root, backend, &[]).await.unwrap();
-        let state = store.state();
+        let state = &store.archive_state().await.unwrap();
         let retained: Workspace = state
             .record(Collection::Workspace, workspace.as_str(), &workspace)
             .unwrap()
@@ -124,44 +125,42 @@ async fn actual_return_preserves_captured_history_and_evidence() {
             before.prefix_digest(job.watermark).await.unwrap(),
             job.state_digest
         );
-        let events: Vec<_> = before
-            .state()
+        let before_archive = before.archive_state().await.unwrap();
+        let after_archive = after.archive_state().await.unwrap();
+        let events: Vec<_> = before_archive
             .events
             .iter()
             .filter(|e| e.watermark <= job.watermark)
             .collect();
         assert!(!events.is_empty());
-        let returned: Vec<_> = after
-            .state()
+        let returned: Vec<_> = after_archive
             .events
             .iter()
             .filter(|e| e.watermark <= job.watermark)
             .collect();
         assert_eq!(events, returned, "original event envelopes changed");
-        let commands: Vec<_> = before
-            .state()
+        let commands: Vec<_> = before_archive
             .commands
             .iter()
             .filter(|(_, r)| r.watermark <= job.watermark)
             .collect();
         assert!(!commands.is_empty());
         for (key, value) in &commands {
-            assert_eq!(after.state().commands.get(*key), Some(*value));
+            assert_eq!(after_archive.commands.get(*key), Some(*value));
         }
-        let transactions: Vec<_> = before
-            .state()
+        let transactions: Vec<_> = before_archive
             .transactions
             .iter()
             .filter(|(_, r)| r.watermark <= job.watermark)
             .collect();
         assert!(!transactions.is_empty());
         for (key, value) in &transactions {
-            assert_eq!(after.state().transactions.get(*key), Some(*value));
+            assert_eq!(after_archive.transactions.get(*key), Some(*value));
         }
         let mut records = 0;
         let mut artifacts = 0;
         let mut bytes = 0u64;
-        for (key, record) in &before.state().records {
+        for (key, record) in before.current().records {
             if !matches!(
                 record.collection,
                 Collection::Session
@@ -178,7 +177,7 @@ async fn actual_return_preserves_captured_history_and_evidence() {
                 continue;
             }
             assert_eq!(
-                after.state().records.get(key),
+                after.current().records.get(key),
                 Some(record),
                 "retained canonical record changed: {}",
                 record.collection.name()

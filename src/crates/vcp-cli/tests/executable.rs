@@ -47,6 +47,7 @@ use std::{
 };
 use vcp_domain::Timestamp;
 use vcp_models::catalog::{Compatibility, Snapshot};
+use vcp_store::contract::CanonicalStore;
 use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
@@ -1052,7 +1053,7 @@ async fn terminal_delegation_variant(pause_active: bool, child_count: usize, har
             .unwrap()
             .decode()
             .unwrap();
-        assert!(ledger.unresolved > vcp_domain::Micros::ZERO);
+        assert!(ledger.unresolved.known().unwrap() > vcp_domain::Micros::ZERO);
         assert_eq!(
             server.received_requests().await.unwrap().len(),
             child_count + 1,
@@ -1067,7 +1068,7 @@ async fn terminal_delegation_variant(pause_active: bool, child_count: usize, har
     )
     .await
     .unwrap();
-    let state = store.state();
+    let state = &store.archive_state().await.unwrap();
     let children: Vec<_> = state
         .records
         .values()
@@ -2489,7 +2490,7 @@ async fn executable_terminal_skill_activation_reports_source_version_reason_and_
     .await
     .unwrap();
     let state = store
-        .state()
+        .current()
         .records
         .values()
         .find(|record| {

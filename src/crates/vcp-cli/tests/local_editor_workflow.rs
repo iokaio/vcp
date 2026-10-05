@@ -16,6 +16,7 @@ use std::{
     },
     time::Duration,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::BackendKind;
 fn native(path: &Path) -> String {
     path.to_str()
@@ -209,7 +210,7 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
         .await
         .unwrap();
         let changes: Vec<vcp_domain::editor::ChangeSet> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.value["document_type"] == vcp_domain::editor::CHANGE)
@@ -217,7 +218,7 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
             .collect();
         assert_eq!(changes.len(), 4);
         assert!(changes.iter().all(|change| change.schema_version == 2));
-        assert!(store.state().records.values().any(|row| {
+        assert!(store.current().records.values().any(|row| {
             row.value["document_type"] == "vcp_editor_buffers_v2"
                 && row.value["schema_version"] == 2
         }));
@@ -239,7 +240,7 @@ async fn editor_workflow_records_partial_and_interrupted_buffer_edits_both_store
             vcp_domain::editor::FileState::Dispatched | vcp_domain::editor::FileState::Unknown
         ));
         let effect = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == vcp_store::contract::Collection::Effect)

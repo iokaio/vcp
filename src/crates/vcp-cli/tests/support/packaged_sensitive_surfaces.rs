@@ -5,6 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::process::{Child, Stdio};
 use std::time::Duration;
 use vcp_domain::artifact::ArtifactDescriptor;
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, Store};
 
 const PROVIDER: &str = "synthetic-cli-qualification";
@@ -351,14 +352,14 @@ async fn packaged_typed_secrets_stay_out_of_capture_environment_and_presentation
         .await
         .unwrap();
         excluded(
-            &serde_json::to_vec(store.state()).unwrap(),
+            &serde_json::to_vec(&store.archive_state().await.unwrap()).unwrap(),
             &secrets,
             "canonical records/events/receipts",
         );
         let mut artifacts = 0;
         let mut ordinary_retained = false;
         for row in store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)

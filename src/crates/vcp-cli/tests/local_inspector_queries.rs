@@ -80,7 +80,7 @@ async fn driver(input: Value) {
 async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -89,8 +89,7 @@ async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
         .unwrap()
         .decode()
         .unwrap();
-    let origin = store
-        .state()
+    let origin = (&store.archive_state().await.unwrap())
         .events
         .iter()
         .find(|event| {
@@ -122,7 +121,7 @@ async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -284,7 +283,7 @@ async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
     let mut history = Vec::new();
     loop {
         let page = vcp_audit::history_query::query_session(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &history_access,
             &query,
             &task.scope.session,
@@ -298,7 +297,7 @@ async fn seed(fixture: &Fixture, version_count: usize) -> serde_json::Value {
             break;
         }
     }
-    let input = json!({"executable":env!("CARGO_BIN_EXE_vcp"),"workspace":fixture.workspace,"data":fixture.data,"scope":fixture.scope(),"task":fixture.config.root_task,"claim":proposal.claim,"artifact":artifact.spec.id,"origin":origin,"versions":versions,"history":history,"watermark":store.state().watermark.get().to_string(),"inspection":inspection});
+    let input = json!({"executable":env!("CARGO_BIN_EXE_vcp"),"workspace":fixture.workspace,"data":fixture.data,"scope":fixture.scope(),"task":fixture.config.root_task,"claim":proposal.claim,"artifact":artifact.spec.id,"origin":origin,"versions":versions,"history":history,"watermark":store.current().watermark.get().to_string(),"inspection":inspection});
     store.close().await.unwrap();
     input
 }
@@ -375,7 +374,7 @@ async fn seed_inspection(
         .unwrap();
     let workspace: vcp_domain::workspace::Workspace = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -521,7 +520,7 @@ async fn seed_inspection(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -558,12 +557,12 @@ async fn compiled_sdk_inspector_queries_match_governed_cli_queries_without_mutat
         let fixture = Fixture::new(backend).await;
         let input = seed(&fixture, 33).await;
         let before = fixture.reopen().await;
-        let state = serde_json::to_value(before.state()).unwrap();
+        let state = serde_json::to_value(&before.archive_state().await.unwrap()).unwrap();
         before.close().await.unwrap();
         driver(input).await;
         let after = fixture.reopen_within(Duration::from_secs(45)).await;
         assert_eq!(
-            serde_json::to_value(after.state()).unwrap(),
+            serde_json::to_value(&after.archive_state().await.unwrap()).unwrap(),
             state,
             "observer queries cannot mutate canonical state"
         );
@@ -589,14 +588,17 @@ async fn local_startup_large_history_and_early_cancellation() {
             "startup store_open backend={backend:?} ms={}",
             began.elapsed().as_millis()
         );
-        let state = serde_json::to_value(store.state()).unwrap();
+        let state = serde_json::to_value(&store.archive_state().await.unwrap()).unwrap();
         store.close().await.unwrap();
         input["startup_probe"] = json!(true);
         input["backend"] = json!(format!("{backend:?}"));
         input["canonical_root"] = json!(fixture.config.canonical_root);
         driver(input).await;
         let after = fixture.reopen_within(Duration::from_secs(45)).await;
-        assert_eq!(serde_json::to_value(after.state()).unwrap(), state);
+        assert_eq!(
+            serde_json::to_value(&after.archive_state().await.unwrap()).unwrap(),
+            state
+        );
         after.close().await.unwrap();
     }
 }
@@ -646,7 +648,7 @@ async fn final_production_startup_130_versions_both_stores() {
         let seed_ms = started.elapsed().as_millis();
         let before = fixture.reopen_within(Duration::from_secs(45)).await;
         assert_offline_paused(&before, &fixture.config);
-        let state = serde_json::to_value(before.state()).unwrap();
+        let state = serde_json::to_value(&before.archive_state().await.unwrap()).unwrap();
         before.close().await.unwrap();
         input["backend"] = json!(format!("{backend:?}"));
         input["canonical_root"] = json!(fixture.config.canonical_root);
@@ -747,7 +749,7 @@ async fn final_production_startup_130_versions_both_stores() {
             output.display()
         );
         let after = fixture.reopen_within(Duration::from_secs(45)).await;
-        let after_state = serde_json::to_value(after.state()).unwrap();
+        let after_state = serde_json::to_value(&after.archive_state().await.unwrap()).unwrap();
         fs::write(
             output.join(format!("{name}-state-after.json")),
             serde_json::to_vec(&after_state).unwrap(),

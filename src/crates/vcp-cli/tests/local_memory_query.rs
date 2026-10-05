@@ -19,6 +19,7 @@ use vcp_memory::{
     search_record::{self, ChunkerSpec, SourceBinding},
 };
 use vcp_protocol::command::{Command, CommandEnvelope};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{
     artifact::ArtifactWriter,
     contract::{Collection, State},
@@ -146,7 +147,7 @@ async fn source(
     if existing {
         let prior: Task = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, task.as_str(), &scope.workspace)
             .unwrap()
             .decode()
@@ -197,9 +198,7 @@ async fn source(
         )
         .await;
     }
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|event| {
@@ -368,7 +367,7 @@ async fn seed(fixture: &wire::Fixture) -> (Source, Source, State) {
         .publish(&mut store, &access, &prepared, Timestamp::new(300), &|_| {})
         .await
         .unwrap();
-    let state = store.state().clone();
+    let state = store.archive_state().await.unwrap();
     store.close().await.unwrap();
     (selected, other, state)
 }
@@ -377,7 +376,7 @@ async fn compiled_observer_memory_query_preserves_real_sources_scope_and_read_on
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let fixture = wire::Fixture::new(backend).await;
         let store = fixture.reopen().await;
-        let initial = store.state().clone();
+        let initial = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         let mut missing = wire::Client::connect(&fixture, "observer");
         initialize(&mut missing, true);
@@ -395,7 +394,7 @@ async fn compiled_observer_memory_query_preserves_real_sources_scope_and_read_on
             .contains(&json!("generation_unavailable")));
         assert!(missing.finish().await.0.success());
         let store = fixture.reopen().await;
-        assert_eq!(store.state(), &initial);
+        assert_eq!(&store.archive_state().await.unwrap(), &initial);
         store.close().await.unwrap();
         let (selected, other, before) = seed(&fixture).await;
         let mut legacy = wire::Client::connect(&fixture, "observer");
@@ -504,7 +503,7 @@ async fn compiled_observer_memory_query_preserves_real_sources_scope_and_read_on
             .is_some());
         assert!(client.finish().await.0.success());
         let store = fixture.reopen().await;
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         store.close().await.unwrap();
     }
 }

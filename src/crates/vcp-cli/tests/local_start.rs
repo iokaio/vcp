@@ -22,6 +22,7 @@ use vcp_domain::{
     Timestamp,
 };
 use vcp_models::catalog::{Compatibility, Snapshot};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 use wiremock::{
     matchers::{method, path},
@@ -226,7 +227,7 @@ async fn compiled_start_preserves_caller_identity_and_never_reexecutes_after_own
         assert!(!diagnostics.contains(SECRET));
         let store = reopen(&entry).await;
         let canonical: Task = store
-            .state()
+            .current()
             .record(Collection::Task, ROOT, &entry.config.workspace)
             .unwrap()
             .decode()
@@ -234,27 +235,25 @@ async fn compiled_start_preserves_caller_identity_and_never_reexecutes_after_own
         assert_eq!(canonical.state, TaskState::Paused);
         assert_eq!(canonical.root, TaskId::parse(ROOT).unwrap());
         let turn: Turn = store
-            .state()
+            .current()
             .record(Collection::Turn, TURN, &entry.config.workspace)
             .unwrap()
             .decode()
             .unwrap();
         assert_eq!(turn.scope, canonical.scope);
-        let accepted_commands = store
-            .state()
+        let archive = store.archive_state().await.unwrap();
+        let accepted_commands = archive
             .commands
             .values()
             .filter(|receipt| receipt.command.as_str() == "compiled-start-once")
             .count();
         assert_eq!(accepted_commands, 1);
-        let receipt = store
-            .state()
+        let receipt = archive
             .commands
             .values()
             .find(|receipt| receipt.command.as_str() == "compiled-start-once")
             .unwrap();
-        let events: Vec<_> = store
-            .state()
+        let events: Vec<_> = archive
             .events
             .iter()
             .filter(|event| event.watermark == receipt.watermark)

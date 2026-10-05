@@ -31,7 +31,7 @@ fn editor_path(path: &Path) -> String {
 async fn pending(fixture: &Fixture) {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -74,7 +74,7 @@ async fn pending(fixture: &Fixture) {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![
                 Mutation::Put {
                     expected: None,
@@ -212,7 +212,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
         pending(fixture).await;
         let store = fixture.reopen().await;
         let root: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -223,14 +223,14 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
             .unwrap();
         cli_views.push(
             vcp_cli::terminal::view_at(
-                store.state(),
+                &store.archive_state().await.unwrap(),
                 &root.scope,
                 &fixture.config.price.model,
                 Timestamp::new(1),
             )
             .unwrap(),
         );
-        before.push(store.state().clone());
+        before.push(store.archive_state().await.unwrap());
         store.close().await.unwrap();
         fs::create_dir_all(fixture.workspace.join(".vscode")).unwrap();
         fs::write(fixture.workspace.join(".vscode/settings.json"),r#"{"vcp.engineExecutable":"C:\\workspace-injected-never-run.exe","vcp.dataDirectory":"C:\\workspace-injected-never-open"}"#).unwrap();
@@ -302,7 +302,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
     assert_eq!(result["droppedSubscriptionVerified"], true);
     let trust_store = trust_fixture.reopen_within(Duration::from_secs(45)).await;
     let trust_workspace: vcp_domain::workspace::Workspace = trust_store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             trust_fixture.config.workspace.as_str(),
@@ -318,7 +318,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
     assert_eq!(trust_workspace.revision, Revision::new(2));
     assert_eq!(trust_workspace.authority.get(), 2);
     let trust_task: Task = trust_store
-        .state()
+        .current()
         .record(
             Collection::Task,
             trust_fixture.config.root_task.as_str(),
@@ -329,7 +329,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
         .unwrap();
     assert_eq!(trust_task.state, vcp_domain::task::TaskState::Paused);
     let trust_approvals: Vec<Approval> = trust_store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Approval)
@@ -340,7 +340,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
     trust_store.close().await.unwrap();
     let moved_store = moved_fixture.reopen_within(Duration::from_secs(45)).await;
     let moved_workspace: vcp_domain::workspace::Workspace = moved_store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             moved_fixture.config.workspace.as_str(),
@@ -360,7 +360,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
         vcp_domain::workspace::Trust::Untrusted
     );
     let task: Task = moved_store
-        .state()
+        .current()
         .record(
             Collection::Task,
             moved_fixture.config.root_task.as_str(),
@@ -371,7 +371,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
         .unwrap();
     assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
     let approvals: Vec<Approval> = moved_store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Approval)
@@ -392,7 +392,7 @@ async fn editor_observer_commands_preserve_both_canonical_stores() {
     for (fixture, before) in fixtures.iter().zip(before) {
         let store = fixture.reopen_within(Duration::from_secs(45)).await;
         assert_eq!(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &before,
             "observer UI must not acquire, resume, answer, or mutate canonical state"
         );
@@ -425,7 +425,7 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
     // its engine. Freshness projection is not decision authority.
     let mut store = fixture.reopen().await;
     let mut approval: Approval = store
-        .state()
+        .current()
         .records
         .values()
         .find(|record| record.collection == Collection::Approval)
@@ -440,7 +440,7 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: Some(Revision::ZERO),
                 record: Record::typed(
@@ -458,7 +458,7 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
         .await
         .unwrap();
     let root: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -468,7 +468,7 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
         .decode()
         .unwrap();
     let cli = vcp_cli::terminal::view_at(
-        store.state(),
+        &store.archive_state().await.unwrap(),
         &root.scope,
         &fixture.config.price.model,
         Timestamp::new(1),
@@ -544,14 +544,14 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
     assert_eq!(result["staleVerified"], true);
     let store = fixture.reopen_within(Duration::from_secs(45)).await;
     let child: Task = store
-        .state()
+        .current()
         .record(Collection::Task, child.as_str(), &fixture.config.workspace)
         .unwrap()
         .decode()
         .unwrap();
     assert_eq!(child.state, vcp_domain::task::TaskState::Cancelled);
     let approval: Approval = store
-        .state()
+        .current()
         .record(
             Collection::Approval,
             approval.id.as_str(),
@@ -567,8 +567,7 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
     );
     let cancel = result["cancelCommand"].as_str().unwrap();
     assert_eq!(
-        store
-            .state()
+        (&store.archive_state().await.unwrap())
             .commands
             .values()
             .filter(|receipt| receipt.command.as_str() == cancel)
@@ -578,8 +577,7 @@ async fn editor_task_actions_preserve_command_identity_across_reload() {
     );
     let denied = result["staleCommand"].as_str().unwrap();
     assert!(
-        !store
-            .state()
+        !(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|receipt| receipt.command.as_str() == denied),

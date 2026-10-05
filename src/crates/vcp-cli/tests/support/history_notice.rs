@@ -46,20 +46,22 @@ async fn executable_history_notice_is_acknowledged_once_without_invalidating_pre
         let mut store = open(&fixture).await;
         // Append a synthetic old observation through the canonical contract;
         // never rewrite retained bytes or receipts to manufacture notice age.
-        let mut old = store.state().events[0].event.clone();
+        let mut old = (&store.archive_state().await.unwrap()).events[0]
+            .event
+            .clone();
         old.id = vcp_domain::EventId::new();
         old.timestamp = Timestamp::ZERO;
         store
             .transact(Transaction {
                 id: vcp_domain::TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![],
                 events: vec![old],
                 command: None,
             })
             .await
             .unwrap();
-        let before = store.state().watermark;
+        let before = store.current().watermark;
         store.close().await.unwrap();
 
         let preview = data(
@@ -69,10 +71,10 @@ async fn executable_history_notice_is_acknowledged_once_without_invalidating_pre
         .await;
         assert!(preview["retention_notice"].is_null());
         let store = open(&fixture).await;
-        let preview_watermark = store.state().watermark;
+        let preview_watermark = store.current().watermark;
         assert_eq!(preview_watermark, before.next().unwrap());
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|record| record.value["document_type"] == "vcp_retention_notice_v1"));
@@ -83,17 +85,17 @@ async fn executable_history_notice_is_acknowledged_once_without_invalidating_pre
         )
         .await;
         let store = open(&fixture).await;
-        assert_eq!(store.state().watermark, preview_watermark);
+        assert_eq!(store.current().watermark, preview_watermark);
         store.close().await.unwrap();
 
         let first = data(&fixture, &["history", "list", "--limit", "1"]).await;
         assert_eq!(first["retention_notice"]["due"], true);
         let store = open(&fixture).await;
-        let acknowledged = store.state().watermark;
+        let acknowledged = store.current().watermark;
         assert_eq!(acknowledged, preview_watermark.next().unwrap());
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|record| record.value["document_type"] == "vcp_retention_notice_v1")
@@ -104,7 +106,7 @@ async fn executable_history_notice_is_acknowledged_once_without_invalidating_pre
         let second = data(&fixture, &["history", "list", "--limit", "1"]).await;
         assert!(second["retention_notice"].is_null());
         let store = open(&fixture).await;
-        assert_eq!(store.state().watermark, acknowledged);
+        assert_eq!(store.current().watermark, acknowledged);
         store.close().await.unwrap();
         assert!(server.received_requests().await.unwrap().is_empty());
     }

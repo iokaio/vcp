@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use vcp_cli::backup::{self, Backup, Keys};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 async fn driver(input: Value) -> Value {
@@ -128,7 +129,7 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
         let result = driver(input.clone()).await;
         let store = reopen(&entry.config.canonical_root, backend).await;
         let jobs: Vec<vcp_store::snapshot_jobs::Job> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -143,8 +144,7 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
         assert_eq!(job.stage, vcp_store::snapshot_jobs::Stage::Published);
         assert!(!job.active);
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|r| r.command == operation)
@@ -152,7 +152,7 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
             1
         );
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Attempt));

@@ -108,7 +108,7 @@ async fn outcome(
         "one patch, one verification, one final response"
     );
     let store = reopen(entry).await;
-    let state = store.state();
+    let state = &store.archive_state().await.unwrap();
     let task: Task = state
         .record(Collection::Task, task_id.as_str(), &entry.config.workspace)
         .unwrap()
@@ -158,8 +158,8 @@ async fn outcome(
                     cap: value.cap,
                     protected: value.protected,
                     settled: value.settled,
-                    active: value.active,
-                    unresolved: value.unresolved,
+                    active: value.active.known().unwrap(),
+                    unresolved: value.unresolved.known().unwrap(),
                     overrun: value.overrun,
                 });
             }
@@ -537,7 +537,7 @@ async fn production_cli_compacts_large_tool_history_and_preserves_verified_compl
             b"42\n"
         );
         let store = reopen(&entry).await;
-        let state = store.state();
+        let state = &store.archive_state().await.unwrap();
         assert!(state
             .records
             .values()

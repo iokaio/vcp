@@ -7,6 +7,7 @@ use super::*;
 use std::{collections::BTreeMap, os::windows::fs::MetadataExt, path::Path};
 use vcp_domain::controller::Lease;
 use vcp_protocol::{command::CommandResult, event::EventKind};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::contract::{self, State};
 
 fn hash(path: &Path) -> String {

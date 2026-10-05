@@ -136,7 +136,7 @@ async fn offline_search_declares_missing_generation_without_creating_it_or_mutat
             tokens: 4096,
             bytes: 65536,
         };
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let query = vcp_cli::app::Query::MemorySearch { request };
         let result = vcp_cli::app::query_store(
             &store,
@@ -148,7 +148,7 @@ async fn offline_search_declares_missing_generation_without_creating_it_or_mutat
         .unwrap();
         assert!(result["passages"].as_array().unwrap().is_empty());
         assert!(!result["degraded"].as_array().unwrap().is_empty());
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         assert!(!temp.path().join("search-generations").exists());
         store.close().await.unwrap();
     }

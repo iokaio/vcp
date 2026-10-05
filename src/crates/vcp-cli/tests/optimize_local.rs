@@ -78,14 +78,14 @@ async fn local_optimizer_persists_reports_and_answers_without_a_budget_or_provid
             write: true,
             tasks: None,
         };
-        let cutoff = store.state().watermark;
+        let cutoff = store.current().watermark;
         let status =
             offline::execute_store(&mut store, &access, &Command::Status, Timestamp::new(200))
                 .await
                 .unwrap();
         assert!(status["policy"].is_null());
         assert!(status["registry"].is_null());
-        assert_eq!(store.state().watermark, cutoff);
+        assert_eq!(store.current().watermark, cutoff);
         let report = offline::execute_store(
             &mut store,
             &access,
@@ -142,16 +142,19 @@ async fn local_optimizer_persists_reports_and_answers_without_a_budget_or_provid
             Collection::Reservation,
         ] {
             assert!(store
-                .state()
+                .current()
                 .records
                 .values()
                 .all(|r| r.collection != collection));
         }
-        assert!(!store.state().events.iter().any(|event| matches!(
-            event.event.kind,
-            vcp_protocol::event::EventKind::AttemptSubmitted
-                | vcp_protocol::event::EventKind::ReservationCreated
-        )));
+        assert!(!(&store.archive_state().await.unwrap())
+            .events
+            .iter()
+            .any(|event| matches!(
+                event.event.kind,
+                vcp_protocol::event::EventKind::AttemptSubmitted
+                    | vcp_protocol::event::EventKind::ReservationCreated
+            )));
         store.close().await.unwrap();
         let mut reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         let status = offline::execute_store(

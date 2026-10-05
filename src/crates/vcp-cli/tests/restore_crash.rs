@@ -17,6 +17,7 @@ use vcp_domain::{
     workspace::{Trust, Workspace},
     *,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::*, BackendKind, Store};
 
 /// A failed supervisor assertion must not leave a product process parked at
@@ -343,7 +344,7 @@ impl Case {
             .await
             .unwrap();
         let workspace: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.workspace().as_str(),
@@ -354,13 +355,13 @@ impl Case {
             .unwrap();
         assert_eq!(workspace.trust, Trust::Untrusted);
         assert_eq!(
-            vcp_engine::policy::current(store.state(), &self.workspace())
+            vcp_engine::policy::current(store.current(), &self.workspace())
                 .unwrap()
                 .mode,
             vcp_domain::policy::Autonomy::Plan
         );
         let tasks: Vec<Task> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Task)
@@ -369,7 +370,7 @@ impl Case {
         assert!(!tasks.is_empty());
         assert!(tasks.iter().all(|t| t.state != TaskState::Running));
         for row in store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -386,7 +387,7 @@ impl Case {
             );
         }
         assert!(!self.destination.join(".git").exists());
-        let state = store.state().clone();
+        let state = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         self.original_unchanged();
         state
@@ -546,7 +547,7 @@ async fn interrupted_restore_with_competing_roots_uses_validated_selection() {
                 }
             );
             let imported = Store::open(&candidate, backend, &[]).await.unwrap();
-            let imported_state = imported.state().clone();
+            let imported_state = imported.archive_state().await.unwrap();
             imported.close().await.unwrap();
             case.receipt(
                 "candidate-state-before-recovery.json",
@@ -557,7 +558,12 @@ async fn interrupted_restore_with_competing_roots_uses_validated_selection() {
                 // A validly framed append still invalidates the imported exact
                 // state receipt. It must not win selection by being newer.
                 let mut store = Store::open(&candidate, backend, &[]).await.unwrap();
-                let mut event = store.state().events.last().unwrap().event.clone();
+                let mut event = (&store.archive_state().await.unwrap())
+                    .events
+                    .last()
+                    .unwrap()
+                    .event
+                    .clone();
                 event.id = EventId::new();
                 event.correlation = CommandId::new();
                 event.kind = vcp_protocol::event::EventKind::Diagnostic;
@@ -565,7 +571,7 @@ async fn interrupted_restore_with_competing_roots_uses_validated_selection() {
                 store
                     .transact(Transaction {
                         id: TransactionId::new(),
-                        expected_watermark: store.state().watermark,
+                        expected_watermark: store.current().watermark,
                         mutations: vec![],
                         events: vec![event],
                         command: None,
@@ -627,11 +633,11 @@ async fn interrupted_restore_with_competing_roots_uses_validated_selection() {
             }
             let old = Store::open(&old_root, backend, &[]).await.unwrap();
             assert_eq!(
-                vcp_protocol::canonical_bytes(old.state()).unwrap(),
+                vcp_protocol::canonical_bytes(&old.archive_state().await.unwrap()).unwrap(),
                 vcp_protocol::canonical_bytes(&prior).unwrap()
             );
             for record in old
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Artifact)
@@ -809,11 +815,16 @@ async fn receipt_before_selection_revalidates_source_and_current_deletion_floor(
                 "canonical" => {
                     let target = case.registry().join("canonical-roots").join(&operation);
                     let mut store = Store::open(&target, backend, &[]).await.unwrap();
-                    let original = store.state().events.last().unwrap().event.clone();
+                    let original = (&store.archive_state().await.unwrap())
+                        .events
+                        .last()
+                        .unwrap()
+                        .event
+                        .clone();
                     store
                         .transact(Transaction {
                             id: TransactionId::new(),
-                            expected_watermark: store.state().watermark,
+                            expected_watermark: store.current().watermark,
                             mutations: vec![],
                             events: vec![vcp_protocol::event::EventInput {
                                 id: EventId::new(),

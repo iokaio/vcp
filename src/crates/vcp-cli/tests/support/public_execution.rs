@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Actual controlled bridge/server execution with a synthetic loopback provider.
 use super::*;
+use vcp_store::contract::CanonicalStore;
 #[path = "local_fixture.rs"]
 mod wire;
 use std::time::{Duration, Instant};
@@ -206,7 +207,7 @@ async fn compiled_public_resume_submits_once_pause_stays_connected_and_restart_n
         .await
         .unwrap();
     let durable: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             entry.config.root_task.as_str(),
@@ -217,8 +218,7 @@ async fn compiled_public_resume_submits_once_pause_stays_connected_and_restart_n
         .unwrap();
     assert_eq!(durable.state, TaskState::Paused);
     assert_eq!(
-        store
-            .state()
+        (&store.archive_state().await.unwrap())
             .commands
             .values()
             .filter(|receipt| receipt.command.as_str() == "compiled-resume-once")
@@ -315,7 +315,7 @@ async fn compiled_public_execution_owner_loss_and_pipe_reconnect_require_explici
         }
     };
     let durable: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             entry.config.root_task.as_str(),

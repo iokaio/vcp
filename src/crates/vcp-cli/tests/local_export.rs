@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use vcp_domain::{artifact::*, task::Task, verification::Fingerprint, workspace::Scope, *};
 use vcp_engine::{Access, Engine, HostFacts};
 use vcp_protocol::command::{Command, CommandEnvelope};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{
     artifact::ArtifactWriter,
     contract::{Collection, State},
@@ -139,7 +140,7 @@ async fn seed(fixture: &wire::Fixture) -> (ArtifactDescriptor, State) {
         0,
     )
     .await;
-    let state = engine.store().state().clone();
+    let state = engine.store().archive_state().await.unwrap();
     engine.into_store().close().await.unwrap();
     (descriptor, state)
 }
@@ -255,11 +256,11 @@ async fn compiled_local_export_enforces_profile_and_scope_and_preserves_replay_v
         wire::assert_offline_paused(&store, &fixture.config);
         for (key, row) in &initial.records {
             // The fixture did not have a controller lease before launching.
-            assert_eq!(store.state().records.get(key), Some(row));
+            assert_eq!(store.current().records.get(key), Some(row));
         }
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Artifact)
@@ -267,8 +268,7 @@ async fn compiled_local_export_enforces_profile_and_scope_and_preserves_replay_v
             5
         );
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .events
                 .iter()
                 .filter(|e| e.event.data.get("session_export").is_some())
@@ -301,7 +301,7 @@ async fn compiled_local_export_enforces_profile_and_scope_and_preserves_replay_v
         finish(&mut stale).await;
         let store = fixture.reopen().await;
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -351,16 +351,14 @@ async fn compiled_export_honors_explicit_host_denial_before_capture() {
         assert_eq!(denied["error"]["data"]["details"]["code"], "POLICY_DENIED");
         finish(&mut client).await;
         let store = fixture.reopen().await;
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|receipt| receipt.command.as_str() == "denied-export"));
-        assert!(!store.state().events.iter().any(|event| event
-            .event
-            .data
-            .get("session_export")
-            .is_some()));
+        assert!(!(&store.archive_state().await.unwrap())
+            .events
+            .iter()
+            .any(|event| event.event.data.get("session_export").is_some()));
         wire::assert_offline_paused(&store, &fixture.config);
         store.close().await.unwrap();
     }

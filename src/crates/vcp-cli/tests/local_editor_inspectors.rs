@@ -13,6 +13,7 @@ use std::{
     process::Command,
     time::Duration,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::BackendKind;
 fn native(path: &Path) -> String {
     path.to_str()
@@ -218,7 +219,7 @@ async fn installed_editor_inspectors_use_real_renderer_and_preserve_controller_b
         assert!(controller.finish().await.0.success());
         let store = fixture.reopen_within(Duration::from_secs(45)).await;
         let task: vcp_domain::task::Task = store
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -228,7 +229,7 @@ async fn installed_editor_inspectors_use_real_renderer_and_preserve_controller_b
             .decode()
             .unwrap();
         assert_eq!(task.state, vcp_domain::task::TaskState::Cancelled);
-        assert!(!store.state().records.values().any(|row| matches!(
+        assert!(!store.current().records.values().any(|row| matches!(
             row.collection,
             vcp_store::contract::Collection::Attempt | vcp_store::contract::Collection::Effect
         )));

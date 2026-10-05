@@ -21,6 +21,7 @@ use std::{
 use vcp_cli::settings::WorkspaceEntry;
 use vcp_domain::{accounting::*, memory::Outcome, task::TaskState, *};
 use vcp_lifecycle::foundation::Config;
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::*, BackendKind, Store};
 
 struct Fixture {
@@ -142,7 +143,11 @@ impl Fixture {
         fs::create_dir_all(&canonical_root).unwrap();
         let mut store = Store::open(&canonical_root, backend, &[]).await.unwrap();
         store.transact(initial).await.unwrap();
-        let origin = store.state().events.last().unwrap().clone();
+        let origin = (&store.archive_state().await.unwrap())
+            .events
+            .last()
+            .unwrap()
+            .clone();
         let access = vcp_memory::access::Access {
             workspace: w.id.clone(),
             actor: ActorId::parse("human").unwrap(),
@@ -183,7 +188,7 @@ impl Fixture {
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record: Record::typed(
@@ -200,7 +205,11 @@ impl Fixture {
             })
             .await
             .unwrap();
-        let origin = store.state().events.last().unwrap().clone();
+        let origin = (&store.archive_state().await.unwrap())
+            .events
+            .last()
+            .unwrap()
+            .clone();
         let proposal = vcp_memory::preferences::materialize(&mut store, &access, &origin)
             .await
             .unwrap()
@@ -337,14 +346,14 @@ impl Fixture {
         let store = Store::open(&self.config.canonical_root, self.config.backend, &[])
             .await
             .unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         let response = success(self.call(&["memory", "search", "retained", "--task", "task"]));
         let store = Store::open(&self.config.canonical_root, self.config.backend, &[])
             .await
             .unwrap();
         assert_eq!(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &before,
             "ordinary search mutated canonical history"
         );
@@ -365,7 +374,7 @@ async fn assert_paused_without_dispatch(
         assert_eq!(task["state"], "paused");
         assert_eq!(task["scope"]["workspace"], workspace.as_str());
         let record = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 task["scope"]["task"].as_str().unwrap(),
@@ -374,15 +383,18 @@ async fn assert_paused_without_dispatch(
             .unwrap();
         assert_eq!(&record.value, task, "local memory changed the paused task");
     }
-    assert!(store.state().records.values().all(|record| !matches!(
+    assert!(store.current().records.values().all(|record| !matches!(
         record.collection,
         Collection::Attempt | Collection::Reservation | Collection::Ledger
     )));
-    assert!(!store.state().events.iter().any(|event| matches!(
-        event.event.kind,
-        vcp_protocol::event::EventKind::AttemptSubmitted
-            | vcp_protocol::event::EventKind::ReservationCreated
-    )));
+    assert!(!(&store.archive_state().await.unwrap())
+        .events
+        .iter()
+        .any(|event| matches!(
+            event.event.kind,
+            vcp_protocol::event::EventKind::AttemptSubmitted
+                | vcp_protocol::event::EventKind::ReservationCreated
+        )));
     store.close().await.unwrap();
 }
 
@@ -571,7 +583,7 @@ async fn production_memory_missing_assets_lexical_reopen_and_owner_fence() {
         let owner = Store::open(&fixture.config.canonical_root, backend, &[])
             .await
             .unwrap();
-        let before = owner.state().clone();
+        let before = owner.archive_state().await.unwrap();
         assert!(!fixture
             .call(&[
                 "memory",
@@ -586,7 +598,7 @@ async fn production_memory_missing_assets_lexical_reopen_and_owner_fence() {
             .call(&["memory", "query", "retained", "--assets", assets])
             .status
             .success());
-        assert_eq!(owner.state(), &before);
+        assert_eq!(&owner.archive_state().await.unwrap(), &before);
         owner.close().await.unwrap();
         fixture.assert_no_dispatch_or_resume().await;
     }
