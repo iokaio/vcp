@@ -77,6 +77,8 @@ pub struct StoreDiagnostics {
     pub history_reads: HistoryReads,
     pub validation_history_reads: HistoryReadPhases,
     pub event_validation_work: EventValidationWork,
+    pub redaction_validation_work: EventValidationWork,
+    pub ingestion_validation_work: EventValidationWork,
     pub append: StorePhase,
     pub checkpoint: StorePhase,
     pub replayed_commits: u64,
@@ -85,7 +87,7 @@ pub struct StoreDiagnostics {
     pub replay_payload_bytes: u64,
     pub validation_input_records: u64,
     /// Logical event-history input size, preserved for compatibility. Actual
-    /// examined rows and prefix reuse are in event_validation_work.
+    /// Examined rows and prefix reuse are in the per-phase validation_work fields.
     pub validation_input_events: u64,
     pub materialized_records: u64,
     pub materialized_events: u64,
@@ -115,6 +117,8 @@ impl StoreDiagnostics {
             history_reads: HistoryReads::default(),
             validation_history_reads: HistoryReadPhases::default(),
             event_validation_work: EventValidationWork::default(),
+            redaction_validation_work: EventValidationWork::default(),
+            ingestion_validation_work: EventValidationWork::default(),
             append: StorePhase::default(),
             checkpoint: StorePhase::default(),
             replayed_commits: 0,

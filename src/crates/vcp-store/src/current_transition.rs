@@ -26,6 +26,8 @@ pub(crate) struct HistoryWork {
     pub(crate) maximum_page_rows: usize,
     pub(crate) resolutions: crate::resolved_history::ResolutionDiagnostics,
     pub(crate) event_validation: crate::EventValidationWork,
+    pub(crate) redaction_validation: crate::EventValidationWork,
+    pub(crate) ingestion_validation: crate::EventValidationWork,
 }
 /// Construction is private to the full validator below. The source identity
 /// binds every catalog root and the current projection, not just its watermark.
@@ -93,8 +95,10 @@ async fn prepare_in_session(
     transaction: &Transaction,
     mut diagnostics: Option<&mut crate::StoreDiagnostics>,
     #[cfg(test)] proof: Option<&mut event_history_validation::replay_proof::EventReplayProof>,
-    #[cfg(test)] full_events: bool,
+    #[cfg(test)] full_history: bool,
 ) -> Result<Outcome> {
+    #[cfg(not(test))]
+    let full_history = false;
     let mut history = ResolvedHistory::new(source);
     let proposed = match history
         .run(pages, |history| {
@@ -163,9 +167,7 @@ async fn prepare_in_session(
             if let Some(proof) = proof {
                 return proof.validate(pages, source, &proposed).await;
             }
-            #[cfg(not(test))]
-            let full_events = false;
-            if !full_events
+            if !full_history
                 && event_history_validation::incremental::validate_appended(
                     pages,
                     source,
@@ -198,7 +200,7 @@ async fn prepare_in_session(
             diagnostics.event_validation_work.add(work.event_validation);
         }
         event_result?;
-        phase!(redaction, async {
+        let redaction_result = phase!(redaction, async {
             history
                 .run(pages, |history| {
                     crate::redaction_contract::validate_current(
@@ -207,12 +209,37 @@ async fn prepare_in_session(
                     )
                 })
                 .await?;
-            visit_events(pages, source, &proposed.events, &mut work, |rows| {
-                crate::redaction_contract::validate_event_rows(current.records, rows.iter().map(Ok))
-            })
-            .await?;
-            Ok::<_, Error>(())
-        })?;
+            let reuse = !full_history
+                && crate::history_predicate_reuse::redaction_unchanged(source, &proposed);
+            let mut examined = 0u64;
+            let mut validate_rows = |rows: &[EventEnvelope]| {
+                crate::redaction_contract::validate_event_rows(
+                    current.records,
+                    rows.iter().map(|row| {
+                        examined = examined.saturating_add(1);
+                        Ok(row)
+                    }),
+                )
+            };
+            let result = if reuse {
+                work.redaction_validation.prefix_reuses += 1;
+                validate_rows(&proposed.events)
+            } else {
+                work.redaction_validation.full_passes += 1;
+                if !full_history {
+                    work.redaction_validation.dependency_fallbacks += 1;
+                }
+                visit_events(pages, source, &proposed.events, &mut work, validate_rows).await
+            };
+            work.redaction_validation.rows_examined = examined;
+            result
+        });
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics
+                .redaction_validation_work
+                .add(work.redaction_validation);
+        }
+        redaction_result?;
         phase!(accounting, async {
             let validation = crate::accounting_contract::Validation::new(current)?;
             for attempt in validation.attempts() {
@@ -224,22 +251,49 @@ async fn prepare_in_session(
             }
             validation.finish()
         })?;
-        phase!(ingestion, async {
+        let ingestion_result = phase!(ingestion, async {
             let inputs = ingestion_contract::Inputs::new(current)?;
             if inputs.needs_history() {
                 let count = usize::try_from(source.catalog().event_count())
                     .ok()
                     .and_then(|count| count.checked_add(proposed.events.len()))
                     .ok_or(Error::Limit("historical event count"))?;
+                // Inputs::new always runs first. For unchanged ingestion
+                // dependencies the admitted old prefix remains valid: cursor
+                // boundaries and unique origins cannot move during append;
+                // history count and watermark only increase. Claim/Projection
+                // changes and uncertain Task facts take the complete pass.
+                if !full_history
+                    && crate::history_predicate_reuse::ingestion_unchanged(source, &proposed)
+                {
+                    work.ingestion_validation.prefix_reuses += 1;
+                    return Ok(());
+                }
+                work.ingestion_validation.full_passes += 1;
+                if !full_history {
+                    work.ingestion_validation.dependency_fallbacks += 1;
+                }
                 let mut ingestion = inputs.history(count);
-                visit_events(pages, source, &proposed.events, &mut work, |rows| {
-                    ingestion.extend(rows.iter().map(Ok))
+                let mut examined = 0u64;
+                let result = visit_events(pages, source, &proposed.events, &mut work, |rows| {
+                    ingestion.extend(rows.iter().map(|row| {
+                        examined = examined.saturating_add(1);
+                        Ok(row)
+                    }))
                 })
-                .await?;
+                .await;
+                work.ingestion_validation.rows_examined = examined;
+                result?;
                 inputs.finish(ingestion.finish()?)?;
             }
             Ok::<_, Error>(())
-        })?;
+        });
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics
+                .ingestion_validation_work
+                .add(work.ingestion_validation);
+        }
+        ingestion_result?;
         phase!(search, async {
             history
                 .run(pages, |history| {
@@ -311,7 +365,8 @@ pub(crate) async fn prepare_with_event_proof(
     result
 }
 
-/// Frozen full event-phase orchestration for incremental differential tests.
+/// Full event, redaction and ingestion orchestration retained as an independent
+/// prefix-reuse oracle. Only test callers can select this complete history path.
 #[cfg(test)]
 pub(crate) async fn prepare_full_events(
     pages: &mut impl Pages,
@@ -323,8 +378,8 @@ pub(crate) async fn prepare_full_events(
 }
 
 // Each full-history phase consumes every row before the next phase starts.
-// Event-phase prefix reuse is separately guarded by admitted source evidence
-// and exact current dependencies; remaining full passes keep their order.
+// Each phase's prefix reuse is separately guarded by admitted source evidence
+// and exact current dependencies; fallbacks keep their original phase order.
 async fn visit_events(
     pages: &mut impl Pages,
     source: &AdmittedCut,

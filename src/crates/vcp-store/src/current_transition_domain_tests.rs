@@ -272,8 +272,19 @@ async fn ingestion_uses_complete_history_pass_and_preserves_domain_error_order()
         prepared.proposed().current,
         crate::CurrentState::from_state(&expected.0)
     );
-    assert_eq!(prepared.history_work().full_passes, 2);
-    assert_eq!(prepared.history_work().rows, source.events.len() as u64 * 2);
+    assert_eq!(prepared.history_work().full_passes, 1);
+    assert_eq!(prepared.history_work().rows, source.events.len() as u64);
+    assert_eq!(
+        prepared.history_work().redaction_validation.prefix_reuses,
+        1
+    );
+    assert_eq!(
+        prepared
+            .history_work()
+            .ingestion_validation
+            .dependency_fallbacks,
+        1
+    );
     assert_eq!(prepared.history_work().event_validation.prefix_reuses, 1);
     assert_eq!(
         prepared.history_work().event_validation.rows_examined,
@@ -304,3 +315,6 @@ async fn ingestion_uses_complete_history_pass_and_preserves_domain_error_order()
     )
     .await;
 }
+
+#[path = "history_predicate_reuse_tests.rs"]
+mod history_predicate_reuse_tests;

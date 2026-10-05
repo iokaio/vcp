@@ -20,6 +20,7 @@ mod history;
 mod history_blob;
 mod history_catalog;
 mod history_index;
+mod history_predicate_reuse;
 mod history_publication;
 mod journal_frame;
 pub mod keys;

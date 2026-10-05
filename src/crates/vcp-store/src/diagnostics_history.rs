@@ -50,7 +50,9 @@ pub struct HistoryReadPhases {
     pub agents: HistoryReads,
 }
 
-/// Actual event-phase work, distinct from the size of its logical input.
+/// Actual envelope work for events, redaction or ingestion, distinct from the
+/// size of the logical history input. Ingestion reuse proves all unchanged
+/// cursor/job predicates and examines no old or newly appended envelope.
 /// Rows count envelopes examined, including the envelope that rejects; unread
 /// rows after a semantic or I/O failure are not charged as examined.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

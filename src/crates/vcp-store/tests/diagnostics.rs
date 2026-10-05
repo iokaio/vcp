@@ -113,21 +113,24 @@ async fn physical_history_reads_are_aggregated_by_replay_phase_on_both_backends(
         assert_eq!(reopened.archive_state().await.unwrap(), expected);
         let observed = reopened.diagnostics();
         let total = observed.history_reads;
-        assert!(total.physical_started > 0);
         assert_eq!(total.physical_started, total.physical_completed);
         assert_eq!(total.physical_failed, 0);
-        assert!(total.physical_bytes > 0);
         let events = observed.validation_history_reads.events;
         let redaction = observed.validation_history_reads.redaction;
-        assert!(redaction.physical_started > 0);
-        assert!(redaction.physical_bytes > 0);
-        assert!(redaction.index_misses > 0);
+        assert_eq!(redaction, vcp_store::HistoryReads::default());
         assert!(events.physical_started <= total.physical_started);
         assert_eq!(observed.validation_phases.events.completed, 4);
         assert_eq!(observed.validation_input_events, 10);
         assert_eq!(observed.event_validation_work.rows_examined, 4);
         assert_eq!(observed.event_validation_work.prefix_reuses, 4);
         assert_eq!(observed.event_validation_work.full_passes, 0);
+        assert_eq!(observed.redaction_validation_work.rows_examined, 4);
+        assert_eq!(observed.redaction_validation_work.prefix_reuses, 4);
+        assert_eq!(observed.redaction_validation_work.full_passes, 0);
+        assert_eq!(
+            observed.ingestion_validation_work,
+            vcp_store::EventValidationWork::default()
+        );
         let json = serde_json::to_value(observed).unwrap();
         assert!(json.get("history_reads").is_some());
         assert!(json.get("validation_history_reads").is_some());

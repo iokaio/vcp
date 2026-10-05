@@ -115,8 +115,13 @@ async fn compare(pages: &mut Memory, cut: &AdmittedCut, source: &State, tx: &Tra
             Outcome::Prepared(prepared) => {
                 assert_eq!(prepared.source_identity(), cut.identity());
                 let work = prepared.history_work();
-                assert_eq!(work.full_passes, 1);
-                assert_eq!(work.rows, source.events.len() as u64);
+                assert_eq!(work.full_passes, 0);
+                assert_eq!(work.rows, 0);
+                assert_eq!(work.redaction_validation.prefix_reuses, 1);
+                assert_eq!(
+                    work.redaction_validation.rows_examined,
+                    tx.events.len() as u64
+                );
                 assert_eq!(work.event_validation.prefix_reuses, 1);
                 assert_eq!(work.event_validation.rows_examined, tx.events.len() as u64);
                 assert!(work.maximum_page_rows <= 64);
@@ -223,22 +228,23 @@ async fn preparation_owns_no_archival_state_and_unavailable_history_cannot_issue
     assert_eq!(result.commit(), &expected.1);
     assert_eq!(cut.current().watermark.get(), 1);
     pages.failed = true;
+    // Force a real authenticated lookup, not a root-range absence proof.
+    // Reusing untouched admitted predicates need not reread their payloads.
+    let mut needs_history = tx.clone();
+    needs_history.events[0].id = common::initial().events[0].id.clone();
     let mut diagnostics = crate::StoreDiagnostics::new(crate::BackendKind::Files);
     assert!(matches!(
-        prepare_observed(&mut pages, &cut, &tx, Some(&mut diagnostics)).await,
+        prepare_observed(&mut pages, &cut, &needs_history, Some(&mut diagnostics)).await,
         Err(Error::Unavailable(_))
     ));
     assert_eq!(diagnostics.history_reads.physical_started, 1);
     assert_eq!(diagnostics.history_reads.physical_failed, 1);
     assert_eq!(
-        diagnostics
-            .validation_history_reads
-            .redaction
-            .physical_failed,
+        diagnostics.validation_history_reads.events.physical_failed,
         1
     );
-    assert_eq!(diagnostics.validation_phases.events.failed, 0);
-    assert_eq!(diagnostics.validation_phases.redaction.failed, 1);
+    assert_eq!(diagnostics.validation_phases.events.failed, 1);
+    assert_eq!(diagnostics.validation_phases.redaction.completed, 0);
     assert_eq!(diagnostics.event_validation_work.rows_examined, 1);
     assert_eq!(
         diagnostics.validation_history_reads.accounting,
@@ -248,7 +254,7 @@ async fn preparation_owns_no_archival_state_and_unavailable_history_cannot_issue
     for bytes in pages.objects.values_mut() {
         bytes[0] ^= 1;
     }
-    assert!(prepare(&mut pages, &cut, &tx).await.is_err());
+    assert!(prepare(&mut pages, &cut, &needs_history).await.is_err());
     assert_eq!(cut.current().watermark.get(), 1);
 }
 
