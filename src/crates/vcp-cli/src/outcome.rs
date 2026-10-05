@@ -7,7 +7,7 @@ use vcp_domain::{
     task::{Task, TaskState, Turn, TurnState},
     workspace::Scope,
 };
-use vcp_lifecycle::foundation::CanonicalHost;
+use vcp_lifecycle::foundation::{history_reader::HistoryReader, CanonicalHost};
 use vcp_protocol::command::{Approval, Command, CommandReceipt};
 use vcp_store::contract::Collection;
 
@@ -18,11 +18,68 @@ pub struct Outcome {
     pub approvals: Vec<Approval>,
 }
 
+/// Polling status only: this is not verification or final exit evidence.
+pub(crate) struct LiveStatus {
+    pub state: TaskState,
+    pub required_input: bool,
+}
+
+impl LiveStatus {
+    pub fn read(host: &CanonicalHost, scope: &Scope) -> Result<Self, String> {
+        let (outcome, _) = Outcome::read_current(host, scope)?;
+        Ok(Self {
+            state: outcome.task.state,
+            required_input: outcome.conditions.required_input,
+        })
+    }
+}
+
 impl Outcome {
     /// Do not infer budget denials, required input, or successful verification
     /// from diagnostic text. Historical turn failures belong to their original
     /// turn; only the latest turn contributes its terminal condition.
     pub fn read(host: &CanonicalHost, scope: &Scope) -> Result<Self, String> {
+        let (mut outcome, reader) = Self::read_current(host, scope)?;
+        let state = reader.current();
+        let task = &outcome.task;
+        let conditions = &mut outcome.conditions;
+        // Current failed verification is distinct from a saved pause. An old
+        // report cannot override later checks or newly steered acceptance.
+        let count = reader.page(None, 1)?.count;
+        for ordinal in (0..count).rev() {
+            let event = reader
+                .event_at(ordinal)?
+                .ok_or("verification history row missing")?;
+            if !(event.event.workspace == scope.workspace
+                && event.event.session == scope.session
+                && event.event.task.as_ref() == Some(&scope.task)
+                && event.event.kind == vcp_protocol::event::EventKind::VerificationRecorded)
+            {
+                continue;
+            }
+            let facts = event.event.data["facts"]
+                .as_array()
+                .ok_or("verification event facts missing")?;
+            let id = facts
+                .iter()
+                .find(|fact| fact["collection"] == "verification")
+                .and_then(|fact| fact["id"].as_str())
+                .ok_or("verification event reference missing")?;
+            let report: vcp_domain::verification::Verification = state
+                .record(Collection::Verification, id, &scope.workspace)
+                .and_then(|row| row.decode())
+                .map_err(|e| e.to_string())?;
+            if report.applies(scope, task.steering, &task.fingerprint) {
+                conditions.incomplete |= !report.satisfies(&task.required_checks, task.editing);
+                break;
+            }
+        }
+        Ok(outcome)
+    }
+
+    // Current owner/turn/approval status is shared with polling. Verification
+    // history stays exclusively in read(), which final outcomes always use.
+    fn read_current(host: &CanonicalHost, scope: &Scope) -> Result<(Self, HistoryReader), String> {
         let reader = host.history_reader()?;
         let state = reader.current();
         let now = crate::settings::now();
@@ -158,42 +215,14 @@ impl Outcome {
             conditions.required_input |= turn.state == TurnState::WaitingForInput;
             conditions.incomplete |= matches!(turn.state, TurnState::Failed | TurnState::Blocked);
         }
-        // Current failed verification is distinct from a saved pause. An old
-        // report cannot override later checks or newly steered acceptance.
-        let count = reader.page(None, 1)?.count;
-        for ordinal in (0..count).rev() {
-            let event = reader
-                .event_at(ordinal)?
-                .ok_or("verification history row missing")?;
-            if !(event.event.workspace == scope.workspace
-                && event.event.session == scope.session
-                && event.event.task.as_ref() == Some(&scope.task)
-                && event.event.kind == vcp_protocol::event::EventKind::VerificationRecorded)
-            {
-                continue;
-            }
-            let facts = event.event.data["facts"]
-                .as_array()
-                .ok_or("verification event facts missing")?;
-            let id = facts
-                .iter()
-                .find(|fact| fact["collection"] == "verification")
-                .and_then(|fact| fact["id"].as_str())
-                .ok_or("verification event reference missing")?;
-            let report: vcp_domain::verification::Verification = state
-                .record(Collection::Verification, id, &scope.workspace)
-                .and_then(|row| row.decode())
-                .map_err(|e| e.to_string())?;
-            if report.applies(scope, task.steering, &task.fingerprint) {
-                conditions.incomplete |= !report.satisfies(&task.required_checks, task.editing);
-                break;
-            }
-        }
-        Ok(Self {
-            task,
-            conditions,
-            receipt,
-            approvals,
-        })
+        Ok((
+            Self {
+                task,
+                conditions,
+                receipt,
+                approvals,
+            },
+            reader,
+        ))
     }
 }

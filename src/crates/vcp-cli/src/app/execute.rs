@@ -464,11 +464,11 @@ pub(super) async fn execute(
                     }
                 }
             _=tick.tick()=>{
-                let outcome=crate::outcome::Outcome::read(&host,&scope)?;
-                if outcome.conditions.required_input {
+                let status=crate::outcome::LiveStatus::read(&host,&scope)?;
+                if status.required_input {
                     break;
                 }
-                if outcome.task.state!=TaskState::Running{break;}
+                if status.state!=TaskState::Running{break;}
                 if lifecycle_pending.is_none() {if let Some(notice)=shadow.poll(&host,session.id).await{eprintln!("vcp: {notice}");}}
                 after=output.drain_events(&host,&correlation,after).await?;
             }
