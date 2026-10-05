@@ -22,6 +22,7 @@ pub(crate) async fn replay_sqlite_all(
         return Err(Error::Corruption("history origin before base"));
     }
     let mut size = StateSize::measure(&state)?;
+    diagnostics.state_size_full_scans = diagnostics.state_size_full_scans.saturating_add(1);
     while state.watermark < origin.watermark() {
         let (commit, payload) = read_commit(db, state.watermark)
             .await?
@@ -44,8 +45,14 @@ pub(crate) async fn replay_sqlite_all(
             .bind(watermark).fetch_optional(&mut *db).await?.flatten();
         let publication =
             publication.ok_or(Error::Corruption("SQLite history publication missing"))?;
-        owner = super::replay::replay_payload(&mut Sqlite::new(db), &owner, &payload, &publication)
-            .await?;
+        owner = super::replay::replay_payload_observed(
+            &mut Sqlite::new(db),
+            &owner,
+            &payload,
+            &publication,
+            Some(diagnostics),
+        )
+        .await?;
         observed(diagnostics, payload.len());
         suffix = suffix
             .checked_add(1)
@@ -65,7 +72,21 @@ pub(crate) async fn replay_sqlite_all(
     if u64::try_from(commits).ok() != Some(owner.originals().root().count()) {
         return Err(Error::Corruption("SQLite original row count"));
     }
-    super::materialized::verify(db, &owner).await?;
+    let started = Instant::now();
+    let result = super::materialized::verify(db, &owner).await;
+    diagnostics
+        .materialized_verification
+        .record(started, result.is_ok());
+    result?;
+    diagnostics.materialized_records = diagnostics
+        .materialized_records
+        .saturating_add(owner.semantic().current().records.len() as u64);
+    diagnostics.materialized_events = diagnostics
+        .materialized_events
+        .saturating_add(owner.semantic().catalog().event_count());
+    diagnostics.materialized_commands = diagnostics
+        .materialized_commands
+        .saturating_add(owner.semantic().catalog().command_count());
     Ok(owner)
 }
 async fn read_commit(

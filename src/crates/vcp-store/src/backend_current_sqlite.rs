@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Test-only extraction of the exact existing SQLite row publication body.
+//! Exact existing SQLite row publication body.
 //! Native layout-3 publication supplies only fully validated appended envelopes.
 use super::*;
 use vcp_protocol::event::EventEnvelope;

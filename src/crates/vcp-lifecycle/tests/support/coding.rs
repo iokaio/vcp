@@ -146,7 +146,7 @@ async fn coding_context_lists_only_public_process_invocation_metadata() {
             assert!(host.startup_canonical_tools(child).unwrap().is_all());
             let narrow = serde_json::from_value(serde_json::json!(["vcp_read"])).unwrap();
             assert!(host.configure_canonical_tools(narrow).is_err());
-            coding_turn(&test, backend, "public-process-metadata").await;
+            coding_turn(&test, backend, "public-process-metadata", None).await;
             let requests = observed.lock().unwrap().clone();
             assert_allowance(&host, &requests[0], &config.root_task, 2, 0);
             assert_eq!(requests.len(), 1);
@@ -260,6 +260,10 @@ async fn output_limit_recovery_applies_one_complete_large_patch_with_exact_admis
 async fn completed_responses_with_unknown_cost_preserve_liability_without_duplicate_effects() {
     run_coding_modes(&["missing_cost", "missing_cost_unbounded"]).await;
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unpriced_routed_requests_keep_unknown_estimates_and_exact_admission_on_both_stores() {
+    run_coding_modes(&["unpriced_routed"]).await;
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unbounded_execution_does_not_turn_provider_timeout_into_a_total_response_deadline() {
@@ -270,7 +274,11 @@ async fn run_coding_modes(modes: &[&'static str]) {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         for &requested_mode in modes {
             let unbounded_time = requested_mode == "unbounded_provider_time";
-            let unknown_cost = requested_mode == "missing_cost_unbounded";
+            let unpriced = requested_mode == "unpriced_routed";
+            if unpriced {
+                eprintln!("EE01 unpriced routed {backend:?}: setup begins");
+            }
+            let unknown_cost = requested_mode == "missing_cost_unbounded" || unpriced;
             let pending_reopen = requested_mode == "incomplete_pending_reopen";
             let mode = if unknown_cost || unbounded_time {
                 "complete"
@@ -402,6 +410,30 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     .unwrap();
             } else {
                 host.configure_provider(snapshot, raw).unwrap();
+            }
+            if unpriced {
+                let mut routing = super::routing::routing_configuration(vcp_models::routing::Profile::Low, false);
+                let mut entry = routing.catalog.entries.remove(0);
+                let previous = entry.snapshot.as_ref().unwrap();
+                let mut raw: serde_json::Value = serde_json::from_str(&routing.raw_catalogs[&previous.id]).unwrap();
+                raw["data"]["endpoints"][0]["pricing"] = serde_json::Value::Null;
+                raw["data"]["endpoints"][0]["supported_parameters"].as_array_mut().unwrap()
+                    .push(serde_json::json!("parallel_tool_calls"));
+                let mut compatibility = previous.compatibility.clone();
+                compatibility.required_parameters.insert("parallel_tool_calls".into());
+                let raw = serde_json::to_string(&raw).unwrap();
+                let snapshot = vcp_models::catalog::Snapshot::from_endpoints_unbounded(raw.as_bytes(),
+                    previous.observed_at, previous.valid_until, compatibility).unwrap();
+                routing.raw_catalogs = std::collections::BTreeMap::from([(snapshot.id.clone(), raw)]);
+                entry.snapshot = Some(snapshot);
+                routing.estimates.retain(|estimate| estimate.candidate == entry.identity);
+                routing.catalog = vcp_models::routing::CatalogRevision::create(None,
+                    routing.catalog.observed_at, None, vec![entry]).unwrap();
+                host.configure_routing(routing).unwrap();
+                eprintln!(
+                    "EE01 unpriced routed {backend:?}: configured {:?}",
+                    host.store_diagnostics()
+                );
             }
             if mode.starts_with("routed_allocation") {
                 let mut routing =
@@ -656,7 +688,13 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 )
                 .is_err());
             assert_eq!(host.snapshot().unwrap(), before_duplicate);
-            coding_turn(&test, backend, mode).await;
+            if unpriced {
+                eprintln!(
+                    "EE01 unpriced routed {backend:?}: before turn {:?}",
+                    host.store_diagnostics()
+                );
+            }
+            coding_turn(&test, backend, mode, unpriced.then_some(&host)).await;
             if mode == "large_patch" {
                 assert_eq!(count.load(Ordering::SeqCst), 1);
                 assert!(host.project().unwrap().effects.is_empty());
@@ -677,7 +715,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     "retain the actual incomplete patch prefix"
                 );
                 host.begin_coding_turn(id, continuation.feedback).unwrap();
-                coding_turn(&test, backend, mode).await;
+                coding_turn(&test, backend, mode, None).await;
                 assert_eq!(count.load(Ordering::SeqCst), 3);
                 assert_eq!(
                     std::fs::read_to_string(workspace.join("file.txt")).unwrap(),
@@ -972,7 +1010,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     vcp_domain::request_allocation::Reason::ActivityDefault
                 );
                 assert_eq!(fresh.output_limit, Units::new(1024));
-                coding_turn(&test, backend, "allocation-reopen").await;
+                coding_turn(&test, backend, "allocation-reopen", None).await;
                 assert_eq!(
                     count.load(Ordering::SeqCst),
                     4,
@@ -984,7 +1022,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 assert_eq!(
                     host.project().unwrap().ledgers[&config.root_task]
                         .unresolved
-                        .get(),
+                        .known().unwrap().get(),
                     0
                 );
                 drop(requests);
@@ -1025,7 +1063,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         .unwrap();
                     assert_eq!(
                         store
-                            .state()
+                            .current()
                             .records
                             .values()
                             .filter(|row| row.collection == Collection::Attempt)
@@ -1034,7 +1072,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     );
                     assert_eq!(
                         store
-                            .state()
+                            .current()
                             .records
                             .values()
                             .filter(|row| row.collection == Collection::Effect)
@@ -1044,7 +1082,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     for artifact in &artifacts {
                         assert_eq!(
                             store
-                                .state()
+                                .current()
                                 .record(
                                     Collection::Artifact,
                                     artifact.spec.id.as_str(),
@@ -1088,11 +1126,11 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 }
                 assert!(host.take_output_continuation(id).unwrap().is_none());
                 host.begin_coding_turn(id, continuation.feedback).unwrap();
-                coding_turn(&test, backend, mode).await;
+                coding_turn(&test, backend, mode, None).await;
                 assert!(host.has_output_continuation(id).unwrap());
                 let continuation = host.take_output_continuation(id).unwrap().unwrap();
                 host.begin_coding_turn(id, continuation.feedback).unwrap();
-                coding_turn(&test, backend, mode).await;
+                coding_turn(&test, backend, mode, None).await;
                 assert!(!host.has_output_continuation(id).unwrap());
                 let requests = observed.lock().unwrap();
                 assert_eq!(requests[0]["max_output_tokens"], 4096);
@@ -1286,8 +1324,8 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     .unwrap_or_else(|error| panic!("{backend:?} {mode}: {error}"))
             };
             if matches!(mode, "incomplete_usage" | "invalid_call_usage") {
-                assert_eq!(view.ledgers[&config.root_task].unresolved.get(), 0);
-                assert_eq!(view.ledgers[&config.root_task].active.get(), 0);
+                assert_eq!(view.ledgers[&config.root_task].unresolved.known().unwrap().get(), 0);
+                assert_eq!(view.ledgers[&config.root_task].active.known().unwrap().get(), 0);
                 assert!(host.complete_coding_turn(id).is_err());
                 assert!(view.effects.is_empty(), "partial patch never dispatched");
             }
@@ -1371,7 +1409,13 @@ async fn run_coding_modes(modes: &[&'static str]) {
                 }
             );
             if unknown_cost {
-                assert!(view.ledgers[&config.root_task].unresolved > Micros::ZERO);
+                assert!(!view.ledgers[&config.root_task].unresolved.is_zero());
+                if unpriced {
+                    assert!(view.ledgers[&config.root_task].unresolved.known().is_none());
+                    assert_eq!(view.ledgers[&config.root_task].unresolved.known_component(), Micros::ZERO);
+                } else {
+                    assert!(view.ledgers[&config.root_task].unresolved.known().unwrap() > Micros::ZERO);
+                }
                 assert_eq!(view.ledgers[&config.root_task].active, Micros::ZERO);
                 let attempts: Vec<vcp_domain::accounting::Attempt> = host
                     .snapshot()
@@ -1382,6 +1426,29 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     .map(|row| row.decode().unwrap())
                     .collect();
                 assert_eq!(attempts.len(), expected);
+                if unpriced {
+                    let wire = wire_bytes.lock().unwrap();
+                    for (body, bytes) in requests.iter().zip(wire.iter()) {
+                        assert_eq!(body["model"], "fixture/economical");
+                        assert!(body["provider"].get("max_price").is_none());
+                        assert_eq!(body["provider"]["only"], serde_json::json!(["fixture/economical-region"]));
+                        assert_eq!(body["provider"]["allow_fallbacks"], false);
+                        assert_eq!(body["provider"]["data_collection"], "deny");
+                        let digest = vcp_protocol::digest_bytes(bytes);
+                        let matches: Vec<_> = attempts.iter().filter(|attempt| attempt.request_digest == digest).collect();
+                        assert_eq!(matches.len(), 1);
+                        let attempt = matches[0];
+                        assert_eq!(host.read_artifact(attempt.request.clone()).unwrap(), *bytes);
+                        assert_eq!(attempt.quote.normalization_version, 2);
+                        assert!(attempt.quote.amount.micros.known().is_none());
+                        assert_eq!(attempt.quote.bounds.output.get(), body["max_output_tokens"].as_u64().unwrap());
+                        let reservation: vcp_domain::accounting::Reservation = host.snapshot().unwrap()
+                            .record(Collection::Reservation, attempt.reservation.as_str(), &config.workspace)
+                            .unwrap().decode().unwrap();
+                        assert_eq!(reservation.amount, attempt.quote.amount);
+                        assert_eq!(reservation.liability, attempt.quote.amount.micros);
+                    }
+                }
                 assert!(attempts.iter().all(|attempt| attempt.phase
                     == vcp_domain::accounting::ReservationState::ReconciliationPending
                     && attempt.send_intent.is_some()));
@@ -1435,7 +1502,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                         1210
                     }
                 );
-                assert_eq!(restored.ledgers[&config.root_task].unresolved.get(), 0);
+                assert_eq!(restored.ledgers[&config.root_task].unresolved.known().unwrap().get(), 0);
                 assert_eq!(restored.tasks[&config.root_task].state, TaskState::Paused);
                 assert!(restored.effects.is_empty());
                 owner.close().await.unwrap();
@@ -1539,7 +1606,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     &codex_extension_api::ToolName::plain("vcp_exec")
                 )
                 .is_err());
-                coding_turn(&test, backend, "reopen").await;
+                coding_turn(&test, backend, "reopen", None).await;
                 assert_eq!(count.load(Ordering::SeqCst), 6);
                 let request = observed.lock().unwrap()[5].clone();
                 let (allowance, _) = request_allowance(&request);
@@ -1611,7 +1678,7 @@ async fn run_coding_modes(modes: &[&'static str]) {
                     }]))
                     .await
                     .unwrap();
-                coding_turn_complete(&helper, backend, "helper-limit").await;
+                coding_turn_complete(&helper, backend, "helper-limit", None).await;
                 assert_eq!(
                     count.load(Ordering::SeqCst),
                     6,
@@ -1781,7 +1848,7 @@ fn assert_adaptive_admission_trace(
         .collect()
 }
 
-async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str) {
+async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str, diagnostics: Option<&CanonicalHost>) {
     test.codex
         .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
             text: "Run the synthetic request.".into(),
@@ -1789,10 +1856,10 @@ async fn coding_turn(test: &TestCodex, backend: BackendKind, mode: &str) {
         }]))
         .await
         .unwrap();
-    coding_turn_complete(&test.codex, backend, mode).await;
+    coding_turn_complete(&test.codex, backend, mode, diagnostics).await;
 }
 
-async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: BackendKind, mode: &str) {
+async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: BackendKind, mode: &str, diagnostics: Option<&CanonicalHost>) {
     let mut last = None;
     // Native durable capture and process setup can contend with other local
     // qualification. Product request/deadline limits remain independently set.
@@ -1811,6 +1878,13 @@ async fn coding_turn_complete(thread: &codex_core::CodexThread, backend: Backend
         }
     })
     .await;
+    if let Some(host) = diagnostics {
+        eprintln!(
+            "EE01 observed coding turn {backend:?}/{mode}: finished={} diagnostics={:?}",
+            result.is_ok(),
+            host.store_diagnostics()
+        );
+    }
     assert!(
         result.is_ok(),
         "{backend:?}/{mode}: turn did not finish; last event: {last:?}"

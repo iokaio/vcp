@@ -112,7 +112,7 @@ impl PublicConnection {
                         let facts = HostFacts {
                             now: now(),
                             policy: vcp_engine::policy::optional(
-                                context.engine.store().state(),
+                                context.engine.store().current(),
                                 &context.config.workspace,
                             )
                             .map_err(|_| error(PublicError::Unavailable))?
@@ -142,7 +142,7 @@ impl PublicConnection {
                         let task: Task = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Task,
                                 prepared
@@ -302,7 +302,7 @@ impl Context {
         let facts = HostFacts {
             now: now(),
             policy: vcp_engine::policy::optional(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config.workspace,
             )?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision),

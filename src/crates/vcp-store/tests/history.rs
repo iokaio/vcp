@@ -60,7 +60,7 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![],
                     events,
                     command: Some(receipt),
@@ -71,10 +71,10 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
         let mut after = Watermark::ZERO;
         let mut seen = Vec::new();
         loop {
-            let page = store.event_history_page(&scope, after, 1).unwrap();
+            let page = store.event_history_page(&scope, after, 1).await.unwrap();
             assert!(page.scanned <= 3);
             assert_eq!(page.events.len(), page.scanned);
-            assert_eq!(page.source_watermark, store.state().watermark);
+            assert_eq!(page.source_watermark, store.current().watermark);
             seen.extend(page.events.iter().map(|event| event.event.id.clone()));
             after = page.cutoff.unwrap_or(after);
             if !page.has_more {
@@ -83,20 +83,20 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
         }
         assert_eq!(
             seen,
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .events
                 .iter()
                 .map(|event| event.event.id.clone())
                 .collect::<Vec<_>>()
         );
-        let empty = store.event_history_page(&scope, after, 1).unwrap();
+        let empty = store.event_history_page(&scope, after, 1).await.unwrap();
         assert!(empty.events.is_empty());
         assert_eq!(empty.cutoff, None);
         let mut other = scope.clone();
         other.workspace = WorkspaceId::new();
         let foreign = store
             .event_history_page(&other, Watermark::ZERO, 1)
+            .await
             .unwrap();
         assert!(foreign.events.is_empty());
         assert_eq!(foreign.scanned, 1);
@@ -105,30 +105,34 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
         other.session = SessionId::new();
         assert!(store
             .event_history_page(&other, Watermark::ZERO, 1)
+            .await
             .unwrap()
             .events
             .is_empty());
         assert!(store
             .event_history_page(&scope, Watermark::ZERO, 0)
+            .await
             .is_err());
         assert!(store
-            .event_history_page(&scope, store.state().watermark.next().unwrap(), 1)
+            .event_history_page(&scope, store.current().watermark.next().unwrap(), 1)
+            .await
             .is_err());
 
-        let watermark = store.state().watermark;
-        let mut unordered = store.state().clone();
+        let watermark = store.current().watermark;
+        let mut unordered = (&store.archive_state().await.unwrap()).clone();
         unordered.events[2].watermark = Watermark::ZERO;
         assert!(matches!(
             unordered.validate(),
             Err(vcp_store::Error::Corruption("event identity"))
         ));
-        for receipt in store.state().commands.values() {
+        for receipt in (&store.archive_state().await.unwrap()).commands.values() {
             let selected = store
                 .receipt_events(&scope.workspace, &scope.session, receipt)
+                .await
                 .unwrap()
                 .collect::<Vec<_>>();
-            let expected = store
-                .state()
+            let archived = store.archive_state().await.unwrap();
+            let expected = archived
                 .events
                 .iter()
                 .filter(|event| {
@@ -136,10 +140,12 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
                         && event.event.workspace == scope.workspace
                         && event.event.session == scope.session
                 })
+                .cloned()
                 .collect::<Vec<_>>();
             assert_eq!(selected, expected);
             assert!(store
                 .receipt_events(&scope.workspace, &SessionId::new(), receipt)
+                .await
                 .unwrap()
                 .next()
                 .is_none());
@@ -147,6 +153,7 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
             forged.watermark = Watermark::ZERO;
             assert!(store
                 .receipt_events(&scope.workspace, &scope.session, &forged)
+                .await
                 .is_err());
         }
         let mut after = None;
@@ -154,6 +161,7 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
         loop {
             let page = store
                 .command_history_page(&scope.workspace, watermark, after.as_ref(), 2)
+                .await
                 .unwrap();
             assert!(page.receipts.len() <= 2);
             seen.extend(page.receipts.iter().map(|receipt| receipt.command.clone()));
@@ -164,8 +172,7 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
         }
         assert_eq!(
             seen,
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .map(|receipt| receipt.command.clone())
@@ -173,11 +180,13 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
         );
         assert!(store
             .command_history_page(&WorkspaceId::new(), watermark, None, 2)
+            .await
             .unwrap()
             .receipts
             .is_empty());
         assert!(store
             .command_history_page(&scope.workspace, watermark, None, 4097)
+            .await
             .is_err());
         store
             .transact(Transaction {
@@ -191,12 +200,14 @@ async fn bounded_history_preserves_transactions_scope_and_receipt_cursor_fences(
             .unwrap();
         assert!(store
             .command_history_page(&scope.workspace, watermark, None, 2)
+            .await
             .is_err());
-        let expected = store.state().clone();
+        let expected = (&store.archive_state().await.unwrap()).clone();
         store.close().await.unwrap();
         let reopened = Store::open(temporary.path(), backend, &[]).await.unwrap();
         let page = reopened
             .event_history_page(&scope, Watermark::ZERO, 4096)
+            .await
             .unwrap();
         assert_eq!(page.events.len(), expected.events.len());
         reopened.close().await.unwrap();
@@ -211,7 +222,7 @@ async fn event_page_refuses_oversized_transaction_instead_of_returning_partial_e
         .unwrap();
     let initial = common::initial();
     store.transact(initial.clone()).await.unwrap();
-    let before = store.state().watermark;
+    let before = store.current().watermark;
     let events = (0..4097)
         .map(|_| {
             let mut event = initial.events[0].clone();
@@ -230,11 +241,13 @@ async fn event_page_refuses_oversized_transaction_instead_of_returning_partial_e
         .await
         .unwrap();
     assert!(matches!(
-        store.event_history_page(&common::task().scope, before, 128),
+        store
+            .event_history_page(&common::task().scope, before, 128)
+            .await,
         Err(vcp_store::Error::Limit(
             "history event transaction exceeds bounded page"
         ))
     ));
-    assert_eq!(store.state().events.len(), 4098);
+    assert_eq!((&store.archive_state().await.unwrap()).events.len(), 4098);
     store.close().await.unwrap();
 }

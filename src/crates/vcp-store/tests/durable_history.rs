@@ -14,7 +14,7 @@ fn append_event(store: &Store, initial: &Transaction) -> Transaction {
     event.id = EventId::new();
     Transaction {
         id: TransactionId::new(),
-        expected_watermark: store.state().watermark,
+        expected_watermark: store.current().watermark,
         mutations: vec![],
         events: vec![event],
         command: None,
@@ -45,15 +45,21 @@ async fn every_durable_cut_matches_memory_reference_and_reading_never_moves_appe
         let root = temporary.path().join("canonical");
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
         let initial = common::initial();
-        let mut expected = vec![digest_bytes(&canonical_bytes(store.state()).unwrap())];
+        let mut expected = vec![digest_bytes(
+            &canonical_bytes((&store.archive_state().await.unwrap())).unwrap(),
+        )];
         store.transact(initial.clone()).await.unwrap();
-        expected.push(digest_bytes(&canonical_bytes(store.state()).unwrap()));
+        expected.push(digest_bytes(
+            &canonical_bytes((&store.archive_state().await.unwrap())).unwrap(),
+        ));
         for _ in 0..8 {
             store
                 .transact(append_event(&store, &initial))
                 .await
                 .unwrap();
-            expected.push(digest_bytes(&canonical_bytes(store.state()).unwrap()));
+            expected.push(digest_bytes(
+                &canonical_bytes((&store.archive_state().await.unwrap())).unwrap(),
+            ));
         }
         let original = original_history(&root, backend).await;
         for (index, digest) in expected.iter().enumerate() {
@@ -75,11 +81,13 @@ async fn every_durable_cut_matches_memory_reference_and_reading_never_moves_appe
             .transact(append_event(&store, &initial))
             .await
             .unwrap();
-        expected.push(digest_bytes(&canonical_bytes(store.state()).unwrap()));
-        let final_state = store.state().clone();
+        expected.push(digest_bytes(
+            &canonical_bytes((&store.archive_state().await.unwrap())).unwrap(),
+        ));
+        let final_state = (&store.archive_state().await.unwrap()).clone();
         store.close().await.unwrap();
         let store = Store::open(&root, backend, &[]).await.unwrap();
-        assert_eq!(store.state(), &final_state);
+        assert_eq!((&store.archive_state().await.unwrap()), &final_state);
         for (index, digest) in expected.iter().enumerate() {
             assert_eq!(
                 &store
@@ -99,7 +107,7 @@ async fn every_durable_cut_matches_memory_reference_and_reading_never_moves_appe
             .await
             .unwrap();
         assert_eq!(
-            canonical_bytes(converted.state()).unwrap(),
+            canonical_bytes((&converted.archive_state().await.unwrap())).unwrap(),
             canonical_bytes(&final_state).unwrap()
         );
         assert_eq!(original_history(&root, backend).await, original);
@@ -145,7 +153,7 @@ async fn durable_reads_reject_resealed_transaction_bytes_that_differ_from_live_o
                     .write(true)
                     .open(root.join("canonical.frames"))
                     .unwrap();
-                let mut header = [0u8; 80];
+                let mut header = [0u8; 144];
                 file.read_exact(&mut header).unwrap();
                 let size = u32::from_le_bytes(header[8..12].try_into().unwrap()) as usize;
                 let mut bytes = vec![0; size];
@@ -153,7 +161,7 @@ async fn durable_reads_reject_resealed_transaction_bytes_that_differ_from_live_o
                 let forged = forged(&bytes);
                 assert_eq!(forged.len(), bytes.len());
                 let hash = digest_bytes(&[header.as_slice(), forged.as_slice()].concat());
-                file.seek(SeekFrom::Start(80)).unwrap();
+                file.seek(SeekFrom::Start(144)).unwrap();
                 file.write_all(&forged).unwrap();
                 file.write_all(hash.as_bytes()).unwrap();
                 file.sync_all().unwrap();
@@ -162,7 +170,7 @@ async fn durable_reads_reject_resealed_transaction_bytes_that_differ_from_live_o
         assert!(matches!(
             store.prefix_digest(Watermark::new(1)).await,
             Err(vcp_store::Error::Corruption(
-                "retained commit differs from validated owner"
+                "retained native bytes differ from validated owner"
             ))
         ));
         assert!(store

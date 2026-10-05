@@ -3,6 +3,7 @@
 //! choose canonical paths; descriptor activation uses a held selection lease.
 use crate::{selection::Lease, storage::Backend};
 use clap::Args;
+use vcp_store::contract::CanonicalStore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use vcp_domain::{CommandId, WorkspaceId};
@@ -583,7 +584,7 @@ pub async fn execute(
         intent.actor.clone(),
         vcp_domain::HostId::new(),
         selected.as_ref().map(|(entry, _)| &entry.config),
-    )?;
+    ).await?;
     let identity = crate::binding::capture(materialized.root())?;
     let next = crate::settings::WorkspaceEntry {
         version: 2,
@@ -601,10 +602,10 @@ pub async fn execute(
         deletion: manifest.deletion,
         state_digest: imported.state_digest().into(),
         prefix_digest: store
-            .prefix_digest(store.state().watermark)
+            .prefix_digest(store.current().watermark)
             .await
             .map_err(|e| e.to_string())?,
-        watermark: store.state().watermark,
+        watermark: store.current().watermark,
         entry: next,
     };
     immutable(

@@ -98,7 +98,7 @@ pub async fn consume_reward(
     if !access.write {
         return Err("consumed-value write access denied".into());
     }
-    let fresh = rewards::map(store, access, artifact.source_window.clone())?;
+    let fresh = rewards::map(store, access, artifact.source_window.clone()).await?;
     if &fresh != artifact {
         return Err("reward artifact changed; rebuild before consumption".into());
     }
@@ -115,7 +115,7 @@ pub async fn consume_reward(
     let consumed_micros = cell
         .point_estimate_micros
         .ok_or("reward selection has an unknown remainder")?;
-    let evidence = observations::observe(store, access, artifact.source_window.clone())?;
+    let evidence = observations::observe(store, access, artifact.source_window.clone()).await?;
     if evidence.id != artifact.source_evidence {
         return Err("reward source changed during consumption".into());
     }

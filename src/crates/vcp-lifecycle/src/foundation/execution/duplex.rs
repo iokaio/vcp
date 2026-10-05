@@ -151,14 +151,14 @@ impl CanonicalHost {
                 let effect = ticket.effect;
                 let reason = error.clone();
                 if self.worker.run_cleanup(move |context| {
-                    let current: Effect = context.engine.store().state().record(Collection::Effect, effect.as_str(), &binding.scope.workspace)?.decode()?;
+                    let current: Effect = context.engine.store().current().record(Collection::Effect, effect.as_str(), &binding.scope.workspace)?.decode()?;
                     let next = match current.state {
                         EffectState::DispatchRecorded | EffectState::Running => Some(EffectState::OutcomeUnknown), _ => None,
                     };
                     if let Some(next) = next {
                         context.tool_advance(&binding, &effect, next, current.execution, current.observed_changes, &reason)?;
                         if next == EffectState::OutcomeUnknown {
-                            let task: vcp_domain::task::Task = context.engine.store().state().record(Collection::Task, binding.scope.task.as_str(), &binding.scope.workspace)?.decode()?;
+                            let task: vcp_domain::task::Task = context.engine.store().current().record(Collection::Task, binding.scope.task.as_str(), &binding.scope.workspace)?.decode()?;
                             if task.state == vcp_domain::task::TaskState::Running {
                                 context.command(Command::Transition { next: vcp_domain::task::TaskState::Paused, reason: "duplex startup observation failed; reconcile before resume".into(), verification: None }, Some(binding.scope.task.clone()), task.revision)?;
                             }
@@ -301,7 +301,7 @@ impl DuplexProcess {
             if context.engine.controller() != &controller || context.engine.owner_epoch() != owner { return Err("duplex input belongs to another owner".into()); }
             if !matches!(context.process_preflight(&binding, &prepared)?, vcp_policy::Decision::Allow { .. })
                 || !matches!(context.process_decision(&binding, &prepared)?, vcp_policy::Decision::Allow { .. }) { return Err("current duplex input process authority rejected".into()); }
-            let current: Effect = context.engine.store().state().record(Collection::Effect, effect.as_str(), &binding.scope.workspace)?.decode()?;
+            let current: Effect = context.engine.store().current().record(Collection::Effect, effect.as_str(), &binding.scope.workspace)?.decode()?;
             if current.state != EffectState::Running || current.execution.as_ref() != Some(&execution) { return Err("duplex process is not the current running execution".into()); }
             fence(context)?;
             let body = context.capture(&binding.scope, Channel::Evidence, &capture, "vcp-duplex-input-bytes-v1")?;

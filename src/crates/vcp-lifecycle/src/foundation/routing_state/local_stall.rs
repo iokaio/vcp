@@ -4,7 +4,7 @@
 use super::{current_policy, current_registry, cycles, err, observations, HistoryWindow, Result};
 use observations::{CheckResult, VerificationObservation};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use vcp_domain::{
     task::{Task, TaskState},
     *,
@@ -12,7 +12,10 @@ use vcp_domain::{
 use vcp_memory::access::Access;
 use vcp_models::stall;
 use vcp_protocol::{canonical_bytes, digest_bytes};
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 const ALPHABET: &str = "exact-failed-verification-checks/1";
 
@@ -87,28 +90,21 @@ fn training_digest(source: &observations::Evidence) -> Result<String> {
     ))
 }
 
-fn event_pins(store: &Store, source: &observations::Evidence) -> Result<Vec<EventPin>> {
-    let requested: BTreeSet<_> = source.verifications.iter().map(|v| &v.event).collect();
-    let retained: BTreeMap<_, _> = store
-        .state()
-        .events
-        .iter()
-        .filter(|event| event.redaction.is_none() && requested.contains(&event.event.id))
-        .map(|event| (&event.event.id, &event.event))
-        .collect();
-    source
-        .verifications
-        .iter()
-        .map(|observation| {
-            let event = retained
-                .get(&observation.event)
-                .ok_or("local fit source event unavailable")?;
-            Ok(EventPin {
-                event: observation.event.clone(),
-                digest: digest_bytes(&canonical_bytes(event).map_err(err)?),
-            })
-        })
-        .collect()
+async fn event_pins(store: &Store, source: &observations::Evidence) -> Result<Vec<EventPin>> {
+    let mut pins = Vec::with_capacity(source.verifications.len());
+    for observation in &source.verifications {
+        let envelope = store
+            .history_event(&observation.event)
+            .await
+            .map_err(err)?
+            .filter(|event| event.redaction.is_none())
+            .ok_or("local fit source event unavailable")?;
+        pins.push(EventPin {
+            event: observation.event.clone(),
+            digest: digest_bytes(&canonical_bytes(&envelope.event).map_err(err)?),
+        });
+    }
+    Ok(pins)
 }
 
 fn symbol(observation: &VerificationObservation) -> Result<Option<String>> {
@@ -170,16 +166,16 @@ fn fit_id(value: &Fit) -> Result<String> {
 }
 
 /// Explicit offline training. Mixed task cohorts are rejected, not pooled.
-pub fn fit(
+pub async fn fit(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
     minimum_samples: u64,
 ) -> Result<Fit> {
-    let source = observations::observe(store, access, window.clone())?;
+    let source = observations::observe(store, access, window.clone()).await?;
     // Reuse the exact-cycle boundary's validation of ordered identities, check
     // hashes, source alphabet and bounds. Its result is not a training label.
-    cycles::observe(store, access, window)?;
+    cycles::observe(store, access, window).await?;
     let last = source
         .verifications
         .last()
@@ -216,7 +212,7 @@ pub fn fit(
         input_fingerprint: last.input_fingerprint.clone(), source_evidence: source.id.clone(),
         source_digest: training_digest(&source)?, source_cutoff: source.cutoff,
         source_window: source.window.clone(), source_tasks: source.source_tasks.clone(),
-        source_events: event_pins(store, &source)?,
+        source_events: event_pins(store, &source).await?,
         source_verifications: source.verifications.iter().map(|v| v.verification.clone()).collect(),
         policy: current_policy(store, access)?.map(|p| p.value.id),
         catalog: current_registry(store, access)?.map(|r| r.value.catalog.id),
@@ -235,7 +231,7 @@ pub fn fit(
 /// accepted by `validate_install`, not proof that untrusted model counts were
 /// learned from the source. Appended events are allowed; mutated, newly
 /// backdated, hidden or pruned training evidence is not.
-pub fn validate(store: &Store, access: &Access, value: &Fit) -> Result<()> {
+pub async fn validate(store: &Store, access: &Access, value: &Fit) -> Result<()> {
     if value.schema_version != 1
         || value.alphabet_version != ALPHABET
         || value.serving_qualified
@@ -249,14 +245,14 @@ pub fn validate(store: &Store, access: &Access, value: &Fit) -> Result<()> {
     {
         return Err("local fit identity or access changed".into());
     }
-    let source = observations::observe(store, access, value.source_window.clone())?;
+    let source = observations::observe(store, access, value.source_window.clone()).await?;
     let last = source
         .verifications
         .last()
         .ok_or("local training source unavailable")?;
     if source.deletion != value.deletion
         || training_digest(&source)? != value.source_digest
-        || event_pins(store, &source)? != value.source_events
+        || event_pins(store, &source).await? != value.source_events
         || source
             .verifications
             .iter()
@@ -277,14 +273,15 @@ pub fn validate(store: &Store, access: &Access, value: &Fit) -> Result<()> {
 /// Explicit installation verifies that deserialized parameters really derive
 /// from retained training data. Only this offline boundary rebuilds a model;
 /// ordinary evaluation checks provenance and keeps the installed parameters.
-pub fn validate_install(store: &Store, access: &Access, value: &Fit) -> Result<()> {
-    validate(store, access, value)?;
+pub async fn validate_install(store: &Store, access: &Access, value: &Fit) -> Result<()> {
+    validate(store, access, value).await?;
     let rebuilt = fit(
         store,
         access,
         value.source_window.clone(),
         value.model.minimum_samples(),
-    )?;
+    )
+    .await?;
     if rebuilt.model != value.model || rebuilt.alphabet != value.alphabet {
         return Err("local fitted parameters do not match training evidence".into());
     }
@@ -292,14 +289,16 @@ pub fn validate_install(store: &Store, access: &Access, value: &Fit) -> Result<(
 }
 
 /// Read-only inference from strictly later observations; never fits or updates.
-pub fn evaluate(
+pub async fn evaluate(
     store: &Store,
     access: &Access,
     value: &Fit,
     task: &TaskId,
     window: HistoryWindow,
 ) -> Result<Outcome> {
-    prepare_evaluation(store, access, value, task, window)?.compute()
+    prepare_evaluation(store, access, value, task, window)
+        .await?
+        .compute()
 }
 
 /// Immutable inference snapshot. Model arithmetic runs without canonical owner
@@ -320,14 +319,14 @@ impl Prepared {
     }
 }
 
-pub fn prepare_evaluation(
+pub async fn prepare_evaluation(
     store: &Store,
     access: &Access,
     value: &Fit,
     task: &TaskId,
     window: HistoryWindow,
 ) -> Result<Prepared> {
-    validate(store, access, value)?;
+    validate(store, access, value).await?;
     if task != &value.task
         || window
             .from
@@ -336,7 +335,7 @@ pub fn prepare_evaluation(
         return Err("local inference must follow training in the same task".into());
     }
     let current: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -349,8 +348,8 @@ pub fn prepare_evaluation(
     {
         return Err("local inference task is paused, terminal, steered or revised".into());
     }
-    let source = observations::observe(store, access, window.clone())?;
-    let exact_cycles = cycles::observe(store, access, window.clone())?;
+    let source = observations::observe(store, access, window.clone()).await?;
+    let exact_cycles = cycles::observe(store, access, window.clone()).await?;
     let mut outcome = Outcome {
         fit: value.id.clone(),
         task: task.clone(),

@@ -137,7 +137,7 @@ pub fn open_local_memory(config: Config) -> Result<(LocalMemory, CanonicalOwner)
         let task: vcp_domain::task::Task = context
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 context.config.root_task.as_str(),

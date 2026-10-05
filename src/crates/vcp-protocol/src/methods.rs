@@ -66,6 +66,50 @@ impl Counter {
     }
 }
 
+/// Estimate totals preserve legacy decimal strings; missing valuation terms
+/// remain explicit and must not be displayed as a known zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EstimatedCounter(pub vcp_domain::accounting::EstimatedMicros);
+impl From<vcp_domain::accounting::EstimatedMicros> for EstimatedCounter {
+    fn from(value: vcp_domain::accounting::EstimatedMicros) -> Self {
+        Self(value)
+    }
+}
+impl From<u64> for EstimatedCounter {
+    fn from(value: u64) -> Self {
+        Self(vcp_domain::Micros::new(value).into())
+    }
+}
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for EstimatedCounter {
+    fn schema_name() -> String {
+        "EstimatedCounter".into()
+    }
+    fn json_schema(generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        #[derive(schemars::JsonSchema)]
+        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+        #[allow(dead_code)]
+        enum UnknownEstimate {
+            Unknown {
+                #[schemars(range(min = 1, max = 1))]
+                version: u32,
+                known_component: Counter,
+                #[schemars(regex(pattern = "^[1-9]"))]
+                unknown_components: Counter,
+            },
+        }
+        #[derive(schemars::JsonSchema)]
+        #[serde(untagged)]
+        #[allow(dead_code)]
+        enum EstimateInput {
+            Known(Counter),
+            Unknown(UnknownEstimate),
+        }
+        EstimateInput::json_schema(generator)
+    }
+}
+
 #[cfg(feature = "schema")]
 fn string_schema(pattern: String, max: u32) -> schemars::schema::Schema {
     use schemars::schema::{InstanceType, SchemaObject, StringValidation};
@@ -803,8 +847,8 @@ dto!(UsageView {
     currency: Currency,
     cap_micros: vcp_domain::Limit<Counter>,
     settled_micros: Counter,
-    reserved_micros: Counter,
-    unresolved_micros: Counter,
+    reserved_micros: EstimatedCounter,
+    unresolved_micros: EstimatedCounter,
     overrun: bool
 });
 dto!(ArtifactRange {

@@ -6,7 +6,7 @@ struct Paged<'a> {
     mode: u8,
     writes: usize,
 }
-impl CanonicalStore for Paged<'_> {
+impl vcp_store::contract::reference::ReferenceStore for Paged<'_> {
     fn state(&self) -> &State {
         panic!("live projector must not read full State")
     }
@@ -44,10 +44,13 @@ async fn bounded_projector_matches_archive_and_never_publishes_failed_reads() {
         let mut fixture = fixture(temporary.path(), backend).await;
         let workspace = access().workspace;
         for version in [1, 1, 2] {
-            let expected =
-                projection::prepare_activation(fixture.engine.store().state(), &workspace, version)
-                    .unwrap()
-                    .1;
+            let expected = projection::prepare_activation(
+                &fixture.engine.store().archive_state().await.unwrap(),
+                &workspace,
+                version,
+            )
+            .unwrap()
+            .1;
             let mut reader = Paged {
                 store: fixture.engine.store_mut(),
                 mode: 0,

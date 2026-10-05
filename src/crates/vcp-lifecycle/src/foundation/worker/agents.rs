@@ -54,7 +54,7 @@ impl Context {
         if task == &self.config.root_task {
             return Ok(None);
         }
-        let Some(row) = self.engine.store().state().records.get(&key(
+        let Some(row) = self.engine.store().current().records.get(&key(
             Collection::Projection,
             &graph_id(&self.config.root_task),
         )) else {
@@ -87,7 +87,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -97,7 +97,7 @@ impl Context {
         let parent: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 spec.parent.as_str(),
@@ -105,7 +105,7 @@ impl Context {
             )?
             .decode()?;
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &self.config.workspace)?;
         if spec.actor != self.config.actor
             || spec.authority != workspace.authority
             || spec.policy != policy.revision
@@ -115,7 +115,7 @@ impl Context {
         {
             return Err("child assignment requires current parent, authority and deadline".into());
         }
-        if !vcp_engine::agents::current_scope(self.engine.store().state(), &parent, &spec, now())? {
+        if !vcp_engine::agents::current_scope(self.engine.store().current(), &parent, &spec, now())? {
             return Err("child grant ceiling is no longer current".into());
         }
         Ok(Some((graph, spec)))
@@ -137,7 +137,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &self.config.workspace)?
             .decode()?;
         if descriptor.state != CaptureState::Complete
@@ -198,7 +198,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -342,7 +342,7 @@ impl Context {
         let source = RootId::parse(self.config.workspace.as_str())?;
         let isolated = spec.isolated_root.as_ref().ok_or("child root missing")?;
         let mut policy =
-            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &self.config.workspace)?;
         if policy.workspace_roots.contains(&source) {
             policy.workspace_roots.insert(isolated.clone());
         }
@@ -362,7 +362,7 @@ impl Context {
         let parent: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 spec.parent.as_str(),
@@ -370,13 +370,13 @@ impl Context {
             )?
             .decode()?;
         for mut grant in
-            vcp_engine::policy::grants(self.engine.store().state(), &self.config.workspace)?
+            vcp_engine::policy::grants(self.engine.store().current(), &self.config.workspace)?
         {
             if spec.grants.get(&grant.id) != Some(&grant.revision) {
                 continue;
             }
             if !vcp_engine::agents::inherited_grant(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &parent,
                 &grant,
                 now(),

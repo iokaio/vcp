@@ -216,7 +216,7 @@ impl CanonicalHost {
             let current: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),
@@ -426,7 +426,7 @@ impl CanonicalHost {
                         let current: Effect = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Effect,
                                 effect.as_str(),
@@ -452,7 +452,7 @@ impl CanonicalHost {
                                 &reason,
                             )?;
                             if next == EffectState::OutcomeUnknown {
-                                let task: vcp_domain::task::Task = context.engine.store().state()
+                                let task: vcp_domain::task::Task = context.engine.store().current()
                                     .record(Collection::Task, binding.scope.task.as_str(), &binding.scope.workspace)?.decode()?;
                                 if task.state == vcp_domain::task::TaskState::Running {
                                     context.command(Command::Transition {
@@ -548,7 +548,7 @@ impl PreparedProcess {
             };
             let evidence=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"exit_code":exit,"stop_reason":reason,"stdout_bytes":total.0,"stderr_bytes":total.1,"presentation":presentation,"output_complete":!partial,"owned_processes_remaining":0,"observed_workspace":sources,"external_effects":"opaque; reduced isolation does not inventory external filesystem/network effects"}))?,"vcp-process-outcome-v1")?;
             let mut receipts=vec![plan,evidence.spec.id.clone()];receipts.extend(output);receipts.extend(additional_evidence);
-            let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
+            let current:Effect=context.engine.store().current().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
             receipts.extend(current.observed_changes);
             receipts.sort();receipts.dedup();
             context.command(Command::AdvanceEffect{id:effect,next:if exit==Some(0)&&!partial{EffectState::Succeeded}else{EffectState::Failed},reason:"native process and job quiescence observed; partial effects are retained".into(),execution:Some(execution),exit_code:exit,observed_changes:receipts},Some(binding.scope.task.clone()),current.revision)?;
@@ -586,7 +586,7 @@ impl Drop for PreparedProcess {
                     let current: Effect = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Effect,
                             effect.as_str(),
@@ -608,7 +608,7 @@ impl Drop for PreparedProcess {
                         let task: vcp_domain::task::Task = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Task,
                                 binding.scope.task.as_str(),

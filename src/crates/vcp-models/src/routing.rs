@@ -5,7 +5,7 @@ use crate::{catalog::Snapshot, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
-    accounting::{ChargeCategory, Money, RequestRole, Usage},
+    accounting::{ChargeCategory, EstimatedMicros, EstimatedMoney, Money, RequestRole, Usage},
     Micros, Revision, SteeringRevision, TaskId, Timestamp, Units, WorkspaceId,
 };
 
@@ -270,13 +270,13 @@ pub enum Exclusion {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CostBreakdown {
-    pub first_attempt: Micros,
-    pub retries: Micros,
-    pub handoff: Micros,
-    pub support: Micros,
-    pub children: Micros,
-    pub verification: Micros,
-    pub total: Money,
+    pub first_attempt: EstimatedMicros,
+    pub retries: EstimatedMicros,
+    pub handoff: EstimatedMicros,
+    pub support: EstimatedMicros,
+    pub children: EstimatedMicros,
+    pub verification: EstimatedMicros,
+    pub total: EstimatedMoney,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

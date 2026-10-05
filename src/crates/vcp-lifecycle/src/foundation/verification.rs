@@ -358,7 +358,7 @@ impl CanonicalHost {
                     // broker reconciles it to OutcomeUnknown; absence of a
                     // returned process handle must not imply no execution.
                     let may_have_dispatched = check.effect.as_ref().is_some_and(|id| {
-                        self.snapshot()
+                        self.current_state()
                             .and_then(|state| {
                                 let effect: vcp_domain::effect::Effect = state
                                     .record(

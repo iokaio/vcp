@@ -14,6 +14,7 @@ use vcp_domain::{
     Micros, Units,
 };
 use vcp_models::{catalog::Snapshot, routing::*};
+use vcp_store::contract::CanonicalStore;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -644,12 +645,12 @@ async fn inspect_endpoints(preferences: &Preferences) -> Result<Value, String> {
         match crate::provider_setup::connection::refresh_all(model, key.expose()).await {
             Ok(prepared) => {
                 for value in prepared {
-                    let reference = vcp_models::rotation::reference_cost(
+                    let reference = vcp_models::rotation::reference_estimate(
                         &value.snapshot,
                         REFERENCE_INPUT,
                         REFERENCE_OUTPUT,
                     )?;
-                    let reservation = vcp_lifecycle::foundation::conformance::reservation(
+                    let reservation = vcp_lifecycle::foundation::conformance::reservation_estimate(
                         &value.snapshot,
                         REFERENCE_OUTPUT,
                     )
@@ -868,6 +869,27 @@ fn capture_rotation(
                 .as_ref()
                 .map(|value| crate::args::parse_usd(value))
                 .transpose()?;
+            let selected: Vec<_> = entries.iter()
+                .filter(|entry| choice.models.contains(&entry.identity.model) && allowed(entry)).collect();
+            if selected.iter().any(|entry| entry.snapshot.as_ref()
+                .is_some_and(|snapshot| snapshot.tariff_normalization == Some(3))) {
+                let mut members = Vec::new();
+                for model in &choice.models {
+                    members.extend(selected.iter().filter(|entry| &entry.identity.model == model)
+                        .map(|entry| entry.identity.clone()));
+                }
+                let first = selected.first().ok_or("rotation snapshot missing")?.snapshot.as_ref()
+                    .ok_or("rotation snapshot missing")?;
+                let reference = vcp_models::rotation::reference_estimate(first, REFERENCE_INPUT, REFERENCE_OUTPUT)?;
+                sets.push(ChoiceSet {
+                    id: format!("{name}-choice-{}", index + 1),
+                    label: format!("{} choice", ["First", "Second", "Third"][index]), members,
+                    max_reference_request_cost: vcp_domain::accounting::MonetaryLimit {
+                        currency: reference.currency.clone(), micros: vcp_domain::Limit::Unbounded,
+                    }, reference_request_cost: reference,
+                });
+                continue;
+            }
             let priced = entries
                 .iter()
                 .filter(|entry| choice.models.contains(&entry.identity.model) && allowed(entry))
@@ -923,8 +945,8 @@ fn capture_rotation(
                 max_reference_request_cost: Money {
                     currency: reference.currency.clone(),
                     micros: ceiling,
-                },
-                reference_request_cost: reference,
+                }.into(),
+                reference_request_cost: reference.into(),
             });
         }
         roles.push(RoleSets {
@@ -1222,14 +1244,14 @@ pub async fn load_for_command(
         )
         .await
         .map_err(|e| e.to_string())?;
-        let selection = (|| -> Result<_, String> {
+        let selection: Result<_, String> = async {
             Ok(match &cli.command {
                 Some(CliCommand::Resume(resume)) if resume.task.is_some() => resume.task.clone(),
                 Some(CliCommand::Sessions {
                     command: Sessions::Fork { through_turn, .. },
                 }) => {
                     let turn: vcp_domain::task::Turn = store
-                        .state()
+                        .current()
                         .record(
                             Collection::Turn,
                             through_turn.as_str(),
@@ -1246,13 +1268,15 @@ pub async fn load_for_command(
                         }) => Some(session),
                         _ => None,
                     };
-                    crate::continuation::candidates(store.state(), &entry.config.workspace)?
+                    crate::continuation::candidates_store(&store, &entry.config.workspace)
+                        .await?
                         .into_iter()
                         .find(|row| session.is_none_or(|session| session == &row.session))
                         .map(|row| row.task)
                 }
             })
-        })();
+        }
+        .await;
         store.close().await.map_err(|e| e.to_string())?;
         if let Some(task) = selection? {
             if let Some(value) = read_record(directory, &format!("task-models-{task}.json"))? {
@@ -1575,7 +1599,13 @@ mod tests {
         vcp_models::catalog::compatibility::snapshots(&raw, settings::now())
             .unwrap()
             .into_iter()
-            .map(|snapshot| (snapshot, raw.clone()))
+            .map(|snapshot| {
+                // These fixtures qualify retained finite choice-set semantics.
+                let snapshot = snapshot
+                    .for_execution(&raw, vcp_domain::Limit::Finite(Micros::new(100)))
+                    .unwrap();
+                (snapshot, raw.clone())
+            })
             .collect()
     }
 
@@ -1721,8 +1751,8 @@ mod tests {
             .iter()
             .all(|identity| identity.endpoint != "host/expensive"));
         assert_eq!(
-            sets[0].max_reference_request_cost.micros.get(),
-            sets[0].reference_request_cost.micros.get() * 2
+            sets[0].max_reference_request_cost.micros.finite().unwrap().get(),
+            sets[0].reference_request_cost.micros.known().unwrap().get() * 2
         );
         let mut narrowed = preferences.clone();
         narrowed.choice_sets.get_mut("main").unwrap()[0]
@@ -1796,6 +1826,57 @@ mod tests {
                 endpoint: "host/outside".into(),
             });
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn unbounded_rotation_retains_unpriced_members_and_owner_endpoint_restrictions() {
+        let mut preferences = Preferences::default();
+        preferences.set.roles = BTreeMap::from([("main".into(), vec!["fixture/one".into()])]);
+        set_choice(
+            &mut preferences,
+            "main",
+            1,
+            vec!["fixture/one".into()],
+            Some("0.0001".into()),
+        )
+        .unwrap();
+        preferences.choice_sets.get_mut("main").unwrap()[0]
+            .endpoints
+            .insert("fixture/one".into(), vec!["host/selected".into()]);
+        let original = serde_json::to_value(&preferences).unwrap();
+        let prepared = rotation_metadata(
+            "fixture/one",
+            &[("host/selected", "0.01"), ("host/outside", "0.01")],
+        )
+        .into_iter()
+        .map(|(prior, raw)| {
+            let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+            for endpoint in value["data"]["endpoints"].as_array_mut().unwrap() {
+                endpoint["pricing"] = serde_json::Value::Null;
+            }
+            let raw = serde_json::to_vec(&value).unwrap();
+            let snapshot = Snapshot::from_endpoints_unbounded(
+                &raw,
+                prior.observed_at,
+                prior.valid_until,
+                prior.compatibility,
+            )
+            .unwrap();
+            assert!(snapshot
+                .for_execution(&raw, vcp_domain::Limit::Finite(Micros::new(100)))
+                .is_err());
+            (snapshot, raw)
+        })
+        .collect::<Vec<_>>();
+        let configuration = routing_configuration(&preferences, &prepared).unwrap();
+        let sets = configuration.rotation.as_ref().unwrap().sets(RequestRole::Main);
+        assert_eq!(sets.len(), 1);
+        assert_eq!(sets[0].members.len(), 1);
+        assert_eq!(sets[0].members[0].endpoint, "host/selected");
+        assert!(sets[0].reference_request_cost.micros.known().is_none());
+        assert!(sets[0].max_reference_request_cost.micros.is_unbounded());
+        assert_eq!(serde_json::to_value(&preferences).unwrap(), original);
+        assert_eq!(preferred_main(&configuration).unwrap().endpoint, "host/selected");
     }
 
     #[test]

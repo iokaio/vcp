@@ -19,6 +19,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     event::{EventEnvelope, EventKind},
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{artifact::ArtifactWriter, BackendKind, Store};
 
 fn fingerprint() -> Fingerprint {
@@ -99,7 +100,11 @@ async fn capture(
         .unwrap();
     (
         descriptor,
-        engine.store().state().events.last().unwrap().clone(),
+        (&engine.store().archive_state().await.unwrap())
+            .events
+            .last()
+            .unwrap()
+            .clone(),
     )
 }
 async fn fixture(
@@ -158,9 +163,7 @@ async fn fixture(
         .handle(request, &owner(), &HostFacts::inspect(Timestamp::new(100)))
         .await
         .unwrap();
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .last()
         .unwrap()
@@ -233,10 +236,10 @@ async fn typed_extraction_is_read_only_replay_stable_and_governed_on_both_backen
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, scope, _, _, observation) = fixture(temp.path(), backend).await;
         let event = observations(&mut engine, &scope, vec![observation]).await;
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let first = extract(engine.store(), &access(), &event).await.unwrap();
         assert_eq!(first.proposals.len(), 1);
-        assert_eq!(engine.store().state(), &before);
+        assert_eq!(&engine.store().archive_state().await.unwrap(), &before);
         drop(engine);
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         let second = extract(&store, &access(), &event).await.unwrap();
@@ -313,9 +316,7 @@ async fn child_objectives_with_host_actor_never_establish_explicit_user_preferen
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, parent, origin, _, _) = fixture(temp.path(), backend).await;
-        let root_event = engine
-            .store()
-            .state()
+        let root_event = (&engine.store().archive_state().await.unwrap())
             .events
             .iter()
             .find(|event| event.event.id == origin)
@@ -364,16 +365,20 @@ async fn child_objectives_with_host_actor_never_establish_explicit_user_preferen
                     .await
                     .unwrap();
             }
-            let event = engine.store().state().events.last().unwrap().clone();
+            let event = (&engine.store().archive_state().await.unwrap())
+                .events
+                .last()
+                .unwrap()
+                .clone();
             assert_eq!(event.event.actor, owner().actor);
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             assert!(
                 vcp_memory::preferences::materialize(engine.store_mut(), &access(), &event)
                     .await
                     .unwrap()
                     .is_none()
             );
-            assert_eq!(engine.store().state().watermark, before);
+            assert_eq!(engine.store().current().watermark, before);
             // Bypass the extractor deliberately: durable governance must reject
             // the same false provenance, even with retained preference evidence.
             let mut candidate = base.clone();
@@ -495,7 +500,11 @@ async fn native_verification_extracts_the_actual_command_configuration_and_outco
             .handle(request, &owner(), &HostFacts::inspect(Timestamp::new(150)))
             .await
             .unwrap();
-        let event = engine.store().state().events.last().unwrap().clone();
+        let event = (&engine.store().archive_state().await.unwrap())
+            .events
+            .last()
+            .unwrap()
+            .clone();
         assert_eq!(event.event.kind, EventKind::VerificationRecorded);
         let result = extract(engine.store(), &access(), &event).await.unwrap();
         assert_eq!(result.proposals.len(), 1, "{:?}", result.findings);
@@ -524,9 +533,7 @@ async fn declared_preference_captures_exact_origin_and_reuses_sealed_orphan_afte
         for sealed_orphan in [false, true] {
             let temp = tempfile::tempdir().unwrap();
             let (engine, scope, origin, _, _) = fixture(temp.path(), backend).await;
-            let event = engine
-                .store()
-                .state()
+            let event = (&engine.store().archive_state().await.unwrap())
                 .events
                 .iter()
                 .find(|e| e.event.id == origin)
@@ -537,13 +544,13 @@ async fn declared_preference_captures_exact_origin_and_reuses_sealed_orphan_afte
                 write: false,
                 ..access()
             };
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             assert!(
                 vcp_memory::preferences::materialize(&mut store, &denied, &event)
                     .await
                     .is_err()
             );
-            assert_eq!(store.state(), &before);
+            assert_eq!(&store.archive_state().await.unwrap(), &before);
             if sealed_orphan {
                 let identity = vcp_memory::extractors::output_identity(
                     &scope.workspace,
@@ -596,8 +603,11 @@ async fn declared_preference_captures_exact_origin_and_reuses_sealed_orphan_afte
             assert!(
                 matches!(&proposal.value,ClaimValue::UserPreference{key,value,..} if key=="test-output" && value=="retain")
             );
-            assert_eq!(store.state().events.len(), before.events.len() + 1);
-            let captured = store.state().clone();
+            assert_eq!(
+                (&store.archive_state().await.unwrap()).events.len(),
+                before.events.len() + 1
+            );
+            let captured = store.archive_state().await.unwrap();
             drop(store);
             let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
             let repeated = vcp_memory::preferences::materialize(&mut store, &access(), &event)
@@ -605,7 +615,7 @@ async fn declared_preference_captures_exact_origin_and_reuses_sealed_orphan_afte
                 .unwrap()
                 .unwrap();
             assert_eq!(repeated, proposal);
-            assert_eq!(store.state(), &captured);
+            assert_eq!(&store.archive_state().await.unwrap(), &captured);
             let accepted = propose(&mut store, &access(), proposal, Timestamp::new(200))
                 .await
                 .unwrap();

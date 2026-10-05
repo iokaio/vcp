@@ -346,8 +346,8 @@ async fn run(backend: BackendKind, oversized: bool) {
                 packet.remaining.finite().expect("finite historical fixture").get(),
                 packet.ledger.cap.finite().expect("finite historical fixture").get().saturating_sub(
                     packet.ledger.settled.get()
-                        + packet.ledger.active.get()
-                        + packet.ledger.unresolved.get()
+                        + packet.ledger.active.known().unwrap().get()
+                        + packet.ledger.unresolved.known().unwrap().get()
                         + packet.ledger.protected.get()
                 )
             );
@@ -476,7 +476,7 @@ async fn run(backend: BackendKind, oversized: bool) {
             .await
             .unwrap();
         let retained_workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -493,7 +493,7 @@ async fn run(backend: BackendKind, oversized: bool) {
             write: false,
             tasks: Some(BTreeSet::from([config.root_task.clone()])),
         };
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let diagnostics =
             vcp_lifecycle::foundation::routing_state::compaction_diagnostics::observe(
                 &store,
@@ -521,7 +521,7 @@ async fn run(backend: BackendKind, oversized: bool) {
         assert!(!rendered.contains("synthetic historical evidence"));
         assert!(!rendered.contains("Obsolete assumption"));
         assert!(!diagnostics.serving_qualified);
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         drop(store);
         if phase == 0 {
             fs::write(

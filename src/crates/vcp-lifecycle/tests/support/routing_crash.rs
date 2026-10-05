@@ -88,6 +88,7 @@ async fn process_kill_before_and_after_publication_reopens_exact_policy_and_comm
                 vec![Edit::QualityFloorBps(8000)],
                 &ceilings,
             )
+            .await
             .unwrap();
             let input = temp.path().join("input.json");
             let marker = temp.path().join("barrier");
@@ -143,7 +144,7 @@ async fn process_kill_before_and_after_publication_reopens_exact_policy_and_comm
                 current.value.quality_floor_bps,
                 if point == "after" { 8000 } else { 7000 }
             );
-            let watermark = reopened.state().watermark;
+            let watermark = reopened.current().watermark;
             let result = apply(
                 &mut reopened,
                 &access,
@@ -156,7 +157,7 @@ async fn process_kill_before_and_after_publication_reopens_exact_policy_and_comm
             .unwrap();
             assert_eq!(result.published.revision, Revision::new(1));
             if point == "after" {
-                assert_eq!(reopened.state().watermark, watermark);
+                assert_eq!(reopened.current().watermark, watermark);
             }
             reopened.close().await.unwrap();
         }

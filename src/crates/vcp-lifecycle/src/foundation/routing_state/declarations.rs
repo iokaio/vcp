@@ -77,7 +77,7 @@ fn identity(access: &Access, command: &CommandId) -> String {
 }
 fn retained(store: &Store, access: &Access, collection: Collection, id: &str) -> Result<()> {
     if vcp_memory::retention::purged(
-        store.state(),
+        store.current(),
         &access.workspace,
         &vcp_memory::retention::Target::Record(key(collection, id)),
     )
@@ -94,7 +94,7 @@ fn evidence(
     id: &ArtifactId,
 ) -> Result<ArtifactDescriptor> {
     let descriptor: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(Collection::Artifact, id.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -102,7 +102,7 @@ fn evidence(
     if descriptor.spec.scope != *scope
         || descriptor.state != CaptureState::Complete
         || vcp_memory::retention::purged(
-            store.state(),
+            store.current(),
             &access.workspace,
             &vcp_memory::retention::Target::Record(key(Collection::Artifact, id.as_str())),
         )
@@ -112,21 +112,35 @@ fn evidence(
     }
     Ok(descriptor)
 }
-fn latest_attempt(store: &Store, access: &Access, task: &Task) -> Result<Attempt> {
-    if store.state().events.len() > 100_000 {
+async fn latest_attempt(store: &Store, access: &Access, task: &Task) -> Result<Attempt> {
+    let cutoff = store.current().watermark;
+    let count = store.history_event_count().await.map_err(err)?;
+    if count > 100_000 {
         return Err("declaration history bound".into());
     }
-    for envelope in store.state().events.iter().rev().filter(|e| {
-        e.event.workspace == access.workspace
-            && e.event.task.as_ref() == Some(&task.scope.task)
-            && e.event.kind == EventKind::ReservationCreated
-            && e.redaction.is_none()
-    }) {
+    // Preserve reverse canonical chronology and its early-return/error order.
+    // An owned exact ordinal read does not retain unrelated historical payloads.
+    for ordinal in (0..count).rev() {
+        let envelope = store
+            .history_event_at(ordinal)
+            .await
+            .map_err(err)?
+            .ok_or("declaration history incomplete")?;
+        if store.current().watermark != cutoff || envelope.watermark > cutoff {
+            return Err("declaration history cut changed".into());
+        }
+        if envelope.event.workspace != access.workspace
+            || envelope.event.task.as_ref() != Some(&task.scope.task)
+            || envelope.event.kind != EventKind::ReservationCreated
+            || envelope.redaction.is_some()
+        {
+            continue;
+        }
         let id = envelope.event.data["attempt"]["id"]
             .as_str()
             .ok_or("reservation attempt identity missing")?;
         let attempt: Attempt = store
-            .state()
+            .current()
             .record(Collection::Attempt, id, &access.workspace)
             .map_err(err)?
             .decode()
@@ -144,7 +158,7 @@ fn latest_attempt(store: &Store, access: &Access, task: &Task) -> Result<Attempt
     }
     Err("declaration needs a prior task model attempt".into())
 }
-pub fn validate(store: &Store, access: &Access, input: &Input) -> Result<(Task, Attempt)> {
+pub async fn validate(store: &Store, access: &Access, input: &Input) -> Result<(Task, Attempt)> {
     authorize(store, access, false)?;
     if !access.allows_task(&input.task)
         || input.evidence.is_empty()
@@ -171,7 +185,7 @@ pub fn validate(store: &Store, access: &Access, input: &Input) -> Result<(Task, 
         }
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, input.task.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -196,7 +210,7 @@ pub fn validate(store: &Store, access: &Access, input: &Input) -> Result<(Task, 
             break;
         };
         current = store
-            .state()
+            .current()
             .record(Collection::Task, parent.as_str(), &access.workspace)
             .map_err(err)?
             .decode()
@@ -205,7 +219,7 @@ pub fn validate(store: &Store, access: &Access, input: &Input) -> Result<(Task, 
     for id in &input.evidence {
         evidence(store, access, &task.scope, id)?;
     }
-    let attempt = latest_attempt(store, access, &task)?;
+    let attempt = latest_attempt(store, access, &task).await?;
     Ok((task, attempt))
 }
 pub fn existing(store: &Store, access: &Access, input: &Input) -> Result<Option<Declaration>> {
@@ -230,7 +244,7 @@ pub fn list(store: &Store, access: &Access, task: &TaskId) -> Result<Vec<Declara
         return Err("declaration task access denied".into());
     }
     let mut declarations = Vec::new();
-    for record in store.state().records.values().filter(|r| {
+    for record in store.current().records.values().filter(|r| {
         r.collection == Collection::Projection
             && r.workspace == access.workspace
             && r.value["document_type"] == DOCUMENT
@@ -246,19 +260,27 @@ pub fn list(store: &Store, access: &Access, task: &TaskId) -> Result<Vec<Declara
     }
     Ok(declarations)
 }
-pub fn inspect(store: &Store, access: &Access, task: &TaskId) -> Result<serde_json::Value> {
+pub async fn inspect(store: &Store, access: &Access, task: &TaskId) -> Result<serde_json::Value> {
     let declarations = list(store, access, task)?;
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
         .map_err(err)?;
     let admissions = admitted_escalations(store, access, &task.scope)?;
-    let records: Vec<_> = declarations.into_iter().map(|declaration| {
-        let admitted: Vec<_> = admissions.iter().filter(|a| a.plan.trigger.evidence.contains(&declaration.artifact))
-            .map(|a| a.attempt.clone()).collect();
-        let stale_reason = if declaration.state == State::Pending { current_fence(store, access, &declaration).err() } else { None };
+    let mut records = Vec::new();
+    for declaration in declarations {
+        let admitted: Vec<_> = admissions
+            .iter()
+            .filter(|a| a.plan.trigger.evidence.contains(&declaration.artifact))
+            .map(|a| a.attempt.clone())
+            .collect();
+        let stale_reason = if declaration.state == State::Pending {
+            current_fence(store, access, &declaration).await.err()
+        } else {
+            None
+        };
         let disposition = match (&declaration.state, admitted.is_empty()) {
             (State::Consumed { .. }, true) => "consumed_without_admission",
             (State::Consumed { .. }, false) => "admitted",
@@ -266,8 +288,8 @@ pub fn inspect(store: &Store, access: &Access, task: &TaskId) -> Result<serde_js
             (State::Pending, _) => "pending",
             (State::Superseded { .. }, _) => "superseded",
         };
-        serde_json::json!({"declaration": declaration, "disposition": disposition, "stale_reason": stale_reason, "admitted_attempts": admitted})
-    }).collect();
+        records.push(serde_json::json!({"declaration": declaration, "disposition": disposition, "stale_reason": stale_reason, "admitted_attempts": admitted}));
+    }
     Ok(serde_json::json!({"declarations": records,
         "consumed_meaning": "Consumed once for scheduling; not proof of admission. A failed scheduling attempt requires a fresh explicit declaration."}))
 }
@@ -321,7 +343,7 @@ pub async fn record(
     if let Some(existing) = existing(store, access, &input)? {
         return Ok(existing);
     }
-    let (task, previous) = validate(store, access, &input)?;
+    let (task, previous) = validate(store, access, &input).await?;
     let source = evidence(store, access, &task.scope, &artifact)?;
     if source.spec.schema != SCHEMA
         || source.sha256 != digest_bytes(&canonical_bytes(&input).map_err(err)?)
@@ -329,7 +351,7 @@ pub async fn record(
         return Err("declaration artifact differs from typed owner input".into());
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -353,7 +375,7 @@ pub async fn record(
             return Err("task already has a current pending owner escalation declaration".into());
         }
         let old = store
-            .state()
+            .current()
             .record(Collection::Projection, &prior.id, &access.workspace)
             .map_err(err)?;
         let expected = prior.revision;
@@ -418,7 +440,7 @@ pub async fn claim(
         .filter(|d| d.state == State::Pending)
         .collect();
     let current: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -435,9 +457,9 @@ pub async fn claim(
     let Some(mut value) = matching.into_iter().next() else {
         return Ok(None);
     };
-    let attempt = current_fence(store, access, &value)?;
+    let attempt = current_fence(store, access, &value).await?;
     let prior = store
-        .state()
+        .current()
         .record(Collection::Projection, &value.id, &access.workspace)
         .map_err(err)?;
     let expected = value.revision;
@@ -459,10 +481,10 @@ pub async fn claim(
     Ok(Some((value, attempt)))
 }
 /// Inspection uses exactly the same read-only source fence as consumption.
-fn current_fence(store: &Store, access: &Access, value: &Declaration) -> Result<Attempt> {
-    let (task, attempt) = validate(store, access, &value.input)?;
+async fn current_fence(store: &Store, access: &Access, value: &Declaration) -> Result<Attempt> {
+    let (task, attempt) = validate(store, access, &value.input).await?;
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),

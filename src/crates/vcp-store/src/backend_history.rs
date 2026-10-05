@@ -2,10 +2,8 @@
 //! Bounded reads of original commits under an already validated canonical owner.
 use super::*;
 use vcp_domain::Watermark;
-#[cfg(test)]
 #[path = "backend_history_current.rs"]
 mod current;
-#[cfg(test)]
 pub(crate) use current::CurrentCommitReader;
 
 enum Source {

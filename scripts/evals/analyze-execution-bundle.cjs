@@ -84,10 +84,26 @@ function analyze(bundle) {
   const accounting = ledgers.map(row => ({root:row.record?.scope?.task,
     settled:row.record?.settled ?? null,active:row.record?.active ?? null,unresolved:row.record?.unresolved ?? null,
     visibility:row.visibility ?? 'unknown'}));
+  const retained = bundle.retained_lifecycle_diagnostics ?? [];
+  if (!Array.isArray(retained)) throw Error('Invalid retained lifecycle diagnostics');
+  const owners = new Set();
+  const retainedStatistics = retained.map(receipt => {
+    const event = events.get(receipt.event);
+    const owner = receipt.snapshot?.owner;
+    if (event?.kind !== 'diagnostic' || receipt.capture_boundary !== 'owner_drained'
+        || typeof owner !== 'string' || !owner.length || owners.has(owner)) throw Error('Invalid retained diagnostic owner or source event');
+    owners.add(owner);
+    return {event:receipt.event,watermark:receipt.watermark,capture_boundary:receipt.capture_boundary,
+      statistics:phaseStatistics(receipt.snapshot,scope)};
+  });
+  // Never combine overlapping snapshots, owners, or process-relative clocks.
+  const phases = bundle.lifecycle_diagnostics ?? retained.at(-1)?.snapshot;
+  const phaseSource = bundle.lifecycle_diagnostics ? 'live_owner_snapshot' : phases ? 'retained_owner_snapshot' : 'not_collected';
   return {schema_version:1,kind:'execution_bundle_analysis',task:scope.task,source_watermark:bundle.source_watermark,
     facts:{task_state:bundle.task.state,event_count:events.size,event_kinds:eventKinds,causal_edges:edges,record_observations:recordObservations,verification,accounting,effects,
-      store_phases:bundle.store_diagnostics ?? null,lifecycle_phases:bundle.lifecycle_diagnostics ?? null,
-      lifecycle_statistics:phaseStatistics(bundle.lifecycle_diagnostics,scope)},
+      store_phases:bundle.store_diagnostics ?? null,lifecycle_phases:phases ?? null,
+      lifecycle_source:phaseSource,retained_lifecycle_statistics:retainedStatistics,
+      lifecycle_statistics:phaseStatistics(phases,scope)},
     gaps:filteredGaps,
     relationship_semantics:'Record groups are explicit shared identities; only causal_edges assert recorded causation. Retained-with-omissions may describe intentional credential omission, not missing execution evidence.',
     assessment:{quality:'requires_independent_scenario_gates',causal_analysis:'requires_evidence_review',

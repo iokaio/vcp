@@ -61,7 +61,7 @@ fn fixture(terminal: bool) -> Transaction {
 fn put(store: &Store, record: Record, expected: Option<Revision>) -> Transaction {
     Transaction {
         id: TransactionId::new(),
-        expected_watermark: store.state().watermark,
+        expected_watermark: store.current().watermark,
         mutations: vec![Mutation::Put { expected, record }],
         events: vec![],
         command: None,
@@ -85,10 +85,11 @@ async fn advisory_purge_strips_payload_preserves_identity_and_cannot_be_restored
         let keys: BTreeSet<_> = advisory_rows().iter().map(Record::key).collect();
         let originals: Vec<_> = keys
             .iter()
-            .map(|key| store.state().records[key].clone())
+            .map(|key| store.current().records[key].clone())
             .collect();
         let candidate = store
             .retention_candidate(&keys, &BTreeSet::new(), &BTreeSet::new())
+            .await
             .unwrap();
         for source in &originals {
             let row = &candidate.records[&source.key()];
@@ -143,7 +144,7 @@ async fn advisory_purge_strips_payload_preserves_identity_and_cannot_be_restored
         store.close().await.unwrap();
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         for key in &keys {
-            let row = &reopened.state().records[key];
+            let row = &reopened.current().records[key];
             row.decode::<redaction::RedactedAdvisory>()
                 .unwrap()
                 .validate()
@@ -165,6 +166,7 @@ async fn advisory_redaction_requires_terminal_recovery_and_exact_document_contra
         let keys = BTreeSet::from([key(Collection::Projection, "advisory-request")]);
         assert!(store
             .retention_candidate(&keys, &BTreeSet::new(), &BTreeSet::new())
+            .await
             .is_err());
         let mut unrelated = advisory_rows().remove(0);
         unrelated.id = "unrelated-projection".into();
@@ -174,6 +176,7 @@ async fn advisory_redaction_requires_terminal_recovery_and_exact_document_contra
         store.transact(put(&store, unrelated, None)).await.unwrap();
         assert!(store
             .retention_candidate(&keys, &BTreeSet::new(), &BTreeSet::new())
+            .await
             .is_err());
         store.close().await.unwrap();
     }

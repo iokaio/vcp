@@ -91,7 +91,7 @@ fn scope(
     authorize(store, access, write).map_err(|_| Error::Access)?;
     let expected_session = session;
     let session: Session = store
-        .state()
+        .current()
         .record(Collection::Session, session.as_str(), &access.workspace)
         .map_err(|_| Error::Access)?
         .decode()
@@ -100,7 +100,7 @@ fn scope(
         return Err(Error::Access);
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -146,11 +146,15 @@ fn admission(
 }
 /// Replay is checked before revision or ephemeral preview checks. The caller
 /// must still hold current authenticated write/controller authority.
-pub fn replay(store: &Store, access: &Access, command: &Command) -> PublicResult<Option<Commit>> {
+pub async fn replay(
+    store: &Store,
+    access: &Access,
+    command: &Command,
+) -> PublicResult<Option<Commit>> {
     admission(store, access, command, false, false)?;
     let Some(receipt) = store
-        .state()
-        .command(&access.workspace, &command.id, &command.digest)
+        .command_receipt(&access.workspace, &command.id, &command.digest)
+        .await
         .map_err(|_| Error::CommandConflict)?
     else {
         return Ok(None);
@@ -161,19 +165,37 @@ pub fn replay(store: &Store, access: &Access, command: &Command) -> PublicResult
     if binding.command != *command {
         return Err(Error::CommandConflict);
     }
-    if !store.state().events.iter().any(|event| {
-        event.watermark == receipt.watermark
-            && event.event.session == command.session
-            && event.event.workspace == command.workspace
-            && event.event.actor == command.actor
-            && event.event.correlation == command.id
-    }) {
+    let count = store
+        .history_event_count()
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    let mut at = 0u64;
+    let mut found = false;
+    while at < count && !found {
+        let limit = (count - at).min(256) as usize;
+        let page = store
+            .history_events(at.checked_sub(1), limit)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+        if page.is_empty() || page.len() > limit {
+            return Err(Error::Unavailable);
+        }
+        at += page.len() as u64;
+        found = page.iter().any(|event| {
+            event.watermark == receipt.watermark
+                && event.event.session == command.session
+                && event.event.workspace == command.workspace
+                && event.event.actor == command.actor
+                && event.event.correlation == command.id
+        });
+    }
+    if !found {
         return Err(Error::Unavailable);
     }
     let transaction = store
-        .state()
-        .transactions
-        .get(&receipt.transaction)
+        .transaction_receipt(&receipt.transaction)
+        .await
+        .map_err(|_| Error::Unavailable)?
         .ok_or(Error::Unavailable)?;
     if transaction.command.as_ref() != Some(&receipt) {
         return Err(Error::Unavailable);
@@ -276,7 +298,7 @@ async fn publish(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events,
             command: Some(ReceiptInput {
@@ -290,6 +312,7 @@ async fn publish(
         .await
         .map_err(|_| Error::OutcomeUnknown)?;
     replay(store, access, command)
+        .await
         .map_err(|_| Error::OutcomeUnknown)?
         .ok_or(Error::OutcomeUnknown)
 }
@@ -306,7 +329,7 @@ fn coverage(
             for id in tasks {
                 check()?;
                 let task: Task = store
-                    .state()
+                    .current()
                     .record(Collection::Task, id.as_str(), &access.workspace)
                     .map_err(|_| Error::Access)?
                     .decode()
@@ -333,14 +356,15 @@ pub async fn capture(
     check: &Check<'_>,
 ) -> PublicResult<Commit> {
     check()?;
-    if let Some(receipt) = replay(store, access, command)? {
+    if let Some(receipt) = replay(store, access, command).await? {
         return Ok(receipt);
     }
     admission(store, access, command, true, false)?;
     coverage(store, access, &command.session, value, check)?;
     let result = report_with_check(store, access, window, &|| {
         check().map_err(|_| "optimizer interrupted".into())
-    });
+    })
+    .await;
     check()?;
     let report = result.map_err(|_| Error::Unavailable)?;
     forecast_reports::save_public(store, access, report, command, value, now, check, false).await
@@ -358,7 +382,7 @@ pub async fn qualification_capture_after_spool(
     check: &Check<'_>,
 ) -> PublicResult<Commit> {
     check()?;
-    if let Some(receipt) = replay(store, access, command)? {
+    if let Some(receipt) = replay(store, access, command).await? {
         return Ok(receipt);
     }
     admission(store, access, command, true, false)?;
@@ -366,11 +390,12 @@ pub async fn qualification_capture_after_spool(
     let report = report_with_check(store, access, window, &|| {
         check().map_err(|_| "optimizer interrupted".into())
     })
+    .await
     .map_err(|_| Error::Unavailable)?;
     forecast_reports::save_public(store, access, report, command, value, now, check, true).await
 }
 /// Binding identities are public capture command IDs, never internal report IDs.
-pub fn read_report(
+pub async fn read_report(
     store: &Store,
     access: &Access,
     session: &SessionId,
@@ -407,7 +432,8 @@ pub fn read_report(
     }
     let result = load_report_with_check(store, access, &report, &|| {
         check().map_err(|_| "optimizer interrupted".into())
-    });
+    })
+    .await;
     check()?;
     let report = result.map_err(|_| Error::Unavailable)?;
     if report.source_tasks != source_tasks {
@@ -420,7 +446,7 @@ pub fn read_report(
     {
         check()?;
         let task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, id.as_str(), &access.workspace)
             .map_err(|_| Error::Access)?
             .decode()
@@ -484,7 +510,7 @@ pub async fn apply(
     check: &Check<'_>,
 ) -> PublicResult<Commit> {
     check()?;
-    if let Some(receipt) = replay(store, access, command)? {
+    if let Some(receipt) = replay(store, access, command).await? {
         return Ok(receipt);
     }
     admission(store, access, command, true, true)?;
@@ -499,7 +525,7 @@ pub async fn apply(
         proposal.selected.clone(),
         ceilings,
         &|| check().map_err(|_| "optimizer interrupted".into()),
-    );
+    ).await;
     check()?;
     let current = checked.map_err(|_| Error::Stale)?;
     if current != *proposal {
@@ -528,7 +554,7 @@ pub async fn rollback(
     check: &Check<'_>,
 ) -> PublicResult<Commit> {
     check()?;
-    if let Some(receipt) = replay(store, access, command)? {
+    if let Some(receipt) = replay(store, access, command).await? {
         return Ok(receipt);
     }
     admission(store, access, command, true, true)?;

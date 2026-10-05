@@ -23,6 +23,26 @@ test('uncertain effects retain null outcomes and only explicit output identity l
   bundle.views.tools[0].items[0].record.scope={...bundle.task.scope,task:'foreign'};
   assert.throws(()=>analyze(bundle),/Effect scope/);
 });
+
+test('reopened owner timings survive without merging owner clocks or replacing live observations', () => {
+  const bundle = fixture();
+  bundle.history[1].rows[1].event.event.kind = 'diagnostic';
+  const snapshot = {schema_version:1,available:true,owner:'prior-owner',window:'current_owner_only',complete_history:false,dropped:2,
+    observations:[{sequence:1,status:'interrupted',elapsed_micros:900,phase:'provider_exchange',scope:bundle.task.scope}]};
+  bundle.retained_lifecycle_diagnostics = [{event:'passed',watermark:'9',capture_boundary:'owner_drained',snapshot}];
+  const report = analyze(bundle).facts;
+  assert.equal(report.lifecycle_source,'retained_owner_snapshot');
+  assert.equal(report.lifecycle_statistics.groups[0].status,'interrupted');
+  assert.equal(report.retained_lifecycle_statistics[0].statistics.owner,'prior-owner');
+  bundle.lifecycle_diagnostics = {...snapshot,owner:'new-owner',observations:[]};
+  assert.equal(analyze(bundle).facts.lifecycle_statistics.owner,'new-owner');
+  assert.equal(analyze(bundle).facts.retained_lifecycle_statistics[0].statistics.owner,'prior-owner');
+  bundle.retained_lifecycle_diagnostics.push(bundle.retained_lifecycle_diagnostics[0]);
+  assert.throws(()=>analyze(bundle),/source event/);
+  bundle.retained_lifecycle_diagnostics.pop();
+  snapshot.observations[0].scope = {...bundle.task.scope,task:'foreign'};
+  assert.throws(()=>analyze(bundle),/scope mismatch/);
+});
 test('offline report reconstructs explicit edges across pages without declaring quality or settlement', () => {
   const report = analyze(fixture());
   assert.equal(report.facts.event_count,3);

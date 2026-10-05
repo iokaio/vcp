@@ -122,7 +122,7 @@ impl CanonicalProcess {
             let effect: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Effect, id.as_str(), &context.config.workspace)?
                 .decode()?;
             context.command(

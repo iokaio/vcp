@@ -118,7 +118,7 @@ async fn history_pages_match_cli_metadata_without_payloads_and_recheck_access() 
         observer.write = false;
         observer.bootstrap = false;
         let mut query = request(&observer);
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let first = inspect(engine.store(), &observer, &query, &|| Ok(()))
             .await
             .unwrap();
@@ -129,7 +129,7 @@ async fn history_pages_match_cli_metadata_without_payloads_and_recheck_access() 
             .unwrap()
             .contains("private history needle"));
         let cli = vcp_audit::history_query::query_session(
-            engine.store().state(),
+            &engine.store().archive_state().await.unwrap(),
             &vcp_audit::history::Access {
                 workspace: observer.workspace.clone(),
                 authority: observer.authority,
@@ -196,7 +196,7 @@ async fn history_pages_match_cli_metadata_without_payloads_and_recheck_access() 
             .unwrap()
             .contains("private history needle"));
         assert_eq!(
-            engine.store().state(),
+            &engine.store().archive_state().await.unwrap(),
             &before,
             "observer pagination cannot write canonical state"
         );

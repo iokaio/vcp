@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Bounded current-owner timing evidence. Never execution or retry authority.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{Arc, Mutex},
@@ -9,7 +9,7 @@ use std::{
 use vcp_domain::{workspace::Scope, AttemptId, EventId, TurnId};
 
 const RETAINED_SPANS: usize = 256;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
     ContextAssembly,
@@ -21,7 +21,7 @@ pub enum Phase {
     Repair,
     Resume,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Active,
@@ -30,7 +30,8 @@ pub enum Status {
     Interrupted,
     Skipped,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Observation {
     pub sequence: u64,
     pub phase: Phase,
@@ -45,14 +46,15 @@ pub struct Observation {
     pub elapsed_micros: u64,
     pub status: Status,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Snapshot {
     pub schema_version: u32,
     pub owner: String,
     /// Snapshot offset from the same origin as Observation::started_micros.
     pub snapshot_micros: u64,
     /// Prior owner/crash timing is unavailable; canonical history is separate.
-    pub window: &'static str,
+    pub window: String,
     pub complete_history: bool,
     pub available: bool,
     pub capacity: usize,
@@ -143,7 +145,7 @@ impl Collector {
             schema_version: 1,
             owner: String::new(),
             snapshot_micros: 0,
-            window: "current_owner_only",
+            window: "current_owner_only".into(),
             complete_history: false,
             available: false,
             capacity: RETAINED_SPANS,

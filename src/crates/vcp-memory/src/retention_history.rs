@@ -193,7 +193,7 @@ mod tests {
         state: State,
         failure: u8,
     }
-    impl CanonicalStore for Reader {
+    impl vcp_store::contract::reference::ReferenceStore for Reader {
         fn state(&self) -> &State {
             panic!("retention digest must not materialize State")
         }

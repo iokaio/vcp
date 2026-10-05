@@ -73,7 +73,7 @@ fn gap(
         snapshot_sequence: context
             .engine
             .store()
-            .state()
+            .current()
             .sequences
             .get(&access.session)
             .copied()

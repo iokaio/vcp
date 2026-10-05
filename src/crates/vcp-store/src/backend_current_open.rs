@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Cold-open factory using real native ownership before any history is trusted.
-//! The existing Store will consume these parts when its live API is migrated.
+//! Public Store consumes this admitted, payload-free owner.
 use super::*;
 use crate::{canonical_lock::CanonicalLock, history_index::io, private_paths::Directory};
-#[path = "store_current_owner.rs"]
-mod owner;
 #[path = "store_current_open_legacy.rs"]
 mod legacy;
+#[path = "store_current_owner.rs"]
+mod owner;
+#[path = "store_current_prefix.rs"]
+pub(crate) mod prefix;
 
 pub(crate) struct Opened {
     pub(crate) backend: Backend,
@@ -18,6 +20,7 @@ pub(crate) struct Opened {
     pub(crate) diagnostics: crate::StoreDiagnostics,
     pub(crate) current: std::sync::OnceLock<std::sync::Arc<crate::CurrentState>>,
     pub(crate) origin_digest: String,
+    pub(crate) prefixes: Vec<crate::replay_base::PrefixCommitment>,
     _data: File,
     _root: Directory,
     _lock: CanonicalLock,
@@ -109,6 +112,7 @@ impl Opened {
                             .as_ref()
                             .map(|base| base.state.watermark)
                             .unwrap_or_default(),
+                        #[cfg(test)]
                         write_budget: None,
                     };
                     if crate::vault_publish::native_identity(&data)?
@@ -207,6 +211,10 @@ impl Opened {
         diagnostics.current_watermark = owner.semantic().current().watermark.get();
         Ok(Self {
             backend,
+            prefixes: base
+                .as_ref()
+                .map(|value| value.prefixes.clone())
+                .unwrap_or_default(),
             owner: std::sync::Arc::new(owner),
             pages,
             spool,
@@ -219,6 +227,20 @@ impl Opened {
             _root: root,
             _lock: lock,
         })
+    }
+    pub(crate) async fn close_retaining_lock(self) -> (CanonicalLock, Result<()>) {
+        let Self {
+            backend,
+            owner,
+            pages,
+            _data,
+            _root,
+            _lock,
+            ..
+        } = self;
+        let result = backend.close().await;
+        drop((owner, pages, _data, _root));
+        (_lock, result)
     }
     pub(crate) async fn close(self) -> Result<()> {
         let Self {

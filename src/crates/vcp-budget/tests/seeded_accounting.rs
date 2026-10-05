@@ -88,14 +88,18 @@ async fn capture(store: &mut Store, bytes: &[u8]) -> ArtifactDescriptor {
     let artifact = writer.finalize().unwrap();
     drop(writer);
     store
-        .transact(common::attach(store.state(), artifact.clone(), None))
+        .transact(common::attach(
+            &store.archive_state().await.unwrap(),
+            artifact.clone(),
+            None,
+        ))
         .await
         .unwrap();
     artifact
 }
 fn admission(store: &Store, artifact: &ArtifactDescriptor, amount: u64) -> Admission {
     let scope = common::task().scope;
-    let current = ledger(store.state(), &scope).unwrap();
+    let current = ledger(store.current(), &scope).unwrap();
     Admission {
         transaction: TransactionId::new(),
         attempt: AttemptId::new(),
@@ -195,12 +199,12 @@ struct Expected {
 }
 impl Expected {
     fn check(&self, store: &Store) {
-        let actual = ledger(store.state(), &common::task().scope).unwrap();
+        let actual = ledger(store.current(), &common::task().scope).unwrap();
         assert_eq!(
             (
                 actual.settled.get(),
-                actual.active.get(),
-                actual.unresolved.get()
+                actual.active.known().unwrap().get(),
+                actual.unresolved.known().unwrap().get()
             ),
             (self.settled, self.active, self.unresolved)
         );
@@ -211,7 +215,7 @@ impl Expected {
     }
 }
 fn attempt_state(store: &Store, id: &AttemptId, phase: ReservationState, charged: u64) {
-    let observed = attempt(store.state(), id, &common::workspace().id).unwrap();
+    let observed = attempt(store.current(), id, &common::workspace().id).unwrap();
     assert_eq!(observed.phase, phase);
     assert_eq!(observed.charged.get(), charged);
 }
@@ -221,11 +225,11 @@ async fn reopen(
     backend: BackendKind,
     expected: &Expected,
 ) -> Store {
-    let acknowledged = store.state().clone();
+    let acknowledged = store.archive_state().await.unwrap();
     store.close().await.unwrap();
     let store = Store::open(path, backend, &[]).await.unwrap();
     assert_eq!(
-        store.state(),
+        &store.archive_state().await.unwrap(),
         &acknowledged,
         "cooperative reopen lost acknowledged state"
     );
@@ -253,17 +257,17 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
                 expected.active = episode.quote;
                 expected.check(&store);
                 attempt_state(&store, &started.id, ReservationState::Created, 0);
-                let checkpoint = store.state().clone();
+                let checkpoint = store.archive_state().await.unwrap();
                 assert_eq!(
                     reserve(&mut store, input.clone(), &actor()).await.unwrap(),
                     started
                 );
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 duplicates += 1;
                 let mut changed = input;
                 changed.request_digest = "c".repeat(64);
                 assert!(reserve(&mut store, changed, &actor()).await.is_err());
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 denied += 1;
 
                 step!("unknown-before-send-is-denied");
@@ -276,7 +280,7 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
                 )
                 .await
                 .is_err());
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 denied += 1;
                 if episode.release {
                     step!("release-before-send-and-reopen");
@@ -286,11 +290,11 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
                     expected.active = 0;
                     expected.check(&store);
                     attempt_state(&store, &started.id, ReservationState::Released, 0);
-                    let checkpoint = store.state().clone();
+                    let checkpoint = store.archive_state().await.unwrap();
                     release_before_send(&mut store, &started.id, &scope, &actor())
                         .await
                         .unwrap();
-                    assert_eq!(store.state(), &checkpoint);
+                    assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                     duplicates += 1;
                     releases += 1;
                     store = reopen(store, temp.path(), backend, &expected).await;
@@ -304,19 +308,19 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
                 assert_eq!(permit.request_digest(), &request.sha256);
                 expected.check(&store);
                 attempt_state(&store, &started.id, ReservationState::Submitted, 0);
-                let checkpoint = store.state().clone();
+                let checkpoint = store.archive_state().await.unwrap();
                 assert!(
                     submit(&mut store, &started.id, &scope, started.revision, &actor())
                         .await
                         .is_err()
                 );
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 assert!(
                     release_before_send(&mut store, &started.id, &scope, &actor())
                         .await
                         .is_err()
                 );
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 denied += 2;
                 step!("hold-unknown-and-reopen");
                 hold_uncertain(
@@ -375,24 +379,24 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
                     ReservationState::Settled,
                     episode.final_bill,
                 );
-                let checkpoint = store.state().clone();
+                let checkpoint = store.archive_state().await.unwrap();
                 assert_eq!(
                     observe(&mut store, final_usage.clone(), &actor())
                         .await
                         .unwrap(),
                     settlement
                 );
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 duplicates += 1;
                 let mut conflict = final_usage;
                 conflict.amount = money(episode.final_bill + 1);
                 assert!(observe(&mut store, conflict, &actor()).await.is_err());
-                assert_eq!(store.state(), &checkpoint);
+                assert_eq!(&store.archive_state().await.unwrap(), &checkpoint);
                 denied += 1;
 
                 step!("new-id-stale-usage-is-audited-without-double-charge");
                 let stale_usage = usage(&mut store, &started.id, episode.partial, 1, true).await;
-                let prior = store.state().clone();
+                let prior = store.archive_state().await.unwrap();
                 let stale_settlement = observe(&mut store, stale_usage, &actor()).await.unwrap();
                 assert!(!stale_settlement.applied);
                 assert_eq!(stale_settlement.total.get(), episode.final_bill);
@@ -404,11 +408,14 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
                     episode.final_bill,
                 );
                 assert_eq!(
-                    &store.state().events[..prior.events.len()],
+                    &(&store.archive_state().await.unwrap()).events[..prior.events.len()],
                     prior.events.as_slice()
                 );
                 for (id, receipt) in &prior.commands {
-                    assert_eq!(store.state().commands.get(id), Some(receipt));
+                    assert_eq!(
+                        (&store.archive_state().await.unwrap()).commands.get(id),
+                        Some(receipt)
+                    );
                 }
                 expected.check(&store);
                 stale += 1;
@@ -418,10 +425,10 @@ async fn seeded_late_usage_traces_preserve_independent_liability_arithmetic() {
             assert!(releases >= 1 && finals >= 1 && denied >= 12 && duplicates >= 6 && stale >= 1);
             assert!(expected.settled > CAP);
             let blocked = admission(&store, &request, 1);
-            let checkpoint = store.state().clone();
+            let checkpoint = store.archive_state().await.unwrap();
             assert!(reserve(&mut store, blocked, &actor()).await.is_err());
             assert_eq!(
-                store.state(),
+                &store.archive_state().await.unwrap(),
                 &checkpoint,
                 "late overrun must deny fresh admission without mutation"
             );

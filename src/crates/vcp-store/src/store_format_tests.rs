@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
-use crate::{contract::CanonicalStore, Barrier, Store};
+use crate::{contract::CanonicalStore, legacy_store_fixture::LegacyFixture as Store, Barrier};
 #[path = "../tests/common/mod.rs"]
 mod common;
 
@@ -107,4 +107,97 @@ async fn format_publication_rejects_changed_selection_without_replacing_it() {
         );
         owner.close().await.unwrap();
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn marker_replacement_preserves_shared_readers_and_never_removes_old_bytes() {
+    use std::io::Read;
+    let temp = tempfile::tempdir().unwrap();
+    for iteration in 0..32 {
+        let target = temp.path().join(format!("marker-{iteration}.json"));
+        let source = temp.path().join(format!("replacement-{iteration}.pending"));
+        let prior = b"{\"version\":1}";
+        let next = b"{\"version\":3}";
+        immutable_file(&target, prior).unwrap();
+        let mut reader = std::fs::File::open(&target).unwrap();
+        crate::private_paths::write_private(&source, next).unwrap();
+        replace(&source, &target).unwrap();
+        assert!(!source.exists());
+        assert_eq!(std::fs::read(&target).unwrap(), next);
+        let mut retained = Vec::new();
+        reader.read_to_end(&mut retained).unwrap();
+        assert_eq!(retained, prior);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn replacement_retries_only_transient_io_with_exact_identity_and_a_finite_bound() {
+    use std::cell::Cell;
+    for corrupt in [None, Some("pending"), Some("selected")] {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("pending");
+        let target = temp.path().join("format.json");
+        std::fs::write(&source, b"next").unwrap();
+        std::fs::write(&target, b"prior").unwrap();
+        let checks = Cell::new(0);
+        let calls = Cell::new(0);
+        let verify = || {
+            checks.set(checks.get() + 1);
+            if std::fs::read(&source)? != b"next" || std::fs::read(&target)? != b"prior" {
+                return Err(Error::Corruption("fixture identity changed"));
+            }
+            Ok(false)
+        };
+        let result = replace_checked(&source, &target, &verify, &mut |source, target| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                if let Some(part) = corrupt {
+                    std::fs::write(if part == "pending" { source } else { target }, b"changed")?;
+                }
+                return Err(std::io::Error::from_raw_os_error(5).into());
+            }
+            replace(source, target)
+        });
+        assert_eq!(checks.get(), 2);
+        if corrupt.is_none() {
+            result.unwrap();
+            assert_eq!(calls.get(), 2);
+            assert_eq!(std::fs::read(&target).unwrap(), b"next");
+        } else {
+            assert!(matches!(
+                result,
+                Err(Error::Corruption("fixture identity changed"))
+            ));
+            assert_eq!(calls.get(), 1);
+            assert_eq!(
+                std::fs::read(&target).unwrap(),
+                if corrupt == Some("selected") {
+                    &b"changed"[..]
+                } else {
+                    &b"prior"[..]
+                }
+            );
+        }
+    }
+    let calls = Cell::new(0);
+    let path = Path::new("unused");
+    let result = replace_checked(path, path, &|| Ok(false), &mut |_, _| {
+        calls.set(calls.get() + 1);
+        Err(std::io::Error::from_raw_os_error(32).into())
+    });
+    assert!(matches!(result, Err(Error::Io(e)) if e.raw_os_error() == Some(32)));
+    assert_eq!(calls.get(), 8);
+    calls.set(0);
+    assert!(replace_checked(path, path, &|| Ok(false), &mut |_, _| {
+        calls.set(calls.get() + 1);
+        Err(std::io::Error::from_raw_os_error(112).into())
+    })
+    .is_err());
+    assert_eq!(calls.get(), 1);
+    assert!(replace_checked(path, path, &|| Ok(true), &mut |_, _| {
+        panic!("already verified new marker must not be replaced")
+    })
+    .is_ok());
 }

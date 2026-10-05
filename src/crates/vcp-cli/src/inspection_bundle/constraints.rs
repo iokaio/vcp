@@ -127,8 +127,8 @@ mod tests {
                 cap: Limit::Finite(Micros::new(12345)),
                 protected: Micros::ZERO,
                 settled: Micros::new(25),
-                active: Micros::ZERO,
-                unresolved: Micros::new(77),
+                active: Micros::ZERO.into(),
+                unresolved: Micros::new(77).into(),
                 allocations: Default::default(),
                 daily: Some(vcp_domain::accounting::DailyPolicy {
                     cap: Micros::new(5000),

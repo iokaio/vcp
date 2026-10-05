@@ -33,10 +33,19 @@ pub struct Packet {
 }
 
 fn remaining(ledger: &Ledger) -> Result<Limit<Micros>> {
+    if ledger.cap.is_unbounded() {
+        return Ok(Limit::Unbounded);
+    }
     let held = [
         ledger.settled,
-        ledger.active,
-        ledger.unresolved,
+        ledger
+            .active
+            .known()
+            .ok_or(Error::Invalid("unpriced finite handoff liability"))?,
+        ledger
+            .unresolved
+            .known()
+            .ok_or(Error::Invalid("unpriced finite handoff liability"))?,
         ledger.protected,
     ]
     .into_iter()

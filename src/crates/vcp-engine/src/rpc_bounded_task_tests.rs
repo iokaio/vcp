@@ -5,7 +5,7 @@ struct PagedTask<'a> {
     fail: bool,
     reads: std::cell::Cell<usize>,
 }
-impl CanonicalStore for PagedTask<'_> {
+impl vcp_store::contract::reference::ReferenceStore for PagedTask<'_> {
     fn state(&self) -> &State {
         panic!("live task projection must not request resident history")
     }
@@ -49,7 +49,7 @@ async fn task_projection_streams_full_chronology_and_does_not_hide_read_failure_
         let temp = tempfile::tempdir().unwrap();
         let mut engine = setup(temp.path(), backend).await;
         let task = create_task(&mut engine).await;
-        let mut state = engine.store().state().clone();
+        let mut state = engine.store().archive_state().await.unwrap();
         put_turn(&mut state, &task, "old", 10);
         put_turn(&mut state, &task, "new", 20);
         state.watermark = Watermark::new(20);

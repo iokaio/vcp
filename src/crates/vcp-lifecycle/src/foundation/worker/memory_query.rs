@@ -40,7 +40,7 @@ impl Context {
             let artifact: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     source.artifact.as_str(),

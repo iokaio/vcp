@@ -8,7 +8,7 @@ const MAX_HISTORY_BYTES: usize = 1024 * 1024;
 
 impl Context {
     pub(super) fn fork_history(&mut self, binding: &ThreadBinding) -> Result<Option<Part>> {
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let session: Session = state
             .record(
                 Collection::Session,
@@ -39,10 +39,7 @@ impl Context {
         {
             return Err("fork history ancestry or boundary rejected".into());
         }
-        let end = state
-            .events
-            .iter()
-            .find(|event| event.event.id == turn.cause)
+        let end = self.runtime.block_on(self.engine.store().history_event(&turn.cause))?
             .ok_or("fork boundary event missing")?
             .watermark;
         let descriptors: Vec<ArtifactDescriptor> = state
@@ -81,10 +78,9 @@ impl Context {
                             | SCHEMA
                     )
             }) {
-                let recorded = state
-                    .events
-                    .iter()
-                    .find(|event| event.event.artifacts.contains(&descriptor.spec.id))
+                let recorded = self.runtime.block_on(self.engine.store().history_artifact_events(
+                    &binding.scope.workspace, &descriptor.spec.id, None, 1,
+                ))?.into_iter().next().map(|(_, event)| event)
                     .ok_or("historical artifact event missing")?
                     .watermark;
                 if recorded <= end {

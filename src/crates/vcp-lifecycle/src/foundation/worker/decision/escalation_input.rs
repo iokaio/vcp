@@ -39,7 +39,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 seed.binding.scope.task.as_str(),
@@ -55,7 +55,7 @@ impl Context {
         let mut sequences = BTreeSet::new();
         for id in &plan.trigger.evidence {
             if !vcp_memory::retention::recall_allowed(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &seed.binding.scope.workspace,
                 &vcp_memory::retention::Target::Record(key(Collection::Artifact, id.as_str())),
             )? {
@@ -64,7 +64,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     id.as_str(),
@@ -95,7 +95,7 @@ impl Context {
             let attempt: Attempt = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Attempt,
                     pair.attempt.as_str(),
@@ -115,7 +115,7 @@ impl Context {
                     let canonical: vcp_domain::verification::Verification = self
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Verification,
                             verification.id.as_str(),

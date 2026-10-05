@@ -17,6 +17,7 @@ pub(crate) struct CurrentCommitReader<'a> {
     at: Watermark,
     final_chain: Option<String>,
     failed: bool,
+    publication: Option<String>,
 }
 impl Backend {
     /// Caller supplies its actual jointly constructed backend/owner/lock. The
@@ -67,10 +68,14 @@ impl Backend {
             at: owner.originals().base_watermark(),
             final_chain,
             failed: false,
+            publication: None,
         })
     }
 }
 impl CurrentCommitReader<'_> {
+    pub(crate) fn publication(&self) -> Option<&str> {
+        self.publication.as_deref()
+    }
     pub(crate) async fn next_original(
         &mut self,
     ) -> Result<Option<crate::original_commits::OriginalCommit>> {
@@ -78,6 +83,7 @@ impl CurrentCommitReader<'_> {
             return Err(Error::Unavailable("retained history reader failed"));
         }
         self.failed = true;
+        self.publication = None;
         if self.at == self.owner.originals().watermark() {
             if let Source::Files { chain, .. } = &self.source {
                 if self.final_chain.as_ref() != Some(chain) {
@@ -98,7 +104,7 @@ impl CurrentCommitReader<'_> {
             Source::Sqlite(db) => {
                 let row=sqlx::query("SELECT id,CASE WHEN typeof(payload)='blob' AND length(payload) BETWEEN 1 AND ? THEN payload ELSE NULL END AS payload,digest FROM commits WHERE watermark=?")
                     .bind(MAX_COMMIT_BYTES as i64).bind(i64::try_from(expected.get()).map_err(|_|Error::Limit("SQLite watermark"))?)
-                    .fetch_optional(db).await?.ok_or(Error::Corruption("retained commit missing"))?;
+                    .fetch_optional(&mut *db).await?.ok_or(Error::Corruption("retained commit missing"))?;
                 let payload = row
                     .try_get::<Option<Vec<u8>>, _>("payload")?
                     .ok_or(Error::Corruption("retained commit length"))?;
@@ -107,6 +113,9 @@ impl CurrentCommitReader<'_> {
                 {
                     return Err(Error::Corruption("retained commit checksum or identity"));
                 }
+                self.publication = sqlx::query_scalar::<_, Option<String>>("SELECT CASE WHEN typeof(digest)='text' AND length(digest)=64 THEN digest ELSE NULL END FROM history_publications WHERE watermark=?")
+                    .bind(i64::try_from(expected.get()).map_err(|_| Error::Limit("SQLite watermark"))?)
+                    .fetch_optional(&mut *db).await?.flatten();
                 payload
             }
             Source::Files {
@@ -119,6 +128,7 @@ impl CurrentCommitReader<'_> {
                 };
                 *offset = frame.end;
                 *chain = frame.chain;
+                self.publication = frame.publication;
                 frame.payload
             }
         };

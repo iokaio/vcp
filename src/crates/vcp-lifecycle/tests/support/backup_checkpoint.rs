@@ -389,7 +389,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
         );
         assert_eq!(std::fs::read(workspace.join(".git/index")).unwrap(), index);
         let restored = imported.reopen_verified().await.unwrap();
-        let before_configuration = restored.state().clone();
+        let before_configuration = restored.archive_state().await.unwrap();
         let descriptor = vcp_lifecycle::foundation::restore_workspace::restored_configuration(
             &restored,
             &imported,
@@ -398,6 +398,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
             vcp_domain::HostId::new(),
             None,
         )
+        .await
         .unwrap();
         assert_eq!(descriptor.workspace, config.workspace);
         assert_eq!(descriptor.session, config.session);
@@ -408,9 +409,9 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
         );
         assert_eq!(descriptor.price.valid_until, vcp_domain::Timestamp::ZERO);
         assert!(descriptor.price.rates.is_empty());
-        assert_eq!(restored.state(), &before_configuration);
+        assert_eq!(restored.archive_state().await.unwrap(), before_configuration);
         let restored_workspace: vcp_domain::workspace::Workspace = restored
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -421,7 +422,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
             .unwrap();
         assert_eq!(restored_workspace.trust, Trust::Untrusted);
         assert!(!restored
-            .state()
+            .current()
             .records
             .values()
             .any(|row| row.collection == Collection::Attempt));

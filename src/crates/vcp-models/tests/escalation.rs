@@ -230,8 +230,8 @@ impl Fixture {
             cap: vcp_domain::Limit::Finite(Micros::new(10_000)),
             protected: Micros::new(100),
             settled: Micros::new(500),
-            active: Micros::new(200),
-            unresolved: Micros::new(300),
+            active: Micros::new(200).into(),
+            unresolved: Micros::new(300).into(),
             allocations: BTreeMap::new(),
             daily: None,
             overrun: false,
@@ -653,7 +653,7 @@ fn combined_root_limit_and_unresolved_spend_cannot_be_bypassed() {
     fixture.policy.max_total_attempts = 1;
     fixture.blocked(escalation::Blocked::Limit);
     let mut fixture = Fixture::new();
-    fixture.ledger.unresolved = Micros::new(8900);
+    fixture.ledger.unresolved = Micros::new(8900).into();
     fixture.blocked(escalation::Blocked::Budget);
     let mut fixture = Fixture::new();
     fixture.counters.total_attempts = 0;

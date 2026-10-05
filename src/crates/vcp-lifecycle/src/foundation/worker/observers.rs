@@ -92,7 +92,7 @@ fn id(root: &TaskId) -> String {
 impl Context {
     fn observer_retained_available(&self) -> Result<bool> {
         Ok(recall_allowed(
-            self.engine.store().state(),
+            self.engine.store().current(),
             &self.config.workspace,
             &Target::Record(key(Collection::Projection, &id(&self.config.root_task))),
         )?)
@@ -110,7 +110,7 @@ impl Context {
         let Some(row) = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &id(&self.config.root_task)))
         else {
@@ -141,7 +141,7 @@ impl Context {
         let previous = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &record_id))
             .map(|r| r.revision);
@@ -163,7 +163,7 @@ impl Context {
         if let Some(previous) = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &record_id))
         {
@@ -183,9 +183,9 @@ impl Context {
         // computation abstains or has not yet published a proposal. Keep those
         // dependencies in the canonical retention closure as well.
         if (!document.state.attempts.is_empty() || document.state.queued.is_some())
-            && self.engine.store().state().records.len() <= 4096
+            && self.engine.store().current().records.len() <= 4096
         {
-            for row in self.engine.store().state().records.values().filter(|r| {
+            for row in self.engine.store().current().records.values().filter(|r| {
                 r.collection == Collection::Verification && r.workspace == self.config.workspace
             }) {
                 // Store validation already established this typed scope. Borrow
@@ -221,7 +221,7 @@ impl Context {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.engine.store().state().watermark,
+            expected_watermark: self.engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 record,
                 expected: previous,
@@ -305,12 +305,15 @@ impl Context {
     }
     fn observer_input(&self, binding: &ThreadBinding, deadline: Timestamp) -> Result<Input> {
         self.validate_binding(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
+        let event_count = self
+            .runtime
+            .block_on(self.engine.store().history_event_count())?;
         let limit = self
             .observers
             .as_ref()
             .map_or(4096, |c| c.limits.steps_per_attempt as usize);
-        if state.records.len().saturating_add(state.events.len()) > limit {
+        if u64::try_from(state.records.len())?.saturating_add(event_count) > limit as u64 {
             return Err("observer source snapshot exceeds its step ceiling".into());
         }
         let mut capture = SourceBudget {
@@ -322,7 +325,13 @@ impl Context {
                         .map_or(2000, |c| c.limits.deadline_ms),
                 ),
         };
-        serde_json::to_writer(&mut capture, state)?;
+        capture.bytes = self.runtime.block_on(
+            self.engine
+                .store()
+                .archive_size_with_check(MAX_SOURCE_BYTES, &|| {
+                    capture.check().map_err(vcp_store::Error::Io)
+                }),
+        )?;
         capture.check()?;
         let task: Task = state
             .record(
@@ -372,8 +381,15 @@ impl Context {
                 return Err("observer verification input limit exceeded".into());
             }
         }
-        for event in state.events.iter().rev() {
+        for ordinal in (0..event_count).rev() {
             capture.check()?;
+            let event = self
+                .runtime
+                .block_on(self.engine.store().history_event_at(ordinal))?
+                .ok_or("observer verification history ended before pinned boundary")?;
+            if event.watermark > state.watermark {
+                return Err("observer history exceeded its source cut".into());
+            }
             if event.event.task.as_ref() == Some(&binding.scope.task)
                 && event.event.kind == vcp_protocol::event::EventKind::VerificationRecorded
             {
@@ -446,7 +462,7 @@ impl Context {
         document.state.proposals.retain(|proposal| {
             proposal.verifications.iter().all(|id| {
                 recall_allowed(
-                    self.engine.store().state(),
+                    self.engine.store().current(),
                     &binding.scope.workspace,
                     &Target::Record(key(Collection::Verification, id.as_str())),
                 )
@@ -484,7 +500,7 @@ impl Context {
         {
             return Ok(Selection::Idle);
         }
-        let _ledger = match vcp_budget::ledger(self.engine.store().state(), &binding.scope) {
+        let _ledger = match vcp_budget::ledger(self.engine.store().current(), &binding.scope) {
             Ok(ledger) => ledger,
             Err(_) => {
                 let notice = "Observer paused: shared root cost ledger unavailable";
@@ -498,9 +514,12 @@ impl Context {
         };
         let old = document.state.clone();
         let history = self
-            .engine
-            .store()
-            .event_history_page(&binding.scope, document.state.cursor, PAGE)
+            .runtime
+            .block_on(self.engine.store().event_history_page(
+                &binding.scope,
+                document.state.cursor,
+                PAGE,
+            ))
             .map_err(|error| error.to_string())?;
         let relevant = history
             .events
@@ -616,7 +635,7 @@ impl Context {
             return Err("observer source scope denied".into());
         }
         access.tasks = Some(BTreeSet::from([binding.scope.task.clone()]));
-        let source = cycles::prepare(
+        let source = self.runtime.block_on(cycles::prepare(
             self.engine.store(),
             &access,
             HistoryWindow {
@@ -624,7 +643,7 @@ impl Context {
                 until: Timestamp::new(time.get().saturating_add(1)),
             },
             &check,
-        );
+        ));
         match source {
             Ok(source) => Ok(Selection::Compute(Prepared {
                 work,
@@ -735,7 +754,7 @@ impl Context {
         self.save_observer(document)
     }
     fn observer_source_readable(&self, binding: &ThreadBinding, id: &VerificationId) -> bool {
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         state
             .record(
                 Collection::Verification,
@@ -759,15 +778,27 @@ impl Context {
             .unwrap_or(false)
     }
     fn observer_budget_available(&self, binding: &ThreadBinding) -> bool {
-        vcp_budget::ledger(self.engine.store().state(), &binding.scope).is_ok()
+        vcp_budget::ledger(self.engine.store().current(), &binding.scope).is_ok()
     }
     fn observer_latest_failed(&self, binding: &ThreadBinding) -> bool {
         use vcp_domain::verification::{CheckOutcome, Verification};
-        let state = self.engine.store().state();
-        let Some(event) = state.events.iter().rev().find(|e| {
-            e.event.task.as_ref() == Some(&binding.scope.task)
-                && e.event.kind == vcp_protocol::event::EventKind::VerificationRecorded
-        }) else {
+        let store = self.engine.store();
+        let Ok(count) = self.runtime.block_on(store.history_event_count()) else {
+            return false;
+        };
+        let mut latest = None;
+        for ordinal in (0..count).rev() {
+            let Ok(Some(event)) = self.runtime.block_on(store.history_event_at(ordinal)) else {
+                return false;
+            };
+            if event.event.task.as_ref() == Some(&binding.scope.task)
+                && event.event.kind == vcp_protocol::event::EventKind::VerificationRecorded
+            {
+                latest = Some(event);
+                break;
+            }
+        }
+        let Some(event) = latest else {
             return false;
         };
         event.event.data["facts"].as_array().is_some_and(|facts| {

@@ -10,7 +10,7 @@ use vcp_memory::{
     retention::{self, Action},
     retention_policy,
 };
-use vcp_store::Store;
+use vcp_store::{Store, contract::CanonicalStore};
 type Result<T, E = String> = std::result::Result<T, E>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -221,7 +221,7 @@ async fn memory_page(
             return Err("memory page limit must be 1..32".into());
         }
         let workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Workspace,
                 access.workspace.as_str(),
@@ -257,7 +257,7 @@ async fn memory_page(
         for version in &history.versions {
             let mut value = serde_json::to_value(version).map_err(|e| e.to_string())?;
             let decision = retention::decision(
-                store.state(),
+                store.current(),
                 &access.workspace,
                 &retention::Target::Record(vcp_store::contract::key(
                     vcp_store::contract::Collection::Claim,
@@ -348,7 +348,7 @@ impl super::CanonicalHost {
                 let tasks = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|record| record.collection == vcp_store::contract::Collection::Task)

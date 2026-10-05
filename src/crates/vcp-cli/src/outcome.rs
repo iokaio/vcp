@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Exit evidence is read from one immutable canonical snapshot.
+//! Exit evidence joins immutable current records and bounded history at one cut.
 use crate::exit_status::Conditions;
 use vcp_domain::{
     accounting::{Attempt, ReservationState},
@@ -23,7 +23,8 @@ impl Outcome {
     /// from diagnostic text. Historical turn failures belong to their original
     /// turn; only the latest turn contributes its terminal condition.
     pub fn read(host: &CanonicalHost, scope: &Scope) -> Result<Self, String> {
-        let state = host.snapshot()?;
+        let reader = host.history_reader()?;
+        let state = reader.current();
         let now = crate::settings::now();
         let task: Task = state
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)
@@ -55,23 +56,16 @@ impl Outcome {
                 break;
             }
         }
-        let event = state
-            .events
-            .iter()
-            .find(|event| {
-                event.event.id == task.cause
-                    && event.event.workspace == scope.workspace
+        let event = reader
+            .event(task.cause.clone())?
+            .filter(|event| {
+                event.event.workspace == scope.workspace
                     && event.event.session == scope.session
                     && event.event.task.as_ref() == Some(&scope.task)
             })
             .ok_or("task has no durable cause")?;
-        let receipt = state
-            .commands
-            .values()
-            .find(|receipt| {
-                receipt.command == event.event.correlation && receipt.workspace == scope.workspace
-            })
-            .cloned()
+        let receipt = reader
+            .command(scope.workspace.clone(), event.event.correlation.clone())?
             .ok_or("task cause has no command receipt")?;
         let mut conditions = Conditions {
             cancelled: task.state == TaskState::Cancelled,
@@ -120,7 +114,7 @@ impl Outcome {
                     let approval: Approval = record.decode().map_err(|e| e.to_string())?;
                     if approval.scope.session == scope.session
                         && included.contains(&approval.scope.task)
-                        && crate::questions::actionable(&state, &approval, now)?
+                        && crate::questions::actionable(state, &approval, now)?
                     {
                         if approval_owner.is_none() {
                             approval_owner = Some(host.control_envelope(
@@ -147,16 +141,18 @@ impl Outcome {
                 _ => {}
             }
         }
-        let latest = turns
-            .iter()
-            .filter_map(|turn| {
-                state
-                    .events
-                    .iter()
-                    .find(|event| event.event.id == turn.cause)
-                    .map(|event| (event.watermark, turn))
-            })
-            .max_by_key(|(watermark, _)| *watermark);
+        let mut latest = None;
+        for turn in &turns {
+            if let Some(event) = reader.event(turn.cause.clone())? {
+                // Preserve max_by_key's last-wins behavior for equal watermarks.
+                if latest
+                    .as_ref()
+                    .is_none_or(|(watermark, _)| event.watermark >= *watermark)
+                {
+                    latest = Some((event.watermark, turn));
+                }
+            }
+        }
         if let Some((_, turn)) = latest {
             conditions.budget_exhausted = turn.state == TurnState::BudgetExhausted;
             conditions.required_input |= turn.state == TurnState::WaitingForInput;
@@ -164,12 +160,18 @@ impl Outcome {
         }
         // Current failed verification is distinct from a saved pause. An old
         // report cannot override later checks or newly steered acceptance.
-        for event in state.events.iter().rev().filter(|event| {
-            event.event.workspace == scope.workspace
+        let count = reader.page(None, 1)?.count;
+        for ordinal in (0..count).rev() {
+            let event = reader
+                .event_at(ordinal)?
+                .ok_or("verification history row missing")?;
+            if !(event.event.workspace == scope.workspace
                 && event.event.session == scope.session
                 && event.event.task.as_ref() == Some(&scope.task)
-                && event.event.kind == vcp_protocol::event::EventKind::VerificationRecorded
-        }) {
+                && event.event.kind == vcp_protocol::event::EventKind::VerificationRecorded)
+            {
+                continue;
+            }
             let facts = event.event.data["facts"]
                 .as_array()
                 .ok_or("verification event facts missing")?;

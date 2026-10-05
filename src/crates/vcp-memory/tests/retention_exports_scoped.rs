@@ -239,7 +239,7 @@ async fn scoped_source_purge_denies_foreign_task_export_copy_instead_of_dropping
             .await;
         }
         let store = engine.into_store();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let auth = vcp_memory::access::Access {
             workspace: access().workspace,
             actor: access().actor,
@@ -272,7 +272,7 @@ async fn scoped_source_purge_denies_foreign_task_export_copy_instead_of_dropping
             matches!(result, Err(vcp_memory::Error::Access)),
             "foreign copy must not be silently filtered"
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         store.close().await.unwrap();
     }
 }

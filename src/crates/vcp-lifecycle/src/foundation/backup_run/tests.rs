@@ -329,7 +329,7 @@ async fn public_backup_fences_capture_and_every_fresh_job_stage() {
             let fence = PublicFence::new(
                 move |context| {
                     let store = context.engine.store();
-                    if store.state().records.values().any(|row| {
+                    if store.current().records.values().any(|row| {
                         row.collection == Collection::SnapshotPin
                             && row.id == check_operation.as_str()
                     }) {

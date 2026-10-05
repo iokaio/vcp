@@ -17,7 +17,8 @@ pub(super) fn source(attempt: &AttemptId) -> String {
 
 /// Unknown captures remain hard failures. Acknowledged pending liability permits
 /// inspection only; independently settled/resolved accounting permits execution.
-pub(super) fn response(state: &State, physical: &ArtifactDescriptor) -> Option<Recovery> {
+pub(super) fn response<'a>(state: impl Into<vcp_store::CurrentStateView<'a>>, physical: &ArtifactDescriptor) -> Option<Recovery> {
+    let state = state.into();
     if physical.state != CaptureState::Aborted
         || physical.spec.schema != "responses-sse-observed-through-terminal/1"
         || physical.spec.channel != Channel::Response
@@ -85,7 +86,9 @@ pub(super) fn response(state: &State, physical: &ArtifactDescriptor) -> Option<R
     {
         return None;
     }
-    let (mut active, mut unresolved, mut settled) = (0u64, 0u64, 0u64);
+    let (mut active, mut unresolved, mut settled) = (
+        vcp_domain::accounting::EstimatedMicros::ZERO,
+        vcp_domain::accounting::EstimatedMicros::ZERO, 0u64);
     for record in state.records.values().filter(|record| {
         record.collection == Collection::Reservation && record.workspace == scope.workspace
     }) {
@@ -103,17 +106,17 @@ pub(super) fn response(state: &State, physical: &ArtifactDescriptor) -> Option<R
         settled = settled.checked_add(row.charged.get())?;
         match row.phase {
             ReservationState::Created | ReservationState::Submitted => {
-                active = active.checked_add(row.liability.get())?
+                active = active.checked_add(row.liability).ok()?
             }
             ReservationState::ReconciliationPending => {
-                unresolved = unresolved.checked_add(row.liability.get())?
+                unresolved = unresolved.checked_add(row.liability).ok()?
             }
             _ => {}
         }
     }
     if (
-        ledger.active.get(),
-        ledger.unresolved.get(),
+        ledger.active,
+        ledger.unresolved,
         ledger.settled.get(),
     ) != (active, unresolved, settled)
     {
@@ -184,7 +187,7 @@ impl Context {
     pub(in crate::foundation) fn capture_admission_blocked(&self) -> bool {
         self.interrupted_capture
             || self.response_recovery.iter().any(|physical| {
-                response(self.engine.store().state(), physical) != Some(Recovery::Resolved)
+                response(self.engine.store().current(), physical) != Some(Recovery::Resolved)
             })
     }
 }
@@ -252,7 +255,7 @@ mod tests {
                     rates: BTreeMap::new(),
                 },
                 bounds: Usage::default(),
-                amount: money.clone(),
+                amount: money.clone().into(),
                 method: "fixture".into(),
             },
             admitted_policy: PolicyRevision::ZERO,
@@ -271,9 +274,9 @@ mod tests {
             attempt: attempt.id.clone(),
             revision: Revision::ZERO,
             phase: attempt.phase,
-            amount: money,
+            amount: money.into(),
             charged: Micros::ZERO,
-            liability: Micros::new(100),
+            liability: Micros::new(100).into(),
             protected_draw: Micros::ZERO,
             protected_returned: Micros::ZERO,
             day: 0,
@@ -288,8 +291,8 @@ mod tests {
             cap: Micros::new(1000).into(),
             protected: Micros::ZERO,
             settled: Micros::ZERO,
-            active: Micros::ZERO,
-            unresolved: Micros::new(100),
+            active: Micros::ZERO.into(),
+            unresolved: Micros::new(100).into(),
             allocations: BTreeMap::new(),
             daily: None,
             overrun: false,
@@ -378,12 +381,12 @@ mod tests {
                 "scope" => attempt.scope.session = SessionId::new(),
                 "attempt" => descriptor.spec.source = source(&AttemptId::new()),
                 "reservation" => reservation.attempt = AttemptId::new(),
-                "ledger" => ledger.unresolved = Micros::ZERO,
+                "ledger" => ledger.unresolved = Micros::ZERO.into(),
                 "submitted" => {
                     attempt.phase = ReservationState::Submitted;
                     reservation.phase = attempt.phase;
                     ledger.active = ledger.unresolved;
-                    ledger.unresolved = Micros::ZERO;
+                    ledger.unresolved = Micros::ZERO.into();
                 }
                 "uncertain" => attempt.uncertain = None,
                 _ => unreachable!(),
@@ -438,8 +441,8 @@ mod tests {
                 (phase == ReservationState::ExplicitlyResolved).then(|| "explicit residual".into());
             reservation.phase = phase;
             reservation.charged = attempt.charged;
-            reservation.liability = Micros::ZERO;
-            ledger.unresolved = Micros::ZERO;
+            reservation.liability = Micros::ZERO.into();
+            ledger.unresolved = Micros::ZERO.into();
             ledger.settled = attempt.charged;
             put(
                 &mut state,

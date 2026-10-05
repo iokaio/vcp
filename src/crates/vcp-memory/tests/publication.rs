@@ -66,7 +66,7 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
             .publish(&mut store, &access, &first, Timestamp::new(2000), &|_| {})
             .await
             .unwrap();
-        let acknowledged = store.state().clone();
+        let acknowledged = store.archive_state().await.unwrap();
         let original_hits = publisher
             .recover(&store, &access)
             .unwrap()
@@ -91,7 +91,7 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
         std::fs::write(&damaged, b"P8-02 corrupt derived bytes").unwrap();
 
         let mut reopened = Store::open(&canonical, backend, &[]).await.unwrap();
-        assert_eq!(reopened.state(), &acknowledged);
+        assert_eq!(&reopened.archive_state().await.unwrap(), &acknowledged);
         let recovered = publisher.recover(&reopened, &access).unwrap();
         assert!(recovered.rebuild_required);
         assert!(
@@ -103,7 +103,7 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
             vec![first.manifest().id.clone()]
         );
         assert_eq!(
-            reopened.state(),
+            &reopened.archive_state().await.unwrap(),
             &acknowledged,
             "recovery cannot repair canonical facts from an index"
         );
@@ -119,10 +119,15 @@ async fn canonical_and_derived_corruption_have_distinct_reopen_outcomes() {
             .await
             .unwrap();
         for (id, receipt) in &acknowledged.transactions {
-            assert_eq!(reopened.state().transactions.get(id), Some(receipt));
+            assert_eq!(
+                (&reopened.archive_state().await.unwrap())
+                    .transactions
+                    .get(id),
+                Some(receipt)
+            );
         }
         assert_eq!(
-            &reopened.state().events[..acknowledged.events.len()],
+            &(&reopened.archive_state().await.unwrap()).events[..acknowledged.events.len()],
             acknowledged.events.as_slice()
         );
         assert_eq!(
@@ -291,9 +296,7 @@ async fn fixture(
         },
     )
     .await;
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| e.event.kind == EventKind::TaskCreated)
@@ -360,7 +363,7 @@ async fn empty_and_fully_excluded_inventories_acknowledge_exact_coverage() {
                 }
                 assert!(!inventory(&store, &access).await.records.is_empty());
                 let mut workspace: Workspace = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Workspace,
                         scope.workspace.as_str(),
@@ -377,7 +380,7 @@ async fn empty_and_fully_excluded_inventories_acknowledge_exact_coverage() {
                     workspace: scope.workspace.clone(),
                     session: scope.session.clone(),
                     first: SessionSeq::new(1),
-                    last: store.state().sequences[&scope.session],
+                    last: store.current().sequences[&scope.session],
                     artifacts: vec![],
                     deletion: workspace.deletion,
                     reason: "explicit fixture exclusion".into(),
@@ -385,7 +388,7 @@ async fn empty_and_fully_excluded_inventories_acknowledge_exact_coverage() {
                 store
                     .transact(Transaction {
                         id: TransactionId::new(),
-                        expected_watermark: store.state().watermark,
+                        expected_watermark: store.current().watermark,
                         mutations: vec![
                             Mutation::Put {
                                 expected: Some(prior),
@@ -454,7 +457,7 @@ async fn empty_and_fully_excluded_inventories_acknowledge_exact_coverage() {
             assert!(recovered.view.unwrap().inventory.records.is_empty());
             for intent in &prepared.manifest().covered_intents {
                 let value: vcp_domain::memory::IndexIntent = store
-                    .state()
+                    .current()
                     .record(Collection::IndexIntent, intent.as_str(), &scope.workspace)
                     .unwrap()
                     .decode()
@@ -500,7 +503,7 @@ async fn recovery_never_returns_generations_from_old_access_or_deletion_epochs()
                 .unwrap();
             assert!(publisher.recover(&store, &access).unwrap().view.is_some());
             let mut workspace: Workspace = store
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     scope.workspace.as_str(),
@@ -520,7 +523,7 @@ async fn recovery_never_returns_generations_from_old_access_or_deletion_epochs()
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![Mutation::Put {
                         expected: Some(prior),
                         record: Record::typed(
@@ -723,7 +726,7 @@ async fn adopted_vectors_allow_resource_receipts_but_reject_changed_scope_or_sou
                 )
                 .is_err());
         }
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         publisher
             .publish(
                 &mut store,
@@ -734,7 +737,7 @@ async fn adopted_vectors_allow_resource_receipts_but_reject_changed_scope_or_sou
             )
             .await
             .unwrap();
-        assert!(store.state().watermark > before.watermark);
+        assert!(store.current().watermark > before.watermark);
         assert!(publisher
             .recover(&store, &access)
             .unwrap()
@@ -777,7 +780,7 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
             .publish(&mut store, &access, &first, Timestamp::new(2000), &|_| {})
             .await
             .unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert_eq!(
             publisher
                 .publish(&mut store, &access, &first, Timestamp::new(3000), &|_| {})
@@ -785,7 +788,7 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
                 .unwrap(),
             receipt
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         let pinned = publisher.recover(&store, &access).unwrap();
         assert!(
             pinned.rebuild_required,
@@ -837,7 +840,9 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
         )
         .unwrap();
         let fallback = publisher.recover(&store, &access).unwrap();
-        let committed = store.state().transactions[&next.manifest().transaction].clone();
+        let committed = (&store.archive_state().await.unwrap()).transactions
+            [&next.manifest().transaction]
+            .clone();
         assert_eq!(
             publisher
                 .publish(&mut store, &access, &next, Timestamp::new(5000), &|_| {})
@@ -852,7 +857,7 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
             fallback.view.as_ref().unwrap().manifest.id,
             first.manifest().id
         );
-        let canonical = store.state().clone();
+        let canonical = store.archive_state().await.unwrap();
         drop(fallback);
         drop(pinned);
         let snapshot = store.snapshot().unwrap();
@@ -864,7 +869,7 @@ async fn publication_cas_retry_corrupt_fallback_and_pins_preserve_canonical_evid
             .collect(&store, &access, &first.manifest().id, &policy)
             .unwrap());
         assert_eq!(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &canonical,
             "derived cleanup never removes canonical facts"
         );
@@ -907,7 +912,7 @@ async fn publication_records_owned_cleanup_namespace_and_retry_is_exact() {
                 .await
                 .unwrap();
             let location = store
-                .state()
+                .current()
                 .record(
                     Collection::Projection,
                     &format!("generation-location-{}", prepared.manifest().id),
@@ -922,7 +927,7 @@ async fn publication_records_owned_cleanup_namespace_and_retry_is_exact() {
                 Collection::Generation,
                 prepared.manifest().id.as_str()
             )));
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             assert_eq!(
                 publisher
                     .publish(
@@ -936,7 +941,7 @@ async fn publication_records_owned_cleanup_namespace_and_retry_is_exact() {
                     .unwrap(),
                 receipt
             );
-            assert_eq!(store.state(), &before);
+            assert_eq!(&store.archive_state().await.unwrap(), &before);
         }
     }
 }
@@ -989,7 +994,7 @@ async fn retention_removes_owned_generation_and_reports_external_copy_pending() 
                 .unwrap();
             let id = prepared.manifest().id.clone();
             let mut task: vcp_domain::task::Task = store
-                .state()
+                .current()
                 .record(Collection::Task, scope.task.as_str(), &scope.workspace)
                 .unwrap()
                 .decode()
@@ -1000,7 +1005,7 @@ async fn retention_removes_owned_generation_and_reports_external_copy_pending() 
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![Mutation::Put {
                         expected: Some(before),
                         record: Record::typed(
@@ -1208,7 +1213,7 @@ async fn process_kill_at_component_manifest_and_activation_boundaries() {
             );
             assert!(recovered.vector.is_some());
             for intent in store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.value["document_type"] == "vcp_memory_index_intent_v1")
@@ -1326,7 +1331,7 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
             }
         }
         let publisher = Publisher::new(&temp.path().join("components")).unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let cancel = AtomicBool::new(false);
         let result = publisher.prepare(
             publication::capture(&store, &access, &scope, inventory(&store, &access).await)
@@ -1340,7 +1345,7 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
             },
         );
         assert!(result.is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         assert!(publisher.recover(&store, &access).unwrap().rebuild_required);
         cancel.store(false, std::sync::atomic::Ordering::Release);
         let prepared = publisher
@@ -1382,7 +1387,7 @@ async fn cancelled_private_build_and_bounded_overlay_do_not_claim_fresh_semantic
             std::time::Duration::from_millis(50)
         )
         .is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
     }
 }
 
@@ -1413,7 +1418,7 @@ async fn recovery_cancellation_before_and_after_native_open_never_returns_a_view
             )
             .await
             .unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         for stop_at in [1, 3] {
             let checks = Cell::new(0usize);
             let snapshot = store.snapshot().unwrap();
@@ -1428,7 +1433,7 @@ async fn recovery_cancellation_before_and_after_native_open_never_returns_a_view
             assert!(result.is_err());
             assert_eq!(checks.get(), stop_at);
         }
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         assert!(publisher.recover(&store, &access).unwrap().view.is_some());
     }
 }

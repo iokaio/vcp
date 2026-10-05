@@ -92,7 +92,7 @@ fn facts(context: &Context) -> Result<HostFacts> {
     Ok(HostFacts {
         now: now(),
         policy: vcp_engine::policy::optional(
-            context.engine.store().state(),
+            context.engine.store().current(),
             &context.config.workspace,
         )?
         .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -302,7 +302,7 @@ impl PublicConnection {
                                     .map_or(0, |lease| lease.generation.get())
                                     .into(),
                                 ownership,
-                                watermark: context.engine.store().state().watermark.get().into(),
+                                watermark: context.engine.store().current().watermark.get().into(),
                             }))
                         })())
                     })
@@ -662,7 +662,7 @@ impl RpcHost for PublicConnection {
                     let selected: Task = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(Collection::Task, task.as_str(), &admitted_access.workspace)
                         .and_then(Record::decode)
                         .map_err(|_| RpcError::internal_error())?;
@@ -750,7 +750,7 @@ impl RpcHost for PublicConnection {
                 let selected: Option<Task> = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .get(&key(Collection::Task, task_id.as_str()))
                     .map(|record| authority_task(record, &admitted_access, &task_id))
@@ -825,7 +825,7 @@ impl RpcHost for PublicConnection {
                 let tasks = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| {
@@ -978,7 +978,7 @@ impl RpcHost for PublicConnection {
                         let workspace: Workspace = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Workspace,
                                 access.workspace.as_str(),

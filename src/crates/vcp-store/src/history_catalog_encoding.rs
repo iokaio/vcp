@@ -16,6 +16,24 @@ trait Sink {
     async fn write(&mut self, bytes: &[u8]) -> Result<()>;
 }
 struct HashSink(Sha256);
+struct CountSink<'a> {
+    bytes: usize,
+    limit: usize,
+    check: &'a dyn Fn() -> Result<()>,
+}
+impl Sink for CountSink<'_> {
+    async fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        (self.check)()?;
+        self.bytes = self
+            .bytes
+            .checked_add(bytes.len())
+            .ok_or(Error::Limit("archival encoding byte budget"))?;
+        if self.bytes > self.limit {
+            return Err(Error::Limit("archival encoding byte budget"));
+        }
+        Ok(())
+    }
+}
 struct BoundedSink {
     bytes: Vec<u8>,
     limit: usize,
@@ -51,6 +69,37 @@ impl<P: Pages> Sink for BlobSink<'_, P> {
 }
 
 impl Catalog {
+    pub(crate) async fn legacy_size(
+        &self,
+        pages: &mut impl Pages,
+        current: CurrentStateView<'_>,
+        limit: usize,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<usize> {
+        let mut sink = CountSink {
+            bytes: 0,
+            limit,
+            check,
+        };
+        self.write_legacy(pages, current, &mut sink).await?;
+        Ok(sink.bytes)
+    }
+    /// Explicit archival prefix of an already replayed historical cut. The
+    /// caller owns the current projection and exact event extent from replay.
+    pub(crate) async fn legacy_prefix_bytes(
+        &self,
+        pages: &mut impl Pages,
+        current: CurrentStateView<'_>,
+        events: u64,
+    ) -> Result<Vec<u8>> {
+        let mut sink = BoundedSink {
+            bytes: Vec::new(),
+            limit: crate::contract::MAX_STATE_BYTES,
+        };
+        self.write_legacy_cut(pages, current, events, &mut sink)
+            .await?;
+        Ok(sink.bytes)
+    }
     /// Explicit legacy archival materialization only. Live current/history
     /// consumers must use authenticated bounded reads. Exceeding this legacy
     /// DTO bound requires the streaming neutral archive, not a partial State.
@@ -102,17 +151,45 @@ impl Catalog {
         current: CurrentStateView<'_>,
         sink: &mut impl Sink,
     ) -> Result<()> {
-        self.validate()?;
         if self.watermark != current.watermark {
             return Err(Error::Conflict("history encoding watermark differs"));
         }
+        self.write_legacy_cut(pages, current, self.events.count(), sink)
+            .await
+    }
+    async fn write_legacy_cut(
+        &self,
+        pages: &mut impl Pages,
+        current: CurrentStateView<'_>,
+        events: u64,
+        sink: &mut impl Sink,
+    ) -> Result<()> {
+        self.validate()?;
+        if current.watermark > self.watermark || events > self.events.count() {
+            return Err(Error::Conflict("history encoding cut ahead of owner"));
+        }
+        let prefix = current.watermark != self.watermark;
         sink.write(b"{\"commands\":").await?;
-        stored_map(&self.commands, pages, sink).await?;
+        stored_map(
+            &self.commands,
+            pages,
+            sink,
+            prefix.then_some(current.watermark),
+        )
+        .await?;
         sink.write(b",\"events\":[").await?;
         let mut after = None;
         let mut count = 0u64;
-        loop {
-            let rows = self.events.page(pages, after.as_deref(), 64).await?;
+        while count < events {
+            let rows = self
+                .events
+                .page(
+                    pages,
+                    after.as_deref(),
+                    usize::try_from((events - count).min(64))
+                        .map_err(|_| Error::Limit("history encoding count"))?,
+                )
+                .await?;
             if rows.is_empty() {
                 break;
             }
@@ -131,7 +208,7 @@ impl Catalog {
                     .ok_or(Error::Limit("history encoding count"))?;
             }
         }
-        if count != self.events.count() {
+        if count != events {
             return Err(Error::Corruption("history encoding event count"));
         }
         sink.write(b"],\"records\":").await?;
@@ -139,7 +216,13 @@ impl Catalog {
         sink.write(b",\"sequences\":").await?;
         current_map(sink, current.sequences.iter()).await?;
         sink.write(b",\"transactions\":").await?;
-        stored_map(&self.transactions, pages, sink).await?;
+        stored_map(
+            &self.transactions,
+            pages,
+            sink,
+            prefix.then_some(current.watermark),
+        )
+        .await?;
         sink.write(b",\"watermark\":").await?;
         sink.write(&canonical_bytes(&current.watermark)?).await?;
         sink.write(b"}").await
@@ -156,25 +239,48 @@ async fn object(pages: &mut impl Pages, blob: &Blob, sink: &mut impl Sink) -> Re
     }
     Ok(())
 }
-async fn stored_map(root: &Root, pages: &mut impl Pages, sink: &mut impl Sink) -> Result<()> {
+async fn stored_map(
+    root: &Root,
+    pages: &mut impl Pages,
+    sink: &mut impl Sink,
+    cutoff: Option<Watermark>,
+) -> Result<()> {
     sink.write(b"{").await?;
     let mut after = None;
     let mut count = 0u64;
+    let mut emitted = 0u64;
     loop {
         let rows = root.page(pages, after.as_deref(), 64).await?;
         if rows.is_empty() {
             break;
         }
         for row in rows {
-            if count != 0 {
+            count = count
+                .checked_add(1)
+                .ok_or(Error::Limit("history encoding count"))?;
+            after = Some(row.key.clone());
+            let blob: Blob = serde_json::from_value(row.value)?;
+            if let Some(cutoff) = cutoff {
+                let value: serde_json::Value = serde_json::from_slice(
+                    &crate::history_blob::read_bounded(pages, &blob, MAX_COMMIT_BYTES).await?,
+                )?;
+                let watermark: Watermark = serde_json::from_value(
+                    value
+                        .get("watermark")
+                        .cloned()
+                        .ok_or(Error::Corruption("history receipt watermark missing"))?,
+                )?;
+                if watermark > cutoff {
+                    continue;
+                }
+            }
+            if emitted != 0 {
                 sink.write(b",").await?;
             }
             sink.write(&canonical_bytes(&row.key)?).await?;
             sink.write(b":").await?;
-            let blob: Blob = serde_json::from_value(row.value)?;
             object(pages, &blob, sink).await?;
-            after = Some(row.key);
-            count = count
+            emitted = emitted
                 .checked_add(1)
                 .ok_or(Error::Limit("history encoding count"))?;
         }

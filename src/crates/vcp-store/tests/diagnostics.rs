@@ -12,12 +12,12 @@ async fn diagnostics_explain_replay_and_failed_or_duplicate_work_without_changin
         assert_eq!(store.diagnostics().replayed_commits, 0);
         let initial = common::initial();
         let receipt = store.transact(initial.clone()).await.unwrap();
-        let state = store.state().clone();
+        let state = (&store.archive_state().await.unwrap()).clone();
         assert_eq!(store.transact(initial.clone()).await.unwrap(), receipt);
         let mut conflicting = initial;
         conflicting.events[0].data = serde_json::json!({"different":true});
         assert!(store.transact(conflicting).await.is_err());
-        assert_eq!(store.state(), &state);
+        assert_eq!((&store.archive_state().await.unwrap()), &state);
         let observed = store.diagnostics();
         assert_eq!(observed.preparation.completed, 3);
         assert_eq!(observed.preparation.failed, 1);
@@ -52,7 +52,7 @@ async fn diagnostics_explain_replay_and_failed_or_duplicate_work_without_changin
         store.close().await.unwrap();
 
         let reopened = Store::open(&root, backend, &[]).await.unwrap();
-        assert_eq!(reopened.state(), &state);
+        assert_eq!((&reopened.archive_state().await.unwrap()), &state);
         let observed = reopened.diagnostics();
         assert_eq!(observed.replayed_commits, 1);
         assert_eq!(observed.validation_phases.records.completed, 1);
@@ -107,14 +107,13 @@ async fn resealed_checkpoint_with_wrong_state_is_rejected_during_single_replay()
     let mut store = Store::open(&root, BackendKind::Files, &[]).await.unwrap();
     store.transact(common::initial()).await.unwrap();
     store.checkpoint().unwrap();
-    let watermark = store.state().watermark.get();
+    let watermark = store.current().watermark.get();
     store.close().await.unwrap();
-    let path = root.join(format!("checkpoint-{watermark:020}.json"));
-    let marker = root.join(format!("checkpoint-{watermark:020}.active"));
-    let mut state: vcp_store::contract::State =
+    let path = root.join(format!("history-checkpoint-{watermark:020}.json"));
+    let marker = root.join(format!("history-checkpoint-{watermark:020}.active"));
+    let mut state: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    state.records.get_mut("task:task").unwrap().value["reason"] =
-        serde_json::json!("a forged valid-looking final state");
+    state["current"] = serde_json::json!("f".repeat(64));
     let bytes = vcp_protocol::canonical_bytes(&state).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     let mut seal: serde_json::Value =
@@ -125,7 +124,7 @@ async fn resealed_checkpoint_with_wrong_state_is_rejected_during_single_replay()
     assert!(matches!(
         result,
         Err(vcp_store::Error::Corruption(
-            "checkpoint differs from canonical history"
+            "current checkpoint differs from canonical history"
         ))
     ));
     assert_eq!(diagnostics.open.failed, 1);
@@ -149,7 +148,7 @@ async fn prefix_checkpoint_and_growing_history_need_one_validation_per_commit() 
             store
                 .transact(vcp_store::contract::Transaction {
                     id: vcp_domain::TransactionId::parse(format!("transaction-{index}")).unwrap(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![],
                     events: vec![event],
                     command: None,
@@ -160,10 +159,10 @@ async fn prefix_checkpoint_and_growing_history_need_one_validation_per_commit() 
                 store.checkpoint().unwrap();
             }
         }
-        let state = store.state().clone();
+        let state = (&store.archive_state().await.unwrap()).clone();
         store.close().await.unwrap();
         let reopened = Store::open(&root, backend, &[]).await.unwrap();
-        assert_eq!(reopened.state(), &state);
+        assert_eq!((&reopened.archive_state().await.unwrap()), &state);
         let diagnostics = reopened.diagnostics();
         assert_eq!(diagnostics.replayed_commits, 65);
         assert_eq!(diagnostics.validation.completed, 65);

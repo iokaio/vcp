@@ -9,7 +9,7 @@ struct Reader {
     mode: u8,
     pages: Cell<usize>,
 }
-impl CanonicalStore for Reader {
+impl vcp_store::contract::reference::ReferenceStore for Reader {
     fn state(&self) -> &State {
         panic!("receipt projection requested resident State")
     }

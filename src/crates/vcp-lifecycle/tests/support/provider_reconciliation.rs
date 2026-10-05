@@ -100,8 +100,8 @@ async fn failed_response(
     assert_eq!(
         (
             ledger.settled.get(),
-            ledger.active.get(),
-            ledger.unresolved.get()
+            ledger.active.known().unwrap().get(),
+            ledger.unresolved.known().unwrap().get()
         ),
         (0, 0, 100)
     );
@@ -143,7 +143,7 @@ async fn provider_reconciliation_interrupted_successful_sse_keeps_large_response
             vcp_budget::ledger(&host.snapshot().unwrap(), &binding.scope)
                 .unwrap()
                 .unresolved
-                .get(),
+                .known().unwrap().get(),
             100
         );
         owner.close().await.unwrap();
@@ -160,8 +160,8 @@ async fn provider_reconciliation_interrupted_successful_sse_keeps_large_response
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get()
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get()
             ),
             (50, 0, 0)
         );
@@ -196,7 +196,7 @@ async fn provider_reconciliation_zero_nonzero_conflict_duplicate_and_reopen_both
                     vcp_budget::ledger(&host.snapshot().unwrap(), &binding.scope)
                         .unwrap()
                         .unresolved
-                        .get(),
+                        .known().unwrap().get(),
                     100
                 );
             }
@@ -208,7 +208,7 @@ async fn provider_reconciliation_zero_nonzero_conflict_duplicate_and_reopen_both
             }
             let state = host.snapshot().unwrap();
             let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
-            assert_eq!((ledger.settled.get(), ledger.unresolved.get()), (micros, 0));
+            assert_eq!((ledger.settled.get(), ledger.unresolved.known().unwrap().get()), (micros, 0));
             assert_eq!(
                 state
                     .records
@@ -232,7 +232,7 @@ async fn provider_reconciliation_zero_nonzero_conflict_duplicate_and_reopen_both
             drop(host);
             let (reopened, owner) = reopen(settings).await;
             let ledger = vcp_budget::ledger(&reopened.snapshot().unwrap(), &binding.scope).unwrap();
-            assert_eq!((ledger.settled.get(), ledger.unresolved.get()), (micros, 0));
+            assert_eq!((ledger.settled.get(), ledger.unresolved.known().unwrap().get()), (micros, 0));
             assert!(reopened.pending_provider_charges().unwrap().is_empty());
             owner.close().await.unwrap();
         }
@@ -279,7 +279,7 @@ async fn provider_reconciliation_header_identity_and_body_conflicts_are_retained
                 vcp_budget::ledger(&host.snapshot().unwrap(), &binding.scope)
                     .unwrap()
                     .unresolved
-                    .get(),
+                    .known().unwrap().get(),
                 100
             );
             owner.close().await.unwrap();
@@ -320,7 +320,7 @@ async fn provider_reconciliation_missing_identity_and_unavailable_receipts_remai
                 "lookups are throttled and require a generation identity"
             );
             let ledger = vcp_budget::ledger(&host.snapshot().unwrap(), &binding.scope).unwrap();
-            assert_eq!((ledger.settled.get(), ledger.unresolved.get()), (0, 100));
+            assert_eq!((ledger.settled.get(), ledger.unresolved.known().unwrap().get()), (0, 100));
             owner.close().await.unwrap();
             test.codex.shutdown_and_wait().await.unwrap();
         }
@@ -355,7 +355,7 @@ async fn provider_reconciliation_replays_captured_receipt_after_settlement_inter
             vcp_budget::ledger(&host.snapshot().unwrap(), &binding.scope)
                 .unwrap()
                 .unresolved
-                .get(),
+                .known().unwrap().get(),
             100
         );
         owner.close().await.unwrap();
@@ -403,7 +403,7 @@ async fn provider_reconciliation_replays_captured_receipt_after_settlement_inter
             vcp_budget::ledger(&reopened.snapshot().unwrap(), &binding.scope)
                 .unwrap()
                 .unresolved
-                .get(),
+                .known().unwrap().get(),
             0
         );
         assert!(server.received_requests().await.unwrap().is_empty());

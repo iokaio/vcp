@@ -92,7 +92,7 @@ fn scoped_access(
         return Err(failure(Code::PolicyDenied, call));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)
         .map_err(|_| unavailable(call))?
         .decode()
@@ -102,7 +102,7 @@ fn scoped_access(
     }
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)

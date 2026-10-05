@@ -7,7 +7,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -34,7 +34,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -44,14 +44,14 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
                 &binding.scope.workspace,
             )?
             .decode()?;
-        let policy = vcp_engine::policy::current(self.engine.store().state(), &workspace.id)?;
+        let policy = vcp_engine::policy::current(self.engine.store().current(), &workspace.id)?;
         if workspace.trust != Trust::Trusted {
             return Err("workspace trust is required before tool preparation reads".into());
         }
@@ -68,7 +68,7 @@ impl Context {
     }
     pub fn tool_read_access(&self, root: &RootId, tool: &str) -> Result<()> {
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &self.config.workspace)?;
         // Preparation also observes source bytes. A read-denied root cannot
         // become readable by asking to prepare a write. Path-specific read
         // denials conservatively hold preparation until a narrower root exists.
@@ -142,7 +142,7 @@ impl Context {
     ) -> Result<vcp_policy::Decision> {
         self.child_operation_scope(binding, prepared.operation())?;
         self.validate_skills(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         if prepared.operation().effects != BTreeSet::from([EffectClass::Read])
             && state
                 .records
@@ -238,7 +238,7 @@ impl Context {
         let current: Effect = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Effect, id.as_str(), &binding.scope.workspace)?
             .decode()?;
         self.command(
@@ -343,7 +343,7 @@ impl Context {
         let existing = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Effect, effect.as_str()))
             .map(Record::decode::<Effect>)
@@ -359,7 +359,7 @@ impl Context {
                     .find(|id| {
                         self.engine
                             .store()
-                            .state()
+                            .current()
                             .record(Collection::Artifact, id.as_str(), &binding.scope.workspace)
                             .and_then(Record::decode::<ArtifactDescriptor>)
                             .is_ok_and(|artifact| artifact.spec.schema == "vcp-prepared-tool-v2")
@@ -375,7 +375,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -477,7 +477,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -487,7 +487,7 @@ impl Context {
         let current: Effect = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Effect,
                 effect.as_str(),

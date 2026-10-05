@@ -67,7 +67,7 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
             let prior: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),
@@ -90,7 +90,7 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
             let mut workspace: Workspace = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     binding.scope.workspace.as_str(),
@@ -104,7 +104,7 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
             workspace.deletion = workspace.deletion.next().unwrap();
             let transaction = Transaction {
                 id: TransactionId::new(),
-                expected_watermark: context.engine.store().state().watermark,
+                expected_watermark: context.engine.store().current().watermark,
                 events: vec![],
                 command: None,
                 mutations: vec![Mutation::Put {
@@ -123,7 +123,7 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
                 .runtime
                 .block_on(context.engine.store_mut().transact(transaction))
                 .unwrap();
-            let mut current = context.engine.store().state().clone();
+            let mut current = context.runtime.block_on(context.engine.store().archive_state()).unwrap();
             if redacted {
                 let record = current
                     .records
@@ -189,7 +189,7 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
                 context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|record| record.collection == Collection::Attempt)
@@ -240,7 +240,7 @@ fn startup_preserves_due_saved_retention_and_evidence_without_resuming() {
         let before: Workspace = context
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -263,7 +263,7 @@ fn startup_preserves_due_saved_retention_and_evidence_without_resuming() {
         let task: Task = reopened
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -276,14 +276,14 @@ fn startup_preserves_due_saved_retention_and_evidence_without_resuming() {
         assert!(!reopened
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Attempt));
         let workspace: Workspace = reopened
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -298,7 +298,7 @@ fn startup_preserves_due_saved_retention_and_evidence_without_resuming() {
         let current: Workspace = again
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -425,7 +425,7 @@ fn effect(context: &Context, id: &ToolRunId) -> Effect {
     context
         .engine
         .store()
-        .state()
+        .current()
         .record(Collection::Effect, id.as_str(), &context.config.workspace)
         .unwrap()
         .decode()
@@ -482,7 +482,7 @@ fn recovery_retains_directory_only_partial_effect_without_replaying_file() {
         let report: ArtifactDescriptor = reopened
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -607,7 +607,7 @@ fn recovery_accepts_only_matching_process_execution_receipts_and_never_reuses_pi
             let report: ArtifactDescriptor = reopened
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Artifact)

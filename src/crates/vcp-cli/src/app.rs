@@ -90,11 +90,12 @@ pub fn query(state: &State, workspace: &WorkspaceId, query: &Query) -> Result<Va
 
 /// Current-only owner reads retain the public query envelope while avoiding a
 /// full historical snapshot. History-dependent queries stay on `query`.
-pub fn query_current(
-    state: &vcp_store::CurrentState,
+pub fn query_current<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     workspace: &WorkspaceId,
     query: &Query,
 ) -> Result<Value, String> {
+    let state = state.into();
     let selected = match query {
         Query::Sessions => state
             .records_in(Collection::Session, workspace)
@@ -156,7 +157,7 @@ pub async fn query_store(
         let access = vcp_memory::access::Access {
             workspace: workspace.clone(),
             actor: actor.clone(),
-            authority: inspection_access(store.state(), workspace)?.authority,
+            authority: inspection_access(store.current(), workspace)?.authority,
             read: true,
             write: false,
             tasks: None,
@@ -184,30 +185,54 @@ pub async fn query_store(
         )
         .map_err(|e| e.to_string());
     }
-    let mut value = query(store.state(), workspace, request)?;
+    let mut value = match request {
+        Query::Continuation => {
+            serde_json::to_value(crate::continuation::discover_store(store, workspace).await?)
+                .map_err(|e| e.to_string())?
+        }
+        Query::Sessions | Query::Task { .. } => query_current(store.current(), workspace, request)?,
+        Query::InspectBundle { .. } => {
+            // Explicit diagnostic export owns a complete archival DTO. Routine
+            // task/session/continuation queries use bounded live readers above.
+            let archive = store.archive_state().await.map_err(|e| e.to_string())?;
+            query(&archive, workspace, request)?
+        }
+        Query::Agents { task, offset } => {
+            let task = task_from(store.current(), workspace, task)?;
+            crate::agents_view::page_store(store, &task.scope, settings::now(), *offset).await?
+        }
+        Query::MemorySearch { .. } | Query::Inspect { .. } => {
+            return Err("specialized store query was not dispatched".into())
+        }
+    };
     if matches!(request, Query::InspectBundle { .. }) {
         value["store_diagnostics"] =
             serde_json::to_value(store.diagnostics()).map_err(|e| e.to_string())?;
     }
     Ok(value)
 }
-fn task_from(state: &State, workspace: &WorkspaceId, task: &TaskId) -> Result<Task, String> {
+fn task_from<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+    task: &TaskId,
+) -> Result<Task, String> {
     state
+        .into()
         .record(Collection::Task, task.as_str(), workspace)
         .and_then(|r| r.decode())
         .map_err(|e| e.to_string())
 }
-fn latest(
-    state: &State,
+async fn latest(
+    store: &Store,
     workspace: &WorkspaceId,
     session: Option<&SessionId>,
 ) -> Result<Task, String> {
-    let candidates = crate::continuation::candidates(state, workspace)?;
+    let candidates = crate::continuation::candidates_store(store, workspace).await?;
     let selected = candidates
         .iter()
         .find(|task| session.is_none_or(|s| s == &task.session))
         .ok_or("no unfinished task is available to resume")?;
-    task_from(state, workspace, &selected.task)
+    task_from(store.current(), workspace, &selected.task)
 }
 struct DisplayOutput {
     jsonl: bool,
@@ -704,7 +729,7 @@ pub async fn run(cli: Cli) -> Result<u8, String> {
                 {
                     Ok(store) => {
                         let value = vcp_lifecycle::foundation::backup::status(
-                            store.state(),
+                            store.current(),
                             &entry.config.workspace,
                         )?;
                         store.close().await.map_err(|e| e.to_string())?;
@@ -955,7 +980,7 @@ impl<'a> HistoryControl<'a> {
         {
             Ok(store) => {
                 let workspace: vcp_domain::workspace::Workspace = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Workspace,
                         entry.config.workspace.as_str(),
@@ -1029,26 +1054,31 @@ mod display_tests {
         let workspace = WorkspaceId::new();
         let current = store.current_state();
         assert_eq!(
-            query(store.state(), &workspace, &Query::Sessions).unwrap(),
-            query_current(&current, &workspace, &Query::Sessions).unwrap()
+            query(
+                &store.archive_state().await.unwrap(),
+                &workspace,
+                &Query::Sessions
+            )
+            .unwrap(),
+            query_current(current.as_ref(), &workspace, &Query::Sessions).unwrap()
         );
         let request = Query::Task {
             task: TaskId::new(),
         };
         assert_eq!(
-            query(store.state(), &workspace, &request).unwrap_err(),
-            query_current(&current, &workspace, &request).unwrap_err()
+            query(&store.archive_state().await.unwrap(), &workspace, &request).unwrap_err(),
+            query_current(current.as_ref(), &workspace, &request).unwrap_err()
         );
-        assert!(query_current(&current, &workspace, &Query::Continuation).is_err());
+        assert!(query_current(current.as_ref(), &workspace, &Query::Continuation).is_err());
         assert!(query_current(
-            &current,
+            current.as_ref(),
             &workspace,
             &Query::InspectBundle {
                 task: TaskId::new()
             }
         )
         .is_err());
-        let mut state = store.state().clone();
+        let mut state = store.archive_state().await.unwrap();
         for index in 0..300 {
             let session = vcp_domain::workspace::Session {
                 id: vcp_domain::SessionId::parse(format!("session-{index:04}")).unwrap(),

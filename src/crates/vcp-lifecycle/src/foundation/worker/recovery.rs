@@ -15,7 +15,7 @@ impl super::super::CanonicalHost {
             let tasks: Vec<Task> = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Task)
@@ -81,7 +81,7 @@ impl Context {
                 let workspace: Workspace = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Workspace,
                         self.config.workspace.as_str(),
@@ -140,7 +140,7 @@ impl Context {
         let effects: Vec<Effect> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Effect)
@@ -149,7 +149,7 @@ impl Context {
         let artifacts: Vec<ArtifactDescriptor> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -316,7 +316,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -344,7 +344,7 @@ impl Context {
             let workspace: Workspace = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     self.config.workspace.as_str(),

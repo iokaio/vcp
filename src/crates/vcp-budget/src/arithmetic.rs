@@ -10,6 +10,18 @@ pub fn add(a: Micros, b: Micros) -> Result<Micros> {
 pub fn sum(values: impl IntoIterator<Item = Micros>) -> Result<Micros> {
     values.into_iter().try_fold(Micros::ZERO, add)
 }
+pub fn estimated_sum(values: impl IntoIterator<Item = EstimatedMicros>) -> Result<EstimatedMicros> {
+    values
+        .into_iter()
+        .try_fold(EstimatedMicros::ZERO, |one, two| {
+            one.checked_add(two).map_err(Error::from)
+        })
+}
+pub fn known(value: EstimatedMicros) -> Result<Micros> {
+    value.known().ok_or(Error::Exhausted(
+        "unpriced estimate under a finite constraint",
+    ))
+}
 pub fn rate(rate: &Rate, units: Units) -> Result<Micros> {
     if rate.per_units.get() == 0 {
         return Err(Error::Quote);
@@ -31,24 +43,35 @@ pub fn quote(price: PriceSnapshot, bounds: Usage, now: Timestamp) -> Result<Cost
         return Err(Error::Quote);
     }
     let mut amounts = Vec::new();
+    let mut missing = 0;
     for (category, units) in bounds.disjoint()? {
-        // Every supported category needs an explicit rate, including explicit
-        // zero. Absence can never be interpreted as a free provider feature.
-        amounts.push(rate(
-            price.rates.get(&category).ok_or(Error::Quote)?,
-            units,
-        )?);
+        // Absence is an unpriced valuation term, never a free provider feature.
+        if let Some(quoted) = price.rates.get(&category) {
+            amounts.push(rate(quoted, units)?);
+        } else {
+            missing += 1;
+        }
     }
-    let amount = Money {
+    let known_component = sum(amounts)?;
+    let amount = EstimatedMoney {
         currency: price.currency.clone(),
-        micros: sum(amounts)?,
+        micros: if missing == 0 {
+            known_component.into()
+        } else {
+            EstimatedMicros::unknown(known_component, Units::new(missing))?
+        },
     };
     Ok(CostQuote {
-        normalization_version: 1,
+        normalization_version: if missing == 0 { 1 } else { 2 },
         price,
         bounds,
         amount,
-        method: "ceil_disjoint_bounds_v1".into(),
+        method: if missing == 0 {
+            "ceil_disjoint_bounds_v1"
+        } else {
+            "ceil_disjoint_bounds_unknown_v2"
+        }
+        .into(),
     })
 }
 pub fn validate_quote(value: &CostQuote, now: Timestamp) -> Result<()> {

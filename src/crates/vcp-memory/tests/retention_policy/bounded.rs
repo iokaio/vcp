@@ -8,7 +8,7 @@ struct Paged<'a> {
     reads: Cell<usize>,
     fail: bool,
 }
-impl CanonicalStore for Paged<'_> {
+impl vcp_store::contract::reference::ReferenceStore for Paged<'_> {
     fn state(&self) -> &State {
         panic!("aging requested complete history")
     }
@@ -61,8 +61,7 @@ async fn paged_notice_matches_retained_rows_and_rejects_partial_reads() {
             .unwrap();
         let access = access();
         let now = Timestamp::new(40 * DAY_MS);
-        let mut expected_bytes = store
-            .state()
+        let mut expected_bytes = (&store.archive_state().await.unwrap())
             .events
             .iter()
             .map(|event| serde_json::to_vec(event).unwrap().len() as u64)

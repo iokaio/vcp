@@ -88,7 +88,7 @@ async fn local_memory_paused_owner_is_explicit_cancellable_and_never_resumed() {
             .unwrap();
         assert_eq!(
             store
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     config.root_task.as_str(),
@@ -100,7 +100,7 @@ async fn local_memory_paused_owner_is_explicit_cancellable_and_never_resumed() {
         );
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)

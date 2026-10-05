@@ -1,154 +1,214 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Bounded canonical history reads. Callers retain authorization and redaction policy.
-use crate::{Error, Result, Store};
-use std::ops::Bound::{Excluded, Included};
+//! Bounded canonical history reads. Authorization remains with the caller.
+use crate::{
+    contract::{encoded_len, CanonicalStore, MAX_COMMIT_BYTES},
+    Error, Result, Store,
+};
 use vcp_domain::{workspace::Scope, CommandId, SessionId, Watermark, WorkspaceId};
 use vcp_protocol::{command::CommandReceipt, event::EventEnvelope};
-
 const MAX_PAGE: usize = 4096;
-
-/// A borrowed page from the validated owner. Empty scoped rows may still have
-/// a cutoff: unrelated history was scanned and the consumer must advance it.
-pub struct EventHistoryPage<'a> {
+pub struct EventHistoryPage {
     pub source_watermark: Watermark,
-    pub events: Vec<&'a EventEnvelope>,
+    pub events: Vec<EventEnvelope>,
     pub scanned: usize,
     pub cutoff: Option<Watermark>,
     pub has_more: bool,
 }
-
-/// Receipt identity is workspace-scoped. Receipts do not contain a session or
-/// task identity, so this API never claims finer-grained authorization.
-pub struct CommandHistoryPage<'a> {
+pub struct CommandHistoryPage {
     pub source_watermark: Watermark,
-    pub receipts: Vec<&'a CommandReceipt>,
+    pub receipts: Vec<CommandReceipt>,
     pub next: Option<CommandId>,
 }
-
 impl Store {
-    /// Locate one canonical receipt's event group through the existing ordered
-    /// watermark index. The group retains its transaction's validated storage
-    /// bounds and is never clipped or copied. Actor/correlation authorization
-    /// remains the caller's responsibility, as for all raw history reads.
-    pub fn receipt_events<'a>(
-        &'a self,
-        workspace: &'a WorkspaceId,
-        session: &'a SessionId,
+    async fn event_lower_bound(&self, watermark: Watermark, inclusive: bool) -> Result<u64> {
+        let mut low = 0;
+        let mut high = self.history_event_count().await?;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let row = self
+                .history_event_at(mid)
+                .await?
+                .ok_or(Error::Corruption("history ordinal missing"))?;
+            if row.watermark < watermark || (!inclusive && row.watermark == watermark) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        Ok(low)
+    }
+    /// Exact retained receipt group, with the original workspace/session filter.
+    /// No correlation or presentation policy is silently added by this reader.
+    pub async fn receipt_events(
+        &self,
+        workspace: &WorkspaceId,
+        session: &SessionId,
         receipt: &CommandReceipt,
-    ) -> Result<impl Iterator<Item = &'a EventEnvelope> + 'a> {
-        let state = self.state();
+    ) -> Result<std::vec::IntoIter<EventEnvelope>> {
         if &receipt.workspace != workspace
-            || state
-                .commands
-                .get(&crate::contract::command_key(workspace, &receipt.command))
+            || self
+                .command_receipt_by_id(workspace, &receipt.command)
+                .await?
+                .as_ref()
                 != Some(receipt)
         {
             return Err(Error::Conflict(
                 "history receipt differs from canonical owner",
             ));
         }
-        let start = state
-            .events
-            .partition_point(|event| event.watermark < receipt.watermark);
-        let end = start
-            + state.events[start..].partition_point(|event| event.watermark == receipt.watermark);
-        Ok(state.events[start..end].iter().filter(move |event| {
-            &event.event.workspace == workspace && &event.event.session == session
-        }))
+        let start = self.event_lower_bound(receipt.watermark, true).await?;
+        let end = self.event_lower_bound(receipt.watermark, false).await?;
+        let rows = self.event_range(start, end).await?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| &row.event.workspace == workspace && &row.event.session == session)
+            .collect::<Vec<_>>()
+            .into_iter())
     }
-
-    /// Seek the existing watermark ordering without scanning older history.
-    /// A page never splits a transaction, whose bounded extension is 4096 rows.
-    /// Raw envelopes retain redaction markers; public presentation must still
-    /// apply current access and retention masks under the owner's serialization.
-    pub fn event_history_page(
-        &self,
-        scope: &Scope,
-        after: Watermark,
-        target_rows: usize,
-    ) -> Result<EventHistoryPage<'_>> {
-        if target_rows == 0 || target_rows > MAX_PAGE {
-            return Err(Error::Limit("history page rows"));
-        }
-        let state = self.state();
-        if after > state.watermark {
-            return Err(Error::Conflict("history cursor ahead of owner"));
-        }
-        let start = state
-            .events
-            .partition_point(|event| event.watermark <= after);
-        let mut end = start.saturating_add(target_rows).min(state.events.len());
-        while end < state.events.len()
-            && end > start
-            && state.events[end].watermark == state.events[end - 1].watermark
-            && end - start < MAX_PAGE
-        {
-            end += 1;
-        }
-        if end < state.events.len()
-            && end > start
-            && state.events[end].watermark == state.events[end - 1].watermark
-        {
+    async fn event_range(&self, start: u64, end: u64) -> Result<Vec<EventEnvelope>> {
+        if end < start || end - start > MAX_PAGE as u64 {
             return Err(Error::Limit(
                 "history event transaction exceeds bounded page",
             ));
         }
-        let scanned = &state.events[start..end];
+        let mut at = start;
+        let mut rows = Vec::new();
+        let mut bytes = 0usize;
+        while at < end {
+            let page = self
+                .history_events(
+                    at.checked_sub(1),
+                    usize::try_from(end - at).map_err(|_| Error::Limit("history ordinal"))?,
+                )
+                .await?;
+            if page.is_empty() || page.len() as u64 > end - at {
+                return Err(Error::Corruption("history range incomplete"));
+            }
+            for row in page {
+                bytes = bytes
+                    .checked_add(encoded_len(&row)?)
+                    .ok_or(Error::Limit("history page bytes"))?;
+                // A whole transaction includes envelope metadata beyond the
+                // original bounded commit body; it must never be clipped.
+                if bytes > 2 * MAX_COMMIT_BYTES {
+                    return Err(Error::Limit("history page bytes"));
+                }
+                rows.push(row);
+                at += 1;
+            }
+        }
+        Ok(rows)
+    }
+    pub async fn event_history_page(
+        &self,
+        scope: &Scope,
+        after: Watermark,
+        target_rows: usize,
+    ) -> Result<EventHistoryPage> {
+        if target_rows == 0 || target_rows > MAX_PAGE {
+            return Err(Error::Limit("history page rows"));
+        }
+        let source_watermark = self.current().watermark;
+        if after > source_watermark {
+            return Err(Error::Conflict("history cursor ahead of owner"));
+        }
+        let start = self.event_lower_bound(after, false).await?;
+        let total = self.history_event_count().await?;
+        let mut end = start;
+        let mut rows = Vec::new();
+        let mut bytes = 0usize;
+        while end < total && rows.len() < target_rows {
+            let watermark = self
+                .history_event_at(end)
+                .await?
+                .ok_or(Error::Corruption("history ordinal missing"))?
+                .watermark;
+            let group_end = self.event_lower_bound(watermark, false).await?;
+            if !rows.is_empty() && group_end - start > MAX_PAGE as u64 {
+                break;
+            }
+            let group = self.event_range(end, group_end).await?;
+            let group_bytes = group.iter().try_fold(0usize, |sum, row| {
+                sum.checked_add(encoded_len(row)?)
+                    .ok_or(Error::Limit("history page bytes"))
+            })?;
+            if !rows.is_empty() && group_bytes > MAX_COMMIT_BYTES.saturating_sub(bytes) {
+                break;
+            }
+            bytes = bytes
+                .checked_add(group_bytes)
+                .ok_or(Error::Limit("history page bytes"))?;
+            rows.extend(group);
+            end = group_end;
+        }
+        let scanned = rows.len();
+        let cutoff = rows.last().map(|row| row.watermark);
         Ok(EventHistoryPage {
-            source_watermark: state.watermark,
-            events: scanned
-                .iter()
-                .filter(|event| {
-                    event.event.workspace == scope.workspace
-                        && event.event.session == scope.session
-                        && event.event.task.as_ref() == Some(&scope.task)
+            source_watermark,
+            scanned,
+            cutoff,
+            has_more: end < total,
+            events: rows
+                .into_iter()
+                .filter(|row| {
+                    row.event.workspace == scope.workspace
+                        && row.event.session == scope.session
+                        && row.event.task.as_ref() == Some(&scope.task)
                 })
                 .collect(),
-            scanned: scanned.len(),
-            cutoff: scanned.last().map(|event| event.watermark),
-            has_more: end < state.events.len(),
         })
     }
-
-    /// Range over the existing workspace/command-key index. Pin all pages to
-    /// one source watermark so newly inserted IDs cannot fall behind a cursor.
-    pub fn command_history_page(
+    pub async fn command_history_page(
         &self,
         workspace: &WorkspaceId,
         source_watermark: Watermark,
         after: Option<&CommandId>,
         limit: usize,
-    ) -> Result<CommandHistoryPage<'_>> {
+    ) -> Result<CommandHistoryPage> {
         if limit == 0 || limit > MAX_PAGE {
             return Err(Error::Limit("history page rows"));
         }
-        let state = self.state();
-        if source_watermark != state.watermark {
+        if source_watermark != self.current().watermark {
             return Err(Error::Conflict(
                 "history source changed; restart pagination",
             ));
         }
         let lower = after.map_or_else(
-            || Included(format!("{workspace}:")),
-            |id| Excluded(crate::contract::command_key(workspace, id)),
+            || format!("{workspace}:"),
+            |id| crate::contract::command_key(workspace, id),
         );
-        let mut rows = state
-            .commands
-            .range((lower, Excluded(format!("{workspace};"))));
-        let receipts: Vec<_> = rows
-            .by_ref()
-            .take(limit)
-            .map(|(_, receipt)| receipt)
-            .collect();
-        if receipts
-            .iter()
-            .any(|receipt| &receipt.workspace != workspace)
-        {
-            return Err(Error::Corruption("history receipt workspace"));
+        let upper = format!("{workspace};");
+        let mut cursor = lower;
+        let mut receipts = Vec::new();
+        let mut bytes = 0usize;
+        let mut more = false;
+        'pages: loop {
+            let rows = self.history_commands(Some(&cursor), limit.min(64)).await?;
+            if rows.is_empty() {
+                break;
+            }
+            for (key, receipt) in rows {
+                if key >= upper {
+                    break 'pages;
+                }
+                if &receipt.workspace != workspace {
+                    return Err(Error::Corruption("history receipt workspace"));
+                }
+                let size = encoded_len(&receipt)?;
+                if receipts.len() == limit || size > MAX_COMMIT_BYTES - bytes {
+                    more = true;
+                    break 'pages;
+                }
+                bytes += size;
+                cursor = key;
+                receipts.push(receipt);
+            }
         }
-        let next = rows
-            .next()
-            .and_then(|_| receipts.last().map(|receipt| receipt.command.clone()));
+        let next = if more {
+            receipts.last().map(|row| row.command.clone())
+        } else {
+            None
+        };
         Ok(CommandHistoryPage {
             source_watermark,
             receipts,

@@ -97,9 +97,9 @@ impl Oracle {
         };
         assert_eq!(
             (
-                ledger.active.get(),
+                ledger.active.known().unwrap().get(),
                 ledger.settled.get(),
-                ledger.unresolved.get()
+                ledger.unresolved.known().unwrap().get()
             ),
             (
                 sum(Charge::Active),

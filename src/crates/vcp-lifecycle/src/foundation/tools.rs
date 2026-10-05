@@ -316,7 +316,7 @@ impl CanonicalHost {
                 let row: vcp_domain::effect::Effect = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Effect,
                         effect.as_str(),

@@ -268,7 +268,28 @@ async fn handle(
             query @ (crate::app::Query::Sessions | crate::app::Query::Task { .. }) => {
                 crate::app::query_current(host.current_state()?.as_ref(), workspace, &query)
             }
-            query => crate::app::query(&host.snapshot()?, workspace, &query),
+            crate::app::Query::Continuation => {
+                serde_json::to_value(crate::continuation::discover_live(host, workspace)?)
+                    .map_err(|e| e.to_string())
+            }
+            crate::app::Query::Agents { task, offset } => {
+                let reader = host.history_reader()?;
+                let selected: Task = reader
+                    .current()
+                    .record(
+                        vcp_store::contract::Collection::Task,
+                        task.as_str(),
+                        workspace,
+                    )
+                    .and_then(|row| row.decode())
+                    .map_err(|e| e.to_string())?;
+                crate::agents_view::page_reader(
+                    &reader,
+                    &selected.scope,
+                    crate::settings::now(),
+                    offset,
+                )
+            }
         },
         Request::Prepare {
             workspace: requested,

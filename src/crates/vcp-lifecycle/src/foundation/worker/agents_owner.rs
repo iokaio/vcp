@@ -60,7 +60,7 @@ impl Drop for LaunchCleanup {
                 || bindings.lock().map_err(|_| "binding lock poisoned")?.values().any(|binding| binding.scope == scope) {
                 return Ok(());
             }
-            let task: Task = context.engine.store().state().record(Collection::Task, scope.task.as_str(), &scope.workspace)?.decode()?;
+            let task: Task = context.engine.store().current().record(Collection::Task, scope.task.as_str(), &scope.workspace)?.decode()?;
             if task.scope != scope || task.revision != revision || task.state != vcp_domain::task::TaskState::Running { return Ok(()); }
             context.command(Command::Transition { next: vcp_domain::task::TaskState::Paused, reason: "retained child startup abandoned before owner attachment; explicit recovery required".into(), verification: None }, Some(scope.task), revision)?;
             Ok(())
@@ -99,7 +99,7 @@ impl CanonicalHost {
     fn pending_child_revision(&self, scope: &Scope, revision: Revision) -> Result<(), String> {
         let scope = scope.clone();
         self.worker.run(move |context| {
-            let task: Task = context.engine.store().state()
+            let task: Task = context.engine.store().current()
                 .record(Collection::Task, scope.task.as_str(), &scope.workspace)?.decode()?;
             if task.scope != scope || task.state != TaskState::Pending || task.revision != revision {
                 return Err("child changed during materialization; partial workspace retained for reconciliation".into());
@@ -158,7 +158,7 @@ impl CanonicalHost {
                 let descriptor: ArtifactDescriptor = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         spec.snapshot.as_str(),
@@ -211,7 +211,7 @@ impl CanonicalHost {
             let task: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     child.as_str(),
@@ -224,7 +224,7 @@ impl CanonicalHost {
                 return Err("child launch requires the assigned pending child".into());
             }
             if !vcp_engine::agents::eligibility(
-                context.engine.store().state(),
+                context.engine.store().current(),
                 &task,
                 worker::now(),
                 true,
@@ -446,7 +446,7 @@ impl CanonicalHost {
             let target: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     selected.as_str(),
@@ -457,7 +457,7 @@ impl CanonicalHost {
                 return Err("only a pending child can materialize its workspace".into());
             }
             let graph = vcp_engine::agents::graph(
-                context.engine.store().state(),
+                context.engine.store().current(),
                 &checked.scope,
                 &context.config.root_task,
             )?
@@ -472,7 +472,7 @@ impl CanonicalHost {
             let parent: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     checked.scope.task.as_str(),
@@ -480,7 +480,7 @@ impl CanonicalHost {
                 )?
                 .decode()?;
             if !vcp_engine::agents::current_scope(
-                context.engine.store().state(),
+                context.engine.store().current(),
                 &parent,
                 spec,
                 worker::now(),
@@ -491,7 +491,7 @@ impl CanonicalHost {
                 let descriptor: ArtifactDescriptor = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Artifact, id.as_str(), &checked.scope.workspace)?
                     .decode()?;
                 if descriptor.state != CaptureState::Complete
@@ -581,14 +581,14 @@ impl CanonicalHost {
             let target: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, child.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if target.state != TaskState::Pending || target.revision != child_revision {
                 return Err("child changed before workspace registration".into());
             }
             let policy = vcp_engine::policy::current(
-                context.engine.store().state(),
+                context.engine.store().current(),
                 &context.config.workspace,
             )?
             .revision;

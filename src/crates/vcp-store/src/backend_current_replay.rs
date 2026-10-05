@@ -25,17 +25,34 @@ pub(crate) async fn replay_current(
     source: &DurableOwner,
     frame: &Frame,
 ) -> Result<DurableOwner> {
+    replay_current_observed(pages, source, frame, None).await
+}
+pub(crate) async fn replay_current_observed(
+    pages: &mut impl Pages,
+    source: &DurableOwner,
+    frame: &Frame,
+    diagnostics: Option<&mut crate::StoreDiagnostics>,
+) -> Result<DurableOwner> {
     let publication = frame
         .publication
         .as_ref()
         .ok_or(Error::Corruption("current frame publication missing"))?;
-    replay_payload(pages, source, &frame.payload, publication).await
+    replay_payload_observed(pages, source, &frame.payload, publication, diagnostics).await
 }
 pub(super) async fn replay_payload(
     pages: &mut impl Pages,
     source: &DurableOwner,
     payload: &[u8],
     publication: &str,
+) -> Result<DurableOwner> {
+    replay_payload_observed(pages, source, payload, publication, None).await
+}
+pub(super) async fn replay_payload_observed(
+    pages: &mut impl Pages,
+    source: &DurableOwner,
+    payload: &[u8],
+    publication: &str,
+    diagnostics: Option<&mut crate::StoreDiagnostics>,
 ) -> Result<DurableOwner> {
     let commit: Commit = serde_json::from_slice(payload)?;
     if commit.version != FORMAT_VERSION {
@@ -45,8 +62,9 @@ pub(super) async fn replay_payload(
         return Err(Error::Corruption("replayed current watermark"));
     }
     let mut pages = ComparePages { source: pages };
-    let durable_owner::Outcome::Prepared(prepared) =
-        source.prepare(&mut pages, &commit.transaction).await?
+    let durable_owner::Outcome::Prepared(prepared) = source
+        .prepare_observed(&mut pages, &commit.transaction, diagnostics)
+        .await?
     else {
         return Err(Error::Corruption("duplicate current replay transaction"));
     };

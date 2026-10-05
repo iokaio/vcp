@@ -471,7 +471,7 @@ setInterval(()=>{},1000);
         assert!(prefix.contains("response.function_call_arguments.delta"));
         assert!(!prefix.contains("response.completed"));
         assert!(
-            view.ledgers[&scope.task].unresolved.get() > 0,
+            view.ledgers[&scope.task].unresolved.known().unwrap().get() > 0,
             "missing charge is unknown, never zero"
         );
     } else {

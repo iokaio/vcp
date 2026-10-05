@@ -152,7 +152,7 @@ impl CanonicalHost {
                 let task: Task = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Task,
                         checked.scope.task.as_str(),
@@ -220,7 +220,7 @@ impl CanonicalHost {
         self.worker.run(move |context| {
             context.can_start(&binding)?;
             context.initialize_root_budget()?;
-            let state = context.engine.store().state();
+            let state = context.engine.store().current();
             let task: Task = state
                 .record(
                     Collection::Task,

@@ -70,31 +70,66 @@ async fn pause_diagnostic_requires_same_task_evidence_and_preserves_legacy_fallb
     let directory = tempfile::tempdir().unwrap();
     let mut engine = setup(directory.path(), BackendKind::Files).await;
     let mut task = create_task(&mut engine).await;
-    let mut state = engine.store().state().clone();
+    let mut state = engine.store().archive_state().await.unwrap();
     task.state = TaskState::Paused;
     task.reason = "User paused execution.".into();
-    assert!(task_view(&state, task.clone()).unwrap().diagnostic.is_none());
+    assert!(task_view(&state, task.clone())
+        .unwrap()
+        .diagnostic
+        .is_none());
     let evidence = ArtifactId::new();
     let reason = methods::ExecutionPauseReason {
-        schema_version: 1, code: methods::ExecutionReasonCode::NoProgress,
-        message: "Repeated observed check failures.".into(), evidence: id(evidence.as_str()).unwrap(),
-        repeats: 3, threshold: 3,
+        schema_version: 1,
+        code: methods::ExecutionReasonCode::NoProgress,
+        message: "Repeated observed check failures.".into(),
+        evidence: id(evidence.as_str()).unwrap(),
+        repeats: 3,
+        threshold: 3,
     };
     task.reason = serde_json::to_string(&reason).unwrap();
-    assert!(task_view(&state, task.clone()).unwrap().diagnostic.is_none());
+    assert!(task_view(&state, task.clone())
+        .unwrap()
+        .diagnostic
+        .is_none());
     let mut descriptor = ArtifactDescriptor {
-        spec: ArtifactSpec { id: evidence.clone(), scope: task.scope.clone(), media_type: "application/json".into(),
-            schema: "execution-completion-repair/1".into(), source: "synthetic".into(), channel: Channel::Evidence,
-            retention: "history".into(), omissions: vec![] },
-        state: CaptureState::Complete, length: ByteCount::new(1), sha256: "a".repeat(64),
-        retained: vec![Range { start: ByteCount::ZERO, end: ByteCount::new(1) }],
+        spec: ArtifactSpec {
+            id: evidence.clone(),
+            scope: task.scope.clone(),
+            media_type: "application/json".into(),
+            schema: "execution-completion-repair/1".into(),
+            source: "synthetic".into(),
+            channel: Channel::Evidence,
+            retention: "history".into(),
+            omissions: vec![],
+        },
+        state: CaptureState::Complete,
+        length: ByteCount::new(1),
+        sha256: "a".repeat(64),
+        retained: vec![Range {
+            start: ByteCount::ZERO,
+            end: ByteCount::new(1),
+        }],
     };
-    insert(&mut state, Collection::Artifact, evidence.as_str(), &task, Revision::ZERO, &descriptor);
+    insert(
+        &mut state,
+        Collection::Artifact,
+        evidence.as_str(),
+        &task,
+        Revision::ZERO,
+        &descriptor,
+    );
     let projected = task_view(&state, task.clone()).unwrap();
     assert_eq!(projected.reason, reason.message);
     assert_eq!(projected.diagnostic, Some(reason));
     descriptor.spec.scope.task = TaskId::new();
-    insert(&mut state, Collection::Artifact, evidence.as_str(), &task, Revision::ZERO, &descriptor);
+    insert(
+        &mut state,
+        Collection::Artifact,
+        evidence.as_str(),
+        &task,
+        Revision::ZERO,
+        &descriptor,
+    );
     assert!(task_view(&state, task).unwrap().diagnostic.is_none());
     engine.into_store().close().await.unwrap();
 }
@@ -194,7 +229,7 @@ async fn observer_task_read_is_scoped_and_does_not_write_either_store() {
         let temp = tempfile::tempdir().unwrap();
         let mut engine = setup(temp.path(), backend).await;
         create_task(&mut engine).await;
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let mut observer = access();
         observer.write = false;
         observer.bootstrap = false;
@@ -226,7 +261,7 @@ async fn observer_task_read_is_scoped_and_does_not_write_either_store() {
             .unwrap()
             .get("error")
             .is_some());
-        assert_eq!(&before, engine.store().state());
+        assert_eq!(before, engine.store().archive_state().await.unwrap());
         engine.into_store().close().await.unwrap();
     }
 }
@@ -240,7 +275,7 @@ async fn pending_inputs_and_effect_uncertainty_are_real_scoped_and_bounded() {
     let mut task = create_task(&mut engine).await;
     task.revision = Revision::new(u64::MAX);
     task.steering = SteeringRevision::new(9_007_199_254_740_993);
-    let mut state = engine.store().state().clone();
+    let mut state = engine.store().archive_state().await.unwrap();
     let pending = approval(&task, "pending");
     insert(
         &mut state,
@@ -371,7 +406,7 @@ async fn current_turn_uses_creation_history_and_missing_evidence_is_null() {
     let temp = tempfile::tempdir().unwrap();
     let mut engine = setup(temp.path(), BackendKind::Files).await;
     let task = create_task(&mut engine).await;
-    let mut state = engine.store().state().clone();
+    let mut state = engine.store().archive_state().await.unwrap();
     let mut old = put_turn(&mut state, &task, "z-old", 10);
     let current = put_turn(&mut state, &task, "a-current", 20);
     old.revision = Revision::new(99);
@@ -394,7 +429,7 @@ async fn current_turn_uses_creation_history_and_missing_evidence_is_null() {
     );
     state.events.pop();
     assert!(task_view(&state, task.clone()).unwrap().turn.is_none());
-    let mut state = engine.store().state().clone();
+    let mut state = engine.store().archive_state().await.unwrap();
     put_turn(&mut state, &task, "old-steering", 10);
     let mut steered = task.clone();
     steered.steering = SteeringRevision::new(1);

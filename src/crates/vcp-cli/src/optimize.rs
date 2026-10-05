@@ -193,6 +193,13 @@ fn money_text(amounts: &std::collections::BTreeMap<String, u64>) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+fn liability_text(amounts: &std::collections::BTreeMap<String, Option<u64>>) -> String {
+    if amounts.is_empty() { return "none reported".into(); }
+    amounts.iter().map(|(currency, value)| match value {
+        Some(micros) => format!("{currency} {}.{:06}", micros / 1_000_000, micros % 1_000_000),
+        None => format!("{currency} unknown (unpriced estimate)"),
+    }).collect::<Vec<_>>().join(", ")
+}
 fn question_text(question: Option<Question>, report: Option<&OptimizationReport>) -> String {
     let (name, prompt) = match question {
         Some(Question::Priority) => ("priority", "What matters most for this project: lower total cost, faster results or stronger completion quality?"),
@@ -314,7 +321,7 @@ impl Session {
                 let mut message = format!("Optimization report {}: {} tasks; {} completed, {} failed, {} cancelled, {} unfinished; {} attempts, {} retries, {} support attempts. Known spend: {}; uncertain attempts: {}; reserved liability: {}. {}",
                     report.id, count.tasks, count.completed, count.failed, count.cancelled, count.unfinished,
                     count.attempts, count.retries, count.supporting_attempts, money_text(&count.known_spend_micros),
-                    count.uncertain_attempts, money_text(&count.reserved_liability_micros), question_text(next_question(&value, Some(&report))?, Some(&report)));
+                    count.uncertain_attempts, liability_text(&count.reserved_liability_micros), question_text(next_question(&value, Some(&report))?, Some(&report)));
                 if !report.uncertainty.is_empty() {
                     message.push_str(&format!(" Coverage: {}", report.uncertainty.join("; ")));
                 }

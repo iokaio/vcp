@@ -2,6 +2,16 @@
 
 Approved October 4, 2026. Branch: `feature/execution-engine-refinements`. Delivery is local phase commits only; no push, PR or release.
 
+## Current integration checkpoint
+
+Final storage library qualification passed 168 tests, with one existing ignored case and one separately qualified chunk-stream case filtered out, in 402.53 seconds. This includes the larger-than-legacy-limit native history replay and all semantic-reference, corruption, publication and memo tests. The pre-fix routing binary finished 39/41 tests successfully in 1168.21 seconds; both failures were the diagnosed Windows access-denied marker replacement, and all long forecasting cases completed. That log remains failed. A fresh routing run against the final Windows correction and page memo is required. The four-seed accounting oracle also passed on both stores (152.98 seconds). Feature-gated CLI/audit test adapters continue as a separate local increment.
+
+- EE-01c: known/unknown estimates preserve legacy finite wire values and keep charged settlement finite. Unbounded routing admits missing prices without inventing zero cost; finite qualification still rejects missing prices before sending. Actual routed execution and reopen passed on both stores, with exact request/attempt/reservation identities and no duplicate effects. Fresh financial regressions passed 13/13 after the Windows publication fix. Model/schema/SDK/editor checks also passed. The repeated debug fixture took 337.45 seconds; no latency or cost reduction is claimed.
+- EE-00b/c: explicit shutdown retains bounded scoped timing observations after draining runtime connections. Authorized reopened bundles expose each original owner separately; the analyzer does not merge clocks or synthesize crash observations. Nine analyzer contracts, two CLI bundle tests and actual both-store repair/close/reopen passed. The fresh shared-driver run took 332.23 seconds. Real scenario diagnostics still need the next candidate.
+- EE-02c: Store and Snapshot hold current records and authenticated durable roots without resident historical State. Ordinary lifecycle, CLI, audit and memory reads use current projections or fallible pinned readers. Named legacy archive DTO operations remain explicit and bounded. The actual 66 MiB public Store fixture passed both backends, as did historical cuts, pinned-reader consistency, audit regressions and ten selected memory retention/origin cases. Feature-gated caller compilation and full routing qualification remain in progress; neutral-history/2 job and restore adoption remain open.
+- EE-02c Windows publication: retaining a validated destination read/delete/synchronize handle through standard atomic rename passed 140 consecutive replay-base tests, four marker-publication tests, two snapshot-pin tests, five public-start tests and the 13 accounting regressions. Eight identity-checked retries alone had failed. Exact old/new bytes and canonical ownership checks remain; no delete-then-create or weaker publication is introduced. Native probes and temporary backtraces were removed.
+- EE-02b: per-attempt accounting resumption preserves predicates and error ordering while reducing the deterministic 12-attempt fixture from 90 to 24 fact visits. Two focused tests and five semantic-reference comparisons passed. Actual phase counters showed accounting at roughly 1.8 seconds of 49 seconds per routed backend; event/redaction/ingestion scans dominate. A preparation-local verified index-page memo preserves phase order and full replay, rechecks complete link/table commitments, clears on writes and drops at every operation boundary. Its four corruption, physical-read, identity and bound tests passed; integrated storage and fresh timing qualification are recorded separately when finished.
+
 The [architecture plan](../architecture/execution-architecture-review.md) owns implementation contracts and acceptance. [ADR-085](../adr/085-existing-execution-refinements.md) records the superseding decisions. This ledger records actual progress; prior P1/P2 completion does not qualify these changes. The [progress blockers and ways forward](../architecture/execution-engine-progress-blockers.md) record current obstacles, alternatives, continuation actions and the evidence needed to close them.
 
 ## Work items
@@ -13,12 +23,12 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-00c | Bundle integration and reconstruction | EE-00a/b | scripted repair, omission and interrupted-provider archives verified; remaining joins in progress |
 | EE-01a | Harness deadline/spend removal | EE-00a/b | in progress; user clarification approved and fresh automatic review accepted |
 | EE-01b | Versioned explicit limit representation | EE-00a | in progress; core/schema slice verified |
-| EE-01c | Financial admission with durable attempt fences | EE-01b | unbounded effective cap activated; complete-response missing-cost progression verified; missing-price representation open |
+| EE-01c | Financial admission with durable attempt fences | EE-01b | unknown-price representation and actual routed/reopen fixture passed both stores; integrated regression/performance qualification pending |
 | EE-01d | Derived bounds and start/resume conversion | EE-01b/c | explicit old-task conversion verified; provider pacing/deadline integration in progress |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | in progress; startup retention and disposition verified |
 | EE-02a | Consolidate opens and reconstruction | EE-00b | in progress; duplicate replay and SQL paging verified |
 | EE-02b | Incremental validation | EE-00b | in progress; exact byte accounting verified |
-| EE-02c | Separate hot state and retained history | EE-02b | shared current reads, durable commit bodies and streaming prerequisites verified; event/receipt eviction open |
+| EE-02c | Separate hot state and retained history | EE-02b | public Store and pinned snapshots activated; 66 MiB history fixture passed both stores; downstream and archive-job integration pending |
 | EE-02d | Verified checkpoint/index hydration | EE-02c and documented integrity design | planned |
 | EE-03a | Bounded output, CI fixtures and artifact access | EE-00a | implemented; codec, authorized reader and redaction fixtures passed |
 | EE-03b | File/range working-set index | EE-03a | implemented; seven-file reconstruction and coalescing fixtures passed |
@@ -29,8 +39,8 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-04a | Shared-driver completion repair | EE-00a/c; current full requirement set | implemented; same-task CLI repair and typed approval/refresh fixtures passed |
 | EE-04b | Focused selection and freshness refinement | EE-04a | implemented; focused/full separation passed; conservative freshness retained |
 | EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | implemented; repeated-failure pause, public reason and deliberate resume/cancel passed |
-| EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | in progress; finite mocked integration verified |
-| EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | in progress; small live repair passed; pause race and missing execution-owner timings identified |
+| EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | mocked integration and small live recorded-checkpoint resume passed; full A/B pending |
+| EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | small live repair and checkpoint flow passed; retained execution-owner timings qualified on both-store scripted driver; new live candidate pending |
 | EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | workloads defined; live qualification unrun |
 | EE-08 | Deferred selective constraints, if needed | Sufficient EE-07 data and separate owner decision | deferred |
 

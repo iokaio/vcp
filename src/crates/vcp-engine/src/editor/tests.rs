@@ -74,7 +74,7 @@ async fn put<T: serde::Serialize>(
     value: &T,
     expected: Option<Revision>,
 ) {
-    let watermark = engine.store().state().watermark;
+    let watermark = engine.store().current().watermark;
     engine
         .store_mut()
         .transact(Transaction {
@@ -174,7 +174,7 @@ async fn fixture(
     .await;
     let mut task: Task = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Task, task_id.as_str(), &access.workspace)
         .unwrap()
         .decode()
@@ -274,7 +274,7 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 receipt
             );
             assert!(
-                buffer_status(engine.store().state(), &task.scope)
+                buffer_status(engine.store().current(), &task.scope)
                     .unwrap()
                     .1
             );
@@ -488,11 +488,12 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                     .unwrap()
                     .replay
             );
-            let serialized = serde_json::to_string(engine.store().state()).unwrap();
+            let serialized =
+                serde_json::to_string(&engine.store().archive_state().await.unwrap()).unwrap();
             assert!(!serialized.contains(original));
             assert!(!serialized.contains("replacement secret"));
             assert!(
-                buffer_status(engine.store().state(), &task.scope)
+                buffer_status(engine.store().current(), &task.scope)
                     .unwrap()
                     .1
             );
@@ -502,7 +503,7 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
             assert_ne!(current.fingerprint.buffers, task.fingerprint.buffers);
             let final_effect: Effect = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Effect, effect.id.as_str(), &access.workspace)
                 .unwrap()
                 .decode()
@@ -515,18 +516,25 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                     EffectState::OutcomeUnknown
                 }
             );
-            assert!(
-                engine
-                    .store()
-                    .state()
-                    .events
-                    .iter()
-                    .any(|event| event.event.id == final_effect.cause)
-            );
-            assert!(engine.store().state().events.iter().any(|event| {
-                event.event.kind == EventKind::EffectTransition
-                    && event.event.data.to_string().contains("outcome_unknown")
-            }));
+            assert!(engine
+                .store()
+                .archive_state()
+                .await
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| event.event.id == final_effect.cause));
+            assert!(engine
+                .store()
+                .archive_state()
+                .await
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| {
+                    event.event.kind == EventKind::EffectTransition
+                        && event.event.data.to_string().contains("outcome_unknown")
+                }));
             let approval = vcp_protocol::command::Approval {
                 id: ApprovalId::new(),
                 scope: task.scope.clone(),
@@ -554,10 +562,12 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 second_effect.revision,
             )
             .await;
-            assert!(
-                crate::questions::actionable(engine.store().state(), &approval, Timestamp::new(7))
-                    .unwrap()
-            );
+            assert!(crate::questions::actionable(
+                engine.store().current(),
+                &approval,
+                Timestamp::new(7)
+            )
+            .unwrap());
             let waiting = engine
                 .editor_task(&access, &scope(&access), &wid(task.scope.task.as_str()))
                 .unwrap();
@@ -585,10 +595,12 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 )
                 .await
                 .unwrap();
-            assert!(
-                !crate::questions::actionable(engine.store().state(), &approval, Timestamp::new(7))
-                    .unwrap()
-            );
+            assert!(!crate::questions::actionable(
+                engine.store().current(),
+                &approval,
+                Timestamp::new(7)
+            )
+            .unwrap());
             let retired = engine
                 .editor_read(
                     &access,
@@ -607,7 +619,7 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
             assert!(retired.files[1].execution.is_none());
             let cancelled: Effect = engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     second_effect.id.as_str(),
@@ -730,7 +742,7 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 policy: PolicyRevision::ZERO,
                 now: Timestamp::new(7),
             };
-            let revoked_watermark = engine.store().state().watermark;
+            let revoked_watermark = engine.store().current().watermark;
             assert!(matches!(
                 engine
                     .editor_dispatch(
@@ -743,11 +755,11 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                     .await,
                 Err(PublicError::Unavailable)
             ));
-            assert_eq!(engine.store().state().watermark, revoked_watermark);
+            assert_eq!(engine.store().current().watermark, revoked_watermark);
             access.authority = engine.editor_workspace(&access).unwrap().authority;
             let protected = engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| {
@@ -758,16 +770,12 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 })
                 .cloned()
                 .collect::<Vec<_>>();
-            assert!(
-                protected
-                    .iter()
-                    .any(|row| row.value["document_type"] == domain::BUFFERS)
-            );
-            assert!(
-                protected
-                    .iter()
-                    .any(|row| row.value["document_type"] == domain::CHANGE)
-            );
+            assert!(protected
+                .iter()
+                .any(|row| row.value["document_type"] == domain::BUFFERS));
+            assert!(protected
+                .iter()
+                .any(|row| row.value["document_type"] == domain::CHANGE));
             for row in protected {
                 assert_eq!(row.value["schema_version"], 2);
                 row.validate_shape().unwrap();
@@ -792,24 +800,22 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                     ),
                     "generic fallback shared with pre-editor reader rejects schema2"
                 );
-                let before = engine.store().state().watermark;
-                assert!(
-                    engine
-                        .store_mut()
-                        .transact(Transaction {
-                            id: TransactionId::new(),
-                            expected_watermark: before,
-                            mutations: vec![Mutation::DropProjection {
-                                id: row.id,
-                                expected: row.revision
-                            }],
-                            events: vec![],
-                            command: None
-                        })
-                        .await
-                        .is_err()
-                );
-                assert_eq!(engine.store().state().watermark, before);
+                let before = engine.store().current().watermark;
+                assert!(engine
+                    .store_mut()
+                    .transact(Transaction {
+                        id: TransactionId::new(),
+                        expected_watermark: before,
+                        mutations: vec![Mutation::DropProjection {
+                            id: row.id,
+                            expected: row.revision
+                        }],
+                        events: vec![],
+                        command: None
+                    })
+                    .await
+                    .is_err());
+                assert_eq!(engine.store().current().watermark, before);
             }
             engine.into_store().close().await.unwrap();
             let reopened =
@@ -828,7 +834,7 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 retired
             );
             assert!(
-                buffer_status(reopened.store().state(), &task.scope)
+                buffer_status(reopened.store().current(), &task.scope)
                     .unwrap()
                     .1
             );
@@ -844,11 +850,17 @@ async fn editor_durable_dispatch_receipt_replay_and_ephemeral_text_on_both_store
                 .convert(&destination, other, &[])
                 .await
                 .unwrap();
-            assert_eq!(converted.state(), reopened.store().state());
+            assert_eq!(
+                converted.archive_state().await.unwrap(),
+                reopened.store().archive_state().await.unwrap()
+            );
             converted.close().await.unwrap();
             let converted = Store::open(&destination, other, &[]).await.unwrap();
-            assert_eq!(converted.state(), reopened.store().state());
-            assert!(buffer_status(converted.state(), &task.scope).unwrap().1);
+            assert_eq!(
+                converted.archive_state().await.unwrap(),
+                reopened.store().archive_state().await.unwrap()
+            );
+            assert!(buffer_status(converted.current(), &task.scope).unwrap().1);
         }
     }
 }
@@ -897,7 +909,7 @@ async fn editor_close_retires_only_exact_observations_on_both_stores() {
         // A native-matched clean observation still tracks a live buffer and is
         // not equivalent to coverage by a disk-only verification.
         assert!(
-            buffer_status(engine.store().state(), &task.scope)
+            buffer_status(engine.store().current(), &task.scope)
                 .unwrap()
                 .1
         );
@@ -965,7 +977,7 @@ async fn editor_close_retires_only_exact_observations_on_both_stores() {
         request.documents.clear();
         request.closed = vec![wid("stale")];
         request.mutation = mutation("close", task.revision.get() + 1);
-        let before = engine.store().state().watermark;
+        let before = engine.store().current().watermark;
         let mut facts = EditorObserveFacts {
             observations: vec![],
             closed: vec!["stale".into()],
@@ -977,7 +989,7 @@ async fn editor_close_retires_only_exact_observations_on_both_stores() {
                 .await,
             Err(PublicError::StaleState)
         ));
-        assert_eq!(engine.store().state().watermark, before);
+        assert_eq!(engine.store().current().watermark, before);
         request.closed = vec![wid("observation")];
         facts.closed = vec!["observation".into()];
         let mut reader = access.clone();
@@ -993,7 +1005,7 @@ async fn editor_close_retires_only_exact_observations_on_both_stores() {
             .await
             .unwrap();
         assert!(
-            !buffer_status(engine.store().state(), &task.scope)
+            !buffer_status(engine.store().current(), &task.scope)
                 .unwrap()
                 .1
         );
@@ -1012,7 +1024,7 @@ async fn editor_close_retires_only_exact_observations_on_both_stores() {
         assert_eq!(closed.files[0].observed.as_ref(), Some(&observation));
         let cancelled: Effect = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Effect, effect.id.as_str(), &access.workspace)
             .unwrap()
             .decode()
@@ -1034,7 +1046,7 @@ async fn editor_close_retires_only_exact_observations_on_both_stores() {
         engine.into_store().close().await.unwrap();
         let reopened = Engine::new(Store::open(dir.path(), backend, &[]).await.unwrap()).unwrap();
         assert!(
-            !buffer_status(reopened.store().state(), &task.scope)
+            !buffer_status(reopened.store().current(), &task.scope)
                 .unwrap()
                 .1
         );

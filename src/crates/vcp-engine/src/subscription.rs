@@ -99,7 +99,7 @@ mod projection_tests {
         let ids = events.iter().map(|event| event.id.clone()).collect();
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: engine.store().state().watermark,
+            expected_watermark: engine.store().current().watermark,
             mutations: vec![],
             events,
             command: None,
@@ -113,12 +113,12 @@ mod projection_tests {
         for backend in [BackendKind::Files, BackendKind::Sqlite] {
             let temp = tempfile::tempdir().unwrap();
             let (mut engine, access) = fixture(temp.path(), backend).await;
-            let start = engine.store().state().sequences[&access.session];
+            let start = engine.store().current().sequences[&access.session];
             let ids = append(&mut engine, &access, 64).await;
             let original = engine
                 .subscribe(&access, start, 128, Timestamp::new(100))
                 .unwrap();
-            let before = engine.store().state().clone();
+            let before = engine.store().archive_state().await.unwrap();
             let mut cursor = original.clone();
             let mut delivered = Vec::new();
             let mut pages = 0;
@@ -164,7 +164,7 @@ mod projection_tests {
                 delivered,
                 ids.iter().map(ToString::to_string).collect::<Vec<_>>()
             );
-            assert_eq!(*engine.store().state(), before);
+            assert_eq!(engine.store().archive_state().await.unwrap(), before);
             assert!(matches!(
                 engine
                     .projected_events(&access, &original, Timestamp::new(101), 8192)
@@ -202,14 +202,14 @@ mod projection_tests {
         for backend in [BackendKind::Files, BackendKind::Sqlite] {
             let temp = tempfile::tempdir().unwrap();
             let (mut engine, access) = fixture(temp.path(), backend).await;
-            let start = engine.store().state().sequences[&access.session];
+            let start = engine.store().current().sequences[&access.session];
             let ids = append(&mut engine, &access, 2).await;
             let cursor = engine
                 .subscribe(&access, start, 128, Timestamp::new(100))
                 .unwrap();
             let mut workspace: Workspace = engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     access.workspace.as_str(),
@@ -233,7 +233,7 @@ mod projection_tests {
             };
             let transaction = Transaction {
                 id: TransactionId::new(),
-                expected_watermark: engine.store().state().watermark,
+                expected_watermark: engine.store().current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(expected),
@@ -274,7 +274,9 @@ mod projection_tests {
                 .unwrap();
             assert!(engine
                 .store()
-                .state()
+                .archive_state()
+                .await
+                .unwrap()
                 .events
                 .iter()
                 .any(|event| event.event.id == ids[0]
@@ -294,6 +296,7 @@ mod projection_tests {
                     &std::collections::BTreeSet::from([ids[1].clone()]),
                     &Default::default(),
                 )
+                .await
                 .unwrap();
             engine
                 .store_mut()

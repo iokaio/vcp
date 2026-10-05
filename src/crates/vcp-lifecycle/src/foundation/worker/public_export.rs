@@ -85,7 +85,7 @@ impl PublicConnection {
                     // as artifact/read. It does not publish or write a client path.
                     let disclosure = ExportDisclosure {
                         policy: vcp_engine::policy::optional(
-                            context.engine.store().state(),
+                            context.engine.store().current(),
                             &access.workspace,
                         )
                         .map_err(|_| error(Code::StoreUnavailable, &request))?

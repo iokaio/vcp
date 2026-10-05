@@ -60,7 +60,7 @@ pub(super) async fn execute(
             )
             .await
             .map_err(|e| e.to_string())?;
-            let policy = vcp_engine::policy::optional(store.state(), &entry.config.workspace)
+            let policy = vcp_engine::policy::optional(store.current(), &entry.config.workspace)
                 .map_err(|e| e.to_string())?;
             let mode = policy.map_or(PolicyAutonomy::Ask, |p| p.mode);
             selection_store = Some(store);
@@ -125,25 +125,25 @@ pub(super) async fn execute(
             .ok_or("resume selection owner unavailable")?;
         let selected = match &cli.command {
             ValidatedCommand::Resume(resume) => match &resume.task {
-                Some(id) => task_from(store.state(), &config.workspace, id),
-                None => latest(store.state(), &config.workspace, None),
+                Some(id) => task_from(store.current(), &config.workspace, id),
+                None => latest(store, &config.workspace, None).await,
             },
             ValidatedCommand::Sessions(Sessions::Resume { session }) => {
-                latest(store.state(), &config.workspace, Some(session))
+                latest(store, &config.workspace, Some(session)).await
             }
             ValidatedCommand::Sessions(Sessions::Fork {
                 session,
                 through_turn,
             }) => {
                 let turn: Turn = store
-                    .state()
+                    .current()
                     .record(Collection::Turn, through_turn.as_str(), &config.workspace)
                     .and_then(|r| r.decode())
                     .map_err(|e| e.to_string())?;
                 if turn.scope.session != *session || turn.state != TurnState::Completed {
                     return Err("fork requires a completed turn in the selected session".into());
                 }
-                let source = task_from(store.state(), &config.workspace, &turn.scope.task)?;
+                let source = task_from(store.current(), &config.workspace, &turn.scope.task)?;
                 objective = Some(
                     source
                         .objectives
@@ -163,7 +163,8 @@ pub(super) async fn execute(
         let selected = selected?;
         if objective.is_none() {
             selected_revision = Some(selected.revision);
-            let summary = crate::continuation::candidates(store.state(), &config.workspace)?
+            let summary = crate::continuation::candidates_store(store, &config.workspace)
+                .await?
                 .into_iter()
                 .find(|row| row.task == selected.scope.task);
             if let Some(summary) = summary {
@@ -187,7 +188,7 @@ pub(super) async fn execute(
                 );
             }
             let ledger: Ledger = store
-                .state()
+                .current()
                 .record(
                     Collection::Ledger,
                     selected.scope.task.as_str(),
@@ -326,7 +327,11 @@ pub(super) async fn execute(
             Revision::ZERO,
         )?
     } else {
-        let task = task_from(&host.snapshot()?, &config.workspace, &config.root_task)?;
+        let task = task_from(
+            host.current_state()?.as_ref(),
+            &config.workspace,
+            &config.root_task,
+        )?;
         crate::outcome::Outcome::read(&host, &task.scope)?.receipt
     };
     settings::save(
@@ -397,14 +402,14 @@ pub(super) async fn execute(
                 let _ = host.history_retention(vcp_lifecycle::foundation::history_retention::Request::NoticeShown);
             }
         }
-        if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
+        if task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
         let profile = crate::execution_profile::install_host(
             &host, &config, prepared, prepared_http, &credential,
             |name| std::env::var(name).map_err(|_| ()),
         )?;
         active_session=Some(crate::session::Session::start(&host,retained,ThreadBinding{scope:scope.clone(),agent:AgentId::new(),role:RequestRole::Main}).await?);
         let session=active_session.as_ref().ok_or("retained session unavailable")?;
-        let current=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
+        let current=task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?;
         if !resuming && current.state!=TaskState::Pending {return Ok(());}
         if current.state==TaskState::Pending && !resuming {host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{crate::terminal::prepare_resume(&host,session,&scope,current.revision)?;}
         crate::execution_profile::install_thread(&host, session.id, &profile)?;
@@ -442,13 +447,13 @@ pub(super) async fn execute(
                         Ok(crate::execution::LifecycleResult::Submitted(turn))=>{active_turn=Some(turn);},
                         Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(error)))=>{
                             eprintln!("vcp: completion evidence rejected: {error}");
-                            let task=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
+                            let task=task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?;
                             if task.state==TaskState::Running{host.command(Command::Transition{next:TaskState::Failed,reason:"retained turn ended without current completion evidence".into(),verification:None},Some(config.root_task.clone()),task.revision)?;}
                             break;
                         },
                         Ok(crate::execution::LifecycleResult::Completed(_))=>break,
                         Err(error)=>{
-                            if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state==TaskState::Running{return Err(error);}
+                            if task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?.state==TaskState::Running{return Err(error);}
                             break;
                         },
                     }
@@ -477,8 +482,8 @@ pub(super) async fn execute(
     if let Some(mut job) = lifecycle_pending {
         drop(host.hold_execution());
         if host
-            .snapshot()
-            .and_then(|state| task_from(&state, &config.workspace, &config.root_task))
+            .current_state()
+            .and_then(|state| task_from(state.as_ref(), &config.workspace, &config.root_task))
             .is_ok_and(|task| task.state == TaskState::Running)
         {
             let _ = stop(&host, &config, TaskState::Paused);
@@ -488,8 +493,8 @@ pub(super) async fn execute(
     if execution.is_err() {
         eprintln!("vcp: execution stopped; inspect the durable task for recovery");
     }
-    if let Ok(state) = host.snapshot() {
-        if let Ok(task) = task_from(&state, &config.workspace, &config.root_task) {
+    if let Ok(state) = host.current_state() {
+        if let Ok(task) = task_from(state.as_ref(), &config.workspace, &config.root_task) {
             if let Some(message) = backup_triggers.observe(&host, task.state) {
                 eprintln!("vcp: {message}");
             }
@@ -513,7 +518,11 @@ impl Drop for AbortOnDrop {
     }
 }
 fn stop(host: &CanonicalHost, config: &Config, next: TaskState) -> Result<(), String> {
-    let task = task_from(&host.snapshot()?, &config.workspace, &config.root_task)?;
+    let task = task_from(
+        host.current_state()?.as_ref(),
+        &config.workspace,
+        &config.root_task,
+    )?;
     host.stop(host.control_envelope(
         CommandId::new(),
         config.root_task.clone(),
@@ -533,7 +542,7 @@ fn setup_policy(
     mode: PolicyAutonomy,
 ) -> Result<(), String> {
     let workspace: Workspace = host
-        .snapshot()?
+        .current_state()?
         .record(
             Collection::Workspace,
             config.workspace.as_str(),
@@ -555,9 +564,9 @@ fn setup_policy(
     for profile in &prepared.profile.processes {
         roots.insert(RootId::parse(format!("exec-{}", profile.name)).map_err(|e| e.to_string())?);
     }
-    let state = host.snapshot()?;
-    let policy =
-        vcp_engine::policy::optional(&state, &config.workspace).map_err(|e| e.to_string())?;
+    let state = host.current_state()?;
+    let policy = vcp_engine::policy::optional(state.as_ref(), &config.workspace)
+        .map_err(|e| e.to_string())?;
     let previous = policy.map(|p| p.revision);
     let revision = previous
         .map_or(Ok(PolicyRevision::ZERO), PolicyRevision::next)

@@ -125,7 +125,7 @@ async fn put(store: &mut Store, document: AuthorityDocument, expected: Option<Re
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Access,
@@ -233,7 +233,7 @@ async fn scoped_policy_pages_preserve_provenance_and_exclude_private_grants_and_
             .unwrap();
         let mut store = engine.into_store();
         let workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(Collection::Workspace, "workspace", &scope.workspace)
             .unwrap()
             .decode()
@@ -323,7 +323,7 @@ async fn scoped_policy_pages_preserve_provenance_and_exclude_private_grants_and_
             limit: 32,
             cursor: None,
         };
-        let before = store.state().watermark;
+        let before = store.current().watermark;
         let first = inspect(&store, &access, &p, &facts, Timestamp::new(200), &|| Ok(())).unwrap();
         assert_eq!(first.rows.len(), 32);
         assert!(!first.complete);
@@ -359,7 +359,7 @@ async fn scoped_policy_pages_preserve_provenance_and_exclude_private_grants_and_
         let second = inspect(&store, &access, &p, &facts, Timestamp::new(200), &|| Ok(())).unwrap();
         assert_eq!(second.rows.len(), 3);
         assert!(second.complete);
-        assert_eq!(before, store.state().watermark);
+        assert_eq!(before, store.current().watermark);
         let mut denied = access.clone();
         denied.read = false;
         assert!(inspect(&store, &denied, &p, &facts, Timestamp::new(200), &|| Ok(())).is_err());
@@ -401,7 +401,7 @@ async fn scoped_policy_pages_preserve_provenance_and_exclude_private_grants_and_
         // pinned revisions may cross the ordinary direct-task visibility fence.
         let canonical_grant = |name: &str| {
             let document: AuthorityDocument = store
-                .state()
+                .current()
                 .record(Collection::Access, name, &scope.workspace)
                 .unwrap()
                 .decode()

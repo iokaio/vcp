@@ -132,6 +132,24 @@ pub fn owned_files(root: &Path) -> Result<Vec<PathBuf>> {
             if matches!(name.as_str(), ".replay-roots" | "search-generations") {
                 continue;
             }
+            if name == "history-pages" {
+                for page in fs::read_dir(&path)? {
+                    let page = page?;
+                    reject_link(&page.path())?;
+                    let name = page.file_name().to_string_lossy().into_owned();
+                    let digest = name.strip_suffix(".json").or_else(|| partial_stem(&name));
+                    if !page.file_type()?.is_file()
+                        || !digest.is_some_and(vcp_domain::accounting::valid_hash)
+                    {
+                        return Err(Error::Conflict("unrecognized retired history file"));
+                    }
+                    files.push(page.path());
+                    if files.len() > 100_000 {
+                        return Err(Error::Limit("retired file inventory"));
+                    }
+                }
+                continue;
+            }
             if name != "spool" {
                 return Err(Error::Conflict("unrecognized retired root directory"));
             }
@@ -201,8 +219,14 @@ pub fn owned_files(root: &Path) -> Result<Vec<PathBuf>> {
                     | "replay-base.json"
                     | "replay-base.seal"
                     | "conversion.json"
-            ) || (name.starts_with("checkpoint-")
-                && (name.ends_with(".json") || name.ends_with(".active")))
+            ) || (name
+                .strip_prefix("format-legacy-")
+                .and_then(|name| name.strip_suffix(".json"))
+                .is_some_and(vcp_domain::accounting::valid_hash))
+                || (name.starts_with("history-checkpoint-")
+                    && (name.ends_with(".json") || name.ends_with(".active")))
+                || (name.starts_with("checkpoint-")
+                    && (name.ends_with(".json") || name.ends_with(".active")))
                 || (name.starts_with("commit-") && name.ends_with(".tip"))
                 || (name.starts_with("torn-tail-") && name.ends_with(".bin"));
             let partial = partial_stem(&name).is_some_and(|stem| {
@@ -210,6 +234,10 @@ pub fn owned_files(root: &Path) -> Result<Vec<PathBuf>> {
                     stem,
                     "format" | "replay-base" | "conversion" | "retired" | "private-rewrite"
                 ) || stem.starts_with("checkpoint-")
+                    || stem.starts_with("history-checkpoint-")
+                    || stem
+                        .strip_prefix("format-legacy-")
+                        .is_some_and(vcp_domain::accounting::valid_hash)
                     || stem.starts_with("commit-")
             });
             if !recognized && !partial {
@@ -339,6 +367,13 @@ pub(crate) fn cleanup(
         let Some(_pin) = crate::store::snapshot_pin::cleanup(&root)? else {
             result.pinned.push(identity.clone());
             continue;
+        };
+        // Layout-3 page paths remain pinned throughout inventory and removal,
+        // including after the original Store has closed.
+        let _history_directory = if root.join("history-pages").try_exists()? {
+            Some(pin_directory(&root.join("history-pages"))?)
+        } else {
+            None
         };
         let files = owned_files(&root)?;
         let directories: BTreeSet<_> = files

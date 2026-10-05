@@ -225,8 +225,8 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get()
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get()
             ),
             (0, 0, 0)
         );
@@ -300,8 +300,8 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get(),
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get(),
                 ledger.protected.get()
             ),
             (100, 100, 0, 50)
@@ -383,8 +383,8 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get(),
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get(),
                 ledger.protected.get()
             ),
             (200, 0, 0, 50)

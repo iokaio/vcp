@@ -6,6 +6,7 @@ use vcp_domain::{accounting::*, Micros, Timestamp, Units};
 
 pub mod attribution;
 pub mod compatibility;
+mod estimates;
 
 /// Exact nonnegative decimal conversion, including bounded scientific notation.
 /// Returns millionths rounded upwards, never a floating-point money operation.
@@ -102,13 +103,68 @@ impl Snapshot {
             return Err(Error::Capability("dated compatibility record"));
         }
         compatibility::metadata_window(&compatibility, observed_at, valid_until)?;
-        Self::metadata(raw, observed_at, valid_until, compatibility)
+        Self::metadata(raw, observed_at, valid_until, compatibility, false)
+    }
+    /// Fresh metadata under an explicitly unbounded financial contract. Missing
+    /// rates remain absent; capability and privacy qualification is unchanged.
+    pub fn from_endpoints_unbounded(
+        raw: &[u8],
+        observed_at: Timestamp,
+        valid_until: Timestamp,
+        compatibility: Compatibility,
+    ) -> Result<Self> {
+        if !compatibility::admitted(&compatibility) {
+            return Err(Error::Capability("dated compatibility record"));
+        }
+        compatibility::metadata_window(&compatibility, observed_at, valid_until)?;
+        Self::metadata(raw, observed_at, valid_until, compatibility, true)
+    }
+    /// Reconstruct the exact captured interpretation, including legacy pricing.
+    pub fn rebuild_captured(&self, raw: &[u8]) -> Result<Self> {
+        match self.tariff_normalization {
+            None | Some(2) => Self::from_endpoints(
+                raw,
+                self.observed_at,
+                self.valid_until,
+                self.compatibility.clone(),
+            ),
+            Some(3) => Self::from_endpoints_unbounded(
+                raw,
+                self.observed_at,
+                self.valid_until,
+                self.compatibility.clone(),
+            ),
+            _ => Err(Error::Capability("unsupported tariff normalization")),
+        }
+    }
+    /// Bind the effective owner financial policy to a fresh interpretation of
+    /// original captured metadata. This does not grant send authority.
+    pub fn for_execution(&self, raw: &[u8], cap: vcp_domain::Limit<Micros>) -> Result<Self> {
+        if self.rebuild_captured(raw)? != *self {
+            return Err(Error::Stale);
+        }
+        if cap.is_unbounded() {
+            Self::from_endpoints_unbounded(
+                raw,
+                self.observed_at,
+                self.valid_until,
+                self.compatibility.clone(),
+            )
+        } else {
+            Self::from_endpoints(
+                raw,
+                self.observed_at,
+                self.valid_until,
+                self.compatibility.clone(),
+            )
+        }
     }
     fn metadata(
         raw: &[u8],
         observed_at: Timestamp,
         valid_until: Timestamp,
         compatibility: Compatibility,
+        unbounded: bool,
     ) -> Result<Self> {
         if raw.len() > 4 * 1024 * 1024 {
             return Err(Error::Limit("catalog bytes"));
@@ -181,6 +237,40 @@ impl Snapshot {
             positive("max_prompt_tokens")?.min(context)
         };
         let max_output = positive("max_completion_tokens")?.min(context);
+        if unbounded {
+            let rates = estimates::rates(&endpoint["pricing"])?;
+            let raw_sha256 = vcp_protocol::digest_bytes(raw);
+            let id = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&(
+                "endpoint-observed-estimates/3",
+                observed_at,
+                valid_until,
+                &raw_sha256,
+                &compatibility,
+            ))?);
+            let price = PriceSnapshot {
+                id: id.clone(),
+                provider: compatibility.endpoint.clone(),
+                model: compatibility.model.clone(),
+                currency: "USD".to_owned().try_into().map_err(|_| Error::Decimal)?,
+                capability: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
+                    &compatibility,
+                )?),
+                valid_until,
+                rates,
+            };
+            return Ok(Self {
+                id,
+                tariff_normalization: Some(3),
+                observed_at,
+                valid_until,
+                raw_sha256,
+                compatibility,
+                context: Units::new(context),
+                max_input: Units::new(max_input),
+                max_output: Units::new(max_output),
+                price,
+            });
+        }
         let prices = endpoint["pricing"]
             .as_object()
             .ok_or(Error::Capability("pricing"))?;
@@ -349,6 +439,13 @@ impl Snapshot {
                 &self.raw_sha256,
                 &self.compatibility,
             ))?,
+            Some(3) => vcp_protocol::canonical_bytes(&(
+                "endpoint-observed-estimates/3",
+                self.observed_at,
+                self.valid_until,
+                &self.raw_sha256,
+                &self.compatibility,
+            ))?,
             _ => return Err(Error::Capability("unsupported tariff normalization")),
         };
         Ok(vcp_protocol::digest_bytes(&bytes))
@@ -403,6 +500,7 @@ impl CandidateMetadata {
                 request_price_limit,
                 required_parameters,
             },
+            false,
         )?;
         Ok(Self {
             raw_sha256: candidate.raw_sha256,

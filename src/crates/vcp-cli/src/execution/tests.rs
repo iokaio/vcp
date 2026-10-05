@@ -349,13 +349,19 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
         .decode()
         .unwrap();
     assert_eq!(task.state, TaskState::Completed);
+    let outcome = Outcome::read(&host, &scope).unwrap();
+    assert_eq!(outcome.task, task);
+    assert_eq!(outcome.conditions.code(), 0);
+    let cause = state.events.iter().find(|event| event.event.id == task.cause).unwrap();
+    let receipt = state.commands.values().find(|receipt| {
+        receipt.command == cause.event.correlation && receipt.workspace == scope.workspace
+    }).unwrap();
+    assert_eq!(&outcome.receipt, receipt, "bounded lookup preserves the task-cause receipt");
     if missing_cost {
-        let outcome = Outcome::read(&host, &scope).unwrap();
-        assert_eq!(outcome.conditions.code(), 0);
         assert!(!outcome.conditions.unresolved_effect);
         let ledger: vcp_domain::accounting::Ledger = state.record(Collection::Ledger, scope.task.as_str(), &scope.workspace).unwrap().decode().unwrap();
         assert_eq!(ledger.settled, Micros::ZERO);
-        assert!(ledger.unresolved > Micros::ZERO);
+        assert!(ledger.unresolved.known().unwrap() > Micros::ZERO);
         assert_eq!(state.records.values().filter(|row| row.collection == Collection::Artifact).filter_map(|row| row.decode::<ArtifactDescriptor>().ok()).filter(|descriptor| descriptor.spec.schema == "provider-completed-execution/1").count(), count.load(Ordering::SeqCst));
     }
     let reports: Vec<Verification> = state
@@ -439,6 +445,10 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
         );
     }
     drop(execution);
+    eprintln!(
+        "EE02 shared repair {backend:?}: before close {:?}",
+        host.store_diagnostics()
+    );
     owner.close().await.unwrap();
     session.thread.shutdown_and_wait().await.unwrap();
     drop(session);
@@ -446,10 +456,27 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
     let (reopened, reopened_owner) = CanonicalHost::open(config).unwrap();
     if missing_cost { assert_eq!(Outcome::read(&reopened, &scope).unwrap().conditions.code(), 0); }
     assert!(reopened
-        .execution_diagnostics(scope)
+        .execution_diagnostics(scope.clone())
         .unwrap()
         .observations
         .is_empty());
+    let reopened_state = reopened.snapshot().unwrap();
+    let reopened_bundle = crate::inspection_bundle::collect(
+        &reopened_state,
+        &vcp_audit::history::Access {
+            workspace: scope.workspace.clone(),
+            authority: workspace_record.authority,
+            read: true,
+            tasks: Some(BTreeSet::from([scope.task.clone()])),
+        },
+        &scope.task,
+    ).unwrap();
+    let retained = reopened_bundle["retained_lifecycle_diagnostics"].as_array().unwrap();
+    assert_eq!(retained.len(), 1, "explicit shutdown retains the execution owner's timing window");
+    assert_eq!(retained[0]["snapshot"]["owner"], diagnostics.owner);
+    assert_eq!(retained[0]["snapshot"]["complete_history"], false);
+    assert!(retained[0]["snapshot"]["observations"].as_array().unwrap().iter()
+        .any(|span| span["phase"] == "verification" && span["status"] == "failed"));
     for artifact in saved {
         let checkpoint: Value =
             serde_json::from_slice(&reopened.read_artifact(artifact.spec.id).unwrap()).unwrap();

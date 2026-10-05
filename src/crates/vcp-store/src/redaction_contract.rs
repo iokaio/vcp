@@ -482,7 +482,7 @@ pub(crate) fn unprotected<'a>(
                         ReservationState::Settled
                             | ReservationState::Released
                             | ReservationState::ExplicitlyResolved
-                    ) || reservation.liability != Micros::ZERO)
+                    ) || !reservation.liability.is_zero())
                 {
                     return Err(Error::Conflict(
                         "unsettled accounting protects retention source",

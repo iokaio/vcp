@@ -113,6 +113,7 @@ async fn encrypted_restore_rebuilds_compatible_retained_vectors_without_loading_
             },
             &|| false,
         )
+        .await
         .unwrap();
         let payloads = archive.payloads().unwrap();
         let manifest = Manifest {
@@ -180,7 +181,7 @@ async fn encrypted_restore_rebuilds_compatible_retained_vectors_without_loading_
             .unwrap();
         let restored = imported.reopen_verified().await.unwrap();
         let workspace: Workspace = restored
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -244,17 +245,17 @@ async fn encrypted_restore_rebuilds_compatible_retained_vectors_without_loading_
             .records
             .iter()
             .all(|row| row.kind != vcp_memory::search_record::SearchKind::Source));
-        assert!(restored.state().records.values().any(|row| row.collection
+        assert!(restored.current().records.values().any(|row| row.collection
             == Collection::LocalResources
             && row.value["source"]
                 .as_str()
                 .is_some_and(|s| s.contains(vector_artifact.as_str()))));
         assert!(!restored
-            .state()
+            .current()
             .records
             .values()
             .any(|row| row.collection == Collection::Attempt));
-        let watermark = restored.state().watermark;
+        let watermark = restored.current().watermark;
         drop(view);
         drop(publisher);
         restored.close().await.unwrap();
@@ -267,7 +268,7 @@ async fn encrypted_restore_rebuilds_compatible_retained_vectors_without_loading_
         let restored = Store::open(&target_config.canonical_root, to, &[])
             .await
             .unwrap();
-        assert_eq!(restored.state().watermark, watermark);
+        assert_eq!(restored.current().watermark, watermark);
         restored.close().await.unwrap();
         source.close().await.unwrap();
     }

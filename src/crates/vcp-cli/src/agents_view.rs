@@ -7,7 +7,11 @@ use vcp_domain::{
     workspace::Scope,
     Timestamp,
 };
-use vcp_store::contract::{Collection, State};
+use vcp_protocol::event::EventEnvelope;
+use vcp_store::{
+    contract::{CanonicalStore, Collection, State},
+    CurrentStateView,
+};
 
 #[cfg(windows)]
 pub fn live_detail(
@@ -17,7 +21,23 @@ pub fn live_detail(
     id: &vcp_domain::TaskId,
     now: Timestamp,
 ) -> Result<Value, String> {
-    let mut value = detail(&host.snapshot()?, scope, id, now)?;
+    let reader = host.history_reader()?;
+    child(reader.current(), scope, id)?;
+    let mut offset = 0;
+    let mut value = loop {
+        let page = page_reader(&reader, scope, now, offset)?;
+        if let Some(item) = page["items"]
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["task"] == id.as_str()))
+        {
+            break item.clone();
+        }
+        offset = page["next_offset"]
+            .as_u64()
+            .ok_or("selected agent disappeared")?
+            .try_into()
+            .map_err(|_| "agent offset overflow")?;
+    };
     value["review_evidence"] = match host.child_review_findings(parent, id.clone()) {
         Ok(evidence) => evidence,
         Err(reason) => {
@@ -27,7 +47,12 @@ pub fn live_detail(
     Ok(value)
 }
 
-pub fn child(state: &State, scope: &Scope, id: &vcp_domain::TaskId) -> Result<Task, String> {
+pub fn child<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    scope: &Scope,
+    id: &vcp_domain::TaskId,
+) -> Result<Task, String> {
+    let state = state.into();
     let parent: Task = state
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|r| r.decode())
@@ -71,6 +96,146 @@ pub fn detail(
 }
 
 pub fn page(state: &State, scope: &Scope, now: Timestamp, offset: usize) -> Result<Value, String> {
+    page_with_latest(state.into(), scope, now, offset, |task| {
+        state
+            .events
+            .iter()
+            .rev()
+            .find(|row| {
+                row.event.workspace == scope.workspace
+                    && row.event.session == scope.session
+                    && (row.event.task.as_ref() == Some(&task.scope.task)
+                        || row.event.id == task.cause)
+            })
+            .map(activity)
+    })
+}
+
+fn activity(event: &EventEnvelope) -> Value {
+    json!({"event":event.event.id,"watermark":event.watermark,"timestamp":event.event.timestamp,"kind":event.event.kind})
+}
+
+#[cfg(windows)]
+pub fn live_page(
+    host: &vcp_lifecycle::foundation::CanonicalHost,
+    scope: &Scope,
+    now: Timestamp,
+    offset: usize,
+) -> Result<Value, String> {
+    let reader = host.history_reader()?;
+    page_reader(&reader, scope, now, offset)
+}
+
+#[cfg(windows)]
+pub(crate) fn page_reader(
+    reader: &vcp_lifecycle::foundation::history_reader::HistoryReader,
+    scope: &Scope,
+    now: Timestamp,
+    offset: usize,
+) -> Result<Value, String> {
+    let state = reader.current();
+    let mut selected = Vec::new();
+    let mut value = page_with_latest(state, scope, now, offset, |task| {
+        selected.push((task.scope.task.clone(), task.cause.clone()));
+        None
+    })?;
+    let mut latest = vec![Value::Null; selected.len()];
+    let mut at = 0u64;
+    loop {
+        let page = reader.page(at.checked_sub(1), 256)?;
+        if page.events.is_empty() && at < page.count {
+            return Err("agent history ended before its source cut".into());
+        }
+        for event in page.events {
+            at += 1;
+            if event.event.workspace != scope.workspace || event.event.session != scope.session {
+                continue;
+            }
+            for (index, (task, cause)) in selected.iter().enumerate() {
+                if event.event.task.as_ref() == Some(task) || &event.event.id == cause {
+                    latest[index] = activity(&event);
+                }
+            }
+        }
+        if at == page.count {
+            break;
+        }
+        if at > page.count {
+            return Err("agent history exceeded its source cut".into());
+        }
+    }
+    for (item, activity) in value["items"]
+        .as_array_mut()
+        .ok_or("agent view items unavailable")?
+        .iter_mut()
+        .zip(latest)
+    {
+        item["last_activity"] = activity;
+    }
+    Ok(value)
+}
+
+pub async fn page_store(
+    store: &impl CanonicalStore,
+    scope: &Scope,
+    now: Timestamp,
+    offset: usize,
+) -> Result<Value, String> {
+    let watermark = store.current().watermark;
+    let mut selected = Vec::new();
+    let mut value = page_with_latest(store.current(), scope, now, offset, |task| {
+        selected.push((task.scope.task.clone(), task.cause.clone()));
+        None
+    })?;
+    let mut latest = vec![Value::Null; selected.len()];
+    let count = store
+        .history_event_count()
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut at = 0u64;
+    while at < count {
+        let limit = (count - at).min(256) as usize;
+        let events = store
+            .history_events(at.checked_sub(1), limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        if events.is_empty() || events.len() > limit || store.current().watermark != watermark {
+            return Err("agent history cut changed or incomplete".into());
+        }
+        for event in events {
+            if event.watermark > watermark {
+                return Err("agent event exceeds source cut".into());
+            }
+            at += 1;
+            if event.event.workspace != scope.workspace || event.event.session != scope.session {
+                continue;
+            }
+            for (index, (task, cause)) in selected.iter().enumerate() {
+                if event.event.task.as_ref() == Some(task) || &event.event.id == cause {
+                    latest[index] = activity(&event);
+                }
+            }
+        }
+    }
+    if store.current().watermark != watermark {
+        return Err("agent source changed".into());
+    }
+    let items = value["items"]
+        .as_array_mut()
+        .ok_or("agent view items unavailable")?;
+    for (item, activity) in items.iter_mut().zip(latest) {
+        item["last_activity"] = activity;
+    }
+    Ok(value)
+}
+
+fn page_with_latest(
+    state: CurrentStateView<'_>,
+    scope: &Scope,
+    now: Timestamp,
+    offset: usize,
+    mut latest: impl FnMut(&Task) -> Option<Value>,
+) -> Result<Value, String> {
     let selected: Task = state
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|r| r.decode())
@@ -104,8 +269,8 @@ pub fn page(state: &State, scope: &Scope, now: Timestamp, offset: usize) -> Resu
             .as_ref()
             .and_then(|g| g.children.get(&task.scope.task));
         let mut known = 0u64;
-        let mut reserved = 0u64;
-        let mut uncertain = 0u64;
+        let mut reserved = vcp_domain::accounting::EstimatedMicros::ZERO;
+        let mut uncertain = vcp_domain::accounting::EstimatedMicros::ZERO;
         for record in state
             .records
             .values()
@@ -124,14 +289,10 @@ pub fn page(state: &State, scope: &Scope, now: Timestamp, offset: usize) -> Resu
                 _ => continue,
             };
             *target = target
-                .checked_add(reservation.liability.get())
-                .ok_or("agent liability overflow")?;
+                .checked_add(reservation.liability)
+                .map_err(|_| "agent liability overflow")?;
         }
-        let latest = state.events.iter().rev().find(|row| {
-            row.event.workspace == scope.workspace
-                && row.event.session == scope.session
-                && (row.event.task.as_ref() == Some(&task.scope.task) || row.event.id == task.cause)
-        });
+        let latest = latest(task);
         let constraints = if spec.is_some() {
             vcp_engine::agents::eligibility(state, task, now, true)
                 .map_err(|e| e.to_string())?
@@ -176,7 +337,7 @@ pub fn page(state: &State, scope: &Scope, now: Timestamp, offset: usize) -> Resu
             "allocation":spec.map(|s|s.allocation),
             "cost":{"known":known,"reserved":reserved,"uncertain":uncertain,"units":"micros","scope":"this node only"},
             "canonical_constraints":constraints,"active_effects":active_effects,
-            "last_activity":latest.map(|e|json!({"event":e.event.id,"watermark":e.watermark,"timestamp":e.event.timestamp,"kind":e.event.kind})),
+            "last_activity":latest,
             "latest_result":graph.as_ref().and_then(|g|g.results.get(&task.scope.task)).and_then(|r|r.last()),
             "result_evidence_status":"historical untrusted evidence at its examined revision; not current parent acceptance",
             "result_count":graph.as_ref().and_then(|g|g.results.get(&task.scope.task)).map_or(0,Vec::len)}));

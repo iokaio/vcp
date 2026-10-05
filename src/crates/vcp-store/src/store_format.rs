@@ -147,40 +147,86 @@ pub(crate) fn publish_observed(
     if read_bounded(&target, MAX_MARKER)? != legacy.bytes {
         return Err(Error::Corruption("format changed during publication"));
     }
-    replace(&temporary, &target)?;
+    replace_checked(
+        &temporary,
+        &target,
+        &|| {
+            lock.verify()?;
+            let selected = read_bounded(&target, MAX_MARKER)?;
+            if selected == bytes {
+                read(lock, owner.kind())?;
+                return Ok(true);
+            }
+            if selected != legacy.bytes {
+                return Err(Error::Corruption("format changed during replacement"));
+            }
+            if read_bounded(&temporary, MAX_MARKER)? != bytes {
+                return Err(Error::Corruption("format pending bytes changed"));
+            }
+            Ok(false)
+        },
+        &mut replace,
+    )?;
     sync_directory(lock.root())?;
     observe(crate::Barrier::AfterActivation)?;
     Ok(())
 }
 
+/// Windows can briefly deny replacement while native readers finish opening or
+/// closing the marker. Every retry requires the same held owner and exact old
+/// and pending bytes; a changed selection or any other failure is not retried.
+fn replace_checked(
+    source: &Path,
+    target: &Path,
+    verify: &impl Fn() -> Result<bool>,
+    operation: &mut impl FnMut(&Path, &Path) -> Result<()>,
+) -> Result<()> {
+    let attempts = if cfg!(windows) { 8 } else { 1 };
+    for attempt in 0..attempts {
+        let result = match verify() {
+            Ok(true) => return Ok(()),
+            Ok(false) => operation(source, target),
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(Error::Io(error))
+                if cfg!(windows)
+                    && matches!(error.raw_os_error(), Some(5 | 32 | 33))
+                    && attempt + 1 < attempts =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10 << attempt.min(4)));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(Error::Unavailable("format replacement attempts exhausted"))
+}
 fn replace(source: &Path, target: &Path) -> Result<()> {
     #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{
-            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    let _target = {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::{
+            Foundation::GENERIC_READ,
+            Storage::FileSystem::{DELETE, FILE_FLAG_OPEN_REPARSE_POINT, SYNCHRONIZE},
         };
-        let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
-        let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
-        // SAFETY: buffers remain live; the held canonical lock and pinned
-        // directory restrict both checked paths to this selected physical root.
-        if unsafe {
-            MoveFileExW(
-                source.as_ptr(),
-                target.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error().into());
+        // Admit the selected target's read/delete access and retain its native
+        // handle across replacement. Opening only the source intermittently
+        // fails on Windows even though both marker byte checks succeed.
+        let file = std::fs::OpenOptions::new()
+            .access_mode(GENERIC_READ | DELETE | SYNCHRONIZE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(target)?;
+        if !crate::private_paths::allowed_handle(&file, false)? {
+            return Err(Error::Access);
         }
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        std::fs::rename(source, target)?;
-        Ok(())
-    }
+        file
+    };
+    // Source bytes are synced; both names stay under the pinned canonical root.
+    // The standard native rename keeps namespace replacement atomic, including
+    // Windows FileRenameInfoEx handling for shared readers. No delete-then-create.
+    std::fs::rename(source, target)?;
+    Ok(())
 }
 
 #[cfg(test)]

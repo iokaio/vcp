@@ -18,6 +18,37 @@ fn money(amount: u64) -> Money {
 }
 
 #[test]
+fn unknown_tariffs_are_visible_and_admitted_only_with_unbounded_financial_capacity() {
+    let mut entry = candidate("fixture/unpriced", Group::High, 9000, 10, "0.000001");
+    let original = entry.snapshot.as_ref().unwrap();
+    let raw = serde_json::to_vec(&serde_json::json!({"data":{"id":"fixture/unpriced","endpoints":[{
+        "tag":"fixture/region","status":0,"context_length":4000,"max_prompt_tokens":3000,
+        "max_completion_tokens":1000,"supported_parameters":["tools"],"pricing":{"prompt":"0.000001"}
+    }]}})).unwrap();
+    entry.snapshot = Some(Snapshot::from_endpoints_unbounded(&raw, original.observed_at,
+        original.valid_until, original.compatibility.clone()).unwrap());
+    let (catalog, policy, mut input) = setup(vec![entry]);
+    let finite = select(&catalog, &policy, &input).unwrap();
+    assert!(finite.selected.is_none());
+    assert!(finite.candidates[0].exclusions.contains(&Exclusion::UnknownCost));
+    let estimate = finite.candidates[0].total_estimate.as_ref().unwrap();
+    assert_eq!(estimate.total.micros.known(), None);
+    assert!(estimate.total.micros.known_component() > Micros::ZERO);
+    input.available.micros = Limit::Unbounded;
+    let admitted = select(&catalog, &policy, &input).unwrap();
+    assert!(admitted.selected.is_some());
+    assert!(admitted.candidates[0].exclusions.is_empty());
+    assert!(admitted.candidates[0].total_estimate.as_ref().unwrap().total.micros.known().is_none());
+    assert!(admitted.candidates[0].assumptions.iter().any(|text| text.contains("unknown")));
+    admitted.validate().unwrap();
+    let mut denied = policy.clone();
+    denied.allowed_endpoints.clear();
+    denied = denied.seal().unwrap();
+    input.policy = denied.id.clone();
+    assert!(select(&catalog, &denied, &input).unwrap().selected.is_none());
+}
+
+#[test]
 fn tagged_finite_limits_preserve_historical_routing_identity() {
     let (catalog, policy, input) = setup(vec![candidate("fixture/model", Group::High, 9000, 10, "0.000001")]);
     let decision = select(&catalog, &policy, &input).unwrap();

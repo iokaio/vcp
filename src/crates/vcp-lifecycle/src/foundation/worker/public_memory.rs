@@ -91,7 +91,7 @@ async fn inspect(
         return Err(error(Code::PolicyDenied));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, request.task.as_str(), &access.workspace)
         .map_err(|_| unavailable())?
         .decode()
@@ -105,7 +105,7 @@ async fn inspect(
     }
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)
@@ -185,7 +185,7 @@ async fn inspect(
                     .find(|source| source.artifact == observed.artifact)
                     .ok_or_else(unavailable)?;
                 let descriptor: ArtifactDescriptor = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         observed.artifact.as_str(),

@@ -29,24 +29,14 @@ async fn current_owner_retains_more_than_legacy_state_capacity_and_cold_replays_
         let root = temp.path().join("canonical");
         let mut store = Store::open(&root, kind, &[]).await.unwrap();
         store.transact(common::initial()).await.unwrap();
-        let staged = store.stage_current().await.unwrap();
-        let origin = staged.origin_digest.clone();
-        drop(staged);
-        // No archival State survives this boundary; the native owner retains
-        // current records, fixed-size roots and native ownership only.
         store.close().await.unwrap();
-        let mut owner = Opened::open(
-            CanonicalLock::acquire(&root, &[]).unwrap(),
-            kind,
-            &origin,
-            &mut crate::StoreDiagnostics::new(kind),
-        )
-        .await
-        .unwrap();
+        // Public Store now performs the real migration and returns only the
+        // current projection plus authenticated roots, never resident history.
+        let mut owner = crate::Store::open(&root, kind, &[]).await.unwrap();
         for index in 0..COMMITS {
             let mut tx = next_transaction(owner.current().watermark, index);
             tx.events[0].data = serde_json::json!({"payload": "x".repeat(PAYLOAD), "index": index});
-            let receipt = owner.transact(tx, &|_| {}).await.unwrap();
+            let receipt = owner.transact(tx).await.unwrap();
             assert_eq!(receipt.watermark.get(), index as u64 + 2);
             assert!(canonical_bytes(&owner.current()).unwrap().len() < 16 * 1024);
         }
@@ -55,19 +45,15 @@ async fn current_owner_retains_more_than_legacy_state_capacity_and_cold_replays_
             COMMITS as u64 + 1
         );
         assert!(matches!(owner.archive_state().await, Err(Error::Limit(_))));
-        let digest = owner.logical_digest().await.unwrap();
+        let digest = owner.snapshot().unwrap().logical_digest().await.unwrap();
         owner.close().await.unwrap();
         // Cold open must replay and validate every original transition, even
         // though their logical historical State can no longer fit the v1 DTO.
-        let reopened = Opened::open(
-            CanonicalLock::acquire(&root, &[]).unwrap(),
-            kind,
-            &origin,
-            &mut crate::StoreDiagnostics::new(kind),
-        )
-        .await
-        .unwrap();
-        assert_eq!(reopened.logical_digest().await.unwrap(), digest);
+        let reopened = crate::Store::open(&root, kind, &[]).await.unwrap();
+        assert_eq!(
+            reopened.snapshot().unwrap().logical_digest().await.unwrap(),
+            digest
+        );
         assert_eq!(reopened.current().watermark.get(), COMMITS as u64 + 1);
         for index in 0..COMMITS {
             let page = reopened

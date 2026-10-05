@@ -2,7 +2,7 @@
 use super::*;
 
 struct CurrentOwner(Store);
-impl CanonicalStore for CurrentOwner {
+impl vcp_store::contract::reference::ReferenceStore for CurrentOwner {
     fn state(&self) -> &State {
         panic!("accounting requested complete history")
     }
@@ -37,7 +37,7 @@ async fn accounting_uses_current_records_without_weakening_finite_or_send_fences
             .unwrap();
         assert_eq!(owner.current().watermark, prior.next().unwrap());
         assert_eq!(reserve(&mut owner, input, &actor()).await.unwrap(), created);
-        assert_eq!(ledger(owner.current(), &scope).unwrap().active.get(), 60);
+        assert_eq!(ledger(owner.current(), &scope).unwrap().active.known().unwrap().get(), 60);
         let denied = admission(&owner.0, &scope, &captured, 40);
         assert!(
             reserve(&mut owner, denied, &actor()).await.is_err(),
@@ -61,7 +61,7 @@ async fn accounting_uses_current_records_without_weakening_finite_or_send_fences
             .await
             .unwrap();
         assert_eq!(
-            ledger(owner.current(), &scope).unwrap().unresolved.get(),
+            ledger(owner.current(), &scope).unwrap().unresolved.known().unwrap().get(),
             60
         );
         let observation = usage(&mut owner.0, &created, 70, 1, true).await;
@@ -74,8 +74,8 @@ async fn accounting_uses_current_records_without_weakening_finite_or_send_fences
         );
         let root = ledger(owner.current(), &scope).unwrap();
         assert_eq!(root.settled.get(), 70);
-        assert_eq!(root.unresolved.get(), 0);
-        assert_eq!(root.active.get(), 0);
+        assert_eq!(root.unresolved.known().unwrap().get(), 0);
+        assert_eq!(root.active.known().unwrap().get(), 0);
         owner.0.close().await.unwrap();
     }
 }

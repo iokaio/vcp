@@ -25,7 +25,7 @@ async fn paged_sqlite_history_checks_every_row_and_rejects_projection_corruption
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![],
                 events: vec![event],
                 command: Some(receipt),
@@ -33,10 +33,10 @@ async fn paged_sqlite_history_checks_every_row_and_rejects_projection_corruption
             .await
             .unwrap();
     }
-    let expected = store.state().clone();
+    let expected = (&store.archive_state().await.unwrap()).clone();
     store.close().await.unwrap();
     let reopened = Store::open(&root, BackendKind::Sqlite, &[]).await.unwrap();
-    assert_eq!(reopened.state(), &expected);
+    assert_eq!((&reopened.archive_state().await.unwrap()), &expected);
     reopened.close().await.unwrap();
 
     let database = root.join("canonical.sqlite");

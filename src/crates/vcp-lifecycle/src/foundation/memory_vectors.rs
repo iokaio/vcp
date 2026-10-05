@@ -265,7 +265,7 @@ impl CanonicalHost {
                         let workspace: Workspace = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Workspace,
                                 checked.scope.workspace.as_str(),
@@ -334,7 +334,7 @@ impl CanonicalHost {
                     let workspace: Workspace = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Workspace,
                             captured.workspace.as_str(),
@@ -348,7 +348,7 @@ impl CanonicalHost {
                     }
                     // Any canonical source change during the bounded build requires
                     // replan; this conservative fence cannot publish stale coverage.
-                    if context.engine.store().state().watermark != captured.watermark {
+                    if context.engine.store().current().watermark != captured.watermark {
                         return Err("canonical source snapshot changed during vector build".into());
                     }
                     Ok(())

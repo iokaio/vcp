@@ -113,12 +113,12 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
             None,
             Revision::ZERO,
         );
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         assert!(engine
             .handle(request.clone(), &access(), &facts)
             .await
             .is_err());
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         for (revision, next) in [
             TurnState::AssemblingContext,
             TurnState::ReservingBudget,
@@ -150,7 +150,7 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
         }
         let before = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, task.as_str(), &access().workspace)
             .unwrap()
             .clone();
@@ -167,7 +167,7 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
         );
         let session: Session = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Session, fork.as_str(), &access().workspace)
             .unwrap()
             .decode()
@@ -177,7 +177,7 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
         assert_eq!(
             engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &access().workspace)
                 .unwrap(),
             &before
@@ -197,7 +197,7 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
         engine.handle(fresh, &access(), &facts).await.unwrap();
         let completed: Turn = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Turn, turn.as_str(), &access().workspace)
             .unwrap()
             .decode()
@@ -236,7 +236,7 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
         engine.handle(steer, &access(), &facts).await.unwrap();
         let superseded: Turn = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Turn, active.as_str(), &access().workspace)
             .unwrap()
             .decode()
@@ -246,7 +246,7 @@ async fn session_creation_and_fork_boundaries_are_durable_scoped_and_idempotent(
         assert_eq!(
             engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Turn, turn.as_str(), &access().workspace)
                 .unwrap()
                 .decode::<Turn>()
@@ -293,7 +293,7 @@ async fn repeated_pause_is_durable_without_mutating_task_or_accepting_stale_inpu
             .unwrap();
         let state = engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, id.as_str(), &access().workspace)
             .unwrap()
             .clone();
@@ -306,7 +306,7 @@ async fn repeated_pause_is_durable_without_mutating_task_or_accepting_stale_inpu
         assert_eq!(
             engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, id.as_str(), &access().workspace)
                 .unwrap(),
             &state
@@ -453,7 +453,7 @@ async fn approval_is_bound_to_actor_operation_revision_expiry_and_current_steeri
     assert!(engine.handle(decision, &access(), &host).await.is_err());
     let stored: Approval = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Approval,
             approval.id.as_str(),
@@ -576,7 +576,7 @@ async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backend
             );
             let task: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, id.as_str(), &access.workspace)
                 .unwrap()
                 .decode()
@@ -617,7 +617,9 @@ async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backend
                 .unwrap();
             let count = engine
                 .store()
-                .state()
+                .archive_state()
+                .await
+                .unwrap()
                 .events
                 .iter()
                 .filter(|e| e.event.kind == vcp_protocol::event::EventKind::ApprovalResolved)
@@ -635,7 +637,9 @@ async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backend
             assert_eq!(
                 engine
                     .store()
-                    .state()
+                    .archive_state()
+                    .await
+                    .unwrap()
                     .events
                     .iter()
                     .filter(|e| e.event.kind == vcp_protocol::event::EventKind::ApprovalResolved)
@@ -657,7 +661,7 @@ async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backend
                 .await
                 .is_err());
             let grants =
-                vcp_engine::policy::grants(engine.store().state(), &access.workspace).unwrap();
+                vcp_engine::policy::grants(engine.store().current(), &access.workspace).unwrap();
             assert_eq!(grants.len(), usize::from(allow));
             if allow {
                 assert_eq!(grants[0].approval.as_ref(), Some(&approval.id));
@@ -665,7 +669,7 @@ async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backend
             // Accepting an answer never resumes a waiting/paused task itself.
             let task: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, id.as_str(), &access.workspace)
                 .unwrap()
                 .decode()
@@ -682,16 +686,16 @@ async fn policy_questions_commit_waiting_answers_and_grants_once_on_both_backend
             let reopened =
                 Engine::new(Store::open(temporary.path(), backend, &[]).await.unwrap()).unwrap();
             assert_eq!(
-                vcp_engine::policy::current(reopened.store().state(), &access.workspace).unwrap(),
+                vcp_engine::policy::current(reopened.store().current(), &access.workspace).unwrap(),
                 policy
             );
             assert_eq!(
-                vcp_engine::policy::grants(reopened.store().state(), &access.workspace).unwrap(),
+                vcp_engine::policy::grants(reopened.store().current(), &access.workspace).unwrap(),
                 grants
             );
             let saved: Approval = reopened
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Approval,
                     approval.id.as_str(),
@@ -835,7 +839,7 @@ async fn pending_question_survives_reopen_but_old_owner_cannot_supply_new_author
         assert!(reopened.handle(decide, &access, &host).await.is_err());
         let saved: Approval = reopened
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Approval,
                 approval.id.as_str(),
@@ -846,7 +850,7 @@ async fn pending_question_survives_reopen_but_old_owner_cannot_supply_new_author
             .unwrap();
         assert_eq!(saved.state, ApprovalState::Pending);
         assert!(
-            vcp_engine::policy::grants(reopened.store().state(), &access.workspace)
+            vcp_engine::policy::grants(reopened.store().current(), &access.workspace)
                 .unwrap()
                 .is_empty()
         );
@@ -936,11 +940,14 @@ async fn interactive_and_jsonl_share_receipts_after_state_advance_and_restart() 
             .await
             .unwrap();
         assert_eq!(encoded, receipt.jsonl().unwrap());
-        let count = engine.store().state().events.len();
+        let count = engine.store().archive_state().await.unwrap().events.len();
         let mut different = create.clone();
         different.expected = Revision::new(9);
         assert!(engine.handle(different, &access(), &host).await.is_err());
-        assert_eq!(engine.store().state().events.len(), count);
+        assert_eq!(
+            engine.store().archive_state().await.unwrap().events.len(),
+            count
+        );
         drop(engine);
         let mut reopened = Engine::new(Store::open(&root, kind, &[]).await.unwrap()).unwrap();
         assert_ne!(reopened.controller(), &create.controller);
@@ -954,7 +961,10 @@ async fn interactive_and_jsonl_share_receipts_after_state_advance_and_restart() 
         let mut denied = access();
         denied.read = false;
         assert!(reopened.handle(create, &denied, &host).await.is_err());
-        assert_eq!(reopened.store().state().events.len(), count);
+        assert_eq!(
+            reopened.store().archive_state().await.unwrap().events.len(),
+            count
+        );
     }
 }
 #[tokio::test]
@@ -1021,7 +1031,7 @@ async fn question_preserves_objective_pause_preserves_children_and_fork_is_indep
         .unwrap();
     let before = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Task, root.as_str(), &access().workspace)
         .unwrap()
         .clone();
@@ -1045,14 +1055,14 @@ async fn question_preserves_objective_pause_preserves_children_and_fork_is_indep
     assert_eq!(
         engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, root.as_str(), &access().workspace)
             .unwrap(),
         &before
     );
     assert!(engine
         .store()
-        .state()
+        .current()
         .record(Collection::Task, child.as_str(), &access().workspace)
         .is_ok());
     let resume = command(
@@ -1092,7 +1102,7 @@ async fn question_preserves_objective_pause_preserves_children_and_fork_is_indep
         .unwrap();
     let original = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Task, root.as_str(), &access().workspace)
         .unwrap()
         .clone();
@@ -1116,7 +1126,7 @@ async fn question_preserves_objective_pause_preserves_children_and_fork_is_indep
     assert_eq!(
         engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, root.as_str(), &access().workspace)
             .unwrap(),
         &original
@@ -1177,7 +1187,7 @@ async fn bounded_pull_subscription_reconnects_without_duplicates_or_mixed_snapsh
         .unwrap();
     let mut cursor = first.clone();
     let mut ids = std::collections::BTreeSet::new();
-    let expected = engine.store().state().events.len();
+    let expected = engine.store().archive_state().await.unwrap().events.len();
     engine
         .handle(
             command(&engine, Command::Inspect, None, Revision::ZERO),
@@ -1210,7 +1220,8 @@ async fn bounded_pull_subscription_reconnects_without_duplicates_or_mixed_snapsh
     assert_eq!(ids.len(), expected);
     assert!(matches!(
         engine
-            .events(&access(), &first, Timestamp::new(60_100)).await
+            .events(&access(), &first, Timestamp::new(60_100))
+            .await
             .unwrap(),
         EventPage::Gap {
             reason: GapReason::SnapshotExpired,

@@ -42,7 +42,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -52,7 +52,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 binding.scope.workspace.as_str(),
@@ -60,7 +60,7 @@ impl Context {
             )?
             .decode()?;
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &binding.scope.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &binding.scope.workspace)?;
         Ok(self.owner_alive
             && !task.state.terminal()
             && task.steering == op.steering
@@ -97,7 +97,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -114,7 +114,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if descriptor.spec.scope != binding.scope || descriptor.state != CaptureState::Complete
@@ -142,7 +142,7 @@ impl Context {
         let Some(row) = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Artifact, id.as_str()))
         else {
@@ -173,7 +173,7 @@ impl Context {
         if self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::Artifact, id.as_str()))
         {
@@ -215,7 +215,7 @@ impl Context {
         let current: vcp_domain::effect::Effect = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Effect,
                 effect.as_str(),

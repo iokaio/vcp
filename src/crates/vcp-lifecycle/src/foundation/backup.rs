@@ -8,14 +8,15 @@ use std::{
 };
 use vcp_domain::WorkspaceId;
 use vcp_protocol::{canonical_bytes, digest_bytes};
-use vcp_store::{snapshot_jobs::Jobs, trust_store::TrustStore, vault_publish::Vault};
+use vcp_store::{contract::CanonicalStore, snapshot_jobs::Jobs, trust_store::TrustStore, vault_publish::Vault};
 type Result<T> = std::result::Result<T, String>;
 const LIMIT: usize = 256 * 1024;
 
-pub fn status(
-    state: &vcp_store::contract::State,
+pub fn status<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     workspace: &WorkspaceId,
 ) -> Result<serde_json::Value> {
+    let state = state.into();
     use vcp_store::contract::Collection;
     state
         .record(Collection::Workspace, workspace.as_str(), workspace)
@@ -57,7 +58,7 @@ pub fn status(
 impl super::CanonicalHost {
     pub fn backup_status(&self) -> Result<serde_json::Value> {
         self.worker.run_cleanup(|context| {
-            status(context.engine.store().state(), &context.config.workspace).map_err(Into::into)
+            status(context.engine.store().current(), &context.config.workspace).map_err(Into::into)
         })
     }
 }

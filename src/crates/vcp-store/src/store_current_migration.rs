@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Stage the native migration using the existing Store's real ownership and
-//! path capabilities. No format marker changes until live API retirement.
+//! Pinned durable snapshots and the frozen legacy migration test oracle.
+//! Production ownership transfer is implemented by store_current_open_legacy.
 use super::*;
+#[cfg(test)]
+use crate::legacy_store_fixture::LegacyFixture as Store;
 use crate::{
     backend::current_publication::{self, Origin},
     durable_owner::DurableOwner,
@@ -18,6 +20,7 @@ pub(crate) mod snapshot;
 /// The mutable borrow prevents commits, close, rewrite or cleanup through the
 /// source while staging/validation is in progress. Dropping it leaves the old
 /// format fully usable; immutable staged objects confer no execution authority.
+#[cfg(test)]
 pub(crate) struct StagedCurrent<'a> {
     source: &'a mut Store,
     origin: Origin,
@@ -26,6 +29,7 @@ pub(crate) struct StagedCurrent<'a> {
     directory: Option<Directory>,
     _root_pin: File,
 }
+#[cfg(test)]
 impl Store {
     pub(crate) async fn stage_current(&mut self) -> Result<StagedCurrent<'_>> {
         if self.poisoned {
@@ -33,7 +37,10 @@ impl Store {
         }
         let root_pin = snapshot_pin::acquire(&self.root)?;
         let directory = if self.kind == BackendKind::Files {
-            Some(Directory::canonical_child(self, "history-pages")?)
+            Some(Directory::locked_child(
+                self.canonical_lock(),
+                "history-pages",
+            )?)
         } else {
             None
         };
@@ -92,6 +99,7 @@ impl Store {
         Ok(staged)
     }
 }
+#[cfg(test)]
 impl StagedCurrent<'_> {
     pub(crate) fn owner(&self) -> &DurableOwner {
         &self.owner

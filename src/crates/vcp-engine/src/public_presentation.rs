@@ -541,7 +541,7 @@ mod tests {
     ) {
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: engine.store().state().watermark,
+            expected_watermark: engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(collection, name, access().workspace, Revision::ZERO, value)
@@ -679,7 +679,7 @@ mod tests {
             ));
             let mut changed: Effect = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Effect, "effect-a", &access().workspace)
                 .unwrap()
                 .decode()

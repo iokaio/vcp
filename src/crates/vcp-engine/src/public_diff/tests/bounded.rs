@@ -9,7 +9,7 @@ struct Reader {
     fail_after: Option<usize>,
     empty_after: Option<usize>,
 }
-impl CanonicalStore for Reader {
+impl vcp_store::contract::reference::ReferenceStore for Reader {
     fn state(&self) -> &State {
         panic!("diff provenance requested resident history")
     }
@@ -61,7 +61,7 @@ async fn proposal_proof_visits_full_short_page_history_and_rejects_later_faults(
         let expected = provenance::read(engine.store(), &effect, &[])
             .await
             .unwrap();
-        let mut source = engine.store().state().clone();
+        let mut source = engine.store().archive_state().await.unwrap();
         engine.into_store().close().await.unwrap();
         let anchor = source
             .events

@@ -417,6 +417,88 @@ pub fn view_at(
     model: &str,
     now: vcp_domain::revision::Timestamp,
 ) -> Result<Value, String> {
+    view_reduced(
+        state.into(),
+        scope,
+        model,
+        now,
+        || crate::agents_view::page(state, scope, now, 0),
+        |row| {
+            Ok(if row.collection == Collection::Verification {
+                state
+                    .events
+                    .iter()
+                    .rev()
+                    .find(|event| {
+                        event.event.data["facts"].as_array().is_some_and(|facts| {
+                            facts.iter().any(|fact| {
+                                fact["collection"] == "verification" && fact["id"] == row.id
+                            })
+                        })
+                    })
+                    .map(|event| event.watermark)
+            } else {
+                state
+                    .events
+                    .iter()
+                    .find(|event| Some(event.event.id.as_str()) == row.value["cause"].as_str())
+                    .map(|event| event.watermark)
+            })
+        },
+    )
+}
+
+#[cfg(windows)]
+pub fn live_view(
+    host: &vcp_lifecycle::foundation::CanonicalHost,
+    scope: &Scope,
+    model: &str,
+) -> Result<Value, String> {
+    let reader = host.history_reader()?;
+    let state = reader.current();
+    let now = crate::settings::now();
+    let count = reader.page(None, 1)?.count;
+    view_reduced(
+        state,
+        scope,
+        model,
+        now,
+        || crate::agents_view::page_reader(&reader, scope, now, 0),
+        |row| {
+            if row.collection == Collection::Verification {
+                for ordinal in (0..count).rev() {
+                    let event = reader
+                        .event_at(ordinal)?
+                        .ok_or("terminal history ended before its cut")?;
+                    if event.event.data["facts"].as_array().is_some_and(|facts| {
+                        facts.iter().any(|fact| {
+                            fact["collection"] == "verification" && fact["id"] == row.id
+                        })
+                    }) {
+                        return Ok(Some(event.watermark));
+                    }
+                }
+                Ok(None)
+            } else if let Some(cause) = row.value["cause"].as_str() {
+                let cause = vcp_domain::EventId::parse(cause).map_err(|e| e.to_string())?;
+                Ok(reader.event(cause)?.map(|event| event.watermark))
+            } else {
+                Ok(None)
+            }
+        },
+    )
+}
+
+fn view_reduced(
+    state: vcp_store::CurrentStateView<'_>,
+    scope: &Scope,
+    model: &str,
+    now: vcp_domain::Timestamp,
+    agents: impl FnOnce() -> Result<Value, String>,
+    mut observed: impl FnMut(
+        &vcp_store::contract::Record,
+    ) -> Result<Option<vcp_domain::Watermark>, String>,
+) -> Result<Value, String> {
     let task: Task = state
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|r| r.decode())
@@ -469,11 +551,7 @@ pub fn view_at(
                     "actionable":actionable,"expires_at":row.value["expires_at"],"operation_digest":row.value["operation_digest"]}));
             }
             Collection::Effect => {
-                let watermark = state
-                    .events
-                    .iter()
-                    .find(|e| Some(e.event.id.as_str()) == row.value["cause"].as_str())
-                    .map(|e| e.watermark);
+                let watermark = observed(row)?;
                 let unresolved = matches!(
                     row.value["state"].as_str(),
                     Some("running" | "dispatch_recorded" | "outcome_unknown")
@@ -487,11 +565,7 @@ pub fn view_at(
                     && row.value["steering"]
                         == serde_json::to_value(task.steering).map_err(|e| e.to_string())? =>
             {
-                let watermark = state
-                    .events
-                    .iter()
-                    .find(|e| Some(e.event.id.as_str()) == row.value["cause"].as_str())
-                    .map(|e| e.watermark);
+                let watermark = observed(row)?;
                 if step.is_none() || watermark > step_watermark {
                     step_watermark = watermark;
                     step = Some(
@@ -503,18 +577,7 @@ pub fn view_at(
                 let report: vcp_domain::verification::Verification =
                     row.decode().map_err(|e| e.to_string())?;
                 if report.applies(scope, task.steering, &task.fingerprint) {
-                    let watermark = state
-                        .events
-                        .iter()
-                        .rev()
-                        .find(|e| {
-                            e.event.data["facts"].as_array().is_some_and(|facts| {
-                                facts
-                                    .iter()
-                                    .any(|f| f["collection"] == "verification" && f["id"] == row.id)
-                            })
-                        })
-                        .map(|e| e.watermark);
+                    let watermark = observed(row)?;
                     checks.push((watermark,json!({"id":report.id,"satisfies":report.satisfies(&task.required_checks,task.editing),
                         "checks":report.checks.iter().take(8).map(|c|json!({"specification":sanitize(&c.specification,128),"outcome":c.outcome,"output":c.output})).collect::<Vec<_>>() })));
                 }
@@ -534,7 +597,7 @@ pub fn view_at(
     checks.truncate(1);
     let changes: Vec<_> = changes.into_iter().map(|(_, _, value)| value).collect();
     let checks: Vec<_> = checks.into_iter().map(|(_, value)| value).collect();
-    let agents = crate::agents_view::page(state, scope, now, 0)?;
+    let agents = agents()?;
     Ok(
         json!({"task":task.scope.task,"revision":task.revision,"state":task.state,
         "objective":task.objectives.last().map(|o|sanitize(&o.text,1024)),

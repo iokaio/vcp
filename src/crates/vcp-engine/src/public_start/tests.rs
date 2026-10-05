@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-mod history_reader;
 mod acceptance_history;
+mod history_reader;
 use super::*;
 use crate::HostFacts;
 use vcp_domain::{artifact::ArtifactSpec, controller::Reason, workspace::Binding};
@@ -147,7 +147,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         let prepared = prepare(&engine, &access, &connection, &token).await;
         let duplicate = prepare(&engine, &access, &connection, &token).await;
         let trigger = trigger(&engine);
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let PublicStartOutcome::Accepted(receipt) = engine
             .commit_public_start(prepared, &access, &facts(), &trigger, Timestamp::new(3))
             .await
@@ -155,7 +155,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         else {
             panic!("fresh acceptance")
         };
-        let state = engine.store().state();
+        let state = engine.store().archive_state().await.unwrap();
         assert_eq!(state.watermark, before.watermark.next().unwrap());
         assert_eq!(state.records.len(), before.records.len() + 4);
         assert_eq!(state.events.len(), before.events.len() + 4);
@@ -169,7 +169,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         assert_eq!(task.state, TaskState::Pending);
         assert_eq!(task.objectives[0].constraints, request().constraints);
         assert_eq!(task.objectives[0].acceptance, request().acceptance);
-        let turn = crate::public::current_public_turn(state, &selected)
+        let turn = crate::public::current_public_turn(&state, &selected)
             .unwrap()
             .unwrap();
         assert_eq!(turn.id.as_str(), "caller-turn");
@@ -196,7 +196,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         assert_eq!(proof.ledger, ledger);
         assert_eq!(
             (ledger.settled, ledger.active, ledger.unresolved),
-            (Micros::ZERO, Micros::ZERO, Micros::ZERO)
+            (Micros::ZERO, Micros::ZERO.into(), Micros::ZERO.into())
         );
         assert!(state.records.values().all(|row| !matches!(
             row.collection,
@@ -221,7 +221,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             panic!("concurrent prepared duplicate must replay")
         };
         assert_eq!(replayed, receipt);
-        assert_eq!(*engine.store().state(), accepted);
+        assert_eq!(engine.store().archive_state().await.unwrap(), accepted);
         let mut occupied = request();
         occupied.mutation.command_id = id("another-command");
         assert!(matches!(
@@ -246,7 +246,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
                 .await,
             Err(PublicError::Access)
         ));
-        assert_eq!(*engine.store().state(), accepted);
+        assert_eq!(engine.store().archive_state().await.unwrap(), accepted);
         engine.into_store().close().await.unwrap();
 
         let mut engine =
@@ -279,7 +279,7 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             .await
             .unwrap();
         let fresh = engine.controller_token(&access, &connection).unwrap();
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let PublicStartAdmission::Replay(replayed) = engine
             .prepare_public_start(request(), &access, &connection, &fresh)
             .await
@@ -288,10 +288,13 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             panic!("restarted authorized retry must replay")
         };
         assert_eq!(replayed, receipt);
-        assert_eq!(*engine.store().state(), before);
-        let retained = retained_start_budget(engine.store().state(), &scope(&request()).unwrap())
-            .unwrap()
-            .unwrap();
+        assert_eq!(engine.store().archive_state().await.unwrap(), before);
+        let retained = retained_start_budget(
+            &engine.store().archive_state().await.unwrap(),
+            &scope(&request()).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(retained.budget, request().budget);
         assert_eq!(retained.accepted_at, Timestamp::new(3));
         let original = crate::rpc::acceptance(&engine, &access, &receipt)
@@ -329,10 +332,12 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
             )
             .await
             .unwrap();
-        let current =
-            crate::public::current_public_turn(engine.store().state(), &scope(&request()).unwrap())
-                .unwrap()
-                .unwrap();
+        let current = crate::public::current_public_turn(
+            &engine.store().archive_state().await.unwrap(),
+            &scope(&request()).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(current.id.as_str(), "later-turn");
         assert_eq!(
             crate::rpc::acceptance(&engine, &access, &receipt)
@@ -342,7 +347,9 @@ async fn atomic_acceptance_keeps_pending_run_and_caller_turn_without_constructor
         );
         let original_sequence = engine
             .store()
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .find(|event| {
@@ -402,7 +409,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             .await
             .unwrap();
         let selected = scope(&request()).unwrap();
-        let state = engine.store().state().clone();
+        let state = engine.store().archive_state().await.unwrap();
         let genesis = state
             .events
             .iter()
@@ -552,7 +559,8 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             .await
             .unwrap();
         assert_eq!(
-            retained_start_budget(engine.store().state(), &selected).unwrap(),
+            retained_start_budget(&engine.store().archive_state().await.unwrap(), &selected)
+                .unwrap(),
             None
         );
         assert_eq!(
@@ -561,7 +569,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
                 .unwrap(),
             None
         );
-        let mut missing = engine.store().state().clone();
+        let mut missing = engine.store().archive_state().await.unwrap();
         missing
             .events
             .retain(|event| event.event.kind != EventKind::TaskCreated);
@@ -602,7 +610,9 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             .unwrap();
         let event = engine
             .store()
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .find(|event| event.watermark == receipt.watermark)
@@ -625,7 +635,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
         loop {
             let turn: Turn = engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .find(|row| row.collection == Collection::Turn)
@@ -655,7 +665,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
         }
         let mut workspace: Workspace = engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -675,7 +685,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
             &workspace,
         )
         .unwrap();
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         engine
             .store_mut()
             .transact(Transaction {
@@ -697,6 +707,7 @@ async fn retained_budget_requires_original_public_genesis_and_proves_legacy_abse
                 &std::collections::BTreeSet::from([event]),
                 &Default::default(),
             )
+            .await
             .unwrap();
         engine
             .store_mut()
@@ -769,7 +780,7 @@ async fn accepted_receipt_does_not_reauthorize_construction_after_task_changes()
             )
             .await
             .unwrap();
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         assert!(matches!(
             engine
                 .check_accepted_public_start(&request(), &receipt, &access, &connection, &token)
@@ -783,13 +794,16 @@ async fn accepted_receipt_does_not_reauthorize_construction_after_task_changes()
         else {
             panic!("receipt remains reconcilable")
         };
-        let retained = retained_start_budget(engine.store().state(), &scope(&request()).unwrap())
-            .unwrap()
-            .unwrap();
+        let retained = retained_start_budget(
+            &engine.store().archive_state().await.unwrap(),
+            &scope(&request()).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(retained.budget, request().budget);
         assert_eq!(retained.accepted_at, Timestamp::new(3));
         assert_eq!(replayed, receipt);
-        assert_eq!(*engine.store().state(), before);
+        assert_eq!(engine.store().archive_state().await.unwrap(), before);
         engine.into_store().close().await.unwrap();
     }
 }
@@ -800,7 +814,7 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, access, connection, token) = fixture(temp.path(), backend).await;
         let trigger = trigger(&engine);
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         for case in 0..6 {
             let prepared = prepare(&engine, &access, &connection, &token).await;
             let mut trigger = trigger.clone();
@@ -818,7 +832,7 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
                 .commit_public_start(prepared, &access, &facts, &trigger, Timestamp::new(3))
                 .await
                 .is_err());
-            assert_eq!(*engine.store().state(), before);
+            assert_eq!(engine.store().archive_state().await.unwrap(), before);
         }
         for case in 0..3 {
             let mut wrong = request();
@@ -832,12 +846,12 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
                 .prepare_public_start(wrong, &access, &connection, &token)
                 .await
                 .is_err());
-            assert_eq!(*engine.store().state(), before);
+            assert_eq!(engine.store().archive_state().await.unwrap(), before);
         }
         // CanonicalStore rejects the whole multi-record transaction if any
         // reference is invalid; neither earlier ledger nor artifact inserts leak.
         let mut invalid = transaction(
-            engine.store().state(),
+            engine.store().current(),
             &request(),
             &access,
             &facts(),
@@ -847,7 +861,7 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
         .unwrap();
         invalid.mutations.retain(|mutation| !matches!(mutation, Mutation::Put { record, .. } if record.collection == Collection::Task));
         assert!(engine.store_mut().transact(invalid).await.is_err());
-        assert_eq!(*engine.store().state(), before);
+        assert_eq!(engine.store().archive_state().await.unwrap(), before);
         let prepared = prepare(&engine, &access, &connection, &token).await;
         engine
             .release_controller(
@@ -861,14 +875,14 @@ async fn invalid_capture_policy_scope_revision_and_lost_lease_cannot_partially_a
             )
             .await
             .unwrap();
-        let released = engine.store().state().clone();
+        let released = engine.store().archive_state().await.unwrap();
         assert!(matches!(
             engine
                 .commit_public_start(prepared, &access, &facts(), &trigger, Timestamp::new(5))
                 .await,
             Err(PublicError::Access)
         ));
-        assert_eq!(*engine.store().state(), released);
+        assert_eq!(engine.store().archive_state().await.unwrap(), released);
         engine.into_store().close().await.unwrap();
     }
 }

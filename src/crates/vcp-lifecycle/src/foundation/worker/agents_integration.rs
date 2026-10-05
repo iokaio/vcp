@@ -32,7 +32,7 @@ impl worker::Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -77,7 +77,7 @@ impl worker::Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, child.as_str(), &self.config.workspace)?
             .decode()?;
         if !matches!(
@@ -92,7 +92,7 @@ impl worker::Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.workspace == self.config.workspace)
@@ -113,7 +113,7 @@ impl worker::Context {
             if row.collection == Collection::Reservation {
                 let reservation: Reservation = row.decode()?;
                 if &reservation.scope.task == child
-                    && (reservation.liability != Micros::ZERO
+                    && (!reservation.liability.is_zero()
                         || matches!(
                             reservation.phase,
                             ReservationState::Created
@@ -176,7 +176,7 @@ impl CanonicalHost {
             let Some(result) = graph.results.get(&child).and_then(|results| results.last()) else {
                 return Ok(serde_json::json!({"child":child,"findings":transcripts,"observation":"up to eight untrusted unstamped transcript previews in canonical record order; no retained review packet or correctness claim"}));
             };
-            let descriptor: ArtifactDescriptor = context.engine.store().state()
+            let descriptor: ArtifactDescriptor = context.engine.store().current()
                 .record(Collection::Artifact, result.packet.as_str(), &binding.scope.workspace)?.decode()?;
             if descriptor.state != CaptureState::Complete || descriptor.length.get() > 1024 * 1024 {
                 return Err("retained child review packet is unavailable or exceeds bounds".into());
@@ -263,7 +263,7 @@ impl CanonicalHost {
             let descriptor: ArtifactDescriptor = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     spec.snapshot.as_str(),
@@ -411,7 +411,7 @@ impl CanonicalHost {
                 let descriptor: ArtifactDescriptor = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         spec.snapshot.as_str(),
@@ -584,7 +584,7 @@ impl CanonicalHost {
             let parent: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
+use std::collections::BTreeMap;
 use crate::foundation::routing::Configuration;
 use crate::foundation::routing_state;
 use vcp_models::{
@@ -38,7 +39,7 @@ impl Context {
         };
         decision.validate()?;
         if let Some(rotation) = owner.configuration.rotation.as_ref().filter(|policy| {
-            !owner.rotation_preview && !policy.sets(decision.input.role).is_empty()
+            !available.micros.is_unbounded() && !owner.rotation_preview && !policy.sets(decision.input.role).is_empty()
         }) {
             let selected = decision
                 .selected
@@ -58,7 +59,7 @@ impl Context {
                 rotation.reference_output_tokens,
             )?;
             if reference.currency != set.max_reference_request_cost.currency
-                || reference.micros > set.max_reference_request_cost.micros
+                || set.max_reference_request_cost.micros.exceeds(&reference.micros)
             {
                 return Err("rotation selected tariff exceeds captured choice-set ceiling".into());
             }
@@ -141,6 +142,37 @@ impl Context {
         configuration
             .validate()
             .map_err(|e| -> Failure { e.into() })?;
+        // Reinterpret original endpoint metadata under this owner's explicit
+        // financial contract before publishing the effective routing revision.
+        let mut sources = BTreeMap::new();
+        let mut changed = false;
+        for candidate in &mut configuration.catalog.entries {
+            if let Some(snapshot) = &mut candidate.snapshot {
+                let raw = configuration.raw_catalogs.get(&snapshot.id)
+                    .ok_or("routing snapshot original metadata missing")?;
+                let effective = snapshot.for_execution(raw.as_bytes(), self.config.cap.micros)?;
+                changed |= *snapshot != effective;
+                sources.insert(effective.id.clone(), raw.clone());
+                *snapshot = effective;
+            }
+        }
+        if changed {
+            configuration.catalog = routing::CatalogRevision::create(
+                configuration.catalog.parent.clone(), configuration.catalog.observed_at,
+                configuration.catalog.effective_at, configuration.catalog.entries,
+            )?;
+        }
+        configuration.raw_catalogs = sources;
+        if self.config.cap.micros.is_unbounded() {
+            if let Some(rotation) = &mut configuration.rotation {
+                for role in &mut rotation.roles {
+                    for set in &mut role.sets {
+                        set.max_reference_request_cost.micros = vcp_domain::Limit::Unbounded;
+                    }
+                }
+            }
+        }
+        configuration.validate().map_err(|e| -> Failure { e.into() })?;
         if configuration
             .catalog
             .entries
@@ -461,14 +493,7 @@ impl Context {
             .map(|request| request.output_tokens)
             .max()
             .ok_or("no candidate output allocation")?;
-        let available = ledger.cap.map(|cap| {
-            Micros::new(
-                cap.get()
-                    .saturating_sub(ledger.settled.get())
-                    .saturating_sub(ledger.active.get())
-                    .saturating_sub(ledger.unresolved.get()),
-            )
-        });
+        let available = ledger.remaining_before_protected()?;
         if !configuration.owner_assignments.is_empty() {
             for estimate in &mut configuration.estimates {
                 if let Some(request) = candidate_requests

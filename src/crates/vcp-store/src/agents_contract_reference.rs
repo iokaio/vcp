@@ -307,7 +307,7 @@ fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
             if &reservation.scope.task == parent {
                 used = used
                     .checked_add(reservation.charged.get())
-                    .and_then(|v| v.checked_add(reservation.liability.get()))
+                    .and_then(|v| reservation.liability.known().and_then(|liability| v.checked_add(liability.get())))
                     .ok_or(Error::Corruption("allocation exposure overflow"))?;
             }
         }

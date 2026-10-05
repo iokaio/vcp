@@ -12,7 +12,7 @@ use vcp_memory::access::Access;
 use vcp_memory::retention::{purged, Target};
 use vcp_protocol::{canonical_bytes, digest_bytes, event::EventKind};
 use vcp_store::{
-    contract::{key, Collection},
+    contract::{key, CanonicalStore, Collection},
     Store,
 };
 
@@ -102,10 +102,10 @@ pub struct Evidence {
 
 /// One coherent current retained view. Never substitutes current task rows for
 /// historical states or saves an aggregate that could outlive source deletion.
-pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
-    observe_with_check(store, access, window, &|| Ok(()))
+pub async fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
+    observe_with_check(store, access, window, &|| Ok(())).await
 }
-pub fn observe_with_check(
+pub async fn observe_with_check(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -113,8 +113,9 @@ pub fn observe_with_check(
 ) -> Result<Evidence> {
     cooperate()?;
     authorize(store, access, false)?;
-    let state = store.state();
-    if state.events.len() > MAX_SCAN || state.records.len() > MAX_SCAN {
+    let state = store.current();
+    let count = store.history_event_count().await.map_err(err)?;
+    if count > MAX_SCAN as u64 || state.records.len() > MAX_SCAN {
         return Err("transition evidence exceeds 100000 canonical rows/events".into());
     }
     if window.from.is_some_and(|from| from >= window.until) {
@@ -137,119 +138,140 @@ pub fn observe_with_check(
     let mut scanned_facts = 0usize;
     // Store events are in canonical append order. Timestamps select the window;
     // they never order state transitions, including after clock rollback.
-    for envelope in &state.events {
+    let mut at = 0u64;
+    while at < count {
         cooperate()?;
-        let event = &envelope.event;
-        if event.workspace != access.workspace
-            || event.timestamp >= window.until
-            || window.from.is_some_and(|from| event.timestamp < from)
-            || (access.tasks.is_some()
-                && !event.task.as_ref().is_some_and(|id| access.allows_task(id)))
-        {
-            continue;
+        let limit = (count - at).min(256) as usize;
+        let page = store
+            .history_events(at.checked_sub(1), limit)
+            .await
+            .map_err(err)?;
+        if page.is_empty() || page.len() > limit || store.current().watermark != state.watermark {
+            return Err("transition history cut changed or incomplete".into());
         }
-        if !seen.insert(event.id.clone()) {
-            return Err("duplicate canonical event identity".into());
-        }
-        // Unknown event formats are never interpreted as version-one facts.
-        let facts = (envelope.version == 1 && event.data["schema_version"] == 1)
-            .then(|| event.data["facts"].as_array())
-            .flatten();
-        let unavailable = envelope.redaction.is_some()
-            || purged(state, &access.workspace, &Target::Event(event.id.clone())).map_err(err)?;
-        if unavailable || facts.is_none() {
-            if matches!(
-                event.kind,
-                EventKind::TaskCreated
-                    | EventKind::TaskTransition
-                    | EventKind::ObjectiveChanged
-                    | EventKind::FingerprintObserved
-            ) {
-                if let Some(id) = &event.task {
-                    if eligible(store, access, id, &mut excluded)? {
-                        let trace = traces
-                            .entry(id.clone())
-                            .or_insert_with(|| Trace::new(id.clone()));
-                        trace.gap(
-                            &event.id,
-                            if unavailable {
-                                GapReason::RedactedEvent
-                            } else {
-                                GapReason::MissingFacts
-                            },
-                        );
-                        previous.remove(id);
-                        observations += 1;
+        for envelope in &page {
+            if envelope.watermark > state.watermark {
+                return Err("transition event exceeds source cut".into());
+            }
+            at += 1;
+            cooperate()?;
+            let event = &envelope.event;
+            if event.workspace != access.workspace
+                || event.timestamp >= window.until
+                || window.from.is_some_and(|from| event.timestamp < from)
+                || (access.tasks.is_some()
+                    && !event.task.as_ref().is_some_and(|id| access.allows_task(id)))
+            {
+                continue;
+            }
+            if !seen.insert(event.id.clone()) {
+                return Err("duplicate canonical event identity".into());
+            }
+            // Unknown event formats are never interpreted as version-one facts.
+            let facts = (envelope.version == 1 && event.data["schema_version"] == 1)
+                .then(|| event.data["facts"].as_array())
+                .flatten();
+            let unavailable = envelope.redaction.is_some()
+                || purged(state, &access.workspace, &Target::Event(event.id.clone()))
+                    .map_err(err)?;
+            if unavailable || facts.is_none() {
+                if matches!(
+                    event.kind,
+                    EventKind::TaskCreated
+                        | EventKind::TaskTransition
+                        | EventKind::ObjectiveChanged
+                        | EventKind::FingerprintObserved
+                ) {
+                    if let Some(id) = &event.task {
+                        if eligible(store, access, id, &mut excluded)? {
+                            let trace = traces
+                                .entry(id.clone())
+                                .or_insert_with(|| Trace::new(id.clone()));
+                            trace.gap(
+                                &event.id,
+                                if unavailable {
+                                    GapReason::RedactedEvent
+                                } else {
+                                    GapReason::MissingFacts
+                                },
+                            );
+                            previous.remove(id);
+                            observations += 1;
+                        }
                     }
                 }
-            }
-        } else if let Some(facts) = facts {
-            scanned_facts = scanned_facts
-                .checked_add(facts.len())
-                .ok_or("transition fact count overflow")?;
-            if scanned_facts > MAX_SCAN {
-                return Err("transition evidence exceeds 100000 facts".into());
-            }
-            for fact in facts.iter().filter(|fact| fact["collection"] == "task") {
-                cooperate()?;
-                let Some(id) = fact["id"].as_str().and_then(|id| TaskId::parse(id).ok()) else {
-                    return Err("task fact lacks a valid identity".into());
-                };
-                if !eligible(store, access, &id, &mut excluded)? {
-                    continue;
+            } else if let Some(facts) = facts {
+                scanned_facts = scanned_facts
+                    .checked_add(facts.len())
+                    .ok_or("transition fact count overflow")?;
+                if scanned_facts > MAX_SCAN {
+                    return Err("transition evidence exceeds 100000 facts".into());
                 }
-                observations += 1;
-                if observations > MAX_OBSERVATIONS {
-                    return Err(
-                        "transition evidence exceeds 4096 observations; narrow the window".into(),
-                    );
-                }
-                let trace = traces
-                    .entry(id.clone())
-                    .or_insert_with(|| Trace::new(id.clone()));
-                let task = serde_json::from_value::<Task>(fact["value"].clone())
-                    .ok()
-                    .filter(|task| {
-                        task.scope.workspace == access.workspace
-                            && task.scope.task == id
-                            && task.scope.session == event.session
-                            && task.cause == event.id
-                            && serde_json::to_value(task.revision).ok().as_ref()
-                                == Some(&fact["revision"])
-                            && task.redaction.is_none()
-                            && task.validate().is_ok()
-                    });
-                let Some(task) = task else {
-                    trace.gap(&event.id, GapReason::InvalidFact);
-                    previous.remove(&id);
-                    continue;
-                };
-                let prior = previous.get(&id).copied();
-                let connected = prior.is_some_and(|(revision, from)| {
-                    revision.get().checked_add(1) == Some(task.revision.get()) && !from.terminal()
-                });
-                if prior.is_some() && !connected {
-                    trace.gap(&event.id, GapReason::RevisionGap);
+                for fact in facts.iter().filter(|fact| fact["collection"] == "task") {
+                    cooperate()?;
+                    let Some(id) = fact["id"].as_str().and_then(|id| TaskId::parse(id).ok()) else {
+                        return Err("task fact lacks a valid identity".into());
+                    };
+                    if !eligible(store, access, &id, &mut excluded)? {
+                        continue;
+                    }
                     observations += 1;
+                    if observations > MAX_OBSERVATIONS {
+                        return Err(
+                            "transition evidence exceeds 4096 observations; narrow the window"
+                                .into(),
+                        );
+                    }
+                    let trace = traces
+                        .entry(id.clone())
+                        .or_insert_with(|| Trace::new(id.clone()));
+                    let task = serde_json::from_value::<Task>(fact["value"].clone())
+                        .ok()
+                        .filter(|task| {
+                            task.scope.workspace == access.workspace
+                                && task.scope.task == id
+                                && task.scope.session == event.session
+                                && task.cause == event.id
+                                && serde_json::to_value(task.revision).ok().as_ref()
+                                    == Some(&fact["revision"])
+                                && task.redaction.is_none()
+                                && task.validate().is_ok()
+                        });
+                    let Some(task) = task else {
+                        trace.gap(&event.id, GapReason::InvalidFact);
+                        previous.remove(&id);
+                        continue;
+                    };
+                    let prior = previous.get(&id).copied();
+                    let connected = prior.is_some_and(|(revision, from)| {
+                        revision.get().checked_add(1) == Some(task.revision.get())
+                            && !from.terminal()
+                    });
+                    if prior.is_some() && !connected {
+                        trace.gap(&event.id, GapReason::RevisionGap);
+                        observations += 1;
+                    }
+                    if trace.observations.is_empty() && trace.gaps.is_empty() {
+                        trace.left_censored =
+                            task.revision != Revision::ZERO || task.state != TaskState::Pending;
+                    }
+                    trace.observations.push(Observation {
+                        revision: task.revision,
+                        state: task.state,
+                        event: event.id.clone(),
+                        watermark: envelope.watermark,
+                        timestamp: event.timestamp,
+                        connected,
+                    });
+                    trace.right_censored = !task.state.terminal();
+                    previous.insert(id, (task.revision, task.state));
                 }
-                if trace.observations.is_empty() && trace.gaps.is_empty() {
-                    trace.left_censored =
-                        task.revision != Revision::ZERO || task.state != TaskState::Pending;
-                }
-                trace.observations.push(Observation {
-                    revision: task.revision,
-                    state: task.state,
-                    event: event.id.clone(),
-                    watermark: envelope.watermark,
-                    timestamp: event.timestamp,
-                    connected,
-                });
-                trace.right_censored = !task.state.terminal();
-                previous.insert(id, (task.revision, task.state));
             }
-        }
-        if observations > MAX_OBSERVATIONS {
-            return Err("transition evidence exceeds 4096 observations; narrow the window".into());
+            if observations > MAX_OBSERVATIONS {
+                return Err(
+                    "transition evidence exceeds 4096 observations; narrow the window".into(),
+                );
+            }
         }
     }
     // Fixed alphabet order avoids relying on enum serialization/hash ordering.
@@ -311,7 +333,7 @@ fn eligible(
         return Ok(false);
     }
     let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Task, id.as_str()))
         .filter(|record| record.workspace == access.workspace)
@@ -319,7 +341,7 @@ fn eligible(
         return Ok(false);
     };
     if purged(
-        store.state(),
+        store.current(),
         &access.workspace,
         &Target::Record(record.key()),
     )

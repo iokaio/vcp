@@ -382,7 +382,7 @@ async fn hostile_repository_output_cannot_expand_native_file_or_setup_authority(
             .await
             .unwrap();
         assert_eq!(
-            vcp_engine::policy::current(reopened.state(), &config.workspace).unwrap(),
+            vcp_engine::policy::current(reopened.current(), &config.workspace).unwrap(),
             policy
         );
         reopened.close().await.unwrap();

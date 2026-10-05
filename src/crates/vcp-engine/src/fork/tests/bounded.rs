@@ -29,7 +29,7 @@ impl Reader {
         }
     }
 }
-impl CanonicalStore for Reader {
+impl vcp_store::contract::reference::ReferenceStore for Reader {
     fn state(&self) -> &State {
         panic!("fork source materialized full State")
     }
@@ -81,7 +81,7 @@ fn comparable(value: Result<Source>) -> std::result::Result<serde_json::Value, S
 }
 
 struct BoundedOwner(Store);
-impl CanonicalStore for BoundedOwner {
+impl vcp_store::contract::reference::ReferenceStore for BoundedOwner {
     fn state(&self) -> &State {
         panic!("public fork bypassed bounded history")
     }
@@ -119,7 +119,7 @@ async fn bounded_fork_proof_matches_original_and_rejects_interior_gaps() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let (engine, through) = fixture(temp.path(), backend).await;
-        let original = engine.store().state().clone();
+        let original = engine.store().archive_state().await.unwrap();
         let selected =
             source_reference(&original, &access().workspace, &access().session, &through).unwrap();
         for variant in 0..14 {

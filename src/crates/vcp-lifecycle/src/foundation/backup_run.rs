@@ -11,6 +11,7 @@ use std::{
 };
 use vcp_domain::CommandId;
 use vcp_store::{
+    contract::CanonicalStore,
     keys::VerifiedKeys,
     snapshot_inputs::Inputs,
     snapshot_jobs::{Job, Jobs, Stage},
@@ -187,7 +188,7 @@ impl CanonicalHost {
     ) -> Result<()> {
         self.worker.run_cleanup(move |context| {
             let store = context.engine.store_mut();
-            if !store.state().records.values().any(|row| {
+            if !store.current().records.values().any(|row| {
                 row.collection == vcp_store::contract::Collection::SnapshotPin
                     && row.id == operation.as_str()
                     && row.workspace == context.config.workspace
@@ -244,7 +245,7 @@ impl CanonicalHost {
         let (snapshot, access, path, active) = self.worker.run(move |context| {
             check_fence(authority.as_ref(), context)?;
             let cut = context.backup_cut()?;
-            let state = context.engine.store().state();
+            let state = context.engine.store().current();
             let active = state
                 .records
                 .values()
@@ -349,7 +350,7 @@ impl CanonicalHost {
             context.backup_cut()?;
             let store = context.engine.store_mut();
             let workspace = &context.config.workspace;
-            if store.state().records.values().any(|row| {
+            if store.current().records.values().any(|row| {
                 row.collection == vcp_store::contract::Collection::SnapshotPin
                     && row.id == id.as_str()
                     && row.workspace == *workspace
@@ -371,9 +372,9 @@ impl CanonicalHost {
             let authority = fence.clone();
             let poll_worker = self.worker.clone();
             let prepared = tokio::task::spawn_blocking(move || {
-                Jobs::prepare_inputs(capture, &|| {
+                tokio::runtime::Handle::current().block_on(Jobs::prepare_inputs(capture, &|| {
                     stopped(&stop, authority.as_ref(), &poll_worker)
-                })
+                }))
                 .map_err(|e| e.to_string())
             })
             .await
@@ -422,10 +423,10 @@ impl CanonicalHost {
             let authority = fence.clone();
             let poll_worker = self.worker.clone();
             let prepared = tokio::task::spawn_blocking(move || {
-                caps.jobs
+                tokio::runtime::Handle::current().block_on(caps.jobs
                     .prepare_detached(capture, &|| {
                         stopped(&stop, authority.as_ref(), &poll_worker)
-                    })
+                    }))
                     .map_err(|e| e.to_string())
             })
             .await

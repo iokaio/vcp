@@ -91,9 +91,10 @@ async fn public_optimizer_kill_before_and_after_commit_preserves_receipt_binding
                 vec![Edit::QualityFloorBps(8000)],
                 &ceilings,
             )
+            .await
             .unwrap();
             let session = store
-                .state()
+                .current()
                 .records
                 .values()
                 .find(|r| r.collection == Collection::Session)
@@ -157,7 +158,7 @@ async fn public_optimizer_kill_before_and_after_commit_preserves_receipt_binding
             child.kill().unwrap();
             assert!(!child.wait().unwrap().success());
             let mut reopened = Store::open(&root, backend, &[]).await.unwrap();
-            let retained = public::replay(&reopened, &access, &command).unwrap();
+            let retained = public::replay(&reopened, &access, &command).await.unwrap();
             assert_eq!(retained.is_some(), point == "after");
             let current = current_policy(&reopened, &access).unwrap().unwrap();
             assert_eq!(current.revision, Revision::new(u64::from(point == "after")));
@@ -165,7 +166,7 @@ async fn public_optimizer_kill_before_and_after_commit_preserves_receipt_binding
                 current.value.quality_floor_bps,
                 if point == "after" { 8000 } else { 7000 }
             );
-            let before = reopened.state().clone();
+            let before = reopened.archive_state().await.unwrap();
             let accepted = public::apply(
                 &mut reopened,
                 &access,
@@ -180,7 +181,9 @@ async fn public_optimizer_kill_before_and_after_commit_preserves_receipt_binding
             assert_eq!(
                 accepted.receipt,
                 reopened
-                    .state()
+                    .archive_state()
+                    .await
+                    .unwrap()
                     .command(&access.workspace, &command.id, &command.digest)
                     .unwrap()
                     .unwrap()
@@ -191,7 +194,9 @@ async fn public_optimizer_kill_before_and_after_commit_preserves_receipt_binding
             assert_eq!(value.published.revision, Revision::new(1));
             assert_eq!(value.published.value.quality_floor_bps, 8000);
             assert!(reopened
-                .state()
+                .archive_state()
+                .await
+                .unwrap()
                 .events
                 .iter()
                 .any(|event| event.watermark == accepted.receipt.watermark
@@ -199,12 +204,13 @@ async fn public_optimizer_kill_before_and_after_commit_preserves_receipt_binding
                     && event.event.session == command.session));
             if point == "after" {
                 assert_eq!(retained.unwrap(), accepted);
-                assert_eq!(reopened.state(), &before);
+                assert_eq!(reopened.archive_state().await.unwrap(), before);
             }
             reopened.close().await.unwrap();
             let reopened = Store::open(&root, backend, &[]).await.unwrap();
             assert_eq!(
                 public::replay(&reopened, &access, &command)
+                    .await
                     .unwrap()
                     .unwrap(),
                 accepted

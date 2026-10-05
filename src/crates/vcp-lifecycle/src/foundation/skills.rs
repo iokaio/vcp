@@ -26,16 +26,16 @@ pub enum Request {
 }
 /// Checks canonical read authority before opening descriptor or instruction bytes.
 /// A source rooted inside the workspace also inherits that root's read denials.
-pub fn check_source_read_access(
-    state: &State,
+pub fn check_source_read_access<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     config: &Config,
     source: &SkillSource,
 ) -> Result<vcp_repository::Root, String> {
-    check_source_access(state, config, source, false)?
+    check_source_access(state.into(), config, source, false)?
         .ok_or_else(|| "skill source unavailable".into())
 }
 fn check_source_access(
-    state: &State,
+    state: vcp_store::CurrentStateView<'_>,
     config: &Config,
     source: &SkillSource,
     allow_missing: bool,
@@ -118,8 +118,8 @@ fn check_source_access(
 /// Missing optional user roots are source diagnostics. Authorization failures and
 /// missing shipped assets remain fatal. Exclude missing roots from discovery
 /// so a concurrently created directory cannot bypass the access check.
-pub fn discover_authorized(
-    state: &State,
+pub fn discover_authorized<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     config: &Config,
     registry: &SourceRegistry,
     limits: &Limits,
@@ -131,6 +131,7 @@ pub fn discover_authorized(
     ),
     String,
 > {
+    let state = state.into();
     let digest = registry.digest().map_err(|error| error.to_string())?;
     let mut available = registry.clone();
     let mut missing = Vec::new();

@@ -82,7 +82,11 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> (Store, Scope,
         write: true,
         tasks: None,
     };
-    let event = engine.store().state().events.last().unwrap().clone();
+    let event = (&engine.store().archive_state().await.unwrap())
+        .events
+        .last()
+        .unwrap()
+        .clone();
     let proposal = vcp_memory::preferences::materialize(engine.store_mut(), &access, &event)
         .await
         .unwrap()
@@ -223,13 +227,14 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             drop(publisher);
             store.close().await.unwrap();
             let source = Store::open(&root, from, &[]).await.unwrap();
-            let original = source.state().clone();
+            let original = source.archive_state().await.unwrap();
             let archive = Archive::capture(
                 &source,
                 &source.snapshot().unwrap(),
                 &scope.workspace,
                 &|| false,
             )
+            .await
             .unwrap();
             let retained: Vec<_> = evidence
                 .iter()
@@ -248,7 +253,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 .unwrap();
             let keys = keys.verify_recovery(&copy).unwrap();
             let ws: Workspace = source
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     scope.workspace.as_str(),
@@ -341,7 +346,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             assert!(!restore.status().search_ready);
             let mut restored = imported.reopen_verified().await.unwrap();
             let target_ws: Workspace = restored
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     scope.workspace.as_str(),
@@ -376,14 +381,20 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                     &scope.workspace,
                     &|| false,
                 )
+                .await
                 .unwrap();
                 assert_eq!(&target_archive.retained_artifact(id).unwrap(), bytes);
             }
             for (id, receipt) in &original.transactions {
-                assert_eq!(restored.state().transactions.get(id), Some(receipt));
+                assert_eq!(
+                    (&restored.archive_state().await.unwrap())
+                        .transactions
+                        .get(id),
+                    Some(receipt)
+                );
             }
             assert_eq!(
-                &restored.state().events[..original.events.len()],
+                &(&restored.archive_state().await.unwrap()).events[..original.events.len()],
                 original.events.as_slice()
             );
             let unavailable = query(
@@ -455,7 +466,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             .passages
             .is_empty());
             assert_eq!(
-                source.state(),
+                &source.archive_state().await.unwrap(),
                 &original,
                 "restore must preserve the original root"
             );

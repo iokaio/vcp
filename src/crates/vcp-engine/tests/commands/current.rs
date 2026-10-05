@@ -10,7 +10,7 @@ struct CurrentOwner {
     mode: u8,
     reads: Cell<usize>,
 }
-impl CanonicalStore for CurrentOwner {
+impl vcp_store::contract::reference::ReferenceStore for CurrentOwner {
     fn state(&self) -> &State {
         panic!("ordinary command read historical State")
     }

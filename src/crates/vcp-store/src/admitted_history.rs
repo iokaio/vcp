@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Test-only qualification of a jointly admitted current/catalog pair.
+//! Jointly admitted current/catalog pair after complete semantic replay.
 //! A cut is data evidence, never a canonical ownership or execution capability.
 use crate::{
     contract::State, current_size::CurrentSize, history_catalog::Catalog, history_index::Pages,
@@ -10,8 +10,10 @@ pub(crate) struct AdmittedCut {
     current: CurrentState,
     catalog: Catalog,
     identity: String,
+    size: CurrentSize,
 }
 
+#[cfg(test)]
 #[path = "admitted_history_tests.rs"]
 mod tests;
 impl AdmittedCut {
@@ -27,7 +29,8 @@ impl AdmittedCut {
         replayed.validate()?;
         catalog.verify_replayed_state(pages, replayed).await?;
         let current = CurrentState::from_state(replayed);
-        CurrentSize::measure((&current).into())?.validate((&current).into())?;
+        let size = CurrentSize::measure((&current).into())?;
+        size.validate((&current).into())?;
         let identity = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&(
             "vcp-admitted-history-cut/1",
             &catalog,
@@ -37,7 +40,11 @@ impl AdmittedCut {
             current,
             catalog,
             identity,
+            size,
         })
+    }
+    pub(crate) fn size(&self) -> CurrentSize {
+        self.size
     }
     pub(crate) fn current(&self) -> &CurrentState {
         &self.current
@@ -68,6 +75,7 @@ impl AdmittedCut {
             current,
             catalog,
             identity,
+            size: prepared.size(),
         })
     }
 }

@@ -20,6 +20,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     event::EventKind,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{artifact::ArtifactWriter, contract::Collection, BackendKind, Store};
 
 struct Fixture {
@@ -168,9 +169,7 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> Fixture {
         Revision::ZERO,
     )
     .await;
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| e.event.kind == EventKind::TaskCreated)
@@ -284,7 +283,7 @@ async fn response(fixture: &mut Fixture, text: &str, settled: bool) -> Extractio
         b"{\"memory\":true}",
     )
     .await;
-    let ledger = vcp_budget::ledger(fixture.engine.store().state(), &fixture.scope).unwrap();
+    let ledger = vcp_budget::ledger(fixture.engine.store().current(), &fixture.scope).unwrap();
     let admission = vcp_budget::Admission {
         transaction: TransactionId::new(),
         attempt: AttemptId::new(),
@@ -404,7 +403,7 @@ async fn accounted_response_becomes_stable_host_scoped_inference_without_another
         let mut fixture = fixture(temp.path(), backend).await;
         let text = candidates(&fixture.source.spec.id).to_string();
         let context = accounted(&mut fixture, &text).await;
-        let snapshot = fixture.engine.store().state().clone();
+        let snapshot = fixture.engine.store().archive_state().await.unwrap();
         let proposals = extraction::validate(fixture.engine.store(), &fixture.access, &context)
             .await
             .unwrap();
@@ -414,7 +413,10 @@ async fn accounted_response_becomes_stable_host_scoped_inference_without_another
                 .await
                 .unwrap()
         );
-        assert_eq!(fixture.engine.store().state(), &snapshot);
+        assert_eq!(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &snapshot
+        );
         assert_eq!(proposals.len(), 1);
         let proposal = &proposals[0];
         assert_eq!(proposal.scope, fixture.scope);
@@ -443,13 +445,13 @@ async fn accounted_response_becomes_stable_host_scoped_inference_without_another
             committed.result.resolution.evidence_status,
             vcp_domain::memory::EvidenceStatus::Inferred
         );
-        let ledger = vcp_budget::ledger(fixture.engine.store().state(), &fixture.scope).unwrap();
+        let ledger = vcp_budget::ledger(fixture.engine.store().current(), &fixture.scope).unwrap();
         assert_eq!(ledger.settled, Micros::new(20));
         assert_eq!(
             fixture
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)
@@ -484,13 +486,16 @@ async fn untrusted_candidates_cannot_expand_authority_or_invent_sources() {
         "[".repeat(40) + &"]".repeat(40),
     ] {
         let context = accounted(&mut fixture, &output).await;
-        let snapshot = fixture.engine.store().state().clone();
+        let snapshot = fixture.engine.store().archive_state().await.unwrap();
         assert!(
             extraction::validate(fixture.engine.store(), &fixture.access, &context)
                 .await
                 .is_err()
         );
-        assert_eq!(fixture.engine.store().state(), &snapshot);
+        assert_eq!(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &snapshot
+        );
     }
     let mut context = accounted(&mut fixture, &valid.to_string()).await;
     context.limits.candidate_bytes = 10;
@@ -534,13 +539,16 @@ async fn uncertain_accounting_cannot_promote_and_retains_liability() {
     let mut fixture = fixture(temp.path(), BackendKind::Files).await;
     let text = candidates(&fixture.source.spec.id).to_string();
     let context = response(&mut fixture, &text, false).await;
-    let before = fixture.engine.store().state().clone();
+    let before = fixture.engine.store().archive_state().await.unwrap();
     assert!(
         extraction::validate(fixture.engine.store(), &fixture.access, &context)
             .await
             .is_err()
     );
-    assert_eq!(fixture.engine.store().state(), &before);
+    assert_eq!(
+        &fixture.engine.store().archive_state().await.unwrap(),
+        &before
+    );
     let attempt: Attempt = before
         .record(
             Collection::Attempt,
@@ -592,7 +600,7 @@ async fn paused_attempt_task_and_partial_evidence_cannot_promote() {
     let task: vcp_domain::task::Task = fixture
         .engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.scope.task.as_str(),
@@ -613,11 +621,14 @@ async fn paused_attempt_task_and_partial_evidence_cannot_promote() {
         task.revision,
     )
     .await;
-    let before = fixture.engine.store().state().clone();
+    let before = fixture.engine.store().archive_state().await.unwrap();
     assert!(
         extraction::validate(fixture.engine.store(), &fixture.access, &context)
             .await
             .is_err()
     );
-    assert_eq!(fixture.engine.store().state(), &before);
+    assert_eq!(
+        &fixture.engine.store().archive_state().await.unwrap(),
+        &before
+    );
 }

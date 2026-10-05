@@ -56,7 +56,7 @@ async fn engine_transitions_and_idempotent_pause_produce_the_supported_facts() {
             engine.handle(command.clone(), &actor, &host).await.unwrap();
             engine.handle(command, &actor, &host).await.unwrap(); // command replay adds no event
         }
-        let evidence = observe(engine.store(), &access, window()).unwrap();
+        let evidence = observe(engine.store(), &access, window()).await.unwrap();
         assert_eq!(evidence.traces[0].observations.len(), 3);
         assert!(evidence.traces[0].gaps.is_empty());
         assert!(evidence.traces[0].right_censored);
@@ -75,7 +75,7 @@ async fn event_only(store: &mut Store, access: &Access, task: &Task, data: serde
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![],
             events: vec![EventInput {
                 id: EventId::new(),
@@ -111,7 +111,7 @@ async fn invalid_sources_unknown_versions_and_bounds_abstain_without_mutation() 
             serde_json::json!({"schema_version":1,"facts":[]}),
         )
         .await;
-        let unchanged = observe(&store, &access, window()).unwrap();
+        let unchanged = observe(&store, &access, window()).await.unwrap();
         assert_eq!(unchanged.traces[0].observations.len(), 1);
         assert!(unchanged.traces[0].gaps.is_empty());
         // A repeated snapshot cannot claim a different causing event.
@@ -129,7 +129,7 @@ async fn invalid_sources_unknown_versions_and_bounds_abstain_without_mutation() 
             serde_json::json!({"schema_version":2,"facts":[fact.clone()]}),
         )
         .await;
-        let evidence = observe(&store, &access, window()).unwrap();
+        let evidence = observe(&store, &access, window()).await.unwrap();
         assert!(evidence.transitions.is_empty());
         assert_eq!(
             evidence.traces[0]
@@ -146,11 +146,12 @@ async fn invalid_sources_unknown_versions_and_bounds_abstain_without_mutation() 
             serde_json::json!({"schema_version":1,"facts":vec![fact; 4097]}),
         )
         .await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(observe(&store, &access, window())
+            .await
             .unwrap_err()
             .contains("4096 observations"));
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
     }
 }
 
@@ -165,14 +166,14 @@ async fn append(
     let id = TaskId::parse(name).unwrap();
     let event = EventId::new();
     let existing = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Task, name))
         .map(|r| r.decode::<Task>().unwrap());
     let expected = existing.as_ref().map(|t| t.revision);
     let mut task = existing.unwrap_or_else(|| {
         let session: Session = store
-            .state()
+            .current()
             .records
             .values()
             .find(|r| r.collection == Collection::Session)
@@ -223,7 +224,7 @@ async fn append(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Task,
@@ -275,9 +276,9 @@ async fn canonical_transition_chains_are_scoped_ordered_read_only_and_rebuild_af
         // A same-state revision represents a fingerprint/steering observation.
         append(&mut store, &access, "a", TaskState::Running, 13, true).await;
         append(&mut store, &access, "a", TaskState::Cancelled, 14, true).await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         access.write = false;
-        let evidence = observe(&store, &access, window()).unwrap();
+        let evidence = observe(&store, &access, window()).await.unwrap();
         assert_eq!(evidence.traces.len(), 2);
         let a = &evidence.traces[0];
         assert!(!a.left_censored && !a.right_censored && a.gaps.is_empty());
@@ -308,6 +309,7 @@ async fn canonical_transition_chains_are_scoped_ordered_read_only_and_rebuild_af
                 until: Timestamp::new(14),
             },
         )
+        .await
         .unwrap();
         assert!(discontinuous.traces[0].left_censored);
         assert!(discontinuous.traces[0]
@@ -328,12 +330,12 @@ async fn canonical_transition_chains_are_scoped_ordered_read_only_and_rebuild_af
         .await
         .unwrap();
         assert_eq!(serde_json::from_value::<Evidence>(value).unwrap(), evidence);
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         drop(store);
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(observe(&store, &access, window()).unwrap(), evidence);
+        assert_eq!(observe(&store, &access, window()).await.unwrap(), evidence);
         access.tasks = Some(BTreeSet::from([TaskId::parse("a").unwrap()]));
-        let scoped = observe(&store, &access, window()).unwrap();
+        let scoped = observe(&store, &access, window()).await.unwrap();
         assert_eq!(scoped.traces.len(), 1);
         assert_eq!(scoped.transitions.iter().map(|e| e.count).sum::<u64>(), 4);
         access.tasks = Some(
@@ -342,14 +344,15 @@ async fn canonical_transition_chains_are_scoped_ordered_read_only_and_rebuild_af
                 .collect(),
         );
         assert!(observe(&store, &access, window())
+            .await
             .unwrap_err()
             .contains("512 KiB"));
         access.tasks = None;
         access.authority = AuthorityRevision::new(1);
-        assert!(observe(&store, &access, window()).is_err());
+        assert!(observe(&store, &access, window()).await.is_err());
         access.authority = AuthorityRevision::ZERO;
         access.read = false;
-        assert!(observe(&store, &access, window()).is_err());
+        assert!(observe(&store, &access, window()).await.is_err());
     }
 }
 
@@ -371,6 +374,7 @@ async fn missing_and_windowed_revisions_never_invent_edges_or_current_terminal_s
                 until: Timestamp::new(6),
             },
         )
+        .await
         .unwrap();
         assert_eq!(evidence.transitions.len(), 1);
         assert_eq!(evidence.transitions[0].from, TaskState::Pending);
@@ -385,6 +389,7 @@ async fn missing_and_windowed_revisions_never_invent_edges_or_current_terminal_s
                 until: Timestamp::new(9),
             },
         )
+        .await
         .unwrap();
         assert!(partial.traces[0].left_censored && partial.traces[0].right_censored);
         assert!(partial.transitions.is_empty());
@@ -396,6 +401,7 @@ async fn missing_and_windowed_revisions_never_invent_edges_or_current_terminal_s
                 until: Timestamp::new(9)
             }
         )
+        .await
         .is_err());
     }
 }
@@ -414,6 +420,7 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
         append(&mut store, &access, "a", TaskState::Cancelled, 4, true).await;
         assert_eq!(
             observe(&store, &access, window())
+                .await
                 .unwrap()
                 .transitions
                 .len(),
@@ -441,7 +448,8 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
             },
             Action::Purge,
             Timestamp::new(101),
-        ).await
+        )
+        .await
         .unwrap();
         // Retention follows snapshot dependencies: selecting one task fact also
         // removes its task record and remaining history, not just one edge.
@@ -452,7 +460,7 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
             .await
             .unwrap();
         // Logical purge must take effect before any physical cleanup.
-        let masked = observe(&store, &access, window()).unwrap();
+        let masked = observe(&store, &access, window()).await.unwrap();
         assert!(masked.transitions.is_empty());
         assert!(masked.traces.is_empty());
         assert_eq!(masked.excluded_pruned_tasks, 1);
@@ -465,12 +473,13 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
             },
             Action::Purge,
             Timestamp::new(101),
-        ).await
+        )
+        .await
         .unwrap();
         retention::apply(&mut store, &access, &plan, Timestamp::new(101))
             .await
             .unwrap();
-        let evidence = observe(&store, &access, window()).unwrap();
+        let evidence = observe(&store, &access, window()).await.unwrap();
         assert!(
             evidence.traces.is_empty() && evidence.transitions.is_empty(),
             "{evidence:#?}"
@@ -478,6 +487,6 @@ async fn pruning_source_history_removes_transition_evidence_on_both_backends() {
         assert_eq!(evidence.excluded_pruned_tasks, 1);
         drop(store);
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(observe(&store, &access, window()).unwrap(), evidence);
+        assert_eq!(observe(&store, &access, window()).await.unwrap(), evidence);
     }
 }

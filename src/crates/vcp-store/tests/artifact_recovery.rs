@@ -95,7 +95,7 @@ async fn seal_publication_kills_and_storage_full_preserve_acknowledged_prefix() 
             let marker = temp.path().join("barrier.json");
             let mut store = Store::open(&root, kind, &[]).await.unwrap();
             let initial_receipt = store.transact(initial()).await.unwrap();
-            let before = store.state().clone();
+            let before = (&store.archive_state().await.unwrap()).clone();
             store.close().await.unwrap();
             let id = ArtifactId::new();
             let started = SystemTime::now()
@@ -142,17 +142,23 @@ async fn seal_publication_kills_and_storage_full_preserve_acknowledged_prefix() 
             assert!(!stop(&mut child).success());
             let mut reopened = Store::open(&root, kind, &[]).await.unwrap();
             assert_eq!(reopened.transact(initial()).await.unwrap(), initial_receipt);
-            assert_eq!(reopened.state().events, before.events);
-            assert_eq!(reopened.state().commands, before.commands);
             assert_eq!(
-                reopened.state().watermark.get(),
+                (&reopened.archive_state().await.unwrap()).events,
+                before.events
+            );
+            assert_eq!(
+                (&reopened.archive_state().await.unwrap()).commands,
+                before.commands
+            );
+            assert_eq!(
+                reopened.current().watermark.get(),
                 if phase == "after_reference" { 3 } else { 2 }
             );
             for (key, record) in &before.records {
-                assert_eq!(reopened.state().records.get(key), Some(record));
+                assert_eq!(reopened.current().records.get(key), Some(record));
             }
             let canonical: ArtifactDescriptor = reopened
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &workspace().id)
                 .unwrap()
                 .decode()
@@ -185,7 +191,7 @@ async fn seal_publication_kills_and_storage_full_preserve_acknowledged_prefix() 
             if sealed && phase != "after_reference" {
                 reopened
                     .transact(attach(
-                        reopened.state(),
+                        (&reopened.archive_state().await.unwrap()),
                         durable.clone(),
                         Some(Revision::ZERO),
                     ))
@@ -198,13 +204,17 @@ async fn seal_publication_kills_and_storage_full_preserve_acknowledged_prefix() 
             retry.write_chunk(b"capacity restored").unwrap();
             let retry = retry.finalize().unwrap();
             reopened
-                .transact(attach(reopened.state(), retry, None))
+                .transact(attach(
+                    (&reopened.archive_state().await.unwrap()),
+                    retry,
+                    None,
+                ))
                 .await
                 .unwrap();
-            let final_state = reopened.state().clone();
+            let final_state = (&reopened.archive_state().await.unwrap()).clone();
             reopened.close().await.unwrap();
             let verified = Store::open(&root, kind, &[]).await.unwrap();
-            assert_eq!(verified.state(), &final_state);
+            assert_eq!((&verified.archive_state().await.unwrap()), &final_state);
             assert_eq!(verified.spool().inspect(&id).unwrap(), durable);
             verified.close().await.unwrap();
             let receipt = serde_json::json!({
@@ -259,7 +269,7 @@ fn artifact_recovery_child() {
         let mut writer = store.spool().create(spec.clone()).unwrap();
         writer.write_chunk(BYTES).unwrap();
         let pending = store.spool().inspect(&spec.id).unwrap();
-        store.transact(attach(store.state(), pending, None)).await.unwrap();
+        store.transact(attach((&store.archive_state().await.unwrap()), pending, None)).await.unwrap();
         let result = writer.finalize_observed(&|point| {
             if phase == "storage_full" && point == "before_publication" {
                 return Err(std::io::Error::from(std::io::ErrorKind::StorageFull).into());
@@ -275,7 +285,7 @@ fn artifact_recovery_child() {
         }
         let descriptor = result.unwrap();
         barrier("after_reply");
-        store.transact(attach(store.state(), descriptor, Some(Revision::ZERO))).await.unwrap();
+        store.transact(attach((&store.archive_state().await.unwrap()), descriptor, Some(Revision::ZERO))).await.unwrap();
         barrier("after_reference");
         panic!("artifact recovery barrier was not reached");
     });

@@ -39,7 +39,7 @@ impl worker::Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 spec.snapshot.as_str(),
@@ -102,7 +102,7 @@ impl CanonicalHost {
             let task: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     selected.as_str(),
@@ -134,7 +134,7 @@ impl CanonicalHost {
                     let task: Task = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Task,
                             selected.as_str(),
@@ -305,7 +305,7 @@ impl CanonicalHost {
             let task: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),

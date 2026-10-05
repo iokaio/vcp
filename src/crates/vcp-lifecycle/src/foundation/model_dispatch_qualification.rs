@@ -49,7 +49,8 @@ impl Context {
         attempt: &AttemptId,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(observer) = &self.model_dispatch_observer {
-            observer(point, attempt, self.engine.store().state())?;
+            let archive = self.runtime.block_on(self.engine.store().archive_state())?;
+            observer(point, attempt, &archive)?;
         }
         Ok(())
     }

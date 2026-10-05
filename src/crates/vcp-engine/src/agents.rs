@@ -272,7 +272,7 @@ fn eligibility_for_state(
         }
         if row.collection == Collection::Reservation {
             let reservation: vcp_domain::accounting::Reservation = row.decode()?;
-            if reservation.liability != Micros::ZERO {
+            if !reservation.liability.is_zero() {
                 active.insert(reservation.scope.task);
             }
         }
@@ -325,9 +325,13 @@ fn exhausted_capacity(state: CurrentStateView<'_>, child: &Task, ledger: &Ledger
     if ledger.cap.is_unbounded() {
         return Ok(false);
     }
+    let (Some(active), Some(unresolved)) = (ledger.active.known(), ledger.unresolved.known())
+    else {
+        return Ok(true);
+    };
     let root_exposure = u128::from(ledger.settled.get())
-        + u128::from(ledger.active.get())
-        + u128::from(ledger.unresolved.get())
+        + u128::from(active.get())
+        + u128::from(unresolved.get())
         + u128::from(ledger.protected.get());
     if ledger
         .cap
@@ -355,8 +359,10 @@ fn exhausted_capacity(state: CurrentStateView<'_>, child: &Task, ledger: &Ledger
         if reservation.root != child.root {
             continue;
         }
-        let exposure =
-            u128::from(reservation.charged.get()) + u128::from(reservation.liability.get());
+        let Some(liability) = reservation.liability.known() else {
+            return Ok(true);
+        };
+        let exposure = u128::from(reservation.charged.get()) + u128::from(liability.get());
         let mut cursor = Some(task(state, &child.scope, &reservation.scope.task)?);
         while let Some(current) = cursor {
             if let Some((_, used)) = remaining.get_mut(&current.scope.task) {

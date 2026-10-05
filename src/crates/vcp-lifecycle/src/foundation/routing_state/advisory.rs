@@ -15,7 +15,7 @@ use vcp_memory::access::Access;
 use vcp_models::decision::{Binding, Outcome, Prepared, Purpose, QualifiedEvaluator, Request};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_store::{
-    contract::{key, Collection, Mutation},
+    contract::{key, CanonicalStore, Collection, Mutation},
     Store,
 };
 
@@ -31,7 +31,7 @@ fn read<T: serde::de::DeserializeOwned>(
 ) -> Result<Option<T>> {
     super::authorize(store, access, false)?;
     if vcp_memory::retention::purged(
-        store.state(),
+        store.current(),
         &access.workspace,
         &vcp_memory::retention::Target::Record(key(Collection::Projection, id)),
     )
@@ -213,7 +213,7 @@ pub async fn record_request(
     // dependency links so retention/deletion can follow the original evidence.
     for (source, digest) in &record.request.binding.evidence {
         let source_key = key(Collection::Artifact, source);
-        if let Some(source) = store.state().records.get(&source_key) {
+        if let Some(source) = store.current().records.get(&source_key) {
             let descriptor: ArtifactDescriptor = source.decode().map_err(super::err)?;
             if descriptor.spec.scope != record.request.binding.scope || descriptor.sha256 != *digest
             {
@@ -684,14 +684,14 @@ fn current_task(store: &Store, access: &Access, binding: &Binding) -> Result<Tas
         return Err("advisory binding scope denied".into());
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Workspace, access.workspace.as_str()))
         .ok_or("advisory workspace absent")?
         .decode()
         .map_err(super::err)?;
     let task: Task = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Task, binding.scope.task.as_str()))
         .ok_or("advisory task absent")?
@@ -797,7 +797,7 @@ fn canonical_attempt(
     attempt_id: &AttemptId,
 ) -> Result<Attempt> {
     let attempt: Attempt = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Attempt, attempt_id.as_str()))
         .ok_or("advisory helper attempt absent")?
@@ -822,7 +822,7 @@ fn canonical_request_artifact(
     attempt: &Attempt,
 ) -> Result<ArtifactDescriptor> {
     let artifact: ArtifactDescriptor = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Artifact, attempt.request.as_str()))
         .ok_or("advisory request artifact absent")?

@@ -54,13 +54,13 @@ pub const MEMORY_RETENTION_CAPABILITY: &str = vcp_protocol::memory_retention::CA
 #[cfg(test)]
 mod approval_source_tests;
 #[cfg(test)]
+mod inspector_query_tests;
+#[cfg(test)]
 mod memory_inspection_tests;
 #[cfg(test)]
 mod memory_query_tests;
 #[cfg(test)]
 mod workspace_binding_tests;
-#[cfg(test)]
-mod inspector_query_tests;
 
 /// Presentation extensions require explicit negotiation and implemented methods.
 /// Method registration in the schema alone never advertises the extension.
@@ -91,12 +91,27 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     if capabilities.contains("routing/status") {
         capabilities.insert(vcp_protocol::routing_inspection::CAPABILITY.to_owned());
     }
-    if ["routing/reportCapture", "routing/reportRead", "routing/preview", "routing/apply", "routing/rollback"].iter().any(|method| capabilities.contains(*method)) {
+    if [
+        "routing/reportCapture",
+        "routing/reportRead",
+        "routing/preview",
+        "routing/apply",
+        "routing/rollback",
+    ]
+    .iter()
+    .any(|method| capabilities.contains(*method))
+    {
         capabilities.insert(vcp_protocol::routing_optimizer::CAPABILITY.to_owned());
     }
-    if ["backup/status", "backup/create", "backup/read", "backup/retry", "backup/cancel"]
-        .iter()
-        .any(|method| capabilities.contains(*method))
+    if [
+        "backup/status",
+        "backup/create",
+        "backup/read",
+        "backup/retry",
+        "backup/cancel",
+    ]
+    .iter()
+    .any(|method| capabilities.contains(*method))
     {
         capabilities.insert(vcp_protocol::backup_publisher::CAPABILITY.to_owned());
     }
@@ -402,13 +417,20 @@ impl RpcSession {
             ));
         }
         let inspector_profile = match &call {
-            Call::BackupStatus(_) | Call::BackupCreate(_) | Call::BackupRead(_) | Call::BackupRetry(_) | Call::BackupCancel(_) => Some(vcp_protocol::backup_publisher::CAPABILITY),
+            Call::BackupStatus(_)
+            | Call::BackupCreate(_)
+            | Call::BackupRead(_)
+            | Call::BackupRetry(_)
+            | Call::BackupCancel(_) => Some(vcp_protocol::backup_publisher::CAPABILITY),
             Call::HistoryQuery(_) => Some(vcp_protocol::history::CAPABILITY),
             Call::MemoryHistory(_) => Some(vcp_protocol::memory_history::CAPABILITY),
             Call::PolicyRead(_) => Some(vcp_protocol::policy_inspection::CAPABILITY),
             Call::RoutingStatus(_) => Some(vcp_protocol::routing_inspection::CAPABILITY),
-            Call::RoutingReportCapture(_) | Call::RoutingReportRead(_) | Call::RoutingPreview(_)
-                | Call::RoutingApply(_) | Call::RoutingRollback(_) => Some(vcp_protocol::routing_optimizer::CAPABILITY),
+            Call::RoutingReportCapture(_)
+            | Call::RoutingReportRead(_)
+            | Call::RoutingPreview(_)
+            | Call::RoutingApply(_)
+            | Call::RoutingRollback(_) => Some(vcp_protocol::routing_optimizer::CAPABILITY),
             _ => None,
         };
         if inspector_profile.is_some_and(|profile| !self.negotiated.contains(profile)) {
@@ -1601,7 +1623,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(first["result"]["kind"], "acceptance");
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             let retry = send(&mut rpc, &mut engine, &access(), create(2))
                 .await
                 .unwrap();
@@ -1644,7 +1666,7 @@ mod tests {
                 page["result"]["value"]["sessions"][0]["scope"]["session"],
                 "session"
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let mut engine = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
             let mut rpc = RpcSession::new(server()).unwrap();
@@ -1661,7 +1683,7 @@ mod tests {
                 send(&mut rpc, &mut engine, &access(), query).await.unwrap()["result"],
                 first["result"]
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
         }
     }
@@ -1685,7 +1707,7 @@ mod tests {
         send(&mut rpc, &mut engine, &access(), init())
             .await
             .unwrap();
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         let mut notification = create(1);
         notification.as_object_mut().unwrap().remove("id");
         assert!(send(
@@ -1743,7 +1765,7 @@ mod tests {
                 .unwrap()["error"]["data"]["details"]["code"],
             "CAPABILITY_UNAVAILABLE"
         );
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
     }
 
@@ -1776,7 +1798,7 @@ mod tests {
         send(&mut rpc, &mut engine, &access(), init())
             .await
             .unwrap();
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         assert_eq!(
             send(
                 &mut rpc,
@@ -1812,7 +1834,7 @@ mod tests {
                 ["details"]["code"],
             "POLICY_DENIED"
         );
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
     }
 
@@ -1821,7 +1843,7 @@ mod tests {
         for backend in [BackendKind::Sqlite, BackendKind::Files] {
             let temp = tempfile::tempdir().unwrap();
             let mut engine = setup(temp.path(), backend).await;
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             for mixed in [false, true] {
                 let mut rpc = RpcSession::new(server()).unwrap();
                 send(&mut rpc, &mut engine, &access(), init())
@@ -1842,11 +1864,11 @@ mod tests {
                         .is_none()
                 );
                 assert!(rpc.is_closed());
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
                 assert!(send(&mut rpc, &mut engine, &access(), create(99))
                     .await
                     .is_none());
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
             }
             engine.into_store().close().await.unwrap();
         }
@@ -1864,7 +1886,7 @@ mod tests {
                 .await
                 .unwrap();
             assert!(initialized.get("result").is_some());
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             let read = request(
                 2,
                 "command/read",
@@ -1884,9 +1906,12 @@ mod tests {
                 .await
                 .is_none());
             assert!(rpc.is_closed());
-            let committed = engine.store().state().watermark;
+            let committed = engine.store().current().watermark;
             assert!(committed > before);
-            assert_eq!(engine.store().state().commands.len(), 2);
+            assert_eq!(
+                engine.store().archive_state().await.unwrap().commands.len(),
+                2
+            );
             assert!(send(&mut rpc, &mut engine, &access(), create(3))
                 .await
                 .is_none());
@@ -1901,7 +1926,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(receipt["result"], retried["result"]);
-            assert_eq!(engine.store().state().watermark, committed);
+            assert_eq!(engine.store().current().watermark, committed);
             engine.into_store().close().await.unwrap();
         }
     }

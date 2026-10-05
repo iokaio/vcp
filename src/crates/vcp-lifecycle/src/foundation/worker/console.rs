@@ -91,7 +91,7 @@ impl super::super::CanonicalHost {
                             let attempts: Vec<Attempt> = context
                                 .engine
                                 .store()
-                                .state()
+                                .current()
                                 .records
                                 .values()
                                 .filter(|row| row.collection == Collection::Attempt)

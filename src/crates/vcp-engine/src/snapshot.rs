@@ -330,7 +330,7 @@ mod tests {
         for backend in [BackendKind::Files, BackendKind::Sqlite] {
             let dir = tempfile::tempdir().unwrap();
             let (mut engine, access) = fixture(dir.path(), backend).await;
-            let before = engine.store().state().clone();
+            let before = engine.store().archive_state().await.unwrap();
             let first = engine
                 .snapshot_page(&access, 2, None, Timestamp::new(100))
                 .await
@@ -363,7 +363,7 @@ mod tests {
                     .unwrap(),
                 second
             );
-            assert_eq!(*engine.store().state(), before);
+            assert_eq!(engine.store().archive_state().await.unwrap(), before);
             let encoded = serde_json::to_string(&first).unwrap();
             assert!(!encoded.contains("private internal objective"));
             assert!(!encoded.contains("fingerprint"));
@@ -447,8 +447,8 @@ mod tests {
                 })
             ));
             execute(&mut engine, &access, Command::Inspect, None).await;
-            let end = engine.store().state().sequences[&access.session];
-            let mark = engine.store().state().watermark;
+            let end = engine.store().current().sequences[&access.session];
+            let mark = engine.store().current().watermark;
             assert!(
                 matches!(engine.snapshot_page(&access, 1, Some(&cursor), Timestamp::new(102)).await,
                 Err(SnapshotError::Restart { reason: RestartReason::SourceChanged, sequence, watermark }) if sequence == end && watermark == mark)
@@ -513,7 +513,7 @@ mod tests {
             let (mut engine, access) = fixture(dir.path(), backend).await;
             let template: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, "task-a", &access.workspace)
                 .unwrap()
                 .decode()
@@ -540,13 +540,13 @@ mod tests {
             }
             let transaction = Transaction {
                 id: TransactionId::new(),
-                expected_watermark: engine.store().state().watermark,
+                expected_watermark: engine.store().current().watermark,
                 mutations,
                 events: vec![],
                 command: None,
             };
             engine.store_mut().transact(transaction).await.unwrap();
-            let before = engine.store().state().clone();
+            let before = engine.store().archive_state().await.unwrap();
             let mut cursor = None;
             let mut seen = std::collections::BTreeSet::new();
             let mut pages = 0;
@@ -572,7 +572,7 @@ mod tests {
             }
             assert!(pages > 1);
             assert_eq!(seen.len(), 67);
-            assert_eq!(*engine.store().state(), before);
+            assert_eq!(engine.store().archive_state().await.unwrap(), before);
         }
     }
 }

@@ -9,7 +9,39 @@ use vcp_memory::{
     publication::{self, Publisher},
     search_record,
 };
-use vcp_store::contract::Receipt;
+use vcp_store::{contract::Receipt, Store};
+
+// Only one post-cut resource observation is permitted. Walk exact ordinals
+// backwards and stop on the second row; no historical payload collection is needed.
+async fn following_events(
+    store: &Store,
+    cut: Watermark,
+) -> Result<Vec<vcp_protocol::event::EventEnvelope>, String> {
+    let source = store.current().watermark;
+    let count = store
+        .history_event_count()
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut events = Vec::new();
+    for ordinal in (0..count).rev() {
+        let event = store
+            .history_event_at(ordinal)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("publication history ended before its source cut")?;
+        if event.watermark > source || store.current().watermark != source {
+            return Err("publication history changed during inspection".into());
+        }
+        if event.watermark <= cut {
+            break;
+        }
+        events.push(event);
+        if events.len() == 2 {
+            break;
+        }
+    }
+    Ok(events)
+}
 
 /// Construct once per owner. Publisher::new shares the underlying pin registry
 /// for the same canonical root even if another trusted adapter constructs it.
@@ -214,14 +246,9 @@ impl CanonicalHost {
                 {
                     return Err("source inventory changed beyond the local resource receipt".into());
                 }
-                let events: Vec<_> = context
-                    .engine
-                    .store()
-                    .state()
-                    .events
-                    .iter()
-                    .filter(|event| event.watermark > prior.watermark)
-                    .collect();
+                let events = context
+                    .runtime
+                    .block_on(following_events(context.engine.store(), prior.watermark))?;
                 if events.len() != 1
                     || events[0].event.kind
                         != vcp_protocol::event::EventKind::LocalResourcesObserved
@@ -448,14 +475,10 @@ impl CanonicalHost {
         let stage_observation = publication_resources.observation.clone();
         let receipt = self.worker.run(move |context| {
             context.can_start_memory(&checked)?;
-            let following: Vec<_> = context
-                .engine
-                .store()
-                .state()
-                .events
-                .iter()
-                .filter(|event| event.watermark > validated.manifest().canonical_watermark)
-                .collect();
+            let following = context.runtime.block_on(following_events(
+                context.engine.store(),
+                validated.manifest().canonical_watermark,
+            ))?;
             if following.len() != 1
                 || following[0].event.kind != vcp_protocol::event::EventKind::LocalResourcesObserved
                 || following[0].event.data["local_resources"]["id"]
@@ -467,7 +490,7 @@ impl CanonicalHost {
                 || context.engine.owner_epoch() != owning.epoch
                 || admission_host.memory_admission_generation(thread).ok() != Some(generation)
                 || external.load(Ordering::Acquire)
-                || context.engine.store().state().watermark
+                || context.engine.store().current().watermark
                     != validated.manifest().canonical_watermark.next()?
             {
                 return Err("publication admission or canonical cut changed".into());

@@ -95,7 +95,7 @@ impl CanonicalHost {
             let task: vcp_domain::task::Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     vcp_store::contract::Collection::Task,
                     context.config.root_task.as_str(),

@@ -422,8 +422,8 @@ impl<S: CanonicalStore> Engine<S> {
             || ledger.cap != cap
             || cap.exceeds(&ledger.protected)
             || ledger.settled != Micros::ZERO
-            || ledger.active != Micros::ZERO
-            || ledger.unresolved != Micros::ZERO
+            || !ledger.active.is_zero()
+            || !ledger.unresolved.is_zero()
             || !ledger.allocations.is_empty()
             || ledger.daily.is_some()
             || ledger.overrun
@@ -692,8 +692,8 @@ fn transaction<'a>(
         cap,
         protected: facts.protected,
         settled: Micros::ZERO,
-        active: Micros::ZERO,
-        unresolved: Micros::ZERO,
+        active: Micros::ZERO.into(),
+        unresolved: Micros::ZERO.into(),
         allocations: Default::default(),
         daily: None,
         overrun: false,

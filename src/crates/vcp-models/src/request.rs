@@ -311,11 +311,23 @@ pub fn encode_with_effort(
         }
     }
     let c = &snapshot.compatibility;
-    let price_text = |category| {
-        let micros = snapshot.price.rates[&category].micros.get();
-        format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000)
-    };
-    let mut body = json!({"model":envelope.model,"input":input,"tools":schemas,"tool_choice":"auto","max_output_tokens":envelope.output.get(),"stream":true,"store":false,"provider":{"only":[c.endpoint],"order":[c.endpoint],"allow_fallbacks":false,"require_parameters":true,"data_collection":if c.deny_data_collection{"deny"}else{"allow"},"zdr":c.require_zdr,"max_price":{"prompt":price_text(vcp_domain::accounting::ChargeCategory::Input),"completion":price_text(vcp_domain::accounting::ChargeCategory::Output),"request":c.request_price_limit}}});
+    let mut body = json!({"model":envelope.model,"input":input,"tools":schemas,"tool_choice":"auto","max_output_tokens":envelope.output.get(),"stream":true,"store":false,"provider":{"only":[c.endpoint],"order":[c.endpoint],"allow_fallbacks":false,"require_parameters":true,"data_collection":if c.deny_data_collection{"deny"}else{"allow"},"zdr":c.require_zdr}});
+    if snapshot.tariff_normalization != Some(3) {
+        let price_text = |category| -> Result<String> {
+            let micros = snapshot
+                .price
+                .rates
+                .get(&category)
+                .ok_or(Error::Capability("finite request price missing"))?
+                .micros
+                .get();
+            Ok(format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000))
+        };
+        body["provider"]["max_price"] = json!({
+            "prompt":price_text(vcp_domain::accounting::ChargeCategory::Input)?,
+            "completion":price_text(vcp_domain::accounting::ChargeCategory::Output)?,
+            "request":c.request_price_limit});
+    }
     // Enabling parallel calls is optional. Requiring an unqualified parameter
     // would exclude otherwise compatible endpoints at the gateway.
     if c.required_parameters.contains("parallel_tool_calls") {

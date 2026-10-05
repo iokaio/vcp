@@ -379,7 +379,7 @@ impl Wrapper {
                 let task: vcp_domain::task::Task = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         vcp_store::contract::Collection::Task,
                         binding.scope.task.as_str(),

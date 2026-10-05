@@ -75,7 +75,7 @@ fn binding() -> Binding {
 fn submission(f: &Fixture) -> Submission {
     let task: vcp_domain::task::Task = f
         .store
-        .state()
+        .current()
         .record(
             Collection::Task,
             f.proposal.scope.task.as_str(),
@@ -119,7 +119,7 @@ fn resolution(submission: &Submission, choice: Choice) -> Resolve {
 }
 fn count(store: &Store, kind: &str) -> usize {
     store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.value["document_type"] == kind)
@@ -166,7 +166,7 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
             };
             let mut task: Task = f
                 .store
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     input.scope.task.as_str(),
@@ -181,7 +181,7 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
             f.store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: f.store.state().watermark,
+                    expected_watermark: f.store.current().watermark,
                     mutations: vec![Mutation::Put {
                         expected: Some(prior),
                         record: Record::typed(
@@ -241,11 +241,11 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
                 .await
                 .unwrap();
             assert!(job.rewrite_complete);
-            assert!(
-                !String::from_utf8(vcp_protocol::canonical_bytes(f.store.state()).unwrap())
-                    .unwrap()
-                    .contains(marker)
-            );
+            assert!(!String::from_utf8(
+                vcp_protocol::canonical_bytes(&f.store.archive_state().await.unwrap()).unwrap()
+            )
+            .unwrap()
+            .contains(marker));
             assert_eq!(count(&f.store, memory_review::REDACTED_SUBMISSION), 1);
             assert_eq!(
                 count(&f.store, memory_review::REDACTED_DECISION),
@@ -256,7 +256,7 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
             assert!(review::read(&f.store, &f.access, &input.scope, &input.id)
                 .await
                 .is_err());
-            let before = f.store.state().clone();
+            let before = f.store.archive_state().await.unwrap();
             assert!(review::submit(&mut f.store, &f.access, input.clone())
                 .await
                 .is_err());
@@ -265,7 +265,7 @@ async fn source_purge_erases_pending_and_decided_review_content_on_both_stores()
                     .await
                     .is_err()
             );
-            assert_eq!(f.store.state(), &before);
+            assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         }
     }
 }
@@ -276,12 +276,15 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
         let temp = tempfile::tempdir().unwrap();
         let mut f = fixture(temp.path(), backend).await;
         let input = submission(&f);
-        let old = f.store.state().clone();
+        let old = f.store.archive_state().await.unwrap();
         let pending = review::submit(&mut f.store, &f.access, input.clone())
             .await
             .unwrap();
-        assert_eq!(f.store.state().records.len(), old.records.len() + 1);
-        assert_eq!(f.store.state().commands.len(), old.commands.len() + 1);
+        assert_eq!(f.store.current().records.len(), old.records.len() + 1);
+        assert_eq!(
+            (&f.store.archive_state().await.unwrap()).commands.len(),
+            old.commands.len() + 1
+        );
         assert_eq!(count(&f.store, "vcp_memory_version_v1"), 0);
         assert_eq!(count(&f.store, "vcp_memory_index_intent_v1"), 0);
         assert!(pending.review.decision.is_none());
@@ -289,7 +292,7 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
             pending.receipt.command.as_ref().unwrap().digest,
             input.command_digest
         );
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         assert_eq!(
             review::submit(&mut f.store, &f.access, input.clone())
                 .await
@@ -297,7 +300,7 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
                 .receipt,
             pending.receipt
         );
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         let mut changed = input.clone();
         changed.command_digest = "c".repeat(64);
         assert!(review::submit(&mut f.store, &f.access, changed)
@@ -332,7 +335,7 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
             "b".repeat(64)
         );
         assert_eq!(count(&f.store, "vcp_memory_version_v1"), 1);
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         let mut retry = resolution(&input, Choice::Accept);
         retry.command = command;
         assert_eq!(
@@ -342,13 +345,13 @@ async fn pending_acceptance_replay_and_governed_resolution_are_atomic_and_durabl
                 .receipt,
             done.receipt
         );
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         assert!(
             review::resolve(&mut f.store, &f.access, resolution(&input, Choice::Reject))
                 .await
                 .is_err()
         );
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         f.store.close().await.unwrap();
         f.store = Store::open(temp.path(), backend, &[]).await.unwrap();
         let read = review::read(&f.store, &f.access, &input.scope, &input.id)
@@ -368,7 +371,7 @@ async fn stale_guards_and_explicit_rejection_never_create_versions_or_partial_re
         review::submit(&mut f.store, &f.access, input.clone())
             .await
             .unwrap();
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         for which in 0..5 {
             let mut request = resolution(&input, Choice::Accept);
             match which {
@@ -381,7 +384,7 @@ async fn stale_guards_and_explicit_rejection_never_create_versions_or_partial_re
             assert!(review::resolve(&mut f.store, &f.access, request)
                 .await
                 .is_err());
-            assert_eq!(f.store.state(), &before);
+            assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         }
         let rejected = review::resolve(&mut f.store, &f.access, resolution(&input, Choice::Reject))
             .await
@@ -391,10 +394,13 @@ async fn stale_guards_and_explicit_rejection_never_create_versions_or_partial_re
             Outcome::Rejected
         );
         assert!(rejected.review.result.is_none());
-        assert_eq!(f.store.state().records.len(), before.records.len() + 1);
+        assert_eq!(f.store.current().records.len(), before.records.len() + 1);
         assert_eq!(count(&f.store, "vcp_memory_version_v1"), 0);
         assert_eq!(count(&f.store, "vcp_memory_proposal_v1"), 0);
-        assert_eq!(f.store.state().commands.len(), before.commands.len() + 1);
+        assert_eq!(
+            (&f.store.archive_state().await.unwrap()).commands.len(),
+            before.commands.len() + 1
+        );
     }
 }
 
@@ -431,9 +437,7 @@ async fn logical_retention_hides_pending_content_and_denies_replay_before_physic
         review::submit(&mut f.store, &f.access, input.clone())
             .await
             .unwrap();
-        let origin = f
-            .store
-            .state()
+        let origin = (&f.store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|e| e.event.id == input.candidate.origins[0])
@@ -441,7 +445,7 @@ async fn logical_retention_hides_pending_content_and_denies_replay_before_physic
             .clone();
         let mut workspace: vcp_domain::workspace::Workspace = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 f.access.workspace.as_str(),
@@ -466,7 +470,7 @@ async fn logical_retention_hides_pending_content_and_denies_replay_before_physic
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(previous),
@@ -496,7 +500,7 @@ async fn logical_retention_hides_pending_content_and_denies_replay_before_physic
             })
             .await
             .unwrap();
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         assert!(review::read(&f.store, &f.access, &input.scope, &input.id)
             .await
             .is_err());
@@ -508,7 +512,7 @@ async fn logical_retention_hides_pending_content_and_denies_replay_before_physic
                 .await
                 .is_err()
         );
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         assert_eq!(
             count(&f.store, memory_review::SUBMISSION),
             1,
@@ -554,7 +558,7 @@ async fn manual_accept_preserves_dispute_gates_and_hidden_claims_fail_closed() {
         assert!(result.resolution.conflicts.contains(&accepted_version));
         let original: Head = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Projection,
                 first.candidate.claim.as_str(),
@@ -594,9 +598,7 @@ async fn manual_accept_preserves_dispute_gates_and_hidden_claims_fail_closed() {
             .await
             .unwrap();
         f.store = engine.into_store();
-        let origin = f
-            .store
-            .state()
+        let origin = (&f.store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|e| {
@@ -630,7 +632,7 @@ async fn manual_accept_preserves_dispute_gates_and_hidden_claims_fail_closed() {
         assert!(review::read(&f.store, &f.access, &narrow.scope, &narrow.id)
             .await
             .is_ok());
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         let mut request = resolution(&narrow, Choice::Accept);
         request.now = Timestamp::new(212);
         assert!(
@@ -639,7 +641,7 @@ async fn manual_accept_preserves_dispute_gates_and_hidden_claims_fail_closed() {
                 .is_err(),
             "hidden accepted versions cannot disappear from conflict checks"
         );
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
     }
 }
 async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, ArtifactDescriptor) {
@@ -681,9 +683,7 @@ async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, A
         },
     );
     engine.handle(create, &access, &facts).await.unwrap();
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| {

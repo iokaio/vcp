@@ -169,9 +169,9 @@ impl Fixture {
             100 * u128::from(request.per_units.get())
         );
         let store = reopen_within(&entry, Duration::from_secs(45)).await;
-        no_dispatch(store.state());
+        no_dispatch(&store.archive_state().await.unwrap());
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 entry.config.root_task.as_str(),
@@ -223,9 +223,9 @@ fn no_dispatch(state: &State) -> Value {
             ledger.cap,
             vcp_domain::Limit::Finite(vcp_domain::Micros::new(1))
         );
-        assert_eq!(ledger.active.get(), 0);
+        assert_eq!(ledger.active.known().unwrap().get(), 0);
         assert_eq!(ledger.settled.get(), 0);
-        assert_eq!(ledger.unresolved.get(), 0);
+        assert_eq!(ledger.unresolved.known().unwrap().get(), 0);
         assert!(!ledger.overrun);
     }
     json!({"provider_attempts":0,"reservations":0,"send_intents":0,"settlements":0,"effects":0})
@@ -308,7 +308,7 @@ fn preserved(before: &State, after: &State, entry: &WorkspaceEntry) {
 }
 async fn snapshot(fixture: &Fixture, entry: &WorkspaceEntry, label: &str) -> State {
     let store = reopen_within(entry, Duration::from_secs(45)).await;
-    let state = store.state().clone();
+    let state = store.archive_state().await.unwrap();
     store.close().await.unwrap();
     save(&fixture._temp.path().join(format!("{label}.json")), &state);
     state

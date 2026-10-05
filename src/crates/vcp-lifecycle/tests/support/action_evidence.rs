@@ -16,7 +16,7 @@ use vcp_protocol::{
 };
 use vcp_store::artifact::ArtifactWriter;
 
-struct LegacyAccounting<'a>(&'a mut Store);
+struct LegacyAccounting<'a>(&'a mut Store, State);
 
 async fn repeated_verifications(
     store: Store,
@@ -81,8 +81,12 @@ async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sou
             from: None,
             until: Timestamp::new(30),
         };
-        let fit = local_stall::fit(&store, &access, training, 3).unwrap();
-        local_stall::validate_install(&store, &access, &fit).unwrap();
+        let fit = local_stall::fit(&store, &access, training, 3)
+            .await
+            .unwrap();
+        local_stall::validate_install(&store, &access, &fit)
+            .await
+            .unwrap();
         let mut forged = fit.clone();
         forged.model = vcp_models::stall::fit(1, &[vec![0; 4]], 3).unwrap();
         forged.id.clear();
@@ -90,23 +94,26 @@ async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sou
             "local-stall-fit-{}",
             digest_bytes(&vcp_protocol::canonical_bytes(&forged).unwrap())
         );
-        assert!(local_stall::validate_install(&store, &access, &forged).is_err());
+        assert!(local_stall::validate_install(&store, &access, &forged)
+            .await
+            .is_err());
         let fit_bytes = serde_json::to_vec(&fit).unwrap();
         let store = repeated_verifications(store, &access, &task, &output.spec.id, 40, 3).await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let inference = HistoryWindow {
             from: Some(Timestamp::new(30)),
             until: Timestamp::new(50),
         };
         let result =
             local_stall::evaluate(&store, &access, &fit, &task.scope.task, inference.clone())
+                .await
                 .unwrap();
         assert!(result.abstention.is_none());
         assert!(result.signal.as_ref().unwrap().repeated_strategy_suspected);
         assert!(!result.exact_cycles.repetitions.is_empty());
         assert!(!result.serving_qualified && !fit.serving_qualified);
         assert_eq!(serde_json::to_vec(&fit).unwrap(), fit_bytes);
-        assert_eq!(*store.state(), before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         assert!(local_stall::evaluate(
             &store,
             &access,
@@ -117,6 +124,7 @@ async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sou
                 until: Timestamp::new(50)
             }
         )
+        .await
         .is_err());
         let denied = Access {
             workspace: access.workspace.clone(),
@@ -126,12 +134,13 @@ async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sou
             write: false,
             tasks: Some(BTreeSet::new()),
         };
-        assert!(local_stall::validate(&store, &denied, &fit).is_err());
+        assert!(local_stall::validate(&store, &denied, &fit).await.is_err());
         drop(store);
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
         let restored: local_stall::Fit = serde_json::from_slice(&fit_bytes).unwrap();
-        let replay =
-            local_stall::evaluate(&store, &access, &restored, &task.scope.task, inference).unwrap();
+        let replay = local_stall::evaluate(&store, &access, &restored, &task.scope.task, inference)
+            .await
+            .unwrap();
         assert_eq!(
             serde_json::to_value(&replay).unwrap(),
             serde_json::to_value(&result).unwrap()
@@ -166,12 +175,15 @@ async fn local_stall_frozen_fit_survives_append_and_reopen_but_denies_pruned_sou
             },
             Action::Purge,
             Timestamp::new(1001),
-        ).await
+        )
+        .await
         .unwrap();
         retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
             .await
             .unwrap();
-        assert!(local_stall::validate(&store, &access, &restored).is_err());
+        assert!(local_stall::validate(&store, &access, &restored)
+            .await
+            .is_err());
     }
 }
 
@@ -223,7 +235,7 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
                 .unwrap();
         }
         let mut store = engine.into_store();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let read = Access {
             workspace: access.workspace.clone(),
             actor: access.actor.clone(),
@@ -232,7 +244,7 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
             write: false,
             tasks: None,
         };
-        let evidence = cycles::observe(&store, &read, window()).unwrap();
+        let evidence = cycles::observe(&store, &read, window()).await.unwrap();
         assert!(!evidence.repetitions.is_empty());
         assert!(!evidence.serving_qualified);
         let encoded = serde_json::to_string(&evidence).unwrap();
@@ -250,7 +262,7 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
         .await
         .unwrap();
         assert_eq!(value, serde_json::to_value(&evidence).unwrap());
-        assert_eq!(*store.state(), before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         let denied = Access {
             workspace: access.workspace.clone(),
             actor: access.actor.clone(),
@@ -260,6 +272,7 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
             tasks: Some(BTreeSet::new()),
         };
         assert!(cycles::observe(&store, &denied, window())
+            .await
             .unwrap()
             .repetitions
             .is_empty());
@@ -267,11 +280,11 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
             read: false,
             ..read
         };
-        assert!(cycles::observe(&store, &no_read, window()).is_err());
+        assert!(cycles::observe(&store, &no_read, window()).await.is_err());
         drop(store);
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            cycles::observe(&store, &access, window()).unwrap(),
+            cycles::observe(&store, &access, window()).await.unwrap(),
             evidence
         );
         let mut engine = vcp_engine::Engine::new(store).unwrap();
@@ -303,26 +316,27 @@ async fn exact_cycles_rebuild_read_only_and_disappear_after_source_purge() {
             },
             Action::Purge,
             Timestamp::new(1001),
-        ).await
+        )
+        .await
         .unwrap();
         assert!(!plan.selected.is_empty());
         retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
             .await
             .unwrap();
-        let purged = cycles::observe(&store, &access, window()).unwrap();
+        let purged = cycles::observe(&store, &access, window()).await.unwrap();
         assert!(purged.repetitions.is_empty());
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            cycles::observe(&reopened, &access, window()).unwrap(),
+            cycles::observe(&reopened, &access, window()).await.unwrap(),
             purged
         );
     }
 }
 
-impl CanonicalStore for LegacyAccounting<'_> {
+impl vcp_store::contract::reference::ReferenceStore for LegacyAccounting<'_> {
     fn state(&self) -> &State {
-        self.0.state()
+        &self.1
     }
 
     async fn transact(&mut self, mut transaction: Transaction) -> vcp_store::Result<Receipt> {
@@ -333,7 +347,9 @@ impl CanonicalStore for LegacyAccounting<'_> {
                 }
             }
         }
-        self.0.transact(transaction).await
+        let receipt = self.0.transact(transaction).await?;
+        self.1 = self.0.archive_state().await?;
+        Ok(receipt)
     }
 }
 
@@ -355,7 +371,7 @@ pub(super) async fn create_named_task(
     name: &str,
 ) -> Task {
     let session: Session = store
-        .state()
+        .current()
         .records
         .values()
         .find(|record| record.collection == Collection::Session)
@@ -395,7 +411,7 @@ pub(super) async fn create_named_task(
         redaction: None,
     };
     store.transact(Transaction {
-        id: TransactionId::new(), expected_watermark: store.state().watermark,
+        id: TransactionId::new(), expected_watermark: store.current().watermark,
         mutations: vec![Mutation::Put { record: Record::typed(Collection::Task, id.as_str(), access.workspace.clone(),
             Revision::ZERO, &task).unwrap(), expected: None }],
         events: vec![EventInput { id: cause, workspace: access.workspace.clone(), session: session.id,
@@ -559,7 +575,7 @@ async fn engine_turn_and_verification_facts_are_revision_bound_without_prose() {
             .await
             .unwrap();
         engine.handle(envelope, &actor, &host).await.unwrap();
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let read = Access {
             workspace: access.workspace.clone(),
             actor: access.actor.clone(),
@@ -568,7 +584,7 @@ async fn engine_turn_and_verification_facts_are_revision_bound_without_prose() {
             write: false,
             tasks: access.tasks.clone(),
         };
-        let evidence = observe(engine.store(), &read, window()).unwrap();
+        let evidence = observe(engine.store(), &read, window()).await.unwrap();
         assert_eq!(evidence.turns.len(), 1);
         assert_eq!(evidence.turns[0].observations.len(), 2);
         assert!(evidence.turns[0].gaps.is_empty() && evidence.turns[0].right_censored);
@@ -605,7 +621,7 @@ async fn engine_turn_and_verification_facts_are_revision_bound_without_prose() {
         ] {
             assert!(!encoded.to_lowercase().contains(private));
         }
-        assert_eq!(engine.store().state(), &before);
+        assert_eq!(engine.store().archive_state().await.unwrap(), before);
     }
 }
 
@@ -643,7 +659,7 @@ pub(super) async fn capture(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Artifact,
@@ -710,7 +726,7 @@ pub(super) async fn reserve_role(
     now: u64,
 ) -> Attempt {
     let request = capture(store, task, Channel::RequestBody).await;
-    let ledger = vcp_budget::ledger(store.state(), &task.scope).unwrap();
+    let ledger = vcp_budget::ledger(store.current(), &task.scope).unwrap();
     vcp_budget::reserve(
         store,
         vcp_budget::Admission {
@@ -842,7 +858,7 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
         .await
         .unwrap();
         let correction_raw = capture(&mut store, &task, Channel::Response).await;
-        let policy = vcp_budget::ledger(store.state(), &task.scope)
+        let policy = vcp_budget::ledger(store.current(), &task.scope)
             .unwrap()
             .policy;
         vcp_budget::observe(
@@ -895,7 +911,7 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record,
                     expected: None,
@@ -905,8 +921,8 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             })
             .await
             .unwrap();
-        let usage_events = store
-            .state()
+        let usage_state = store.archive_state().await.unwrap();
+        let usage_events = usage_state
             .events
             .iter()
             .filter(|event| event.event.kind == EventKind::UsageReconciled)
@@ -921,7 +937,7 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
         assert!(!serde_json::to_string(&usage_events)
             .unwrap()
             .contains("provider corrected cumulative usage"));
-        let evidence = observe(&store, &access, window()).unwrap();
+        let evidence = observe(&store, &access, window()).await.unwrap();
         assert_eq!(evidence.attempts.len(), 2);
         let initial = evidence
             .attempts
@@ -990,6 +1006,7 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
                 until: Timestamp::new(1000),
             },
         )
+        .await
         .unwrap();
         let partial_first = partial
             .attempts
@@ -1015,7 +1032,11 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             tasks: Some(BTreeSet::from([task.scope.task.clone()])),
         };
         assert_eq!(
-            observe(&store, &scoped, window()).unwrap().attempts.len(),
+            observe(&store, &scoped, window())
+                .await
+                .unwrap()
+                .attempts
+                .len(),
             2
         );
         let denied = Access {
@@ -1026,7 +1047,7 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             write: false,
             tasks: None,
         };
-        assert!(observe(&store, &denied, window()).is_err());
+        assert!(observe(&store, &denied, window()).await.is_err());
         let mut oversized_tasks = (0..6000)
             .map(|index| TaskId::parse(format!("scope-{index:090}")).unwrap())
             .collect::<BTreeSet<_>>();
@@ -1040,11 +1061,15 @@ async fn accounting_attempts_keep_exact_cohorts_and_retry_lineage_on_both_stores
             tasks: Some(oversized_tasks),
         };
         assert!(observe(&store, &oversized, window())
+            .await
             .unwrap_err()
             .contains("512 KiB"));
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(observe(&reopened, &access, window()).unwrap(), evidence);
+        assert_eq!(
+            observe(&reopened, &access, window()).await.unwrap(),
+            evidence
+        );
     }
 }
 
@@ -1103,8 +1128,9 @@ async fn unknown_liability_and_no_send_release_never_become_free_visits() {
         .await
         .unwrap();
         let raw = capture(&mut store, &task, Channel::Response).await;
+        let legacy_state = store.archive_state().await.unwrap();
         vcp_budget::observe(
-            &mut LegacyAccounting(&mut store),
+            &mut LegacyAccounting(&mut store, legacy_state),
             UsageObservation {
                 id: ObservationId::new(),
                 scope: task.scope.clone(),
@@ -1133,7 +1159,7 @@ async fn unknown_liability_and_no_send_release_never_become_free_visits() {
         .await;
         settle(&mut store, &access, &task, &supporting, 41).await;
 
-        let evidence = observe(&store, &access, window()).unwrap();
+        let evidence = observe(&store, &access, window()).await.unwrap();
         let uncertain = evidence
             .attempts
             .iter()
@@ -1169,7 +1195,7 @@ async fn unknown_liability_and_no_send_release_never_become_free_visits() {
             .unwrap();
         assert_eq!(supporting.cohort.role, RequestRole::Verification);
         assert_eq!(supporting.charge.final_charge_micros, Some(10));
-        let mapped = rewards::map(&store, &access, window()).unwrap();
+        let mapped = rewards::map(&store, &access, window()).await.unwrap();
         assert_eq!(mapped.attempts, 4);
         assert_eq!(mapped.exact_attempts, 2);
         assert_eq!(mapped.unknown_attempts, 2);
@@ -1212,7 +1238,7 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
             let attempt = reserve(&mut store, &access, task, None, 10 + index as u64 * 10).await;
             settle(&mut store, &access, task, &attempt, 11 + index as u64 * 10).await;
         }
-        let complete = rewards::map(&store, &access, window()).unwrap();
+        let complete = rewards::map(&store, &access, window()).await.unwrap();
         let rewards::Status::Mapped { cells } = &complete.status else {
             panic!("settled attempts must map");
         };
@@ -1248,7 +1274,7 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
         assert_eq!(receipt.source_attempts_digest.len(), 64);
         assert!(receipt.historical_replay_only && !receipt.serving_qualified);
         let record = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &receipt.id))
             .unwrap();
@@ -1273,8 +1299,8 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
         )
         .await
         .unwrap();
-        let before = store.state().clone();
-        let mapped = rewards::map(&store, &access, window()).unwrap();
+        let before = store.archive_state().await.unwrap();
+        let mapped = rewards::map(&store, &access, window()).await.unwrap();
         assert_eq!(mapped.attempts, 3);
         assert_eq!(mapped.exact_attempts, 2);
         assert_eq!(mapped.unknown_attempts, 1);
@@ -1366,8 +1392,11 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
             tasks: Some(BTreeSet::from([tasks[0].scope.task.clone()])),
         };
         assert!(consumption::replay_reward(&store, &denied, &consumer_decision).is_err());
-        assert_eq!(rewards::map(&store, &access, window()).unwrap(), mapped);
-        assert_eq!(store.state(), &before);
+        assert_eq!(
+            rewards::map(&store, &access, window()).await.unwrap(),
+            mapped
+        );
+        assert_eq!(store.archive_state().await.unwrap(), before);
         assert!(matches!(
             rewards::map(
                 &store,
@@ -1377,6 +1406,7 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
                     until: Timestamp::new(200),
                 },
             )
+            .await
             .unwrap()
             .status,
             rewards::Status::Abstained {
@@ -1385,7 +1415,10 @@ async fn reward_mapping_withholds_cohort_mean_when_any_attempt_cost_is_unknown()
         ));
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(rewards::map(&reopened, &access, window()).unwrap(), mapped);
+        assert_eq!(
+            rewards::map(&reopened, &access, window()).await.unwrap(),
+            mapped
+        );
         assert_eq!(
             consumption::replay_reward(&reopened, &access, &consumer_decision).unwrap(),
             receipt
@@ -1424,7 +1457,7 @@ async fn old_verification_and_partial_attempt_windows_abstain_from_missing_ident
             },
         };
         let event = EventId::new();
-        store.transact(Transaction { id: TransactionId::new(), expected_watermark: store.state().watermark,
+        store.transact(Transaction { id: TransactionId::new(), expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put { record: Record::typed(Collection::Verification, id.as_str(), access.workspace.clone(),
                 Revision::ZERO, &verification).unwrap(), expected: None }],
             events: vec![EventInput { id: event, workspace: access.workspace.clone(), session: task.scope.session.clone(),
@@ -1432,7 +1465,7 @@ async fn old_verification_and_partial_attempt_windows_abstain_from_missing_ident
                 timestamp: Timestamp::new(30), kind: EventKind::VerificationRecorded, artifacts: vec![],
                 data: serde_json::json!({"schema_version":1,"facts":[{"collection":"verification","id":id,
                     "revision":Revision::ZERO,"value":verification}]}), metadata: None }], command: None }).await.unwrap();
-        let evidence = observe(&store, &access, window()).unwrap();
+        let evidence = observe(&store, &access, window()).await.unwrap();
         assert_eq!(evidence.verifications[0].observed_task_revision, None);
         assert_eq!(evidence.verifications[0].checks[0].failure_signature, None);
         assert!(!evidence.verifications[0].cost_known);
@@ -1459,6 +1492,7 @@ async fn old_verification_and_partial_attempt_windows_abstain_from_missing_ident
                 until: Timestamp::new(30)
             }
         )
+        .await
         .is_err());
     }
 }
@@ -1491,8 +1525,10 @@ async fn first_order_fit_records_source_parameters_and_abstention_without_persis
             .await
             .unwrap();
         let store = engine.into_store();
-        let before = store.state().clone();
-        let fitted = fits::fit(&store, &access, window(), 1_000, 1).unwrap();
+        let before = store.archive_state().await.unwrap();
+        let fitted = fits::fit(&store, &access, window(), 1_000, 1)
+            .await
+            .unwrap();
         assert_eq!(fitted.alphabet, vec![TaskState::Running, TaskState::Failed]);
         assert_eq!(fitted.row_samples, vec![1, 0]);
         assert!(matches!(
@@ -1512,12 +1548,16 @@ async fn first_order_fit_records_source_parameters_and_abstention_without_persis
         assert!(fitted.policy.is_none() && fitted.catalog.is_none());
         assert!(fitted.qualification.is_none() && !fitted.serving_qualified);
         assert_eq!(
-            fits::fit(&store, &access, window(), 1_000, 1).unwrap(),
+            fits::fit(&store, &access, window(), 1_000, 1)
+                .await
+                .unwrap(),
             fitted
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
 
-        let sparse = fits::fit(&store, &access, window(), 1_000, 2).unwrap();
+        let sparse = fits::fit(&store, &access, window(), 1_000, 2)
+            .await
+            .unwrap();
         assert!(matches!(
             sparse.status,
             fits::FitStatus::Abstained {
@@ -1534,6 +1574,7 @@ async fn first_order_fit_records_source_parameters_and_abstention_without_persis
             0,
             1,
         )
+        .await
         .unwrap();
         assert!(matches!(
             empty.status,
@@ -1541,7 +1582,9 @@ async fn first_order_fit_records_source_parameters_and_abstention_without_persis
                 reason: fits::Abstention::NoTransitions
             }
         ));
-        assert!(fits::fit(&store, &access, window(), 10_001, 1).is_err());
+        assert!(fits::fit(&store, &access, window(), 10_001, 1)
+            .await
+            .is_err());
     }
 }
 
@@ -1611,8 +1654,10 @@ async fn heldout_order_comparison_uses_stable_task_partitions_on_both_stores() {
                 .unwrap();
         }
         let store = engine.into_store();
-        let before = store.state().clone();
-        let comparison = fits::compare(&store, &access, window(), 0, 1, 2, 0).unwrap();
+        let before = store.archive_state().await.unwrap();
+        let comparison = fits::compare(&store, &access, window(), 0, 1, 2, 0)
+            .await
+            .unwrap();
         assert_eq!(comparison.training_tasks, 2);
         assert_eq!(comparison.heldout_tasks, 2);
         assert_eq!(comparison.training_segments, 2);
@@ -1635,20 +1680,27 @@ async fn heldout_order_comparison_uses_stable_task_partitions_on_both_stores() {
                     && result.first_order_two_step_max_abs_error == 0.0
         ));
         assert_eq!(
-            fits::compare(&store, &access, window(), 0, 1, 2, 0).unwrap(),
+            fits::compare(&store, &access, window(), 0, 1, 2, 0)
+                .await
+                .unwrap(),
             comparison
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         assert!(matches!(
             fits::compare(&store, &access, window(), 0, 3, 2, 0)
+                .await
                 .unwrap()
                 .status,
             fits::ComparisonStatus::Abstained {
                 reason: fits::ComparisonAbstention::Sparse
             }
         ));
-        assert!(fits::compare(&store, &access, window(), 0, 1, 1, 0).is_err());
-        assert!(fits::compare(&store, &access, window(), 0, 1, 2, 2).is_err());
+        assert!(fits::compare(&store, &access, window(), 0, 1, 1, 0)
+            .await
+            .is_err());
+        assert!(fits::compare(&store, &access, window(), 0, 1, 2, 2)
+            .await
+            .is_err());
     }
 }
 
@@ -1719,7 +1771,14 @@ async fn logical_event_purge_removes_action_observations_before_cleanup() {
             .await
             .unwrap();
         let mut store = engine.into_store();
-        assert_eq!(observe(&store, &access, window()).unwrap().turns.len(), 1);
+        assert_eq!(
+            observe(&store, &access, window())
+                .await
+                .unwrap()
+                .turns
+                .len(),
+            1
+        );
         let plan = retention::preview(
             &store,
             &access,
@@ -1729,7 +1788,8 @@ async fn logical_event_purge_removes_action_observations_before_cleanup() {
             },
             Action::Purge,
             Timestamp::new(1001),
-        ).await
+        )
+        .await
         .unwrap();
         assert!(plan
             .selected
@@ -1738,7 +1798,7 @@ async fn logical_event_purge_removes_action_observations_before_cleanup() {
         retention::apply(&mut store, &access, &plan, Timestamp::new(1001))
             .await
             .unwrap();
-        let masked = observe(&store, &access, window()).unwrap();
+        let masked = observe(&store, &access, window()).await.unwrap();
         assert!(masked.turns.is_empty());
         assert_eq!(masked.gaps.len(), 2);
         assert!(masked
@@ -1747,6 +1807,6 @@ async fn logical_event_purge_removes_action_observations_before_cleanup() {
             .all(|gap| gap.reason == GapReason::RedactedEvent));
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(observe(&reopened, &access, window()).unwrap(), masked);
+        assert_eq!(observe(&reopened, &access, window()).await.unwrap(), masked);
     }
 }

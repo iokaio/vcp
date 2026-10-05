@@ -24,12 +24,7 @@ fn retained(snapshot: &Snapshot, raw: &[u8], observed: Timestamp) -> Result<()> 
     {
         return Err("metadata-only refresh requires the current compiled adapter contract; empirical qualification or expired/altered adapter evidence cannot be renewed this way".into());
     }
-    let captured = Snapshot::from_endpoints(
-        raw,
-        snapshot.observed_at,
-        snapshot.valid_until,
-        snapshot.compatibility.clone(),
-    )?;
+    let captured = snapshot.rebuild_captured(raw)?;
     if &captured != snapshot {
         return Err("retained snapshot differs from its captured endpoint catalog".into());
     }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
-use crate::{contract::CanonicalStore, Store};
+use crate::{contract::CanonicalStore, legacy_store_fixture::LegacyFixture as Store};
 #[path = "../tests/common/mod.rs"]
 mod common;
 

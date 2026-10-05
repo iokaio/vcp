@@ -18,13 +18,16 @@ use vcp_domain::{
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_repository::{path::HeldPath, FileVersion, Root, RootIdentity};
-use vcp_store::{contract::Collection, restore_import::Imported};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    restore_import::Imported,
+};
 type Result<T> = std::result::Result<T, String>;
 
 /// Derive a local descriptor without mutating the authenticated import. Publish
 /// it as rebind-pending, then use the ordinary canonical Rebind command. This
 /// ordering preserves the exact import proof across a pre-activation crash.
-pub fn restored_configuration(
+pub async fn restored_configuration(
     store: &vcp_store::Store,
     imported: &Imported,
     materialized: &Materialized,
@@ -42,7 +45,12 @@ pub fn restored_configuration(
     if materialized.workspace() != imported.workspace()
         || materialized.state_digest() != imported.state_digest()
         || materialized.source_manifest() != imported.source_manifest()
-        || digest_bytes(&canonical_bytes(store.state()).map_err(|e| e.to_string())?)
+        || store
+            .snapshot()
+            .map_err(|e| e.to_string())?
+            .logical_digest()
+            .await
+            .map_err(|e| e.to_string())?
             != imported.state_digest()
         || store
             .canonical_anchor()
@@ -60,7 +68,7 @@ pub fn restored_configuration(
         .checkpoint()
         .ok_or("restored workspace checkpoint missing")?;
     let artifact: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(
             Collection::Artifact,
             checkpoint.manifest.as_str(),
@@ -71,7 +79,7 @@ pub fn restored_configuration(
         .map_err(|e| e.to_string())?;
     let scope = &artifact.spec.scope;
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), imported.workspace())
         .map_err(|e| e.to_string())?
         .decode()
@@ -80,7 +88,7 @@ pub fn restored_configuration(
         return Err("restored checkpoint does not identify a root task".into());
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             imported.workspace().as_str(),
@@ -93,7 +101,7 @@ pub fn restored_configuration(
         return Err("restored execution authority was not sanitized".into());
     }
     let ledger = store
-        .state()
+        .current()
         .records
         .get(&vcp_store::contract::key(
             Collection::Ledger,
@@ -336,7 +344,7 @@ pub async fn materialize(
         .await
         .map_err(|e| e.to_string())?;
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             imported.workspace().as_str(),
@@ -386,7 +394,7 @@ pub async fn materialize(
             return Err("checkpoint source names collide on Windows".into());
         }
         let descriptor: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), imported.workspace())
             .map_err(|e| e.to_string())?
             .decode()

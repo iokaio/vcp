@@ -12,7 +12,7 @@ async fn benchmark_retained_history() {
         .await
         .unwrap();
     let elapsed = started.elapsed();
-    let state = store.state();
+    let state = (&store.archive_state().await.unwrap());
     println!(
         "replay_seconds={:.6} watermark={} records={} events={} state_sha256={}",
         elapsed.as_secs_f64(),

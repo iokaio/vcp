@@ -32,22 +32,27 @@ fn memory_error(value: vcp_memory::Error) -> RpcError {
         _ => unavailable(),
     }
 }
-fn visible_origins(
-    state: &vcp_store::contract::State,
+async fn visible_origins(
+    store: &impl CanonicalStore,
     access: &Access,
     origins: &[EventId],
 ) -> std::result::Result<Vec<methods::Id>, RpcError> {
-    origins
-        .iter()
-        .filter(|id| {
-            state.events.iter().any(|event| {
-                event.event.id == **id
-                    && event.event.workspace == access.workspace
-                    && event.event.session == access.session
-            })
-        })
-        .map(|origin| id(origin.as_str()))
-        .collect()
+    let mut visible = Vec::new();
+    for origin in origins {
+        if let Some(event) = store
+            .history_event(origin)
+            .await
+            .map_err(|_| unavailable())?
+        {
+            if event.event.id != *origin {
+                return Err(unavailable());
+            }
+            if event.event.workspace == access.workspace && event.event.session == access.session {
+                visible.push(id(origin.as_str())?);
+            }
+        }
+    }
+    Ok(visible)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -119,7 +124,7 @@ async fn inspect(
         return Err(error(Code::PolicyDenied));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, request.task.as_str(), &access.workspace)
         .map_err(|_| unavailable())?
         .decode()
@@ -133,7 +138,7 @@ async fn inspect(
     }
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)
@@ -157,7 +162,7 @@ async fn inspect(
     };
     let claim = ClaimId::parse(request.claim.as_str()).map_err(|_| RpcError::invalid_params())?;
     let workspace: vcp_domain::workspace::Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -247,7 +252,7 @@ async fn inspect(
                     .find(|source| source.artifact == observed.artifact)
                     .ok_or_else(unavailable)?;
                 let descriptor: ArtifactDescriptor = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         observed.artifact.as_str(),
@@ -270,12 +275,11 @@ async fn inspect(
                 });
             }
         }
-        let origins = row
-            .version
-            .as_ref()
-            .map(|version| visible_origins(store.state(), access, &version.proposal.origins))
-            .transpose()?
-            .unwrap_or_default();
+        let origins = if let Some(version) = row.version.as_ref() {
+            visible_origins(store, access, &version.proposal.origins).await?
+        } else {
+            Vec::new()
+        };
         let (mut content, resolution) = if let Some(version) = row.version {
             let resolution = version.resolution;
             let outcome = match resolution.outcome {
@@ -317,7 +321,7 @@ async fn inspect(
             content.truncate(end);
         }
         let decision = vcp_memory::retention::decision(
-            store.state(),
+            store.current(),
             &access.workspace,
             &vcp_memory::retention::Target::Record(vcp_store::contract::key(
                 Collection::Claim,

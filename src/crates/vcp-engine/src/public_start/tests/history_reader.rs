@@ -31,7 +31,7 @@ impl Paged {
         }
     }
 }
-impl CanonicalStore for Paged {
+impl vcp_store::contract::reference::ReferenceStore for Paged {
     fn state(&self) -> &State {
         panic!("proof attempted whole-State access")
     }

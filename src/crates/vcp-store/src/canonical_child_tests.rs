@@ -35,14 +35,14 @@ async fn canonical_child_requires_actual_locked_owner_fixed_name_and_forbidden_s
         store.close().await.unwrap();
 
         let root = temp.path().join("protected-parent");
-        let forbidden = root.join("history-pages");
+        let forbidden = root.join("protected-child");
         fs::create_dir_all(&forbidden).unwrap();
         // Existing Store admission permits a sibling spool here. Deriving the
         // canonical history child must independently preserve the protected path.
         let store = Store::open(&root, kind, &[forbidden.clone()])
             .await
             .unwrap();
-        assert!(Directory::canonical_child(&store, "history-pages").is_err());
+        assert!(Directory::canonical_child(&store, "protected-child").is_err());
         assert_eq!(fs::read_dir(forbidden).unwrap().count(), 0);
         store.close().await.unwrap();
     }
@@ -53,9 +53,9 @@ async fn canonical_child_does_not_treat_existing_file_as_directory() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("canonical");
     let store = Store::open(&root, BackendKind::Files, &[]).await.unwrap();
-    let path = root.join("history-pages");
+    let path = root.join("non-directory-child");
     fs::write(&path, b"preserve existing user bytes").unwrap();
-    assert!(Directory::canonical_child(&store, "history-pages").is_err());
+    assert!(Directory::canonical_child(&store, "non-directory-child").is_err());
     assert_eq!(fs::read(path).unwrap(), b"preserve existing user bytes");
     store.close().await.unwrap();
 }

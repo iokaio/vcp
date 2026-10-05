@@ -16,7 +16,6 @@ const PAGE_ROWS: usize = 4096;
 mod artifacts;
 #[path = "history_catalog_copy.rs"]
 mod copy;
-#[cfg(test)]
 #[path = "history_catalog_current.rs"]
 mod current_append;
 #[path = "history_catalog_encoding.rs"]

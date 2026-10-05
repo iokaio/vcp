@@ -5,16 +5,16 @@ use serde::{Deserialize, Serialize};
 use vcp_models::markov::Chain;
 
 /// Load both immutable snapshots under current source authorization.
-pub fn saved(
+pub async fn saved(
     store: &vcp_store::Store,
     access: &vcp_memory::access::Access,
     baseline: &str,
     current: &str,
 ) -> super::Result<Option<Comparison>> {
-    let before = super::load_report(store, access, baseline)?;
-    let after = super::load_report(store, access, current)?;
-    let before = super::forecast_reports::load(store, access, &before)?;
-    let after = super::forecast_reports::load(store, access, &after)?;
+    let before = super::load_report(store, access, baseline).await?;
+    let after = super::load_report(store, access, current).await?;
+    let before = super::forecast_reports::load(store, access, &before).await?;
+    let after = super::forecast_reports::load(store, access, &after).await?;
     Ok(match (before, after) {
         (Some(before), Some(after)) => Some(compare(&before, &after)),
         _ => None,

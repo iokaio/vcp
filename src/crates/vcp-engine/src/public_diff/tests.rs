@@ -315,7 +315,7 @@ async fn diff_ranges_use_original_proposal_link_after_outcome_and_restart_on_bot
             engine.public_diff(&access(), &request()).await.unwrap(),
             initial
         );
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         let mut tail = request();
         tail.offset = ((bytes.len() - 10) as u64).into();
         assert!(engine.public_diff(&access(), &tail).await.unwrap().complete);
@@ -330,7 +330,7 @@ async fn diff_ranges_use_original_proposal_link_after_outcome_and_restart_on_bot
             engine.public_diff(&denied, &request()).await,
             Err(QueryError::Access)
         );
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
         let engine = Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
         assert_eq!(
@@ -358,7 +358,15 @@ async fn diff_respects_logical_artifact_and_original_linkage_retention_before_by
         for linkage in [false, true] {
             let temp = tempfile::tempdir().unwrap();
             let (mut engine, descriptor, _) = fixture(temp.path(), backend, 0).await;
-            let event = engine.store().state().events.last().unwrap();
+            let event = engine
+                .store()
+                .archive_state()
+                .await
+                .unwrap()
+                .events
+                .last()
+                .unwrap()
+                .clone();
             let mask = RetentionMask {
                 schema_version: 1,
                 workspace: access().workspace,
@@ -383,7 +391,7 @@ async fn diff_respects_logical_artifact_and_original_linkage_retention_before_by
             };
             let tx = Transaction {
                 id: TransactionId::new(),
-                expected_watermark: engine.store().state().watermark,
+                expected_watermark: engine.store().current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record: Record::typed(

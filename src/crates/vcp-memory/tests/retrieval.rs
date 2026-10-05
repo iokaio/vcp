@@ -137,7 +137,11 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> (Store, Scope,
         write: true,
         tasks: None,
     };
-    let event = engine.store().state().events.last().unwrap().clone();
+    let event = (&engine.store().archive_state().await.unwrap())
+        .events
+        .last()
+        .unwrap()
+        .clone();
     let proposal = vcp_memory::preferences::materialize(engine.store_mut(), &access, &event)
         .await
         .unwrap()
@@ -219,7 +223,11 @@ async fn recent_overlay_recalls_new_claims_with_current_scope_and_return_fences(
             fingerprint: Fingerprint {repository:"a".repeat(64), buffers:"b".repeat(64), environment:"c".repeat(64)},
             editing:false, required_checks:vec![],
         }).await;
-            let event = engine.store().state().events.last().unwrap().clone();
+            let event = (&engine.store().archive_state().await.unwrap())
+                .events
+                .last()
+                .unwrap()
+                .clone();
             let proposal =
                 vcp_memory::preferences::materialize(engine.store_mut(), &access, &event)
                     .await
@@ -594,15 +602,14 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
         .unwrap();
         assert!(history.rebuild_required && history.passages.is_empty());
         let artifact = result.passages[0].evidence[0].clone();
-        let attached = store
-            .state()
+        let attached = (&store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|event| event.event.artifacts.contains(&artifact))
             .unwrap()
             .clone();
         let mut workspace: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 scope.workspace.as_str(),
@@ -631,7 +638,7 @@ async fn pinned_stale_view_cannot_return_denied_or_pruned_text_and_fence_recheck
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(previous),

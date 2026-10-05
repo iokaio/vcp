@@ -15,7 +15,7 @@ use vcp_memory::{
 use vcp_models::{markov::Chain, routing::RoutingDecision};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_store::{
-    contract::{key, Collection},
+    contract::{key, Collection, CanonicalStore},
     Store,
 };
 
@@ -194,14 +194,14 @@ fn routing(
 ) -> Result<Option<RoutingDecision>> {
     let name = decision_name(&attempt.attempt);
     let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
     else {
         return Ok(None);
     };
     if purged(
-        store.state(),
+        store.current(),
         &access.workspace,
         &Target::Record(record.key()),
     )
@@ -218,7 +218,7 @@ fn routing(
         serde_json::from_value(record.value["decision"].clone()).map_err(err)?;
     decision.validate().map_err(err)?;
     let admitted: vcp_domain::accounting::Attempt = store
-        .state()
+        .current()
         .record(
             Collection::Attempt,
             attempt.attempt.as_str(),
@@ -249,10 +249,10 @@ fn routing(
 
 /// Analyze one coherent retained view without persisting, dispatching, or
 /// changing routing/verification/budget state. Unknown evidence is not zero.
-pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
-    observe_with_check(store, access, window, &|| Ok(()))
+pub async fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
+    observe_with_check(store, access, window, &|| Ok(())).await
 }
-pub fn observe_with_check(
+pub async fn observe_with_check(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -260,8 +260,10 @@ pub fn observe_with_check(
 ) -> Result<Report> {
     cooperate()?;
     authorize(store, access, false)?;
-    let actions = observations::observe_with_check(store, access, window.clone(), cooperate)?;
-    let lifecycle = transitions::observe_with_check(store, access, window.clone(), cooperate)?;
+    let actions =
+        observations::observe_with_check(store, access, window.clone(), cooperate).await?;
+    let lifecycle =
+        transitions::observe_with_check(store, access, window.clone(), cooperate).await?;
     if lifecycle.traces.len() > MAX_EPISODES {
         return Err("forecast exceeds 512 tasks; narrow the window".into());
     }
@@ -271,7 +273,7 @@ pub fn observe_with_check(
     let mut total_visits = 0usize;
     let mut unsupported_roots = BTreeSet::new();
     for record in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.collection == Collection::Task && r.workspace == access.workspace)
@@ -378,7 +380,7 @@ pub fn observe_with_check(
             .references
             .insert(key(Collection::Attempt, trace.attempt.as_str()));
         let decision = key(Collection::Projection, &decision_name(&trace.attempt));
-        if store.state().records.contains_key(&decision) {
+        if store.current().records.contains_key(&decision) {
             report.references.insert(decision);
         }
         report
@@ -581,12 +583,12 @@ fn episode(
                     digest_bytes(attempt.attempt.as_str().as_bytes())
                 );
                 let escalation = store
-                    .state()
+                    .current()
                     .records
                     .get(&key(Collection::Projection, &escalation_id));
                 if let Some(record) = escalation {
                     if purged(
-                        store.state(),
+                        store.current(),
                         &access.workspace,
                         &Target::Record(record.key()),
                     )

@@ -17,7 +17,7 @@ async fn outer_migration_anchor_survives_rewrite_and_subsequent_backend_switch()
             .transact(initial())
             .await
             .unwrap();
-        let state = active.store().state().clone();
+        let state = (&active.store().archive_state().await.unwrap()).clone();
         active
             .store_mut()
             .unwrap()
@@ -33,13 +33,13 @@ async fn outer_migration_anchor_survives_rewrite_and_subsequent_backend_switch()
         let mut active = migration::ActiveRoot::open(temp.path(), Some(kind), &[])
             .await
             .unwrap();
-        assert_eq!(active.store().state(), &state);
+        assert_eq!((&active.store().archive_state().await.unwrap()), &state);
         active.switch(other).await.unwrap();
         drop(active);
         let active = migration::ActiveRoot::open(temp.path(), Some(other), &[])
             .await
             .unwrap();
-        assert_eq!(active.store().state(), &state);
+        assert_eq!((&active.store().archive_state().await.unwrap()), &state);
     }
 }
 use vcp_store::{contract::*, *};
@@ -75,11 +75,15 @@ async fn typed_content_redaction_removes_new_root_bytes_but_reports_old_root_pen
         let mut descriptor = writer.finalize().unwrap();
         drop(writer);
         store
-            .transact(attach(store.state(), descriptor.clone(), None))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                descriptor.clone(),
+                None,
+            ))
             .await
             .unwrap();
         let old_snapshot = store.snapshot().unwrap();
-        let mut baseline = store.state().clone();
+        let mut baseline = (&store.archive_state().await.unwrap()).clone();
         for record in baseline.records.values_mut() {
             if record.collection == Collection::Task {
                 record.value = serde_json::to_value(
@@ -102,21 +106,26 @@ async fn typed_content_redaction_removes_new_root_bytes_but_reports_old_root_pen
         let receipt = store.rewrite_base(baseline, &[]).await.unwrap();
         assert_eq!(receipt.pending_roots, vec!["anchor"]);
         assert!(store.spool().read(&descriptor, Vec::new()).is_err());
-        let bytes = vcp_protocol::canonical_bytes(store.snapshot().unwrap().state()).unwrap();
+        let bytes = vcp_protocol::canonical_bytes(
+            (&store.snapshot().unwrap().archive_state().await.unwrap()),
+        )
+        .unwrap();
         assert!(!bytes.windows(marker.len()).any(|w| w == marker.as_bytes()));
         for file in vcp_store::rewrite::owned_files(store.root()).unwrap() {
             let bytes = std::fs::read(file).unwrap();
             assert!(!bytes.windows(marker.len()).any(|w| w == marker.as_bytes()));
         }
-        assert!(vcp_protocol::canonical_bytes(old_snapshot.state())
-            .unwrap()
-            .windows(marker.len())
-            .any(|w| w == marker.as_bytes()));
+        assert!(
+            vcp_protocol::canonical_bytes((&old_snapshot.archive_state().await.unwrap()))
+                .unwrap()
+                .windows(marker.len())
+                .any(|w| w == marker.as_bytes())
+        );
         assert!(vcp_store::rewrite::owned_files(&anchor)
             .unwrap()
             .iter()
             .any(|p| p.extension().is_some_and(|e| e == "chunk")));
-        let original_receipt = store.state().transactions[&tx.id].clone();
+        let original_receipt = (&store.archive_state().await.unwrap()).transactions[&tx.id].clone();
         assert_eq!(store.transact(tx).await.unwrap(), original_receipt);
         store.close().await.unwrap();
         let reopened = Store::open(&anchor, kind, &[]).await.unwrap();
@@ -138,11 +147,15 @@ async fn replay_base_preserves_finalized_artifact_bytes_and_conversion() {
         let descriptor = writer.finalize().unwrap();
         drop(writer);
         store
-            .transact(attach(store.state(), descriptor.clone(), None))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                descriptor.clone(),
+                None,
+            ))
             .await
             .unwrap();
         store
-            .rewrite_base(store.state().clone(), &[])
+            .rewrite_base((&store.archive_state().await.unwrap()).clone(), &[])
             .await
             .unwrap();
         let mut bytes = Vec::new();
@@ -152,7 +165,10 @@ async fn replay_base_preserves_finalized_artifact_bytes_and_conversion() {
             .convert(&temp.path().join("copy"), kind, &[])
             .await
             .unwrap();
-        assert_eq!(converted.state(), store.state());
+        assert_eq!(
+            (&converted.archive_state().await.unwrap()),
+            (&store.archive_state().await.unwrap())
+        );
         let mut bytes = Vec::new();
         converted.spool().read(&descriptor, &mut bytes).unwrap();
         assert_eq!(bytes, b"retained synthetic payload");
@@ -182,20 +198,20 @@ async fn rewrite_reopens_suffix_checkpoint_retry_and_conversion_on_both_backends
         let anchor = temp.path().join("root");
         let mut store = Store::open(&anchor, kind, &[]).await.unwrap();
         let original = store.transact(initial()).await.unwrap();
-        let state = store.state().clone();
+        let state = (&store.archive_state().await.unwrap()).clone();
         let receipt = store.rewrite_base(state.clone(), &[]).await.unwrap();
         assert_eq!(receipt.pending_roots, vec!["anchor"]);
-        assert_eq!(store.state(), &state);
+        assert_eq!((&store.archive_state().await.unwrap()), &state);
         assert_ne!(store.root(), anchor.canonicalize().unwrap());
         assert!(Store::open(&anchor, kind, &[]).await.is_err());
         assert_eq!(store.transact(initial()).await.unwrap(), original);
-        let next = suffix(store.state());
+        let next = suffix((&store.archive_state().await.unwrap()));
         let next_receipt = store.transact(next.clone()).await.unwrap();
         store.checkpoint().unwrap();
-        let expected = store.state().clone();
+        let expected = (&store.archive_state().await.unwrap()).clone();
         store.close().await.unwrap();
         let mut store = Store::open(&anchor, kind, &[]).await.unwrap();
-        assert_eq!(store.state(), &expected);
+        assert_eq!((&store.archive_state().await.unwrap()), &expected);
         assert_eq!(store.transact(next).await.unwrap(), next_receipt);
         let other = if kind == BackendKind::Files {
             BackendKind::Sqlite
@@ -206,14 +222,14 @@ async fn rewrite_reopens_suffix_checkpoint_retry_and_conversion_on_both_backends
             .convert(&temp.path().join("converted"), other, &[])
             .await
             .unwrap();
-        assert_eq!(converted.state(), &expected);
+        assert_eq!((&converted.archive_state().await.unwrap()), &expected);
         converted.close().await.unwrap();
         let again = store.rewrite_base(expected.clone(), &[]).await.unwrap();
         assert_eq!(again.generation, 1);
         assert_eq!(again.pending_roots.len(), 2);
         store.close().await.unwrap();
         let store = Store::open(&anchor, kind, &[]).await.unwrap();
-        assert_eq!(store.state(), &expected);
+        assert_eq!((&store.archive_state().await.unwrap()), &expected);
         store.close().await.unwrap();
         // Original acknowledged history remains explicit recovery material.
         assert!(anchor
@@ -250,12 +266,12 @@ async fn invalid_commitments_and_corrupt_base_fail_without_reopening_old_root() 
         let temp = tempfile::tempdir().unwrap();
         let mut store = Store::open(temp.path(), kind, &[]).await.unwrap();
         store.transact(initial()).await.unwrap();
-        let mut invalid = store.state().clone();
+        let mut invalid = (&store.archive_state().await.unwrap()).clone();
         invalid.transactions.clear();
         assert!(store.rewrite_base(invalid, &[]).await.is_err());
-        assert_eq!(store.state().watermark, Watermark::new(1));
+        assert_eq!(store.current().watermark, Watermark::new(1));
         store
-            .rewrite_base(store.state().clone(), &[])
+            .rewrite_base((&store.archive_state().await.unwrap()).clone(), &[])
             .await
             .unwrap();
         let forbidden = temp.path().join("sync-root");
@@ -297,7 +313,7 @@ async fn rewrite_process_child() {
         }
     }));
     store
-        .rewrite_base(store.state().clone(), &[])
+        .rewrite_base((&store.archive_state().await.unwrap()).clone(), &[])
         .await
         .unwrap();
     panic!("activation barrier not reached");
@@ -372,7 +388,7 @@ async fn durable_snapshot_job_keeps_retired_payloads_until_source_refs_release()
             .unwrap();
         drop(capture);
         store
-            .rewrite_base(store.state().clone(), &[])
+            .rewrite_base((&store.archive_state().await.unwrap()).clone(), &[])
             .await
             .unwrap();
         store.close().await.unwrap();

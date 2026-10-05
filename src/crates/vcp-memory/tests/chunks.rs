@@ -372,9 +372,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let directory = tempfile::tempdir().unwrap();
         let (mut engine, binding) = fixture(directory.path(), backend, b"fn parse() {}\n").await;
-        let primary_origin = engine
-            .store()
-            .state()
+        let primary_origin = (&engine.store().archive_state().await.unwrap())
             .events
             .last()
             .unwrap()
@@ -405,9 +403,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             .handle(create, &owner(), &HostFacts::inspect(Timestamp::new(100)))
             .await
             .unwrap();
-        let other_origin = engine
-            .store()
-            .state()
+        let other_origin = (&engine.store().archive_state().await.unwrap())
             .events
             .last()
             .unwrap()
@@ -416,7 +412,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             .clone();
         let mut store = engine.into_store();
         let artifact: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 binding.artifact.as_str(),
@@ -533,15 +529,14 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
 
         // A retention mask must not bypass the current origin-task access fence.
         use vcp_store::contract::{Mutation, Record, Transaction};
-        let origin = store
-            .state()
+        let origin = (&store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|event| event.event.id == correction.origins[0])
             .unwrap()
             .clone();
         let mut workspace: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 owner().workspace.as_str(),
@@ -607,7 +602,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(previous),
@@ -675,7 +670,7 @@ async fn cooperative_inventory_cancellation_never_returns_a_partial_digest() {
                 Ok(())
             }
         };
-        let before = engine.store().state().watermark;
+        let before = engine.store().current().watermark;
         let result = inventory_with_check(
             engine.store(),
             &access(),
@@ -690,7 +685,7 @@ async fn cooperative_inventory_cancellation_never_returns_a_partial_digest() {
             Err(vcp_memory::Error::Conflict("fixture scan interrupted"))
         ));
         assert_eq!(calls.get(), 8, "stop at the first failed checkpoint");
-        assert_eq!(engine.store().state().watermark, before);
+        assert_eq!(engine.store().current().watermark, before);
         let complete = inventory(
             engine.store(),
             &access(),

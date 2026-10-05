@@ -4,7 +4,9 @@ use crate::{routing::ModelEndpoint, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use vcp_domain::{
-    accounting::{ChargeCategory, Money, RequestRole},
+    accounting::{
+        ChargeCategory, EstimatedMicros, EstimatedMoney, MonetaryLimit, Money, RequestRole,
+    },
     Micros, Units,
 };
 
@@ -15,18 +17,33 @@ pub fn reference_cost(
     input: Units,
     output: Units,
 ) -> std::result::Result<Money, String> {
-    let charge = |category, units: Units| -> std::result::Result<u64, String> {
-        let rate = snapshot
-            .price
-            .rates
-            .get(&category)
-            .ok_or("reference price category unavailable")?;
+    let estimate = reference_estimate(snapshot, input, output)?;
+    Ok(Money {
+        currency: estimate.currency,
+        micros: estimate
+            .micros
+            .known()
+            .ok_or("reference price category unavailable")?,
+    })
+}
+
+pub fn reference_estimate(
+    snapshot: &crate::catalog::Snapshot,
+    input: Units,
+    output: Units,
+) -> std::result::Result<EstimatedMoney, String> {
+    let charge = |category, units: Units| -> std::result::Result<EstimatedMicros, String> {
+        let Some(rate) = snapshot.price.rates.get(&category) else {
+            return EstimatedMicros::unknown(Micros::ZERO, Units::new(1))
+                .map_err(|e| e.to_string());
+        };
         if rate.per_units == Units::ZERO {
             return Err("reference price denominator invalid".into());
         }
         let numerator = u128::from(rate.micros.get()) * u128::from(units.get());
         let denominator = u128::from(rate.per_units.get());
         u64::try_from(numerator.div_ceil(denominator))
+            .map(|value| Micros::new(value).into())
             .map_err(|_| "reference price overflow".into())
     };
     let input = [
@@ -36,21 +53,33 @@ pub fn reference_cost(
     ]
     .into_iter()
     .map(|category| charge(category, input))
-    .collect::<std::result::Result<Vec<_>, _>>()?
-    .into_iter()
-    .max()
-    .ok_or("reference input price unavailable")?;
+    .collect::<std::result::Result<Vec<_>, _>>()?;
+    let known = input
+        .iter()
+        .map(|value| value.known_component())
+        .max()
+        .ok_or("reference input price unavailable")?;
+    let unpriced = input
+        .iter()
+        .map(|value| value.unknown_components().get())
+        .sum::<u64>();
+    let input = if unpriced == 0 {
+        known.into()
+    } else {
+        EstimatedMicros::unknown(known, Units::new(unpriced)).map_err(|e| e.to_string())?
+    };
     let total = input
         .checked_add(charge(ChargeCategory::Output, output)?)
-        .and_then(|total| {
-            charge(ChargeCategory::Request, Units::new(1))
-                .ok()
-                .and_then(|request| total.checked_add(request))
+        .and_then(|value| {
+            value.checked_add(
+                charge(ChargeCategory::Request, Units::new(1))
+                    .map_err(|_| vcp_domain::Error::Invalid("reference request price"))?,
+            )
         })
-        .ok_or("reference price overflow or missing request rate")?;
-    Ok(Money {
+        .map_err(|e| e.to_string())?;
+    Ok(EstimatedMoney {
         currency: snapshot.price.currency.clone(),
-        micros: Micros::new(total),
+        micros: total,
     })
 }
 
@@ -60,8 +89,23 @@ pub struct ChoiceSet {
     pub id: String,
     pub label: String,
     pub members: Vec<ModelEndpoint>,
-    pub reference_request_cost: Money,
-    pub max_reference_request_cost: Money,
+    pub reference_request_cost: EstimatedMoney,
+    #[serde(serialize_with = "serialize_ceiling")]
+    pub max_reference_request_cost: MonetaryLimit,
+}
+fn serialize_ceiling<S: serde::Serializer>(
+    value: &MonetaryLimit,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    if let Some(micros) = value.micros.finite() {
+        Money {
+            currency: value.currency.clone(),
+            micros: *micros,
+        }
+        .serialize(serializer)
+    } else {
+        value.serialize(serializer)
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,7 +164,14 @@ impl Policy {
                     || set.members.len() > 32
                     || set.reference_request_cost.currency
                         != set.max_reference_request_cost.currency
-                    || set.reference_request_cost.micros > set.max_reference_request_cost.micros
+                    || (!set.max_reference_request_cost.micros.is_unbounded()
+                        && set
+                            .reference_request_cost
+                            .micros
+                            .known()
+                            .is_none_or(|cost| {
+                                set.max_reference_request_cost.micros.exceeds(&cost)
+                            }))
                 {
                     return Err(Error::Protocol(
                         "rotation choice set bounds or price ceiling",
@@ -184,8 +235,8 @@ mod tests {
                     id: "normal".into(),
                     label: "Normal".into(),
                     members: vec![endpoint("fixture/a", "region/a")],
-                    reference_request_cost: money(10),
-                    max_reference_request_cost: money(20),
+                    reference_request_cost: money(10).into(),
+                    max_reference_request_cost: money(20).into(),
                 }],
             }],
         }
@@ -214,8 +265,29 @@ mod tests {
         let mut invalid_price = base.clone();
         invalid_price.roles[0].sets[0]
             .max_reference_request_cost
-            .micros = Micros::new(9);
+            .micros = Micros::new(9).into();
         assert!(invalid_price.validate().is_err());
+    }
+    #[test]
+    fn finite_rotation_bytes_remain_legacy_and_unknown_reference_requires_unbounded() {
+        let mut policy = policy();
+        let legacy = serde_json::to_value(&policy).unwrap();
+        assert_eq!(
+            legacy["roles"][0]["sets"][0]["max_reference_request_cost"]["micros"],
+            "20"
+        );
+        assert_eq!(serde_json::from_value::<Policy>(legacy).unwrap(), policy);
+        policy.roles[0].sets[0].reference_request_cost.micros =
+            EstimatedMicros::unknown(Micros::new(10), Units::new(1)).unwrap();
+        assert!(policy.validate().is_err());
+        policy.roles[0].sets[0].max_reference_request_cost.micros = vcp_domain::Limit::Unbounded;
+        policy.validate().unwrap();
+        let encoded = serde_json::to_value(&policy).unwrap();
+        assert_eq!(
+            encoded["roles"][0]["sets"][0]["max_reference_request_cost"]["micros"],
+            serde_json::json!({"kind":"unbounded","version":1})
+        );
+        assert_eq!(serde_json::from_value::<Policy>(encoded).unwrap(), policy);
     }
     #[test]
     fn extra_endpoints_do_not_weight_model_rotation() {

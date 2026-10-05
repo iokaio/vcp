@@ -23,6 +23,7 @@ mod conformance;
 #[cfg(windows)]
 mod console;
 mod control;
+mod diagnostic_history;
 mod diagnostic_turn;
 #[cfg(windows)]
 pub(super) mod decision;
@@ -362,7 +363,7 @@ impl Context {
         };
         if let Some(expected) = expected {
             let task: Task = store
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     config.root_task.as_str(),
@@ -396,12 +397,12 @@ impl Context {
         let response_recovery: Vec<_> = unfinished
             .iter()
             .filter(|physical| {
-                capture_recovery::response(engine.store().state(), physical).is_some()
+                capture_recovery::response(engine.store().current(), physical).is_some()
             })
             .cloned()
             .collect();
         let interrupted_capture = unfinished.iter().any(|physical| {
-            if capture_recovery::response(engine.store().state(), physical).is_some() {
+            if capture_recovery::response(engine.store().current(), physical).is_some() {
                 return false;
             }
             physical.state != CaptureState::Aborted
@@ -413,7 +414,7 @@ impl Context {
                 || physical.spec.omissions.contains(&Omission::CaptureFailure)
                 || engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         physical.spec.id.as_str(),
@@ -426,7 +427,7 @@ impl Context {
         });
         let provider_required = engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -473,7 +474,7 @@ impl Context {
             #[cfg(windows)]
             verification: HashMap::new(),
         };
-        if context.engine.store().state().records.is_empty() {
+        if context.engine.store().current().records.is_empty() {
             context.command(
                 Command::Initialize {
                     binding: context.config.binding.clone(),
@@ -485,7 +486,7 @@ impl Context {
             let workspace: Workspace = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     context.config.workspace.as_str(),
@@ -500,7 +501,7 @@ impl Context {
             let attempts: Vec<Attempt> = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)
@@ -522,7 +523,7 @@ impl Context {
             let tasks: Vec<Task> = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Task)
@@ -605,7 +606,7 @@ impl Context {
             .and_then(|id| {
                 self.engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Task, id.as_str(), &self.config.workspace)
                     .ok()
             })
@@ -627,7 +628,7 @@ impl Context {
         let host = HostFacts {
             now: now(),
             policy: vcp_engine::policy::optional(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config.workspace,
             )?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -642,7 +643,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -684,7 +685,7 @@ impl Context {
         #[cfg(windows)]
         if binding.scope.task != self.config.root_task
             && vcp_engine::agents::graph(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &binding.scope,
                 &self.config.root_task,
             )?
@@ -693,7 +694,7 @@ impl Context {
             let child: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),
@@ -701,7 +702,7 @@ impl Context {
                 )?
                 .decode()?;
             if !vcp_engine::agents::eligibility(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &child,
                 now(),
                 self.owner_alive,
@@ -720,7 +721,7 @@ impl Context {
             let task: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, current.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if task.state != TaskState::Running {
@@ -789,7 +790,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -806,7 +807,7 @@ impl Context {
         let tasks = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -835,7 +836,7 @@ impl Context {
         let effects_reconciled = !self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Effect)
@@ -867,7 +868,7 @@ impl Context {
             for row in self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Approval)
@@ -880,7 +881,7 @@ impl Context {
                     && approval.controller.as_ref() == Some(self.engine.controller())
                     && approval.owner_epoch == Some(self.engine.owner_epoch())
                     && vcp_engine::questions::actionable(
-                        self.engine.store().state(),
+                        self.engine.store().current(),
                         &approval,
                         now(),
                     )?
@@ -911,7 +912,7 @@ impl Context {
             let host = HostFacts {
                 now: now(),
                 policy: vcp_engine::policy::optional(
-                    self.engine.store().state(),
+                    self.engine.store().current(),
                     &self.config.workspace,
                 )?
                 .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -945,7 +946,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -959,7 +960,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -1143,11 +1144,11 @@ impl Context {
                 return Err(error);
             }
         };
-        let root = vcp_budget::ledger(self.engine.store().state(), scope)?;
+        let root = vcp_budget::ledger(self.engine.store().current(), scope)?;
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
             .decode()?;
         // Reserve all possible input/cache partitions conservatively. Prices
@@ -1447,7 +1448,7 @@ impl Context {
         let attempt: Attempt = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Attempt, id.as_str(), &self.config.workspace)?
             .decode()?;
         // retain_unknown aborts and attaches the exact captured prefix before
@@ -1471,7 +1472,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 self.config.root_task.as_str(),
@@ -1541,7 +1542,7 @@ impl Context {
         let tasks: Vec<Task> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Task)
@@ -1662,7 +1663,7 @@ impl Context {
             provider_tools: Units::ZERO,
         };
         let admitted = vcp_budget::attempt(
-            self.engine.store().state(),
+            self.engine.store().current(),
             attempt,
             &binding.scope.workspace,
         )?;
@@ -1671,6 +1672,9 @@ impl Context {
             normalized,
             Timestamp::ZERO,
         )?;
+        let Some(actual_micros) = actual.amount.micros.known() else {
+            return self.unknown(binding, attempt, "terminal usage includes unpriced charge categories");
+        };
         let observation = UsageObservation {
             id: ObservationId::new(),
             scope: binding.scope.clone(),
@@ -1679,7 +1683,7 @@ impl Context {
             mode: UsageMode::Cumulative {
                 version: Units::new(1),
             },
-            amount: actual.amount,
+            amount: Money { currency: actual.amount.currency, micros: actual_micros },
             final_usage: true,
             raw: descriptor.spec.id,
             correction: None,
@@ -1715,7 +1719,7 @@ impl Context {
             let task: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),
@@ -1725,7 +1729,7 @@ impl Context {
             let root: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     self.config.root_task.as_str(),

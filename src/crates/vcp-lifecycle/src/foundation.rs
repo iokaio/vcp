@@ -16,6 +16,7 @@ pub mod restore_search;
 pub mod restore_workspace;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
+pub mod history_reader;
 #[cfg(windows)]
 pub mod coding;
 pub mod conformance;
@@ -82,7 +83,7 @@ pub use tools::FileDispatchPoint;
 pub use tools::{ToolOutcome, ToolProposal};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
 use vcp_protocol::command::{Command, CommandReceipt};
-use vcp_store::{contract::State, BackendKind};
+use vcp_store::{contract::{State, CanonicalStore}, BackendKind};
 #[cfg(windows)]
 pub use worker::agents_cleanup::ChildCleanupPreview;
 #[cfg(windows)]
@@ -177,6 +178,12 @@ impl CanonicalOwner {
         }
         #[cfg(windows)]
         self.mcp.shutdown().await?;
+        // Stop/drain has already completed. Diagnostic retention cannot prevent
+        // cancellation or turn a verified application result into a failure.
+        // Missing evidence remains visible in stderr and subsequent inspection.
+        if let Err(error) = self.worker.run_cleanup(|context| context.retain_execution_diagnostics()) {
+            eprintln!("execution diagnostics were not retained: {error}");
+        }
         Ok(())
     }
 }
@@ -264,7 +271,7 @@ impl CanonicalHost {
     }
     pub fn execution_diagnostics(&self, scope: Scope) -> Result<execution_diagnostics::Snapshot, String> {
         self.worker.run_cleanup(move |context| {
-            let task: vcp_domain::task::Task = context.engine.store().state().record(vcp_store::contract::Collection::Task, scope.task.as_str(), &context.config.workspace)?.decode()?;
+            let task: vcp_domain::task::Task = context.engine.store().current().record(vcp_store::contract::Collection::Task, scope.task.as_str(), &context.config.workspace)?.decode()?;
             if task.scope != scope || task.redaction.is_some() { return Err("diagnostic scope unavailable".into()); }
             Ok(context.diagnostics.snapshot().for_scope(&scope))
         })
@@ -396,9 +403,11 @@ impl CanonicalHost {
     pub fn lifecycle(&self) -> &Lifecycle {
         &self.runtime
     }
+    /// Explicit complete legacy archival DTO for diagnostic/export callers.
+    /// Ordinary live reads use current_state and bounded owner query APIs.
     pub fn snapshot(&self) -> Result<State, String> {
         self.worker
-            .run_cleanup(|context| Ok(context.engine.store().state().clone()))
+            .run_cleanup(|context| Ok(context.runtime.block_on(context.engine.store().archive_state())?))
     }
     /// Current records only. This read does not dispatch work or copy retained
     /// event/receipt payloads; its watermark is not an admission capability.

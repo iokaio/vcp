@@ -63,7 +63,7 @@ mod tests {
         fail: bool,
         reads: Cell<usize>,
     }
-    impl CanonicalStore for Reader {
+    impl vcp_store::contract::reference::ReferenceStore for Reader {
         fn state(&self) -> &State {
             panic!("repair lookup requested resident State")
         }

@@ -80,8 +80,8 @@ async fn provider_pacing_waits_before_reservation_and_submission_on_both_stores(
             let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
             assert_eq!(
                 (
-                    ledger.active.get(),
-                    ledger.unresolved.get(),
+                    ledger.active.known().unwrap().get(),
+                    ledger.unresolved.known().unwrap().get(),
                     ledger.settled.get()
                 ),
                 (0, 0, 0)
@@ -138,7 +138,7 @@ async fn provider_pacing_preserves_429_evidence_and_liability_without_qualified_
         assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
         assert_eq!(ledger.settled.get(), 0);
-        assert!(ledger.unresolved.get() > 0);
+        assert!(ledger.unresolved.known().unwrap().get() > 0);
         let shared: serde_json::Value =
             serde_json::from_slice(&std::fs::read(root.join("state.json")).unwrap()).unwrap();
         assert!(shared["not_before_ms"].as_u64().unwrap() >= before + 5000);
@@ -207,8 +207,8 @@ async fn provider_pacing_deadline_after_reservation_releases_before_send_on_both
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
         assert_eq!(
             (
-                ledger.active.get(),
-                ledger.unresolved.get(),
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get(),
                 ledger.settled.get()
             ),
             (0, 0, 0)
@@ -782,7 +782,7 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                 if mode == "success" { 100 } else { 0 }
             );
             assert_eq!(
-                ledger.unresolved.get(),
+                ledger.unresolved.known().unwrap().get(),
                 (expected as u64 - u64::from(mode == "success")) * 100
             );
             assert_eq!(
@@ -836,8 +836,8 @@ async fn provider_retry_exhaustion_exposes_shared_pool_failure_and_retains_unkno
         let state = host.snapshot().unwrap();
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
         assert_eq!(ledger.settled.get(), 0);
-        assert_eq!(ledger.unresolved.get(), 200);
-        assert_eq!(ledger.active.get(), 0);
+        assert_eq!(ledger.unresolved.known().unwrap().get(), 200);
+        assert_eq!(ledger.active.known().unwrap().get(), 0);
         let task: vcp_domain::task::Task = state
             .record(
                 Collection::Task,
@@ -954,10 +954,10 @@ async fn failed_terminal_retains_safe_cause_and_only_observed_accounting_without
                 .collect();
             assert_eq!(attempts.len(), 1);
             let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
-            assert_eq!(ledger.active.get(), 0);
+            assert_eq!(ledger.active.known().unwrap().get(), 0);
             if observed_cost {
                 assert_eq!(ledger.settled.get(), 100);
-                assert_eq!(ledger.unresolved.get(), 0);
+                assert_eq!(ledger.unresolved.known().unwrap().get(), 0);
                 assert_eq!(attempts[0].phase, ReservationState::Settled);
                 assert!(task.reason.contains("final observed cost retained"));
             } else {
@@ -1122,7 +1122,7 @@ async fn provider_retry_timer_is_cancelled_by_pause_owner_loss_or_steering() {
                 vcp_budget::ledger(&state, &binding.scope)
                     .unwrap()
                     .unresolved
-                    .get(),
+                    .known().unwrap().get(),
                 100
             );
             assert_eq!(
@@ -1190,7 +1190,7 @@ async fn provider_retry_diagnostics_never_parse_individual_raw_capture_chunks() 
             let raw = ArtifactId::parse(failure["raw_response"].as_str().unwrap()).unwrap();
             assert_eq!(host.read_artifact(raw).unwrap(), body.as_bytes());
             let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
-            assert_eq!(ledger.unresolved.get(), 100);
+            assert_eq!(ledger.unresolved.known().unwrap().get(), 100);
             assert_eq!(ledger.settled.get(), 0);
             owner.close().await.unwrap();
             test.codex.shutdown_and_wait().await.unwrap();
@@ -1279,7 +1279,7 @@ async fn provider_retry_reassembles_coding_continuity_with_current_liability() {
         );
         assert_eq!(turns[0].state, vcp_domain::task::TurnState::Verifying);
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
-        assert_eq!(ledger.unresolved.get(), 100);
+        assert_eq!(ledger.unresolved.known().unwrap().get(), 100);
         assert_eq!(ledger.settled.get(), 100);
         let mut handoffs = state
             .records

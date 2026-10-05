@@ -62,11 +62,12 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
         store.transact(initial.clone()).await.unwrap();
         let old = store.current_state();
         let current = store.current();
-        let archived = CurrentStateView::from(store.state());
+        let archived_state = store.archive_state().await.unwrap();
+        let archived = CurrentStateView::from(&archived_state);
         let immutable = CurrentStateView::from(old.as_ref());
         assert_eq!(current.watermark, archived.watermark);
         assert_eq!(current.sequences, immutable.sequences);
-        assert!(std::ptr::eq(current.records, archived.records));
+        assert_eq!(current.records, archived.records); // Explicit archive decoding owns its records.
         assert!(std::ptr::eq(current.records, immutable.records));
         assert!(matches!(
             current.record(Collection::Task, "task", &WorkspaceId::new()),
@@ -78,10 +79,10 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
                 .count(),
             1
         );
-        let historical_snapshot = store.state().clone();
+        let historical_snapshot = (&store.archive_state().await.unwrap()).clone();
         assert!(std::ptr::eq(
             historical_snapshot.events.as_ptr(),
-            store.state().events.as_ptr(),
+            (&historical_snapshot.clone()).events.as_ptr(),
         ));
         let historical_snapshot_bytes =
             vcp_protocol::canonical_bytes(&historical_snapshot).unwrap();
@@ -89,7 +90,7 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
             old.record(Collection::Task, "task", &common::workspace().id)
                 .unwrap(),
             store
-                .state()
+                .current()
                 .record(Collection::Task, "task", &common::workspace().id)
                 .unwrap(),
         ));
@@ -126,7 +127,7 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![],
                 events: vec![event],
                 command: None,
@@ -140,28 +141,29 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
         );
         assert_eq!(
             historical_snapshot.events.len() + 1,
-            store.state().events.len()
+            (&store.archive_state().await.unwrap()).events.len()
         );
         assert!(!Arc::ptr_eq(&old, &current));
         assert_eq!(old.watermark.get(), 1);
         assert_eq!(current.watermark.get(), 2);
         assert_eq!(old.records, current.records);
         let projected = vcp_protocol::canonical_bytes(&*current).unwrap();
-        let historical = vcp_protocol::canonical_bytes(store.state()).unwrap();
+        let historical =
+            vcp_protocol::canonical_bytes((&store.archive_state().await.unwrap())).unwrap();
         let unwrapped_shape = serde_json::json!({
-            "watermark": store.state().watermark,
-            "records": &*store.state().records,
-            "events": &*store.state().events,
-            "commands": &*store.state().commands,
-            "transactions": &*store.state().transactions,
-            "sequences": store.state().sequences,
+            "watermark": store.current().watermark,
+            "records": &*store.current().records,
+            "events": &*(&store.archive_state().await.unwrap()).events,
+            "commands": &*(&store.archive_state().await.unwrap()).commands,
+            "transactions": &*(&store.archive_state().await.unwrap()).transactions,
+            "sequences": store.current().sequences,
         });
         assert_eq!(
             historical,
             vcp_protocol::canonical_bytes(&unwrapped_shape).unwrap()
         );
         let decoded: vcp_store::contract::State = serde_json::from_slice(&historical).unwrap();
-        assert_eq!(&decoded, store.state());
+        assert_eq!(&decoded, (&store.archive_state().await.unwrap()));
         assert!(projected.len() * 10 < historical.len());
         let json = serde_json::to_value(&*current).unwrap();
         assert!(json.get("events").is_none());
@@ -177,7 +179,7 @@ async fn current_snapshots_share_reads_and_remain_stable_across_rejections_and_c
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![vcp_store::contract::Mutation::Put {
                     expected: Some(common::task().revision),
                     record: vcp_store::contract::Record::typed(

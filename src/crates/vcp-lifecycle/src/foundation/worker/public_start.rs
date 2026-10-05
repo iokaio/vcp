@@ -206,7 +206,7 @@ impl PublicConnection {
                         required_checks,
                         protected: context.config.protected,
                         policy: vcp_engine::policy::optional(
-                            context.engine.store().state(),
+                            context.engine.store().current(),
                             &access.workspace,
                         )
                         .map_err(|_| PublicError::Unavailable)?

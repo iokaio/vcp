@@ -48,11 +48,11 @@ impl Imported {
     /// checking and publishing the expected workspace descriptor revision.
     pub async fn reopen_verified(&self) -> Result<Store> {
         let store = Store::open(&self.root, self.backend, &self.forbidden).await?;
-        if crate::legacy_state_stream::digest(store.state())? != self.state_digest {
+        if store.prefix_digest(store.current().watermark).await? != self.state_digest {
             return Err(Error::Conflict("prepared restore root changed"));
         }
         for row in store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == crate::contract::Collection::Artifact)
@@ -117,15 +117,17 @@ pub(crate) async fn prepare(
     if cancelled() {
         return Err(Error::Unavailable("restore import cancelled"));
     }
-    immutable(
-        &root.join("format.json"),
-        &canonical_bytes(&serde_json::json!({"version":2,"backend":backend}))?,
-    )?;
+    if !root.join("format.json").exists() {
+        immutable(
+            &root.join("format.json"),
+            &canonical_bytes(&serde_json::json!({"version":2,"backend":backend}))?,
+        )?;
+    }
     let mut store = Store::open(root, backend, forbidden).await?;
-    if store.state() == source {
+    if store.archive_state().await? == *source {
         store.transact(transaction).await?;
     }
-    if store.state() != &expected {
+    if store.archive_state().await? != expected {
         return Err(Error::Corruption("restore sanitized state differs"));
     }
     store.close().await?;
@@ -133,7 +135,7 @@ pub(crate) async fn prepare(
         return Err(Error::Unavailable("restore import cancelled"));
     }
     let reopened = Store::open(root, backend, forbidden).await?;
-    if reopened.state() != &expected {
+    if reopened.archive_state().await? != expected {
         return Err(Error::Corruption("restore fresh reopen differs"));
     }
     reopened.close().await?;

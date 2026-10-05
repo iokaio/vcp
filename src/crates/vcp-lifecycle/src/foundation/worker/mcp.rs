@@ -29,7 +29,7 @@ impl Context {
             return Err("MCP resume owner is fenced".into());
         }
         self.validate_binding(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let task: Task = state
             .record(
                 Collection::Task,
@@ -296,7 +296,7 @@ impl Context {
     fn validate_mcp_sources(&self, binding: &ThreadBinding, provenance: &Provenance) -> Result<()> {
         self.validate_skills(binding)?;
         self.tool_read_access(&RootId::parse(self.config.workspace.as_str())?, "vcp_mcp")?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -342,7 +342,7 @@ impl Context {
                 let descriptor: ArtifactDescriptor = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         part.artifact.as_str(),
@@ -481,7 +481,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -567,7 +567,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 artifact.as_str(),

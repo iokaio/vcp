@@ -164,7 +164,7 @@ impl CanonicalHost {
                 for row in context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| row.collection == Collection::Task)
@@ -725,7 +725,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 previous.workspace.as_str(),
@@ -750,7 +750,7 @@ impl Context {
         let tasks: Vec<Task> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)

@@ -4,6 +4,7 @@
 use std::{future::Future, pin::Pin, time::Duration};
 use vcp_engine::capture::ProviderCredential;
 use vcp_lifecycle::foundation::reconciliation::{ReceiptFetch, ReceiptSource};
+use vcp_store::contract::CanonicalStore;
 
 /// Explicit maintenance only: preserve the selected task's original ledger and
 /// open it under the canonical revision fence without loading an execution profile.
@@ -20,12 +21,13 @@ pub(crate) async fn execute(
     .await
 }
 
-fn selected(
-    state: &vcp_store::contract::State,
+fn selected<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     workspace: &vcp_domain::WorkspaceId,
     id: &vcp_domain::TaskId,
 ) -> Result<(vcp_domain::task::Task, vcp_domain::accounting::Ledger), String> {
     use vcp_store::contract::Collection;
+    let state = state.into();
     let task: vcp_domain::task::Task = state
         .record(Collection::Task, id.as_str(), workspace)
         .and_then(|r| r.decode())
@@ -91,7 +93,7 @@ async fn execute_with_source(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let selection = selected(store.state(), &config.workspace, task);
+    let selection = selected(store.current(), &config.workspace, task);
     store.close().await.map_err(|e| e.to_string())?;
     let (task, ledger) = selection?;
     config.session = task.scope.session.clone();
@@ -108,11 +110,15 @@ async fn execute_with_source(
     let result = async {
         // Revalidate after recovery under the owner lock, before credentials or
         // metadata transport. Never register a model thread or install a profile.
-        selected(&host.snapshot()?, &config.workspace, &config.root_task)?;
+        selected(
+            host.current_state()?.as_ref(),
+            &config.workspace,
+            &config.root_task,
+        )?;
         host.configure_receipt_source(source()?)?;
         let report = host.reconcile_root_pending().await?;
-        let snapshot = host.snapshot()?;
-        let (task, ledger) = selected(&snapshot, &config.workspace, &config.root_task)?;
+        let snapshot = host.current_state()?;
+        let (task, ledger) = selected(snapshot.as_ref(), &config.workspace, &config.root_task)?;
         let mut pending_attempt = false;
         for record in snapshot.records.values().filter(|record| {
             record.workspace == config.workspace

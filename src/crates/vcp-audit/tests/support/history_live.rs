@@ -11,7 +11,7 @@ struct Paged {
     reads: Cell<usize>,
     mode: u8,
 }
-impl CanonicalStore for Paged {
+impl vcp_store::contract::reference::ReferenceStore for Paged {
     fn state(&self) -> &State {
         panic!("live audit must not materialize State")
     }
@@ -87,7 +87,7 @@ async fn inspection_ingestion_findings_require_exact_retained_origin() {
     use vcp_domain::ingestion::*;
     let temporary = tempfile::tempdir().unwrap();
     let fixture = fixture(temporary.path(), BackendKind::Files).await;
-    let mut state = fixture.engine.store().state().clone();
+    let mut state = fixture.engine.store().archive_state().await.unwrap();
     let event = state
         .events
         .iter()
@@ -185,7 +185,7 @@ async fn live_inspection_matches_archive_cursor_scope_and_short_pages() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temporary = tempfile::tempdir().unwrap();
         let fixture = fixture(temporary.path(), backend).await;
-        let state = fixture.engine.store().state();
+        let state = &fixture.engine.store().archive_state().await.unwrap();
         let mut reader = Paged {
             current: fixture.engine.store().current_state(),
             events: state.events.to_vec(),
@@ -295,8 +295,12 @@ async fn live_pages_match_archive_with_short_reads_append_scope_and_failures() {
         let temporary = tempfile::tempdir().unwrap();
         let mut fixture = fixture(temporary.path(), backend).await;
         let mut request = query();
-        let first =
-            history_query::query(fixture.engine.store().state(), &access(), &request).unwrap();
+        let first = history_query::query(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &access(),
+            &request,
+        )
+        .unwrap();
         same(
             &first,
             &history_query::query_store(fixture.engine.store(), &access(), &request)
@@ -307,7 +311,7 @@ async fn live_pages_match_archive_with_short_reads_append_scope_and_failures() {
             let id = TaskId::new();
             issue(&mut fixture.engine, create(&id, None, None), Some(id), 0).await;
         }
-        let state = fixture.engine.store().state();
+        let state = &fixture.engine.store().archive_state().await.unwrap();
         let mut reader = Paged {
             current: fixture.engine.store().current_state(),
             events: state.events.to_vec(),
@@ -401,7 +405,7 @@ async fn live_pages_match_archive_with_short_reads_append_scope_and_failures() {
 }
 
 struct Resident(State);
-impl CanonicalStore for Resident {
+impl vcp_store::contract::reference::ReferenceStore for Resident {
     fn state(&self) -> &State {
         &self.0
     }
@@ -413,7 +417,7 @@ impl CanonicalStore for Resident {
 async fn ordinal_reader_bounds_bytes_and_preserves_exact_global_positions() {
     let temporary = tempfile::tempdir().unwrap();
     let fixture = fixture(temporary.path(), BackendKind::Files).await;
-    let mut state = fixture.engine.store().state().clone();
+    let mut state = fixture.engine.store().archive_state().await.unwrap();
     let mut event = state.events[0].clone();
     event.event.data = serde_json::json!({"large": "x".repeat(6 * 1024 * 1024)});
     state.events = (0..3)

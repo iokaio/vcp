@@ -244,7 +244,7 @@ async fn cli_control_authenticates_before_stopping_and_retries_without_another_e
             assert_eq!(retained.unresolved_work, 0);
             let state = host.snapshot().unwrap();
             let before = vcp_budget::ledger(&state, &task.scope).unwrap();
-            assert!(before.unresolved.get() > 0);
+            assert!(before.unresolved.known().unwrap().get() > 0);
             assert_eq!(before.settled, Micros::ZERO);
             let attempts: Vec<Attempt> = state
                 .records

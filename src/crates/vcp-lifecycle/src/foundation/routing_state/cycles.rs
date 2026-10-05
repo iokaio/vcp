@@ -58,8 +58,8 @@ pub struct Evidence {
 
 /// Rebuild from currently authorized retained evidence. No artifact is persisted,
 /// no provider is called, and no task, counter or scheduling state is modified.
-pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
-    prepare(store, access, window, &|| Ok(()))?.compute()
+pub async fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
+    prepare(store, access, window, &|| Ok(())).await?.compute()
 }
 
 /// Authorized immutable inputs for bounded owner-driven local computation.
@@ -69,14 +69,14 @@ pub(crate) struct Prepared {
     catalog: Option<String>,
 }
 
-pub(crate) fn prepare(
+pub(crate) async fn prepare(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
     cooperate: &dyn Fn() -> Result<()>,
 ) -> Result<Prepared> {
     Ok(Prepared {
-        source: observations::observe_with_check(store, access, window, cooperate)?,
+        source: observations::observe_with_check(store, access, window, cooperate).await?,
         policy: current_policy(store, access)?.map(|p| p.value.id),
         catalog: current_registry(store, access)?.map(|r| r.value.catalog.id),
     })

@@ -28,7 +28,7 @@ async fn inspection_receipt_copies_are_atomically_redacted_without_changing_comm
         }
         tx.command.as_mut().unwrap().result = CommandResult::Inspection { task: Some(task) };
         let acknowledged = store.transact(tx.clone()).await.unwrap();
-        let mut rewritten = store.state().clone();
+        let mut rewritten = (&store.archive_state().await.unwrap()).clone();
         let command_id = command_key(&workspace().id, &tx.command.as_ref().unwrap().command);
         let old = rewritten.commands[&command_id].clone();
         rewritten.commands.get_mut(&command_id).unwrap().result =
@@ -50,12 +50,12 @@ async fn inspection_receipt_copies_are_atomically_redacted_without_changing_comm
         ));
         assert_eq!(
             retry.command.as_ref().unwrap(),
-            &store.state().commands[&command_id]
+            &(&store.archive_state().await.unwrap()).commands[&command_id]
         );
         store.close().await.unwrap();
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert!(matches!(
-            reopened.state().commands[&command_id].result,
+            (&reopened.archive_state().await.unwrap()).commands[&command_id].result,
             CommandResult::InspectionRedacted { .. }
         ));
         reopened.close().await.unwrap();

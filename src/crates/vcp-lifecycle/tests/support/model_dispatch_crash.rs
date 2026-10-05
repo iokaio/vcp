@@ -215,7 +215,7 @@ async fn root_and_child_model_dispatch_process_kills_preserve_liability_without_
                 assert_eq!(attempt.phase, ReservationState::Submitted);
                 assert!(attempt.send_intent.is_some());
                 assert_eq!(attempt.charged, Micros::ZERO);
-                assert!(attempt.quote.amount.micros > Micros::ZERO);
+                assert!(attempt.quote.amount.micros.known().unwrap() > Micros::ZERO);
                 assert_eq!(
                     before
                         .records

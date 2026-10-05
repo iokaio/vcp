@@ -138,6 +138,8 @@ export type ErrorData = { "details": unknown; "kind": string; };
 
 export type ErrorEnvelope = { "error": RpcError; "id": RequestId; "jsonrpc": JsonRpcVersion; };
 
+export type EstimatedCounter = (Counter | UnknownEstimate);
+
 export type Event = { "command_id"?: (Id | null); "evidence": Array<EvidenceReference>; "evidence_complete": boolean; "id": Id; "kind": string; "outcome"?: (OperationOutcome | null); "redacted": boolean; "schema_version": string; "scope": Scope; "sequence": Counter; "task"?: (Id | null); "timestamp_ms": Counter; };
 
 export type EventBatch = { "at_end": boolean; "cursor": string; "events": Array<Event>; "snapshot_sequence": Counter; "subscription": Id; };
@@ -352,13 +354,15 @@ export type RoutingOptimizerAssessment = ("not_dispatch_authority" & string);
 
 export type RoutingOptimizerCohort = { "authority_policy": Counter; "catalog": RoutingStatusText; "count": Counter; "model": RoutingStatusText; "provider": RoutingStatusText; "role": RoutingStatusText; "routing_policy": RoutingStatusText; "size": RoutingStatusText; "task_class": RoutingStatusText; };
 
-export type RoutingOptimizerCounts = { "abandoned"?: (Counter | null); "attempts": Counter; "cancelled": Counter; "child_tasks": Counter; "completed": Counter; "failed": Counter; "known_spend": Array<RoutingOptimizerMoney>; "pruned_tasks": Counter; "reserved_liability": Array<RoutingOptimizerMoney>; "retries": Counter; "supporting_attempts": Counter; "tasks": Counter; "uncertain_attempts": Counter; "unfinished": Counter; };
+export type RoutingOptimizerCounts = { "abandoned"?: (Counter | null); "attempts": Counter; "cancelled": Counter; "child_tasks": Counter; "completed": Counter; "failed": Counter; "known_spend": Array<RoutingOptimizerMoney>; "pruned_tasks": Counter; "reserved_liability": Array<RoutingOptimizerLiabilityMoney>; "retries": Counter; "supporting_attempts": Counter; "tasks": Counter; "uncertain_attempts": Counter; "unfinished": Counter; };
 
 export type RoutingOptimizerCoverage = (("session" | "workspace") & string);
 
 export type RoutingOptimizerEdit = ({ "field": ("retrieval_limits" & string); "value": (RoutingStatusRetrievalLimits | null); } | { "field": ("input_tokens" & string); "value": (Counter | null); } | { "field": ("escalation_max_transport_retries" & string); "value": (number | null); } | { "field": ("escalation_max_quality_switches" & string); "value": (number | null); } | { "field": ("escalation_max_total_attempts" & string); "value": (number | null); } | { "field": ("escalation_minimum_repeated_failures" & string); "value": (number | null); } | { "field": ("reasoning_effort" & string); "value": (RoutingStatusEffort | null); } | { "field": ("output_tokens" & string); "value": (Counter | null); } | { "field": ("profile" & string); "value": RoutingStatusProfile; } | { "field": ("ordering" & string); "value": Array<RoutingStatusPreference>; } | { "field": ("quality_floor_bps" & string); "value": number; } | { "field": ("minimum_samples" & string); "value": number; } | { "field": ("maximum_evidence_age_ms" & string); "value": Counter; } | { "field": ("allowed_models" & string); "value": Array<string>; } | { "field": ("allowed_endpoints" & string); "value": Array<string>; } | { "field": ("allowed_groups" & string); "value": Array<RoutingStatusGroup>; } | { "field": ("pin" & string); "value": (RoutingOptimizerPin | null); });
 
 export type RoutingOptimizerField = (("retrieval_limits" | "input_tokens" | "escalation_max_transport_retries" | "escalation_max_quality_switches" | "escalation_max_total_attempts" | "escalation_minimum_repeated_failures" | "reasoning_effort" | "output_tokens" | "profile" | "ordering" | "quality_floor_bps" | "minimum_samples" | "maximum_evidence_age_ms" | "allowed_models" | "allowed_endpoints" | "allowed_groups" | "pin" | "deny_data_collection" | "require_zdr" | "broader_task_class") & string);
+
+export type RoutingOptimizerLiabilityMoney = { "currency": string; "micros"?: (Counter | null); };
 
 export type RoutingOptimizerMoney = { "currency": string; "micros": Counter; };
 
@@ -512,7 +516,9 @@ export type TypedPropose = { "candidate": Candidate; "guards": Guards; "mutation
 
 export type TypedResolve = { "decision": MemoryDecision; "guards": Guards; "mutation": Mutation; "reason": string; "scope": Scope; "submission": Id; "submission_digest": string; "submission_revision": Counter; "task": Id; };
 
-export type UsageView = { "cap_micros": Limit_Counter; "currency": Currency; "overrun": boolean; "reserved_micros": Counter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": Counter; };
+export type UnknownEstimate = { "kind": ("unknown" & string); "known_component": Counter; "unknown_components": Counter; "version": number; };
+
+export type UsageView = { "cap_micros": Limit_Counter; "currency": Currency; "overrun": boolean; "reserved_micros": EstimatedCounter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": EstimatedCounter; };
 
 export type Versioned_for_Counter = ({ "kind": ("finite" & string); "value": Counter; "version": number; } | { "kind": ("unbounded" & string); "version": number; });
 

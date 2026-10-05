@@ -719,9 +719,9 @@ async fn retained_routing_cases(owner_http_only: bool) {
                     assert_eq!(primary.quote.amount.micros, Micros::new(200));
                     assert_eq!(fallback.quote.amount.micros, Micros::new(100));
                     assert_eq!(second.input.available.micros, Micros::new(100).into());
-                    assert!(second.input.available.micros.exceeds(&primary.quote.amount.micros));
+                    assert!(second.input.available.micros.exceeds(&primary.quote.amount.micros.known().unwrap()));
                     assert_eq!(
-                        ledger.unresolved.get() + ledger.settled.get(),
+                        ledger.unresolved.known().unwrap().get() + ledger.settled.get(),
                         ledger.cap.finite().expect("finite historical fixture").get()
                     );
                 }
@@ -829,7 +829,7 @@ async fn retained_routing_cases(owner_http_only: bool) {
                         .iter()
                         .find(|a| record["attempt"] == a.id.as_str())
                         .unwrap();
-                    assert_eq!(next.quote.amount.micros.get(), 200);
+                    assert_eq!(next.quote.amount.micros.known().unwrap().get(), 200);
                     assert_eq!(
                         record["handoff"]["destination_request_sha256"],
                         next.request_digest
@@ -847,7 +847,7 @@ async fn retained_routing_cases(owner_http_only: bool) {
                 assert_eq!(attempts.len(), 1);
                 assert_eq!(bodies[0]["model"], expected);
                 assert_eq!(attempts[0].quote.price.model, expected);
-                assert_eq!(attempts[0].quote.amount.micros.get(), price);
+                assert_eq!(attempts[0].quote.amount.micros.known().unwrap().get(), price);
                 assert_eq!(attempts[0].role, role);
                 if mode == "fixed" {
                     assert!(decisions.is_empty());

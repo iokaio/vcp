@@ -78,19 +78,18 @@ async fn refresh_all_with(model: &str, key: &str, api: &str) -> Result<Vec<Prepa
     {
         return Err("provider catalog returned a different model".into());
     }
-    // Conservative reservation is a deterministic cost ordering, not a quality
-    // score. Keep exact endpoint identities and reject unknown price classes.
+    // Metadata discovery retains unpriced endpoints for ordinary Unbounded
+    // execution. A separately authorized finite connection probe still requires
+    // a fully priced reservation before sending.
     let mut priced = Vec::new();
     for snapshot in snapshots.drain(..) {
         if snapshot.max_output < Units::new(u64::from(OUTPUT_TOKENS)) {
             continue;
         }
-        let Ok(price) = reservation_snapshot(&snapshot) else {
-            continue;
-        };
+        let price = reservation_snapshot(&snapshot).ok();
         priced.push((price, snapshot.compatibility.endpoint.clone(), snapshot));
     }
-    priced.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    priced.sort_by(|a, b| (a.0.is_none(), &a.0, &a.1).cmp(&(b.0.is_none(), &b.0, &b.1)));
     if priced.is_empty() {
         return Err("no endpoint supports the bounded connection response".into());
     }
@@ -119,7 +118,12 @@ fn reservation_snapshot(snapshot: &Snapshot) -> Result<Micros> {
 
 /// The same full-input/cache/output/request bound used by canonical admission.
 pub fn reservation(prepared: &PreparedModel) -> std::result::Result<Micros, String> {
-    reservation_snapshot(&prepared.snapshot).map_err(|e| e.to_string())
+    let snapshot = Snapshot::from_endpoints(&prepared.catalog, prepared.snapshot.observed_at,
+        prepared.snapshot.valid_until, prepared.snapshot.compatibility.clone()).map_err(|e| e.to_string())?;
+    if prepared.snapshot.rebuild_captured(&prepared.catalog).map_err(|e| e.to_string())? != prepared.snapshot {
+        return Err("connection snapshot differs from its captured catalog".into());
+    }
+    reservation_snapshot(&snapshot).map_err(|e| e.to_string())
 }
 
 /// A retained successful result resumes setup without another paid request.
@@ -219,7 +223,7 @@ fn recover_state(
     output: &Path,
 ) -> Result<Option<ConnectionReport>> {
     use vcp_domain::artifact::{ArtifactDescriptor, CaptureState};
-    let records = &store.state().records;
+    let records = &store.current().records;
     let ledgers: Vec<Ledger> = records
         .values()
         .filter(|row| row.collection == Collection::Ledger)
@@ -389,21 +393,13 @@ async fn test_with(
     if cap.get() > 25_000_000 {
         return Err("connection test cap must be at most 25 USD".into());
     }
-    if reservation_snapshot(&prepared.snapshot)? > cap {
+    let snapshot = prepared.snapshot.for_execution(&prepared.catalog, vcp_domain::Limit::Finite(cap))?;
+    if reservation_snapshot(&snapshot)? > cap {
         return Err(
             "connection test cap is below its conservative reservation; no request sent".into(),
         );
     }
-    let snapshot = &prepared.snapshot;
-    if Snapshot::from_endpoints(
-        &prepared.catalog,
-        snapshot.observed_at,
-        snapshot.valid_until,
-        snapshot.compatibility.clone(),
-    )? != *snapshot
-    {
-        return Err("connection snapshot differs from its fresh catalog".into());
-    }
+    let snapshot = &snapshot;
     // Account-only setup has no project boundary. The repository/sync/drive
     // checks remain active; the sentinel is not a user-selected workspace.
     let sentinel = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".account-only-boundary");
@@ -463,7 +459,7 @@ async fn test_with(
         key,
     )
     .await;
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let ledger: Ledger = state
         .record(
             Collection::Ledger,
@@ -875,6 +871,38 @@ mod tests {
         assert!(retained_result(&output).await.is_err());
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
+    #[tokio::test]
+    async fn unpriced_metadata_is_retained_but_finite_probe_cannot_dispatch() {
+        let server = MockServer::start().await;
+        let mut value = catalog();
+        value["data"]["endpoints"][0]["pricing"] = serde_json::Value::Null;
+        Mock::given(method("GET"))
+            .and(path("/models/fixture/model/endpoints"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(value))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let prepared = refresh_with("fixture/model", "synthetic-connection-key", &server.uri())
+            .await
+            .unwrap();
+        assert_eq!(prepared.snapshot.tariff_normalization, Some(3));
+        assert!(reservation(&prepared).is_err());
+        let temporary = tempfile::tempdir().unwrap();
+        let output = temporary.path().join("unpriced-connection");
+        assert!(test_with(
+            &prepared,
+            "0.01",
+            &output,
+            None,
+            "synthetic-connection-key",
+            &server.uri(),
+        )
+        .await
+        .is_err());
+        assert!(!output.exists());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
     #[tokio::test]
     async fn metadata_rotation_retains_all_priced_exact_endpoints_without_inference() {
         let server = MockServer::start().await;

@@ -29,8 +29,15 @@ impl Journal {
         if state.watermark > origin.watermark() {
             return Err(Error::Corruption("history origin before base"));
         }
-        let checkpoint = self.read_checkpoint()?;
-        let current_checkpoint = self.read_current_checkpoint()?;
+        let started = Instant::now();
+        let checkpoints = self.read_checkpoint().and_then(|legacy| {
+            self.read_current_checkpoint()
+                .map(|current| (legacy, current))
+        });
+        diagnostics
+            .checkpoint_loading
+            .record(started, checkpoints.is_ok());
+        let (checkpoint, current_checkpoint) = checkpoints?;
         if let Some(checkpoint) = &current_checkpoint {
             if self.file.metadata()?.len() < checkpoint.end()? {
                 return Err(Error::Corruption("checkpointed journal was truncated"));
@@ -54,6 +61,7 @@ impl Journal {
             return Err(Error::Corruption("legacy checkpoint after history origin"));
         }
         let mut size = StateSize::measure(&state)?;
+        diagnostics.state_size_full_scans = diagnostics.state_size_full_scans.saturating_add(1);
         let mut offset = 0u64;
         let mut chain = self.initial_chain.clone();
         let mut checkpoint_chain = chain.clone();
@@ -123,7 +131,13 @@ impl Journal {
                     break;
                 }
                 ReadFrame::Complete(frame) => {
-                    owner = replay_current(pages, &owner, &frame).await?;
+                    owner = super::replay::replay_current_observed(
+                        pages,
+                        &owner,
+                        &frame,
+                        Some(diagnostics),
+                    )
+                    .await?;
                     verify_tip(tip.as_ref(), owner.semantic().current().watermark, &frame)?;
                     diagnostics.replayed_commits = diagnostics.replayed_commits.saturating_add(1);
                     diagnostics.replay_payload_bytes = diagnostics

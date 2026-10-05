@@ -143,7 +143,7 @@ struct PartitionManifest<'a> {
 /// held-out traces. Assignment is stable for a task identity, so adding another
 /// task cannot move an existing task between fitting and evaluation cohorts.
 /// The result is rebuildable, unpersisted and never qualified for serving.
-pub fn compare(
+pub async fn compare(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -159,7 +159,7 @@ pub fn compare(
     {
         return Err("invalid comparison prior, sample gate or held-out partition".into());
     }
-    let source = transitions::observe(store, access, window)?;
+    let source = transitions::observe(store, access, window).await?;
     let source_digest = evidence_digest(&source.id)?;
     let policy = current_policy(store, access)?.map(|value| value.value.id);
     let catalog = current_registry(store, access)?.map(|value| value.value.catalog.id);
@@ -303,7 +303,7 @@ pub fn compare(
 
 /// Fit one bounded first-order candidate from the current authorized retained
 /// view. The result is never stored and is never permission to serve a value.
-pub fn fit(
+pub async fn fit(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -313,7 +313,7 @@ pub fn fit(
     if prior_basis_points > 10_000 || minimum_samples == 0 {
         return Err("invalid fit prior or minimum sample gate".into());
     }
-    let source = transitions::observe(store, access, window)?;
+    let source = transitions::observe(store, access, window).await?;
     let source_digest = evidence_digest(&source.id)?;
     let policy = current_policy(store, access)?.map(|value| value.value.id);
     let catalog = current_registry(store, access)?.map(|value| value.value.catalog.id);

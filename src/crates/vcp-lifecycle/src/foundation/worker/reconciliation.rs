@@ -273,13 +273,13 @@ mod tests {
                             .reconcile_provider_receipt(pending.clone(), receipt.clone())
                             .unwrap();
                     }
-                    let state = reopened.engine.store().state();
+                    let state = reopened.engine.store().current();
                     let ledger = vcp_budget::ledger(state, &binding.scope).unwrap();
                     assert_eq!(
                         (
                             ledger.settled.get(),
-                            ledger.active.get(),
-                            ledger.unresolved.get()
+                            ledger.active.known().unwrap().get(),
+                            ledger.unresolved.known().unwrap().get()
                         ),
                         (micros, 0, 0)
                     );
@@ -440,13 +440,13 @@ mod tests {
                     assert!(reopened.pending_provider_charges().unwrap().is_empty());
                     std::fs::write(&chunk, &original).unwrap();
                     let ledger =
-                        vcp_budget::ledger(reopened.engine.store().state(), &binding.scope)
+                        vcp_budget::ledger(reopened.engine.store().current(), &binding.scope)
                             .unwrap();
                     assert_eq!(
                         (
                             ledger.settled.get(),
-                            ledger.active.get(),
-                            ledger.unresolved.get()
+                            ledger.active.known().unwrap().get(),
+                            ledger.unresolved.known().unwrap().get()
                         ),
                         (0, 0, 100)
                     );
@@ -459,13 +459,13 @@ mod tests {
                     reopened.reconcile_provider_receipt(pending[0].clone(),
                         br#"{"data":{"id":"gen-failed-without-cost","total_cost":0.00005,"finish_reason":"error"}}"#.to_vec()).unwrap();
                     let ledger =
-                        vcp_budget::ledger(reopened.engine.store().state(), &binding.scope)
+                        vcp_budget::ledger(reopened.engine.store().current(), &binding.scope)
                             .unwrap();
                     assert_eq!(
                         (
                             ledger.settled.get(),
-                            ledger.active.get(),
-                            ledger.unresolved.get()
+                            ledger.active.known().unwrap().get(),
+                            ledger.unresolved.known().unwrap().get()
                         ),
                         (50, 0, 0)
                     );
@@ -473,7 +473,7 @@ mod tests {
                         reopened
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .records
                             .values()
                             .filter(|row| row.collection == Collection::Attempt)
@@ -540,7 +540,7 @@ mod tests {
             let before = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)
@@ -560,18 +560,18 @@ mod tests {
                 context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|r| r.collection == Collection::Attempt)
                     .count()
             );
             let ledger =
-                vcp_budget::ledger(context.engine.store().state(), &binding.scope).unwrap();
+                vcp_budget::ledger(context.engine.store().current(), &binding.scope).unwrap();
             assert_eq!(
                 (
                     ledger.settled.get(),
-                    ledger.unresolved.get(),
+                    ledger.unresolved.known().unwrap().get(),
                     ledger.protected.get()
                 ),
                 (20, 300, 200)
@@ -594,7 +594,7 @@ mod tests {
             reopened.reconcile_provider_receipt(pending, raw).unwrap();
             reopened.guard_unresolved_availability(&binding).unwrap();
             assert_eq!(
-                vcp_budget::ledger(reopened.engine.store().state(), &binding.scope)
+                vcp_budget::ledger(reopened.engine.store().current(), &binding.scope)
                     .unwrap()
                     .protected
                     .get(),

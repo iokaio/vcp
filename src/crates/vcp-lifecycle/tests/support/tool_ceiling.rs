@@ -282,7 +282,7 @@ async fn canonical_tool_ceiling_missing_marker_fails_closed_for_root_and_child_h
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![Mutation::Put {
                         record: Record::typed(
                             Collection::Artifact,

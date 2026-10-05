@@ -139,8 +139,23 @@ impl DurableOwner {
         pages: &mut impl Pages,
         transaction: &Transaction,
     ) -> Result<Outcome> {
+        self.prepare_observed(pages, transaction, None).await
+    }
+    pub(crate) async fn prepare_observed(
+        &self,
+        pages: &mut impl Pages,
+        transaction: &Transaction,
+        diagnostics: Option<&mut crate::StoreDiagnostics>,
+    ) -> Result<Outcome> {
         Ok(
-            match current_transition::prepare(pages, &self.semantic, transaction).await? {
+            match current_transition::prepare_observed(
+                pages,
+                &self.semantic,
+                transaction,
+                diagnostics,
+            )
+            .await?
+            {
                 current_transition::Outcome::Duplicate(receipt) => Outcome::Duplicate(receipt),
                 current_transition::Outcome::Prepared(semantic) => {
                     Outcome::Prepared(PreparedDurable {
@@ -171,5 +186,6 @@ impl DurableOwner {
     }
 }
 
+#[cfg(test)]
 #[path = "durable_owner_tests.rs"]
 mod tests;

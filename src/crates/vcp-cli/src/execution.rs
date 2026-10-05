@@ -40,7 +40,7 @@ pub fn event_for_turn(event: &Event, turn: &str) -> bool {
 
 fn current(host: &CanonicalHost, scope: &Scope) -> Result<Task, String> {
     let task: Task = host
-        .snapshot()?
+        .current_state()?
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|row| row.decode())
         .map_err(|e| e.to_string())?;

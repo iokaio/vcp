@@ -63,13 +63,14 @@ async fn selected_owned_handoff_preserves_lock_configuration_and_runtime_indepen
             };
             let mut store = open(config.clone());
             if rewritten {
+                let archive = store.archive_state().await.unwrap();
                 store
-                    .rewrite_base(store.state().clone(), &[])
+                    .rewrite_base(archive, &[])
                     .await
                     .unwrap();
                 assert_ne!(store.root(), store.canonical_anchor());
             }
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             let selected: Task = before
                 .record(
                     Collection::Task,
@@ -117,8 +118,8 @@ async fn selected_owned_handoff_preserves_lock_configuration_and_runtime_indepen
                 );
                 let reopened = open(config.clone());
                 assert_eq!(
-                    reopened.state(),
-                    &before,
+                    reopened.archive_state().await.unwrap(),
+                    before,
                     "invalid selection must not recover or mutate"
                 );
                 reopened.close().await.unwrap();
@@ -190,7 +191,7 @@ async fn selected_owned_handoff_preserves_lock_configuration_and_runtime_indepen
             owner.close().await.unwrap();
             drop(host);
             let final_store = open(config.clone());
-            assert_eq!(final_store.state(), &current);
+            assert_eq!(final_store.archive_state().await.unwrap(), current);
             final_store.close().await.unwrap();
         }
     }
@@ -217,7 +218,7 @@ async fn selected_reopen_checks_revision_before_recovery_and_retains_store_lock(
         let mut engine = Engine::new(store).unwrap();
         let current: Workspace = engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -270,7 +271,7 @@ async fn selected_reopen_checks_revision_before_recovery_and_retains_store_lock(
             .handle(command, &access, &HostFacts::inspect(Timestamp::new(1)))
             .await
             .unwrap();
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let selected: Task = before
             .record(
                 Collection::Task,
@@ -294,10 +295,10 @@ async fn selected_reopen_checks_revision_before_recovery_and_retains_store_lock(
         let store = Store::open(&config.canonical_root, backend, &[])
             .await
             .unwrap();
-        assert_eq!(store.state().watermark, before.watermark);
+        assert_eq!(store.current().watermark, before.watermark);
         assert_eq!(
             store
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     config.root_task.as_str(),

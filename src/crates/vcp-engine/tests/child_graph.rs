@@ -8,7 +8,7 @@ use vcp_protocol::command::*;
 use vcp_store::{artifact::ArtifactWriter, contract::*, BackendKind, Store};
 
 struct CurrentOwner(Store);
-impl CanonicalStore for CurrentOwner {
+impl vcp_store::contract::reference::ReferenceStore for CurrentOwner {
     fn state(&self) -> &State {
         panic!("child current projection attempted historical State access")
     }
@@ -116,11 +116,11 @@ impl Fixture {
         }
     }
     fn create(&self, id: TaskId, spec: ChildSpec) -> Command {
-        let graph = graph(self.engine.store().state(), &self.scope, &self.scope.task).unwrap();
+        let graph = graph(self.engine.store().current(), &self.scope, &self.scope.task).unwrap();
         let ledger: Ledger = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Ledger,
                 self.scope.task.as_str(),
@@ -143,14 +143,14 @@ impl Fixture {
     fn task(&self, id: &TaskId) -> Task {
         self.engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, id.as_str(), &self.scope.workspace)
             .unwrap()
             .decode()
             .unwrap()
     }
     async fn ready(&mut self, child: &TaskId) {
-        let graph = graph(self.engine.store().state(), &self.scope, &self.scope.task)
+        let graph = graph(self.engine.store().current(), &self.scope, &self.scope.task)
             .unwrap()
             .unwrap();
         self.engine
@@ -274,13 +274,13 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> Fixture {
         cap: vcp_domain::Limit::Finite(Micros::new(1000)),
         protected: Micros::new(100),
         settled: Micros::ZERO,
-        active: Micros::ZERO,
-        unresolved: Micros::ZERO,
+        active: Micros::ZERO.into(),
+        unresolved: Micros::ZERO.into(),
         allocations: BTreeMap::new(),
         daily: None,
         overrun: false,
     };
-    let watermark = f.engine.store().state().watermark;
+    let watermark = f.engine.store().current().watermark;
     f.engine
         .store_mut()
         .transact(Transaction {
@@ -351,30 +351,30 @@ async fn child_registration_is_atomic_bounded_and_durable_on_both_backends() {
         );
         assert_eq!(f.task(&first).state, TaskState::Pending);
         assert!(eligibility(
-            f.engine.store().state(),
+            f.engine.store().current(),
             &f.task(&first),
             Timestamp::new(10),
             true
         )
         .unwrap()
         .contains(&Blocker::Workspace));
-        let watermark = f.engine.store().state().watermark;
+        let watermark = f.engine.store().current().watermark;
         let second = TaskId::new();
         let payload = f.create(second.clone(), f.child(301));
         assert!(f
             .issue(Some(f.scope.task.clone()), Revision::new(1), payload)
             .await
             .is_err());
-        assert_eq!(f.engine.store().state().watermark, watermark);
+        assert_eq!(f.engine.store().current().watermark, watermark);
         assert!(!f
             .engine
             .store()
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::Task, second.as_str())));
         f.ready(&first).await;
         assert!(eligibility(
-            f.engine.store().state(),
+            f.engine.store().current(),
             &f.task(&first),
             Timestamp::new(10),
             true
@@ -384,14 +384,14 @@ async fn child_registration_is_atomic_bounded_and_durable_on_both_backends() {
         drop(f.engine);
         let engine = Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
         assert_eq!(
-            graph(engine.store().state(), &f.scope, &f.scope.task)
+            graph(engine.store().current(), &f.scope, &f.scope.task)
                 .unwrap()
                 .unwrap()
                 .children
                 .len(),
             1
         );
-        assert!(graph(engine.store().state(), &f.scope, &f.scope.task)
+        assert!(graph(engine.store().current(), &f.scope, &f.scope.task)
             .unwrap()
             .unwrap()
             .ready
@@ -412,11 +412,11 @@ async fn native_child_workspace_and_eligibility_require_only_current_records() {
             .await
             .unwrap();
         let child = f.task(&id);
-        let prior = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+        let prior = graph(f.engine.store().current(), &f.scope, &f.scope.task)
             .unwrap()
             .unwrap();
         let before =
-            eligibility(f.engine.store().state(), &child, Timestamp::new(10), true).unwrap();
+            eligibility(f.engine.store().current(), &child, Timestamp::new(10), true).unwrap();
         let mut engine = Engine::new(CurrentOwner(f.engine.into_store())).unwrap();
         assert_eq!(
             graph(engine.store().current(), &f.scope, &f.scope.task).unwrap(),
@@ -480,14 +480,14 @@ async fn dependencies_scope_pause_and_cancellation_are_canonical() {
     f.ready(&a).await;
     f.ready(&b).await;
     assert!(eligibility(
-        f.engine.store().state(),
+        f.engine.store().current(),
         &f.task(&b),
         Timestamp::new(10),
         true
     )
     .unwrap()
     .contains(&Blocker::Dependency));
-    let graph = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+    let graph = graph(f.engine.store().current(), &f.scope, &f.scope.task)
         .unwrap()
         .unwrap();
     assert!(f
@@ -521,7 +521,7 @@ async fn dependencies_scope_pause_and_cancellation_are_canonical() {
     .await
     .unwrap();
     assert!(eligibility(
-        f.engine.store().state(),
+        f.engine.store().current(),
         &f.task(&a),
         Timestamp::new(10),
         true
@@ -556,7 +556,7 @@ async fn dependencies_scope_pause_and_cancellation_are_canonical() {
     let ledger: Ledger = f
         .engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Ledger,
             f.scope.task.as_str(),
@@ -588,7 +588,7 @@ async fn cancelled_child_cannot_publish_workspace_ready() {
     )
     .await
     .unwrap();
-    let before = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+    let before = graph(f.engine.store().current(), &f.scope, &f.scope.task)
         .unwrap()
         .unwrap();
     assert!(f
@@ -609,7 +609,7 @@ async fn cancelled_child_cannot_publish_workspace_ready() {
         )
         .await
         .is_err());
-    let after = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+    let after = graph(f.engine.store().current(), &f.scope, &f.scope.task)
         .unwrap()
         .unwrap();
     assert_eq!(before.revision, after.revision);
@@ -644,7 +644,7 @@ async fn scheduler_caps_running_children_and_rejects_projection_tampering() {
         .unwrap();
     }
     assert!(eligibility(
-        f.engine.store().state(),
+        f.engine.store().current(),
         &f.task(&children[4]),
         Timestamp::new(10),
         true
@@ -652,7 +652,7 @@ async fn scheduler_caps_running_children_and_rejects_projection_tampering() {
     .unwrap()
     .contains(&Blocker::Concurrency));
     assert!(eligibility(
-        f.engine.store().state(),
+        f.engine.store().current(),
         &f.task(&children[4]),
         Timestamp::new(100),
         true
@@ -660,14 +660,14 @@ async fn scheduler_caps_running_children_and_rejects_projection_tampering() {
     .unwrap()
     .contains(&Blocker::Deadline));
     assert!(eligibility(
-        f.engine.store().state(),
+        f.engine.store().current(),
         &f.task(&children[4]),
         Timestamp::new(10),
         false
     )
     .unwrap()
     .contains(&Blocker::Owner));
-    let before = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+    let before = graph(f.engine.store().current(), &f.scope, &f.scope.task)
         .unwrap()
         .unwrap();
     let bypass = TaskId::new();
@@ -696,7 +696,7 @@ async fn scheduler_caps_running_children_and_rejects_projection_tampering() {
         .clear();
     let transaction = Transaction {
         id: TransactionId::new(),
-        expected_watermark: f.engine.store().state().watermark,
+        expected_watermark: f.engine.store().current().watermark,
         mutations: vec![Mutation::Put {
             expected: Some(before.revision),
             record: Record::typed(
@@ -714,7 +714,7 @@ async fn scheduler_caps_running_children_and_rejects_projection_tampering() {
     assert!(f.engine.store_mut().transact(transaction).await.is_err());
     let transaction = Transaction {
         id: TransactionId::new(),
-        expected_watermark: f.engine.store().state().watermark,
+        expected_watermark: f.engine.store().current().watermark,
         mutations: vec![Mutation::DropProjection {
             id: graph_id(&f.scope.task),
             expected: before.revision,
@@ -738,7 +738,7 @@ async fn nested_assignments_cannot_widen_scope_or_form_parent_dependency_deadloc
     let mut spec = f.child(100);
     spec.parent = parent.clone();
     spec.paths[0].path = "src/parser".into();
-    let mut graph = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+    let mut graph = graph(f.engine.store().current(), &f.scope, &f.scope.task)
         .unwrap()
         .unwrap();
     graph.children.insert(child.clone(), spec);
@@ -838,7 +838,7 @@ async fn nested_grants_require_the_complete_declared_chain() {
     let workspace: Workspace = f
         .engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             f.scope.workspace.as_str(),
@@ -893,14 +893,32 @@ async fn nested_grants_require_the_complete_declared_chain() {
         .await
         .unwrap();
     let task = f.task(&child);
-    assert!(inherited_grant(f.engine.store().state(), &task, &grant, Timestamp::new(10)).unwrap());
+    assert!(inherited_grant(
+        f.engine.store().current(),
+        &task,
+        &grant,
+        Timestamp::new(10)
+    )
+    .unwrap());
     grant.revision = Revision::new(1);
-    assert!(!inherited_grant(f.engine.store().state(), &task, &grant, Timestamp::new(10)).unwrap());
+    assert!(!inherited_grant(
+        f.engine.store().current(),
+        &task,
+        &grant,
+        Timestamp::new(10)
+    )
+    .unwrap());
     grant.revision = Revision::ZERO;
     grant.target = GrantTarget::Exact {
         digest: "a".repeat(64),
     };
-    assert!(!inherited_grant(f.engine.store().state(), &task, &grant, Timestamp::new(10)).unwrap());
+    assert!(!inherited_grant(
+        f.engine.store().current(),
+        &task,
+        &grant,
+        Timestamp::new(10)
+    )
+    .unwrap());
     grant.target = GrantTarget::Configured {
         tool: "vcp_read".into(),
         schema: "a".repeat(64),
@@ -919,13 +937,23 @@ async fn nested_grants_require_the_complete_declared_chain() {
             ..f.scope.clone()
         },
     };
-    assert!(!inherited_grant(f.engine.store().state(), &task, &grant, Timestamp::new(10)).unwrap());
+    assert!(!inherited_grant(
+        f.engine.store().current(),
+        &task,
+        &grant,
+        Timestamp::new(10)
+    )
+    .unwrap());
     grant.scope = GrantScope::Task {
         scope: f.scope.clone(),
     };
-    assert!(
-        !inherited_grant(f.engine.store().state(), &task, &grant, Timestamp::new(100)).unwrap()
-    );
+    assert!(!inherited_grant(
+        f.engine.store().current(),
+        &task,
+        &grant,
+        Timestamp::new(100)
+    )
+    .unwrap());
 }
 
 #[tokio::test]
@@ -971,7 +999,7 @@ async fn child_result_history_is_scoped_append_only_and_not_completion() {
             plan: artifacts[1].clone(),
             effect: None,
         };
-        let current = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+        let current = graph(f.engine.store().current(), &f.scope, &f.scope.task)
             .unwrap()
             .unwrap();
         let bad = ChildResultRef {
@@ -991,7 +1019,7 @@ async fn child_result_history_is_scoped_append_only_and_not_completion() {
             .await
             .is_err());
         for _ in 0..2 {
-            let current = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+            let current = graph(f.engine.store().current(), &f.scope, &f.scope.task)
                 .unwrap()
                 .unwrap();
             f.issue(
@@ -1008,14 +1036,14 @@ async fn child_result_history_is_scoped_append_only_and_not_completion() {
         }
         assert_eq!(f.task(&child).state, TaskState::Pending);
         assert_eq!(f.task(&f.scope.task).state, TaskState::Running);
-        let mut current = graph(f.engine.store().state(), &f.scope, &f.scope.task)
+        let mut current = graph(f.engine.store().current(), &f.scope, &f.scope.task)
             .unwrap()
             .unwrap();
         assert_eq!(current.results[&child].len(), 2);
         let old_revision = current.revision;
         current.revision = current.revision.next().unwrap();
         current.results.get_mut(&child).unwrap().remove(0);
-        let watermark = f.engine.store().state().watermark;
+        let watermark = f.engine.store().current().watermark;
         assert!(f
             .engine
             .store_mut()
@@ -1064,17 +1092,17 @@ async fn paused_child_requires_explicit_current_resume_evidence() {
     .unwrap();
     let task = f.task(&child);
     assert!(
-        eligibility(f.engine.store().state(), &task, Timestamp::new(10), true)
+        eligibility(f.engine.store().current(), &task, Timestamp::new(10), true)
             .unwrap()
             .contains(&Blocker::State)
     );
     assert!(
-        eligibility_for_resume(f.engine.store().state(), &task, Timestamp::new(10), true)
+        eligibility_for_resume(f.engine.store().current(), &task, Timestamp::new(10), true)
             .unwrap()
             .is_empty()
     );
     assert!(
-        eligibility_for_resume(f.engine.store().state(), &task, Timestamp::new(100), true)
+        eligibility_for_resume(f.engine.store().current(), &task, Timestamp::new(100), true)
             .unwrap()
             .contains(&Blocker::Scope)
     );
@@ -1124,7 +1152,7 @@ async fn eligibility_blocks_zero_remaining_capacity_without_charging_unused_allo
         f.ready(id).await;
     }
     let task = f.task(&child);
-    let initial = f.engine.store().state().clone();
+    let initial = f.engine.store().archive_state().await.unwrap();
     let ledger_key = key(Collection::Ledger, f.scope.task.as_str());
     for (charged, liability, exhausted) in [
         (399, 0, false),
@@ -1138,7 +1166,7 @@ async fn eligibility_blocks_zero_remaining_capacity_without_charging_unused_allo
         let row = state.records.get_mut(&ledger_key).unwrap();
         let mut ledger: Ledger = row.decode().unwrap();
         ledger.settled = Micros::new(charged);
-        ledger.unresolved = Micros::new(liability);
+        ledger.unresolved = Micros::new(liability).into();
         row.value = serde_json::to_value(ledger).unwrap();
         let reservation = Reservation {
             schema_version: 1,
@@ -1155,9 +1183,10 @@ async fn eligibility_blocks_zero_remaining_capacity_without_charging_unused_allo
             amount: Money {
                 currency: "USD".to_string().try_into().unwrap(),
                 micros: Micros::new(charged + liability),
-            },
+            }
+            .into(),
             charged: Micros::new(charged),
-            liability: Micros::new(liability),
+            liability: Micros::new(liability).into(),
             protected_draw: Micros::ZERO,
             protected_returned: Micros::ZERO,
             day: 0,
@@ -1192,8 +1221,8 @@ async fn eligibility_blocks_zero_remaining_capacity_without_charging_unused_allo
         let row = state.records.get_mut(&ledger_key).unwrap();
         let mut ledger: Ledger = row.decode().unwrap();
         ledger.settled = Micros::new(settled);
-        ledger.active = Micros::new(active);
-        ledger.unresolved = Micros::new(unresolved);
+        ledger.active = Micros::new(active).into();
+        ledger.unresolved = Micros::new(unresolved).into();
         row.value = serde_json::to_value(ledger).unwrap();
         assert!(
             eligibility(&state, &task, Timestamp::new(10), true)

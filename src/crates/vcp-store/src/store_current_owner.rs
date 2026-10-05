@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Replacement Store ownership methods under qualification before the public
-//! API cut. No complete historical State is retained or implicitly reconstructed.
+//! Public Store ownership methods. No complete historical State is retained
+//! or implicitly reconstructed.
 use super::*;
 use crate::{durable_owner::Outcome, store_history_reader::ReadPages};
 use vcp_domain::{ArtifactId, CommandId, EventId, SessionId, TransactionId, WorkspaceId};
@@ -59,6 +59,20 @@ impl Opened {
                 .semantic()
                 .catalog()
                 .legacy_digest(&mut pages, self.current())
+        )
+    }
+    pub(crate) async fn archive_size(
+        &self,
+        limit: usize,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<usize> {
+        read!(
+            self,
+            pages,
+            self.owner
+                .semantic()
+                .catalog()
+                .legacy_size(&mut pages, self.current(), limit, check)
         )
     }
     pub(crate) async fn history_event_count(&self) -> Result<u64> {
@@ -192,12 +206,20 @@ impl Opened {
                         .as_ref()
                         .ok_or(Error::Corruption("history page directory"))?;
                     self.owner
-                        .prepare(&mut io::Files::new(directory), &transaction)
+                        .prepare_observed(
+                            &mut io::Files::new(directory),
+                            &transaction,
+                            Some(&mut self.diagnostics),
+                        )
                         .await
                 }
                 Backend::Sqlite(db) => {
                     self.owner
-                        .prepare(&mut io::Sqlite::new(db), &transaction)
+                        .prepare_observed(
+                            &mut io::Sqlite::new(db),
+                            &transaction,
+                            Some(&mut self.diagnostics),
+                        )
                         .await
                 }
             }

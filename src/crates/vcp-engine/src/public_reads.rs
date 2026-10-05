@@ -96,8 +96,8 @@ impl<S: CanonicalStore> Engine<S> {
             currency: methods::Currency::Usd,
             cap_micros: ledger.cap.map(|cap| cap.get().into()),
             settled_micros: ledger.settled.get().into(),
-            reserved_micros: ledger.active.get().into(),
-            unresolved_micros: ledger.unresolved.get().into(),
+            reserved_micros: ledger.active.into(),
+            unresolved_micros: ledger.unresolved.into(),
             overrun: ledger.overrun,
         })
     }
@@ -368,7 +368,7 @@ mod tests {
     ) {
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: engine.store().state().watermark,
+            expected_watermark: engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(collection, name, access().workspace, Revision::ZERO, value)
@@ -461,22 +461,22 @@ mod tests {
                 cap: vcp_domain::Limit::Finite(Micros::new(u64::MAX)),
                 protected: Micros::ZERO,
                 settled: Micros::ZERO,
-                active: Micros::ZERO,
-                unresolved: Micros::ZERO,
+                active: Micros::ZERO.into(),
+                unresolved: Micros::ZERO.into(),
                 allocations: Default::default(),
                 daily: None,
                 overrun: false,
             };
             put(&mut engine, Collection::Ledger, "task", &ledger).await;
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             let view = engine.public_usage(&access(), &request).unwrap();
             assert_eq!(
                 view.cap_micros.finite().unwrap().as_str(),
                 "18446744073709551615"
             );
             assert_eq!(view.settled_micros.as_str(), "0");
-            assert_eq!(view.reserved_micros.as_str(), "0");
-            assert_eq!(view.unresolved_micros.as_str(), "0");
+            assert_eq!(view.reserved_micros.0.known(), Some(Micros::ZERO));
+            assert_eq!(view.unresolved_micros.0.known(), Some(Micros::ZERO));
             assert!(!view.overrun);
             request.target = Some(id("other").unwrap());
             assert_eq!(
@@ -496,7 +496,7 @@ mod tests {
                 engine.public_usage(&revoked, &request),
                 Err(QueryError::Access)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let engine =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();

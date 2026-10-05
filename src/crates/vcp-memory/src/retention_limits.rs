@@ -2,6 +2,7 @@
 //! Bound the public preview's full-state source commitment before the shared
 //! workflow canonicalizes it. Counting borrows values and never copies payloads.
 use crate::{Error, Result};
+#[cfg(test)]
 use serde::Serialize;
 use std::io::{self, Write};
 use vcp_store::contract::CanonicalStore;
@@ -136,7 +137,7 @@ mod tests {
         events: u64,
         commands_read: std::cell::Cell<usize>,
     }
-    impl CanonicalStore for Reader {
+    impl vcp_store::contract::reference::ReferenceStore for Reader {
         fn state(&self) -> &State {
             panic!("public retention must not materialize State")
         }

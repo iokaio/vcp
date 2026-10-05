@@ -59,7 +59,10 @@ fn policy() -> Policy {
     .unwrap()
 }
 async fn setup(root: &std::path::Path, backend: BackendKind) -> (Store, Access) {
-    let mut store = Store::open(root, backend, &[]).await.unwrap();
+    let (opened, diagnostics) = Store::open_with_diagnostics(root, backend, &[]).await;
+    let mut store = opened.unwrap_or_else(|error| {
+        panic!("routing fixture open failed: {backend:?}, root={root:?}, error={error:?}, diagnostics={diagnostics:?}")
+    });
     let workspace = Workspace {
         id: WorkspaceId::new(),
         binding: Binding {
@@ -163,8 +166,10 @@ async fn selective_apply_is_atomic_idempotent_reopenable_and_rollback_rechecks_c
             .uncertainty
             .iter()
             .any(|s| s.contains("Small sample")));
-        let declined = preview(&store, &access, &report.id, vec![], &ceilings).unwrap();
-        let watermark = store.state().watermark;
+        let declined = preview(&store, &access, &report.id, vec![], &ceilings)
+            .await
+            .unwrap();
+        let watermark = store.current().watermark;
         assert!(apply(
             &mut store,
             &access,
@@ -175,7 +180,7 @@ async fn selective_apply_is_atomic_idempotent_reopenable_and_rollback_rechecks_c
         )
         .await
         .is_err());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         let proposal = preview(
             &store,
             &access,
@@ -183,6 +188,7 @@ async fn selective_apply_is_atomic_idempotent_reopenable_and_rollback_rechecks_c
             vec![Edit::QualityFloorBps(8000)],
             &ceilings,
         )
+        .await
         .unwrap();
         let command = CommandId::new();
         let applied = apply(
@@ -197,7 +203,7 @@ async fn selective_apply_is_atomic_idempotent_reopenable_and_rollback_rechecks_c
         .unwrap();
         assert_eq!(applied.published.revision, Revision::new(1));
         assert_eq!(applied.effective.quality_floor_bps, 8000);
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert_eq!(
             apply(
                 &mut store,
@@ -211,7 +217,7 @@ async fn selective_apply_is_atomic_idempotent_reopenable_and_rollback_rechecks_c
             .unwrap(),
             applied
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         assert!(apply(
             &mut store,
             &access,
@@ -275,7 +281,7 @@ async fn selective_apply_is_atomic_idempotent_reopenable_and_rollback_rechecks_c
         );
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Projection
@@ -337,7 +343,7 @@ async fn interview_reuses_answers_closed_schema_rejects_authority_and_reports_re
     .unwrap();
     assert_eq!(next_question_for_report(&updated, &saved), None);
     access.authority = AuthorityRevision::new(1);
-    assert!(load_report(&store, &access, &saved.id).is_err());
+    assert!(load_report(&store, &access, &saved.id).await.is_err());
     access.authority = AuthorityRevision::ZERO;
     access.tasks = Some(BTreeSet::new());
     assert!(interview(&store, &access).is_err());
@@ -356,7 +362,7 @@ async fn report_keeps_failed_cancelled_and_unfinished_denominators_and_scopes_sa
         let temp = tempfile::tempdir().unwrap();
         let (mut store, mut access) = setup(temp.path(), backend).await;
         let session: Session = store
-            .state()
+            .current()
             .records
             .values()
             .find(|r| r.collection == Collection::Session)
@@ -403,7 +409,7 @@ async fn report_keeps_failed_cancelled_and_unfinished_denominators_and_scopes_sa
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![Mutation::Put {
                         record: Record::typed(
                             Collection::Task,
@@ -461,7 +467,7 @@ async fn report_keeps_failed_cancelled_and_unfinished_denominators_and_scopes_sa
         assert!(saved.uncertainty.iter().any(|s| s.contains("abandonment")));
         selected.pop_first();
         access.tasks = Some(selected);
-        assert!(load_report(&store, &access, &saved.id).is_err());
+        assert!(load_report(&store, &access, &saved.id).await.is_err());
         let restricted = report(
             &store,
             &access,
@@ -470,6 +476,7 @@ async fn report_keeps_failed_cancelled_and_unfinished_denominators_and_scopes_sa
                 until: Timestamp::new(7),
             },
         )
+        .await
         .unwrap();
         assert_eq!(restricted.counts.tasks, 3 * repetitions - 1);
         assert_eq!(restricted.evidence.len() as u64, 3 * repetitions - 1);
@@ -481,6 +488,7 @@ async fn report_keeps_failed_cancelled_and_unfinished_denominators_and_scopes_sa
                 until: Timestamp::new(11),
             },
         )
+        .await
         .unwrap();
         assert_eq!(empty.counts.tasks, 0);
         store.close().await.unwrap();

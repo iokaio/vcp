@@ -251,7 +251,7 @@ async fn atomic_public_fork_replays_after_restart_and_preserves_historical_metad
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (engine, through) = fixture(temp.path(), backend).await;
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         let shared = std::sync::Arc::new(tokio::sync::Mutex::new(engine));
         let invoke = |shared: std::sync::Arc<tokio::sync::Mutex<Engine<Store>>>| async move {
             let mut engine = shared.lock().await;
@@ -266,7 +266,7 @@ async fn atomic_public_fork_replays_after_restart_and_preserves_historical_metad
             .ok()
             .unwrap()
             .into_inner();
-        let after = engine.store().state();
+        let after = engine.store().archive_state().await.unwrap();
         assert_eq!(after.records.len(), before.records.len() + 2);
         assert_eq!(after.events.len(), before.events.len() + 2);
         assert_eq!(after.commands.len(), before.commands.len() + 1);
@@ -333,7 +333,7 @@ async fn atomic_public_fork_replays_after_restart_and_preserves_historical_metad
                 .await,
             Err(QueryError::Unavailable)
         );
-        let snapshot = engine.store().state().clone();
+        let snapshot = engine.store().archive_state().await.unwrap();
         assert_eq!(
             engine
                 .handle_public(call("fork-once"), &access(), &facts())
@@ -349,7 +349,7 @@ async fn atomic_public_fork_replays_after_restart_and_preserves_historical_metad
             engine.handle_public(changed, &access(), &facts()).await,
             Err(PublicError::CommandConflict)
         );
-        assert_eq!(engine.store().state(), &snapshot);
+        assert_eq!(engine.store().archive_state().await.unwrap(), snapshot);
         engine.into_store().close().await.unwrap();
         let mut engine =
             Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
@@ -368,7 +368,7 @@ async fn atomic_public_fork_replays_after_restart_and_preserves_historical_metad
                 .await,
             Err(PublicError::Access)
         );
-        assert_eq!(engine.store().state(), &snapshot);
+        assert_eq!(engine.store().archive_state().await.unwrap(), snapshot);
         engine.into_store().close().await.unwrap();
     }
 }
@@ -378,7 +378,7 @@ async fn rejected_boundaries_and_target_collisions_never_leave_a_partial_fork() 
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
         let temp = tempfile::tempdir().unwrap();
         let (mut engine, through) = fixture(temp.path(), backend).await;
-        let before = engine.store().state().clone();
+        let before = engine.store().archive_state().await.unwrap();
         for variant in 0..5 {
             let mut request = call(&format!("rejected-{variant}"));
             if let Call::SessionFork(p) = &mut request {
@@ -394,7 +394,7 @@ async fn rejected_boundaries_and_target_collisions_never_leave_a_partial_fork() 
                 .handle_public(request, &access(), &facts())
                 .await
                 .is_err());
-            assert_eq!(engine.store().state(), &before);
+            assert_eq!(engine.store().archive_state().await.unwrap(), before);
         }
         let selected = source(&before, &access().workspace, &access().session, &through).unwrap();
         for variant in 0..7 {

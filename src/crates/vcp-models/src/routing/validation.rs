@@ -108,7 +108,9 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
             .price
             .rates
             .get(&category)
-            .is_none_or(|rate| rate.per_units == Units::ZERO)
+            .map_or(value.tariff_normalization != Some(3), |rate| {
+                rate.per_units == Units::ZERO
+            })
         {
             return Err(Error::Protocol("routing snapshot incomplete price units"));
         }

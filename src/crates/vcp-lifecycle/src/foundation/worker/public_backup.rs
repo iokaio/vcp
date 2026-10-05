@@ -60,7 +60,7 @@ fn workspace(context: &Context, access: &Access) -> RpcResult<Workspace> {
     let value: Workspace = context
         .engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -80,7 +80,7 @@ fn snapshot_job(
     operation: &CommandId,
 ) -> RpcResult<Option<SnapshotJob>> {
     if !store
-        .state()
+        .current()
         .records
         .contains_key(&key(Collection::SnapshotPin, operation.as_str()))
     {
@@ -199,7 +199,7 @@ fn view(
         operation: request.operation.clone(),
         revision: intent.revision.get().into(),
         job_revision: job.as_ref().map(|j| j.revision.get().into()),
-        watermark: context.engine.store().state().watermark.get().into(),
+        watermark: context.engine.store().current().watermark.get().into(),
         phase,
         cancel_requested: intent.cancel_requested,
         snapshot_watermark: job.as_ref().map(|j| j.watermark.get().into()),
@@ -268,7 +268,7 @@ impl PublicConnection {
                     let current_workspace = workspace(context, &access)?;
                     if write {
                         if let Some(receipt) =
-                            durable::replay(context.engine.store(), &access, &call)?
+                            context.runtime.block_on(durable::replay(context.engine.store(), &access, &call))?
                         {
                             return Ok((
                                 context.runtime.block_on(vcp_engine::rpc::acceptance(
@@ -312,7 +312,7 @@ impl PublicConnection {
                                     watermark: context
                                         .engine
                                         .store()
-                                        .state()
+                                        .current()
                                         .watermark
                                         .get()
                                         .into(),

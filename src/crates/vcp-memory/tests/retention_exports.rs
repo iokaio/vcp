@@ -3,6 +3,7 @@ use vcp_audit::{history, session_export};
 use vcp_domain::{artifact::*, task::*, verification::Fingerprint, workspace::*, *};
 use vcp_engine::{public_export::*, Access, Engine, HostFacts};
 use vcp_protocol::{command::*, methods};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::contract::{key, Collection};
 use vcp_store::{artifact::ArtifactWriter, BackendKind, Store};
 
@@ -239,7 +240,7 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             .map(|id| {
                 engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Artifact, id.as_str(), &access().workspace)
                     .unwrap()
                     .decode()
@@ -311,7 +312,7 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
         }
         for output in &outputs {
             let descriptor: ArtifactDescriptor = store
-                .state()
+                .current()
                 .record(Collection::Artifact, output.as_str(), &auth.workspace)
                 .unwrap()
                 .decode()
@@ -320,7 +321,7 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             assert!(store.spool().read(&descriptor, &mut Vec::new()).is_err());
         }
         let other: Task = store
-            .state()
+            .current()
             .record(Collection::Task, other.as_str(), &auth.workspace)
             .unwrap()
             .decode()

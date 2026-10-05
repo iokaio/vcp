@@ -88,6 +88,7 @@ async fn selected_escalation_and_input_edits_apply_clear_and_rollback_under_curr
             ],
             &ceilings,
         )
+        .await
         .unwrap();
         assert_eq!(selected.persisted.input_tokens, Some(Units::new(900)));
         assert_eq!(selected.effective.input_tokens, Some(Units::new(500)));
@@ -120,6 +121,7 @@ async fn selected_escalation_and_input_edits_apply_clear_and_rollback_under_curr
             ],
             &ceilings,
         )
+        .await
         .unwrap();
         assert!(cleared.persisted.escalation_limits.is_none());
         assert!(cleared.persisted.reasoning_effort.is_none());
@@ -226,6 +228,7 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
             ],
             &ceilings,
         )
+        .await
         .unwrap();
         assert!(proposal.persisted.allowed_models.contains("untrusted"));
         assert_eq!(
@@ -260,6 +263,7 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
             vec![Edit::AllowedGroups(BTreeSet::new())],
             &ceilings,
         )
+        .await
         .unwrap();
         let command = CommandId::new();
         let receipt = apply(
@@ -272,7 +276,7 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
         )
         .await
         .unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(apply(
             &mut store,
             &access,
@@ -293,7 +297,7 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
         )
         .await
         .is_err());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         store.close().await.unwrap();
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
@@ -350,6 +354,7 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
             vec![Edit::Pin(None)],
             &narrowed,
         )
+        .await
         .unwrap();
         assert_eq!(clear_pin.persisted.pin, None);
         assert_eq!(clear_pin.effective.pin, narrowed.pin);
@@ -363,12 +368,13 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
             }))],
             &narrowed,
         )
+        .await
         .unwrap();
         assert!(conflict.effective.allowed_models.is_empty());
         assert_eq!(conflict.effective.pin, narrowed.pin);
 
         // Changed trusted ceilings invalidate a prepared apply, even if its base is current.
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(apply(
             &mut store,
             &access,
@@ -391,7 +397,7 @@ async fn selected_permissions_are_bounded_atomic_and_replayable_on_both_stores()
         )
         .await
         .is_err());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         store.close().await.unwrap();
     }
 }
@@ -416,7 +422,7 @@ async fn invalid_or_duplicate_permission_edits_never_publish() {
         )
         .await
         .unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         for edits in [
             vec![Edit::AllowedModels(BTreeSet::from(["".into()]))],
             vec![Edit::AllowedEndpoints(BTreeSet::from([
@@ -442,7 +448,9 @@ async fn invalid_or_duplicate_permission_edits_never_publish() {
                 fallback_candidates: BTreeSet::from([endpoint("model")]),
             }))],
         ] {
-            assert!(preview(&store, &access, &report.id, edits, &ceilings).is_err());
+            assert!(preview(&store, &access, &report.id, edits, &ceilings)
+                .await
+                .is_err());
         }
         for malformed in [
             serde_json::json!({"field":"allowed_models","value":"model"}),
@@ -460,9 +468,10 @@ async fn invalid_or_duplicate_permission_edits_never_publish() {
             vec![Edit::AllowedModels(BTreeSet::new())],
             &ceilings,
         )
+        .await
         .unwrap();
         assert!(empty.effective.allowed_models.is_empty());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         store.close().await.unwrap();
     }
 }

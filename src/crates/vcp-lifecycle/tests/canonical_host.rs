@@ -211,6 +211,8 @@ mod seeded_provider;
 mod seeded_traces;
 #[path = "support/selected_reopen.rs"]
 mod selected_reopen;
+#[path = "support/history_reader.rs"]
+mod history_reader;
 #[cfg(windows)]
 #[path = "support/skills.rs"]
 mod skills;
@@ -1052,7 +1054,7 @@ async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and
             .await
             .unwrap();
         let mutations = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Projection)
@@ -1063,7 +1065,7 @@ async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and
             .collect();
         let tx = Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![],
             command: None,
@@ -1100,7 +1102,7 @@ async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and
     }
 }
 use vcp_protocol::command::Command;
-use vcp_store::{contract::Collection, BackendKind};
+use vcp_store::{contract::{CanonicalStore, Collection}, BackendKind};
 fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendKind) -> Config {
     let currency: Currency = "USD".to_owned().try_into().unwrap();
     Config {
@@ -1771,7 +1773,7 @@ async fn real_capture_capacity_failure_fences_transport_and_preserves_exact_pref
                 vcp_budget::ledger(&state, &binding.scope)
                     .unwrap()
                     .unresolved
-                    .get(),
+                    .known().unwrap().get(),
                 100
             );
             let response_artifact = state

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Layout-3 native publication qualification. Original Commit payloads remain
+//! Layout-3 native publication. Original Commit payloads remain
 //! byte-for-byte journal bodies; the new header authenticates the staged root.
 use super::*;
 use crate::durable_owner::{DurableOwner, PreparedDurable};
@@ -17,7 +17,7 @@ pub(crate) use sqlite_replay::replay_sqlite_all;
 #[path = "backend_current_origin.rs"]
 mod origin;
 #[path = "backend_current_replay.rs"]
-mod replay;
+pub(crate) mod replay;
 #[path = "backend_current_sqlite.rs"]
 mod sqlite;
 pub(crate) use origin::Origin;
@@ -101,7 +101,9 @@ impl Journal {
     }
 }
 
+#[cfg(test)]
 #[path = "backend_current_origin_tests.rs"]
 mod origin_tests;
+#[cfg(test)]
 #[path = "backend_current_tests.rs"]
 mod tests;

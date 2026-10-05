@@ -12,7 +12,7 @@ struct Reader {
     reads: Cell<usize>,
     fail: bool,
 }
-impl CanonicalStore for Reader {
+impl vcp_store::contract::reference::ReferenceStore for Reader {
     fn state(&self) -> &State {
         panic!("subscription requested resident history")
     }
@@ -52,7 +52,7 @@ async fn subscriptions_stream_short_pages_and_fail_on_interior_reads_without_adv
         let (mut original, access) = projection_tests::fixture(temp.path(), backend).await;
         let start = original.store().current().sequences[&access.session];
         let ids = projection_tests::append(&mut original, &access, 6).await;
-        let state = original.store().state().clone();
+        let state = original.store().archive_state().await.unwrap();
         original.into_store().close().await.unwrap();
         let mut engine = Engine::new(Reader {
             source: state,

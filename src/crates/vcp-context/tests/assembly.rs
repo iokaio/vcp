@@ -257,8 +257,8 @@ fn handoff_fixture() -> vcp_context::handoff::Packet {
         cap: vcp_domain::Limit::Finite(Micros::new(1000)),
         protected: Micros::new(100),
         settled: Micros::new(200),
-        active: Micros::new(50),
-        unresolved: Micros::new(75),
+        active: Micros::new(50).into(),
+        unresolved: Micros::new(75).into(),
         allocations: Default::default(),
         daily: None,
         overrun: false,
@@ -386,7 +386,7 @@ fn handoff_rejects_stale_steering_accounting_scope_and_orphan_results() {
         )
         .is_err());
     let mut ledger = packet.ledger.clone();
-    ledger.unresolved = Micros::new(80);
+    ledger.unresolved = Micros::new(80).into();
     assert!(packet
         .reassemble(
             &packet.manifest.revisions,

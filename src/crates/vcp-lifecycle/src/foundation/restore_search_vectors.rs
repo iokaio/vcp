@@ -19,7 +19,7 @@ use vcp_memory::{
     vector::Component,
 };
 use vcp_store::{
-    contract::{key, Collection},
+    contract::{key, Collection, CanonicalStore},
     Store,
 };
 type Result<T> = std::result::Result<T, String>;
@@ -135,7 +135,7 @@ pub(super) fn capture(
         .digest()
         .map_err(|e| e.to_string())?;
     let mut generations = BTreeMap::new();
-    for row in store.state().records.values() {
+    for row in store.current().records.values() {
         check()?;
         if row.workspace == workspace.id
             && row.collection == Collection::Generation
@@ -156,7 +156,7 @@ pub(super) fn capture(
     }
     let mut candidates = Vec::new();
 
-    for row in store.state().records.values() {
+    for row in store.current().records.values() {
         check()?;
         if row.workspace != workspace.id || row.collection != Collection::Artifact {
             continue;
@@ -187,7 +187,7 @@ pub(super) fn capture(
         {
             continue;
         }
-        if !retention::recall_allowed(store.state(), &workspace.id, &Target::Record(row.key()))
+        if !retention::recall_allowed(store.current(), &workspace.id, &Target::Record(row.key()))
             .map_err(|e| e.to_string())?
         {
             continue;

@@ -14,6 +14,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     event::EventKind,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{artifact::ArtifactWriter, contract::Collection, BackendKind, Store};
 
 async fn issue(engine: &mut Engine<Store>, scope: &Scope, payload: Command) {
@@ -104,9 +105,7 @@ async fn fixture(
         },
     )
     .await;
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| e.event.kind == EventKind::TaskCreated)
@@ -157,12 +156,12 @@ async fn caught_up_includes_activity_created_during_processing() {
             .unwrap()
             .iter()
             .all(|job| job.state.finished()));
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let progress = runner::step(&mut store, &access, &scope, Timestamp::new(102))
             .await
             .unwrap();
         assert!(progress.caught_up);
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
     }
 }
 
@@ -172,7 +171,7 @@ async fn committed_preference_recovers_lost_completion_without_duplicate_memory(
         let temp = tempfile::tempdir().unwrap();
         let (engine, scope, access, origin) = fixture(temp.path(), backend).await;
         let mut store = engine.into_store();
-        let through = store.state().watermark;
+        let through = store.current().watermark;
         ingest::enqueue(
             &mut store,
             &access,
@@ -198,8 +197,7 @@ async fn committed_preference_recovers_lost_completion_without_duplicate_memory(
         )
         .await
         .unwrap();
-        let event = store
-            .state()
+        let event = (&store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|e| e.event.id == origin)
@@ -236,7 +234,7 @@ async fn committed_preference_recovers_lost_completion_without_duplicate_memory(
         assert_eq!(replay.result, committed.result);
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Claim
@@ -271,9 +269,7 @@ async fn malformed_observation_jobs_yield_and_idle_steps_stop_mutating() {
         let descriptor = writer.finalize().unwrap();
         issue(&mut engine, &scope, Command::AttachArtifact { descriptor }).await;
         poison.push(
-            engine
-                .store()
-                .state()
+            (&engine.store().archive_state().await.unwrap())
                 .events
                 .last()
                 .unwrap()
@@ -309,13 +305,13 @@ async fn malformed_observation_jobs_yield_and_idle_steps_stop_mutating() {
             .unwrap()
             .contains("invalid_observation"));
     }
-    let before = store.state().clone();
+    let before = store.archive_state().await.unwrap();
     let idle = runner::step(&mut store, &access, &scope, Timestamp::new(200))
         .await
         .unwrap();
     assert!(idle.caught_up);
     assert_eq!(idle.completed + idle.deferred + idle.failed, 0);
-    assert_eq!(store.state(), &before);
+    assert_eq!(&store.archive_state().await.unwrap(), &before);
 }
 
 #[tokio::test]
@@ -388,9 +384,7 @@ async fn held_child_does_not_starve_later_root_work() {
         },
     )
     .await;
-    let later = engine
-        .store()
-        .state()
+    let later = (&engine.store().archive_state().await.unwrap())
         .events
         .last()
         .unwrap()
@@ -441,7 +435,7 @@ async fn exhausted_leases_count_toward_the_per_step_job_limit() {
     )
     .await;
     let mut store = engine.into_store();
-    let through = store.state().watermark;
+    let through = store.current().watermark;
     ingest::enqueue(
         &mut store,
         &access,
@@ -489,9 +483,9 @@ async fn exhausted_leases_count_toward_the_per_step_job_limit() {
         .await
         .unwrap();
     assert_eq!(final_step.failed, 1);
-    let before = store.state().clone();
+    let before = store.archive_state().await.unwrap();
     runner::step(&mut store, &access, &scope, Timestamp::new(now))
         .await
         .unwrap();
-    assert_eq!(store.state(), &before);
+    assert_eq!(&store.archive_state().await.unwrap(), &before);
 }

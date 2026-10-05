@@ -55,7 +55,7 @@ impl Context {
         let attempts = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|record| record.collection == Collection::Attempt)

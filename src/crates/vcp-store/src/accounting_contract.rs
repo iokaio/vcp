@@ -10,6 +10,9 @@ use vcp_domain::{
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
 mod history_test_common;
+#[cfg(test)]
+#[path = "accounting_resumption_tests.rs"]
+mod resumption_tests;
 fn sum(left: u64, right: u64) -> Result<u64> {
     left.checked_add(right)
         .ok_or(Error::Corruption("accounting overflow"))
@@ -44,66 +47,105 @@ pub(crate) fn validate_with_history(
     state: CurrentStateView<'_>,
     history: &mut impl crate::historical_facts::EventFacts,
 ) -> Result<()> {
-    let mut ledgers = BTreeMap::<TaskId, Ledger>::new();
-    let mut reservations = BTreeMap::<ReservationId, Reservation>::new();
-    let mut attempts = BTreeMap::<AttemptId, Attempt>::new();
-    let mut settlements = Vec::<Settlement>::new();
-    for record in state.records.values() {
-        match record.collection {
-            Collection::Ledger => {
-                let value: Ledger = record.decode()?;
-                ledgers.insert(value.scope.task.clone(), value);
-            }
-            Collection::Reservation => {
-                let value: Reservation = record.decode()?;
-                reservations.insert(value.id.clone(), value);
-            }
-            Collection::Attempt => {
-                let value: Attempt = record.decode()?;
-                attempts.insert(value.id.clone(), value);
-            }
-            Collection::Settlement => settlements.push(record.decode()?),
-            _ => {}
-        }
+    let validation = Validation::new(state)?;
+    for attempt in validation.attempts() {
+        validation.attempt(attempt, history)?;
     }
-    let mut charged = BTreeMap::<AttemptId, (u64, u64)>::new();
-    for settlement in &settlements {
-        let attempt = attempts
-            .get(&settlement.attempt)
-            .ok_or(Error::Corruption("settlement attempt"))?;
-        if settlement.scope != attempt.scope
-            || settlement.observation.amount.currency != attempt.quote.amount.currency
-        {
-            return Err(Error::Access);
+    validation.finish()
+}
+
+/// One immutable accounting pass. Resolving a missing send-intent may retry
+/// its current attempt without decoding every ledger or rechecking earlier
+/// attempts. No fact or successful predicate survives the current state cut.
+pub(crate) struct Validation<'a> {
+    state: CurrentStateView<'a>,
+    ledgers: BTreeMap<TaskId, Ledger>,
+    reservations: BTreeMap<ReservationId, Reservation>,
+    attempts: BTreeMap<AttemptId, Attempt>,
+    charged: BTreeMap<AttemptId, (u64, u64)>,
+}
+impl<'a> Validation<'a> {
+    pub(crate) fn new(state: CurrentStateView<'a>) -> Result<Self> {
+        let mut ledgers = BTreeMap::<TaskId, Ledger>::new();
+        let mut reservations = BTreeMap::<ReservationId, Reservation>::new();
+        let mut attempts = BTreeMap::<AttemptId, Attempt>::new();
+        let mut settlements = Vec::<Settlement>::new();
+        for record in state.records.values() {
+            match record.collection {
+                Collection::Ledger => {
+                    let value: Ledger = record.decode()?;
+                    ledgers.insert(value.scope.task.clone(), value);
+                }
+                Collection::Reservation => {
+                    let value: Reservation = record.decode()?;
+                    reservations.insert(value.id.clone(), value);
+                }
+                Collection::Attempt => {
+                    let value: Attempt = record.decode()?;
+                    attempts.insert(value.id.clone(), value);
+                }
+                Collection::Settlement => settlements.push(record.decode()?),
+                _ => {}
+            }
         }
-        let raw: ArtifactDescriptor = state
-            .record(
-                Collection::Artifact,
-                settlement.observation.raw.as_str(),
-                &attempt.scope.workspace,
-            )?
-            .decode()?;
-        if raw.state != CaptureState::Complete && raw.state != CaptureState::Purged {
-            return Err(Error::Corruption("usage evidence is incomplete"));
-        }
-        let entry = charged.entry(attempt.id.clone()).or_default();
-        match settlement.direction {
-            AdjustmentDirection::Debit => entry.0 = sum(entry.0, settlement.adjustment.get())?,
-            AdjustmentDirection::Credit => entry.1 = sum(entry.1, settlement.adjustment.get())?,
-            AdjustmentDirection::None => {
-                if settlement.adjustment.get() != 0 {
-                    return Err(Error::Corruption("zero adjustment"));
+        let mut charged = BTreeMap::<AttemptId, (u64, u64)>::new();
+        for settlement in &settlements {
+            let attempt = attempts
+                .get(&settlement.attempt)
+                .ok_or(Error::Corruption("settlement attempt"))?;
+            if settlement.scope != attempt.scope
+                || settlement.observation.amount.currency != attempt.quote.amount.currency
+            {
+                return Err(Error::Access);
+            }
+            let raw: ArtifactDescriptor = state
+                .record(
+                    Collection::Artifact,
+                    settlement.observation.raw.as_str(),
+                    &attempt.scope.workspace,
+                )?
+                .decode()?;
+            if raw.state != CaptureState::Complete && raw.state != CaptureState::Purged {
+                return Err(Error::Corruption("usage evidence is incomplete"));
+            }
+            let entry = charged.entry(attempt.id.clone()).or_default();
+            match settlement.direction {
+                AdjustmentDirection::Debit => entry.0 = sum(entry.0, settlement.adjustment.get())?,
+                AdjustmentDirection::Credit => entry.1 = sum(entry.1, settlement.adjustment.get())?,
+                AdjustmentDirection::None => {
+                    if settlement.adjustment.get() != 0 {
+                        return Err(Error::Corruption("zero adjustment"));
+                    }
                 }
             }
+            if !settlement.applied
+                && (settlement.adjustment.get() != 0
+                    || settlement.direction != AdjustmentDirection::None)
+            {
+                return Err(Error::Corruption("unapplied usage changed spend"));
+            }
         }
-        if !settlement.applied
-            && (settlement.adjustment.get() != 0
-                || settlement.direction != AdjustmentDirection::None)
-        {
-            return Err(Error::Corruption("unapplied usage changed spend"));
-        }
+        Ok(Self {
+            state,
+            ledgers,
+            reservations,
+            attempts,
+            charged,
+        })
     }
-    for attempt in attempts.values() {
+    pub(crate) fn attempts(&self) -> impl Iterator<Item = &Attempt> {
+        self.attempts.values()
+    }
+    pub(crate) fn attempt(
+        &self,
+        attempt: &Attempt,
+        history: &mut impl crate::historical_facts::EventFacts,
+    ) -> Result<()> {
+        let state = self.state;
+        let ledgers = &self.ledgers;
+        let reservations = &self.reservations;
+        let attempts = &self.attempts;
+        let charged = &self.charged;
         let reservation = reservations
             .get(&attempt.reservation)
             .ok_or(Error::Corruption("attempt without reservation"))?;
@@ -137,13 +179,12 @@ pub(crate) fn validate_with_history(
             return Err(Error::Corruption("quote identity or currency"));
         }
         let mut quote_total = 0u128;
+        let mut missing = 0u64;
         for (kind, units) in attempt.quote.bounds.disjoint()? {
-            let rate = attempt
-                .quote
-                .price
-                .rates
-                .get(&kind)
-                .ok_or(Error::Corruption("unknown quote category"))?;
+            let Some(rate) = attempt.quote.price.rates.get(&kind) else {
+                missing += 1;
+                continue;
+            };
             let denominator = rate.per_units.get() as u128;
             if denominator == 0 {
                 return Err(Error::Corruption("zero price unit"));
@@ -153,7 +194,10 @@ pub(crate) fn validate_with_history(
                 .checked_add(numerator / denominator + u128::from(numerator % denominator != 0))
                 .ok_or(Error::Corruption("quote overflow"))?;
         }
-        if quote_total != attempt.quote.amount.micros.get() as u128 {
+        if quote_total != attempt.quote.amount.micros.known_component().get() as u128
+            || missing != attempt.quote.amount.micros.unknown_components().get()
+            || (missing > 0 && attempt.quote.method != "ceil_disjoint_bounds_unknown_v2")
+        {
             return Err(Error::Corruption(
                 "reservation differs from checked price bounds",
             ));
@@ -189,67 +233,83 @@ pub(crate) fn validate_with_history(
         if let Some(send) = &attempt.send_intent {
             send_intent(history, send, &attempt.scope)?;
         }
+        Ok(())
     }
-    for reservation in reservations.values() {
-        if !attempts
-            .get(&reservation.attempt)
-            .is_some_and(|a| a.reservation == reservation.id)
-        {
-            return Err(Error::Corruption("orphan reservation"));
+    pub(crate) fn finish(&self) -> Result<()> {
+        let state = self.state;
+        let ledgers = &self.ledgers;
+        let reservations = &self.reservations;
+        let attempts = &self.attempts;
+        for reservation in reservations.values() {
+            if !attempts
+                .get(&reservation.attempt)
+                .is_some_and(|a| a.reservation == reservation.id)
+            {
+                return Err(Error::Corruption("orphan reservation"));
+            }
         }
-    }
-    for ledger in ledgers.values() {
-        let root: Task = state
-            .record(
-                Collection::Task,
-                ledger.scope.task.as_str(),
-                &ledger.scope.workspace,
-            )?
-            .decode()?;
-        if root.parent.is_some() || root.root != ledger.scope.task || root.scope != ledger.scope {
-            return Err(Error::Corruption("child cannot own a second ledger"));
-        }
-        for id in ledger.allocations.keys() {
-            let child: Task = state
-                .record(Collection::Task, id.as_str(), &ledger.scope.workspace)?
+        for ledger in ledgers.values() {
+            let root: Task = state
+                .record(
+                    Collection::Task,
+                    ledger.scope.task.as_str(),
+                    &ledger.scope.workspace,
+                )?
                 .decode()?;
-            if child.root != root.root || child.scope == root.scope {
-                return Err(Error::Corruption("child allocation root"));
+            if root.parent.is_some() || root.root != ledger.scope.task || root.scope != ledger.scope
+            {
+                return Err(Error::Corruption("child cannot own a second ledger"));
             }
-        }
-        let mut settled = 0;
-        let mut active = 0;
-        let mut unresolved = 0;
-        for reservation in reservations.values().filter(|r| r.root == root.root) {
-            if reservation.amount.currency != ledger.currency {
-                return Err(Error::Corruption("mixed currency root"));
-            }
-            settled = sum(settled, reservation.charged.get())?;
-            match reservation.phase {
-                ReservationState::Created | ReservationState::Submitted => {
-                    active = sum(active, reservation.liability.get())?
+            for id in ledger.allocations.keys() {
+                let child: Task = state
+                    .record(Collection::Task, id.as_str(), &ledger.scope.workspace)?
+                    .decode()?;
+                if child.root != root.root || child.scope == root.scope {
+                    return Err(Error::Corruption("child allocation root"));
                 }
-                ReservationState::ReconciliationPending => {
-                    unresolved = sum(unresolved, reservation.liability.get())?
+            }
+            let mut settled = 0;
+            let mut active = EstimatedMicros::ZERO;
+            let mut unresolved = EstimatedMicros::ZERO;
+            for reservation in reservations.values().filter(|r| r.root == root.root) {
+                if reservation.amount.currency != ledger.currency {
+                    return Err(Error::Corruption("mixed currency root"));
                 }
-                _ => {}
+                settled = sum(settled, reservation.charged.get())?;
+                match reservation.phase {
+                    ReservationState::Created | ReservationState::Submitted => {
+                        active = active.checked_add(reservation.liability)?
+                    }
+                    ReservationState::ReconciliationPending => {
+                        unresolved = unresolved.checked_add(reservation.liability)?
+                    }
+                    _ => {}
+                }
+            }
+            let total = active
+                .checked_add(unresolved)?
+                .checked_add(vcp_domain::Micros::new(settled).into())?
+                .checked_add(ledger.protected.into())?;
+            let overrun = if let Some(cap) = ledger.cap.finite() {
+                total
+                    .known()
+                    .ok_or(Error::Corruption("unpriced liability under finite cap"))?
+                    > *cap
+            } else {
+                false
+            };
+            if ledger.settled.get() != settled
+                || ledger.active != active
+                || ledger.unresolved != unresolved
+                || ledger.overrun != overrun
+            {
+                return Err(Error::Corruption(
+                    "root aggregate differs from canonical reservations",
+                ));
             }
         }
-        let total = sum(
-            sum(sum(settled, active)?, unresolved)?,
-            ledger.protected.get(),
-        )?;
-        if ledger.settled.get() != settled
-            || ledger.active.get() != active
-            || ledger.unresolved.get() != unresolved
-            || ledger.overrun != ledger.cap.exceeds(&vcp_domain::Micros::new(total))
-        {
-            return Err(Error::Corruption(
-                "root aggregate differs from canonical reservations",
-            ));
-        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn send_intent(
@@ -431,6 +491,7 @@ fn admission_records(
                     || attempt.steering != task.steering
                     || task.state != vcp_domain::task::TaskState::Running
                     || ledger.overrun
+                    || (!ledger.cap.is_unbounded() && attempt.quote.amount.micros.known().is_none())
                 {
                     return Err(Error::Conflict("invalid initial accounting admission"));
                 }
@@ -478,14 +539,21 @@ fn admission_records(
                     if row.root != attempt.root {
                         continue;
                     }
-                    daily_total = sum(
-                        daily_total,
-                        if row.day == reservation.day {
-                            sum(row.charged.get(), row.liability.get())?
-                        } else {
-                            row.liability.get()
-                        },
-                    )?;
+                    if !ledger.cap.is_unbounded() {
+                        let liability = row
+                            .liability
+                            .known()
+                            .ok_or(Error::Conflict("unpriced finite admission"))?
+                            .get();
+                        daily_total = sum(
+                            daily_total,
+                            if row.day == reservation.day {
+                                sum(row.charged.get(), liability)?
+                            } else {
+                                liability
+                            },
+                        )?;
+                    }
                     let row_task: Task = after
                         .record(
                             Collection::Task,
@@ -494,9 +562,20 @@ fn admission_records(
                         )?
                         .decode()?;
                     for ancestor in lineage(after.records, &row_task)? {
-                        if ledger.allocations.contains_key(&ancestor.scope.task) {
+                        if !ledger.cap.is_unbounded()
+                            && ledger.allocations.contains_key(&ancestor.scope.task)
+                        {
                             let total = allocated.entry(ancestor.scope.task).or_default();
-                            *total = sum(*total, sum(row.charged.get(), row.liability.get())?)?;
+                            *total = sum(
+                                *total,
+                                sum(
+                                    row.charged.get(),
+                                    row.liability
+                                        .known()
+                                        .ok_or(Error::Conflict("unpriced finite admission"))?
+                                        .get(),
+                                )?,
+                            )?;
                         }
                     }
                 }

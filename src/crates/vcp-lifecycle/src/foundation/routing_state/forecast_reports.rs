@@ -4,7 +4,7 @@ use super::{
     authorize, commit, compaction_diagnostics, err, forecasts, row, OptimizationReport, Result,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use vcp_domain::{
     artifact::{ArtifactDescriptor, ArtifactSpec, CaptureState, Channel, Omission},
     task::Task,
@@ -78,7 +78,7 @@ fn dependencies(
     result
 }
 
-fn source_access(
+async fn source_access(
     store: &Store,
     access: &Access,
     value: &forecasts::Report,
@@ -86,11 +86,13 @@ fn source_access(
 ) -> Result<BTreeSet<TaskId>> {
     check()?;
     authorize(store, access, false)?;
-    if store.state().events.len() > 100_000 || store.state().records.len() > 100_000 {
+    if store.history_event_count().await.map_err(err)? > 100_000
+        || store.current().records.len() > 100_000
+    {
         return Err("saved forecast source validation exceeds bounded view".into());
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -125,7 +127,7 @@ fn source_access(
     for reference in &value.references {
         check()?;
         if !recall_allowed(
-            store.state(),
+            store.current(),
             &access.workspace,
             &Target::Record(reference.clone()),
         )
@@ -134,7 +136,7 @@ fn source_access(
             return Err("saved forecast source excluded by retention".into());
         }
         let record = store
-            .state()
+            .current()
             .records
             .get(reference)
             .ok_or("saved forecast source unavailable")?;
@@ -155,20 +157,24 @@ fn source_access(
         }
         tasks.insert(task);
     }
-    let events: BTreeMap<_, _> = store
-        .state()
-        .events
-        .iter()
-        .filter(|e| value.source_events.contains(&e.event.id))
-        .map(|e| (&e.event.id, e))
-        .collect();
     for id in &value.source_events {
         check()?;
-        let event = events.get(id).ok_or("saved forecast event unavailable")?;
+        let event = store
+            .history_event(id)
+            .await
+            .map_err(err)?
+            .ok_or("saved forecast event unavailable")?;
+        if &event.event.id != id {
+            return Err("saved forecast event identity differs".into());
+        }
         if event.event.workspace != access.workspace
             || event.redaction.is_some()
-            || !recall_allowed(store.state(), &access.workspace, &Target::Event(id.clone()))
-                .map_err(err)?
+            || !recall_allowed(
+                store.current(),
+                &access.workspace,
+                &Target::Event(id.clone()),
+            )
+            .map_err(err)?
         {
             return Err("saved forecast event access changed".into());
         }
@@ -229,6 +235,7 @@ pub(super) async fn save_public(
         return Err(failure.unwrap_or(super::public_optimizer::Error::Unavailable));
     }
     super::public_optimizer::replay(store, access, command)
+        .await
         .map_err(|_| super::public_optimizer::Error::OutcomeUnknown)?
         .ok_or(super::public_optimizer::Error::OutcomeUnknown)
 }
@@ -242,7 +249,7 @@ pub async fn qualification_interrupt_after_spool(
     window: super::HistoryWindow,
     now: Timestamp,
 ) -> Result<OptimizationReport> {
-    let report = super::report(store, access, window)?;
+    let report = super::report(store, access, window).await?;
     save_inner(store, access, report, now, true, None).await
 }
 
@@ -263,6 +270,7 @@ async fn save_inner(
     authorize(store, access, true)?;
     report.forecast = None;
     let forecast = match forecasts::observe_with_check(store, access, report.window.clone(), &check)
+        .await
     {
         Ok(forecast) => forecast,
         Err(_) => {
@@ -272,10 +280,11 @@ async fn save_inner(
     };
     check()?;
     let compaction =
-        compaction_diagnostics::observe_with_check(store, access, report.window.clone(), &check).await?;
+        compaction_diagnostics::observe_with_check(store, access, report.window.clone(), &check)
+            .await?;
     check()?;
     let combined = dependencies(&forecast, &compaction);
-    let tasks = match source_access(store, access, &combined, &check) {
+    let tasks = match source_access(store, access, &combined, &check).await {
         Ok(tasks) => tasks,
         Err(_) => {
             report.uncertainty.push("Forecast unavailable: current source access or retention does not permit a source-linked snapshot.".into());
@@ -286,7 +295,7 @@ async fn save_inner(
         return save_snapshot(store, access, report, now, public).await;
     };
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, first.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -432,7 +441,7 @@ async fn save_inner(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![event],
             command: None,
@@ -488,22 +497,24 @@ async fn save_snapshot(
 
 /// Return exact saved bytes decoded under current source access. Historical
 /// reports never silently replace their forecasts with a newly fitted model.
-pub fn load(
+pub async fn load(
     store: &Store,
     access: &Access,
     report: &OptimizationReport,
 ) -> Result<Option<forecasts::Report>> {
-    Ok(load_saved(store, access, report)?.map(|saved| saved.forecast))
+    Ok(load_saved(store, access, report)
+        .await?
+        .map(|saved| saved.forecast))
 }
 
-pub fn load_saved(
+pub async fn load_saved(
     store: &Store,
     access: &Access,
     report: &OptimizationReport,
 ) -> Result<Option<SavedForecast>> {
-    load_saved_with_check(store, access, report, &|| Ok(()))
+    load_saved_with_check(store, access, report, &|| Ok(())).await
 }
-pub fn load_saved_with_check(
+pub async fn load_saved_with_check(
     store: &Store,
     access: &Access,
     report: &OptimizationReport,
@@ -525,7 +536,7 @@ pub fn load_saved_with_check(
         return Err("saved forecast report access changed".into());
     }
     let descriptor: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(
             Collection::Artifact,
             pin.artifact.as_str(),
@@ -541,7 +552,7 @@ pub fn load_saved_with_check(
         || descriptor.spec.scope.workspace != access.workspace
         || !pin.source_tasks.contains(&descriptor.spec.scope.task)
         || !recall_allowed(
-            store.state(),
+            store.current(),
             &access.workspace,
             &Target::Record(key(Collection::Artifact, pin.artifact.as_str())),
         )
@@ -577,18 +588,20 @@ pub fn load_saved_with_check(
             access,
             &dependencies(&document.forecast, &document.compaction),
             check,
-        )? != pin.source_tasks
+        )
+        .await?
+            != pin.source_tasks
     {
         return Err("saved forecast source binding differs".into());
     }
     let artifact_record = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Artifact, pin.artifact.as_str()))
         .ok_or("saved forecast record absent")?;
     let manifest_key = key(Collection::Projection, &pin.source_manifest);
     if !recall_allowed(
-        store.state(),
+        store.current(),
         &access.workspace,
         &Target::Record(manifest_key.clone()),
     )
@@ -597,7 +610,7 @@ pub fn load_saved_with_check(
         return Err("saved forecast source manifest excluded".into());
     }
     let manifest_record = store
-        .state()
+        .current()
         .records
         .get(&manifest_key)
         .ok_or("saved forecast source manifest unavailable")?;
@@ -645,7 +658,7 @@ pub fn load_saved_with_check(
     }
     for source in &document.compaction.source_artifacts {
         let descriptor: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 source.artifact.as_str(),

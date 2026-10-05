@@ -184,7 +184,7 @@ fn scoped_access(
         return Err(failure(Code::PolicyDenied));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, request.task.as_str(), &access.workspace)
         .map_err(|_| unavailable())?
         .decode()

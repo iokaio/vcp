@@ -12,7 +12,10 @@ use vcp_domain::{
 };
 use vcp_lifecycle::foundation::{CanonicalHost, Config};
 use vcp_protocol::command::Command;
-use vcp_store::{contract::Collection, BackendKind};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    BackendKind,
+};
 
 struct NoRequests(AtomicUsize);
 impl ReceiptSource for NoRequests {
@@ -155,7 +158,7 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
         let store = vcp_store::Store::open(&entry.config.canonical_root, backend, &[])
             .await
             .unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         // A stale descriptor must not replace the original admitted cap.
         entry.config.cap.micros = Micros::new(999999).into();
@@ -171,7 +174,10 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
         assert_eq!(report["metadata_only"], true);
         assert_eq!(report["resumed"], false);
         assert_eq!(report["state"], "paused");
-        assert_eq!(report["ledger"]["cap"], "1000");
+        assert_eq!(
+            report["ledger"]["cap"],
+            serde_json::json!({"kind":"finite","version":1,"value":"1000"})
+        );
         let scope: Scope = serde_json::from_value(report["scope"].clone()).unwrap();
         let mut frame = Vec::new();
         crate::app::emit_command_outcome(&mut frame, &report, code, Some(&scope)).unwrap();
@@ -189,10 +195,10 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
             .unwrap();
         assert_eq!(
             serde_json::to_value(&before).unwrap(),
-            serde_json::to_value(store.state()).unwrap()
+            serde_json::to_value(store.archive_state().await.unwrap()).unwrap()
         );
         let (task, ledger) = selected(
-            store.state(),
+            store.current(),
             &entry.config.workspace,
             &entry.config.root_task,
         )
@@ -206,12 +212,22 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
         );
         for (active, unresolved, overrun) in [(1, 0, false), (0, 1, false), (0, 0, true)] {
             let mut pending = ledger.clone();
-            pending.active = Micros::new(active);
-            pending.unresolved = Micros::new(unresolved);
+            pending.active = Micros::new(active).into();
+            pending.unresolved = Micros::new(unresolved).into();
             pending.overrun = overrun;
             assert_eq!(reconciliation_exit(&pending, false), 7);
         }
-        let mut changed = store.state().clone();
+        for active in [true, false] {
+            let mut pending = ledger.clone();
+            let unpriced = EstimatedMicros::unknown(Micros::ZERO, Units::new(1)).unwrap();
+            if active {
+                pending.active = unpriced;
+            } else {
+                pending.unresolved = unpriced;
+            }
+            assert_eq!(reconciliation_exit(&pending, false), 7);
+        }
+        let mut changed = store.archive_state().await.unwrap();
         let row = changed
             .records
             .values_mut()
@@ -223,7 +239,12 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
                 .unwrap_err()
                 .contains("paused root")
         );
-        assert!(selected(store.state(), &WorkspaceId::new(), &entry.config.root_task).is_err());
+        assert!(selected(
+            store.current(),
+            &WorkspaceId::new(),
+            &entry.config.root_task
+        )
+        .is_err());
         let row = changed
             .records
             .values_mut()
@@ -256,7 +277,7 @@ async fn paused_root_reconciliation_preserves_state_budget_and_never_starts_infe
             .unwrap();
         assert_eq!(
             serde_json::to_value(&before).unwrap(),
-            serde_json::to_value(store.state()).unwrap()
+            serde_json::to_value(store.archive_state().await.unwrap()).unwrap()
         );
         store.close().await.unwrap();
     }

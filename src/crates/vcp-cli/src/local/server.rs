@@ -4,8 +4,8 @@ use std::{path::Path, sync::Arc};
 type Execution = Option<Arc<execution::Supervisor>>;
 use vcp_domain::{ids::RootId, workspace::Workspace};
 use vcp_engine::{
+    rpc::{capabilities_for_methods, RpcHost, RpcSession},
     Access,
-    rpc::{RpcHost, RpcSession, capabilities_for_methods},
 };
 use vcp_lifecycle::foundation::{CanonicalHost, Config};
 use vcp_protocol::{
@@ -71,7 +71,7 @@ fn selection(
 }
 
 fn selected_root(host: &CanonicalHost, config: &Config) -> Result<(), String> {
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let Some(row) = state.records.get(&vcp_store::contract::key(
         Collection::Task,
         config.root_task.as_str(),
@@ -94,7 +94,7 @@ fn selected_root(host: &CanonicalHost, config: &Config) -> Result<(), String> {
 
 fn access(host: &CanonicalHost, config: &Config, role: Role) -> Result<Access, String> {
     let workspace: Workspace = host
-        .snapshot()?
+        .current_state()?
         .record(
             Collection::Workspace,
             config.workspace.as_str(),

@@ -97,7 +97,7 @@ use vcp_domain::{
     task::{Task, TaskState},
     workspace::{Scope, Trust, Workspace},
 };
-use vcp_engine::{Access, rpc::RpcHost};
+use vcp_engine::{rpc::RpcHost, Access};
 use vcp_lifecycle::foundation::{
     CanonicalHost, CanonicalOwner, Config, PublicConnection, PublicResumeAdmission,
     PublicResumeOutcome, PublicResumeTicket, ThreadBinding,
@@ -216,7 +216,7 @@ impl Supervisor {
         if loaded.selection != self.profile_selection {
             return Err("execution profile or import selection changed; relaunch required".into());
         }
-        let state = self.host.snapshot()?;
+        let state = self.host.current_state()?;
         let selected: Workspace = state
             .record(
                 Collection::Workspace,
@@ -228,7 +228,7 @@ impl Supervisor {
         if selected.trust != Trust::Trusted || selected.binding != self.config.binding {
             return Err("execution workspace trust or binding changed".into());
         }
-        let policy = vcp_engine::policy::optional(&state, &self.config.workspace)
+        let policy = vcp_engine::policy::optional(state.as_ref(), &self.config.workspace)
             .map_err(|_| "execution policy unavailable")?
             .ok_or("execution requires an existing canonical policy")?;
         let pin = vcp_protocol::digest_bytes(
@@ -239,7 +239,7 @@ impl Supervisor {
         }
         let prepared = loaded.profile.prepare(policy.mode)?;
         let profile = &prepared.profile;
-        if let Some(accepted) = self.retained_budget(&state)? {
+        if let Some(accepted) = self.retained_budget()? {
             if accepted.budget.max_requests != profile.max_requests {
                 return Err("execution profile differs from original public run limits".into());
             }
@@ -277,23 +277,12 @@ impl Supervisor {
 
     fn retained_budget(
         &self,
-        state: &vcp_store::contract::State,
     ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>, String> {
-        if !state.records.contains_key(&vcp_store::contract::key(
-            Collection::Task,
-            self.config.root_task.as_str(),
-        )) {
-            return Ok(None);
-        }
-        vcp_engine::public_start::retained_start_budget(
-            state,
-            &Scope {
-                workspace: self.config.workspace.clone(),
-                session: self.config.session.clone(),
-                task: self.config.root_task.clone(),
-            },
-        )
-        .map_err(|_| "original run budget evidence unavailable".into())
+        self.host.retained_start_budget(Scope {
+            workspace: self.config.workspace.clone(),
+            session: self.config.session.clone(),
+            task: self.config.root_task.clone(),
+        })
     }
 
     fn execution_expiry(
@@ -304,7 +293,7 @@ impl Supervisor {
             return Ok(None);
         };
         let mut remaining = u64::from(*seconds) * 1000;
-        if let Some(accepted) = self.retained_budget(&self.host.snapshot()?)? {
+        if let Some(accepted) = self.retained_budget()? {
             if let Some(seconds) = accepted.budget.deadline_seconds.finite() {
                 let expires = accepted
                     .accepted_at
@@ -545,7 +534,7 @@ fn pump(
 
 fn selected(host: &CanonicalHost, scope: &Scope) -> Result<Task, String> {
     let task: Task = host
-        .snapshot()?
+        .current_state()?
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|row| row.decode())
         .map_err(|_| "execution task unavailable")?;

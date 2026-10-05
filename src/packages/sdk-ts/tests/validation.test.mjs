@@ -29,6 +29,18 @@ test('execution limits accept explicit unbounded and legacy finite values withou
   }
 });
 
+test('unknown reservation estimates preserve exact components without becoming settled money', () => {
+  for (const value of ['0', '9007199254740993', '18446744073709551615']) validateWire('EstimatedCounter', value);
+  const unknown = {kind:'unknown',version:1,known_component:'9007199254740993',unknown_components:'2'};
+  validateWire('EstimatedCounter', unknown);
+  for (const changed of [{version:2}, {known_component:'01'}, {known_component:'18446744073709551616'}, {unknown_components:'0'}, {unknown_components:2}, {total:'0'}]) {
+    assert.throws(() => validateWire('EstimatedCounter', {...unknown,...changed}));
+  }
+  const usage = {scope:{workspace:'ws',session:'s'}, task:'task', root:'task', currency:'USD',cap_micros:{kind:'unbounded',version:1},settled_micros:'3',reserved_micros:unknown,unresolved_micros:'0',overrun:false};
+  validateWire('UsageView', usage);
+  assert.throws(() => validateWire('UsageView', {...usage,settled_micros:unknown}));
+});
+
 test('paused tasks preserve legacy reasons and expose versioned diagnostic evidence', () => {
   const task = {scope:{workspace:'ws',session:'s'},task:'t',root:'t',revision:'2',steering_revision:'0',
     state:'paused',reason:'Paused by owner',pending_inputs:[],effects:'known'};

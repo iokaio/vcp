@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Test-only async obligation candidate. No Store/backend calls this module.
-//! Qualification precedes any production adoption. The caller supplies a pure
-//! callback and a catalog/current view from one admitted, pinned generation.
+//! Async historical obligations resolved against one admitted, pinned cut.
+//! The callback is pure; unavailable data suspends it until exact authenticated
+//! evidence is available, and physical read failures poison the resolver.
 use crate::{
     admitted_history::AdmittedCut,
     contract::{current_preparation::PreparationHistory, Receipt},
@@ -255,6 +255,7 @@ impl PreparationHistory for ResolvedHistory<'_> {
         }
     }
 }
+#[cfg(test)]
 #[path = "resolved_history_tests.rs"]
 mod tests;
 

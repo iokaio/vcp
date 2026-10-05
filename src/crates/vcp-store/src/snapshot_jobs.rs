@@ -275,7 +275,7 @@ impl Jobs {
             return self.resume_capture(store, &job).await;
         }
         let captured = Self::capture_inputs_inner(store, workspace, inputs)?;
-        let prepared = Self::prepare_inputs(captured, &|| false)?;
+        let prepared = Self::prepare_inputs(captured, &|| false).await?;
         self.begin_prepared(store, id, workspace, trust, prepared)
             .await
     }
@@ -302,7 +302,7 @@ impl Jobs {
             source_root: store.root().to_path_buf(),
         })
     }
-    pub fn prepare_inputs(
+    pub async fn prepare_inputs(
         capture: InputCapture,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<PreparedInputs> {
@@ -314,7 +314,7 @@ impl Jobs {
             }
         };
         check()?;
-        let state = capture.snapshot.state();
+        let state = capture.snapshot.current();
         capture
             .inputs
             .validate_with(state, &capture.workspace, &|id| {
@@ -330,7 +330,7 @@ impl Jobs {
                 check()?;
                 Ok(bytes)
             })?;
-        let state_digest = digest_bytes(&canonical_bytes(state)?);
+        let state_digest = capture.snapshot.logical_digest().await?;
         check()?;
         Ok(PreparedInputs {
             capture,
@@ -355,7 +355,7 @@ impl Jobs {
             workspace: captured_workspace,
             source_root,
         } = prepared.capture;
-        let state = snapshot.state();
+        let state = snapshot.current();
         if captured_workspace != *workspace
             || source_root != store.root()
             || state.watermark != store.current().watermark
@@ -367,12 +367,7 @@ impl Jobs {
         let ws: Workspace = state
             .record(Collection::Workspace, workspace.as_str(), workspace)?
             .decode()?;
-        if state.records.values().any(|r| r.workspace != *workspace)
-            || state.events.iter().any(|e| e.event.workspace != *workspace)
-            || state.commands.values().any(|r| r.workspace != *workspace)
-        {
-            return Err(Error::Access);
-        }
+        snapshot.verify_workspace(workspace).await?;
         if trust.configuration().workspace != *workspace
             || trust.configuration().checkpoint.deletion > ws.deletion.get()
         {
@@ -426,7 +421,7 @@ impl Jobs {
             ));
         }
         let snapshot = store.snapshot_at(job.watermark).await?;
-        if crate::legacy_state_stream::digest(snapshot.state())? != job.state_digest {
+        if snapshot.logical_digest().await? != job.state_digest {
             return Err(Error::Corruption("snapshot source cut differs"));
         }
         Ok(Capture {
@@ -437,17 +432,17 @@ impl Jobs {
     }
     /// Bounded source preparation; no canonical mutation occurs here. If the
     /// caller drops the result, restart reconciles the exact deterministic bytes.
-    pub fn prepare(
+    pub async fn prepare(
         &self,
         _store: &Store,
         capture: Capture,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Prepared> {
-        self.prepare_detached(capture, cancelled)
+        self.prepare_detached(capture, cancelled).await
     }
     /// The captured spool and retained snapshot pins permit bounded I/O on a
     /// blocking worker without moving or borrowing the canonical owner.
-    pub fn prepare_detached(
+    pub async fn prepare_detached(
         &self,
         capture: Capture,
         cancelled: &dyn Fn() -> bool,
@@ -459,7 +454,8 @@ impl Jobs {
             &capture.job.workspace,
             &capture.job.inputs,
             cancelled,
-        )?;
+        )
+        .await?;
         let bytes = canonical_bytes(&archive.payloads()?)?;
         if bytes.len() > 16 * 1024 * 1024 {
             return Err(Error::Limit("private archive encoding"));

@@ -95,7 +95,7 @@ async fn put(store: &mut Store, record: Record, expected: Revision) {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record,
                 expected: Some(expected),
@@ -142,7 +142,7 @@ async fn hostile_report_rows_page_without_skips_and_retention_change_clears_acce
         // Test-only canonical fixture enrichment. Production capture never accepts
         // caller report rows. Keep the genuine binding and governed read gate.
         let mut record = store
-            .state()
+            .current()
             .record(Collection::Projection, &report, &access.workspace)
             .unwrap()
             .clone();
@@ -166,8 +166,10 @@ async fn hostile_report_rows_page_without_skips_and_retention_change_clears_acce
             limit: 32,
             cursor: None,
         };
-        let state = store.state().clone();
-        let first = read(&store, &access, &request, true, &|| Ok(())).unwrap();
+        let state = store.archive_state().await.unwrap();
+        let first = read(&store, &access, &request, true, &|| Ok(()))
+            .await
+            .unwrap();
         assert!(!first.complete);
         assert!(first.rows.len() < 32);
         assert!(!first.rows.is_empty());
@@ -175,7 +177,9 @@ async fn hostile_report_rows_page_without_skips_and_retention_change_clears_acce
         let mut counts = Vec::new();
         let mut pages = 0;
         loop {
-            let page = read(&store, &access, &request, true, &|| Ok(())).unwrap();
+            let page = read(&store, &access, &request, true, &|| Ok(()))
+                .await
+                .unwrap();
             assert!(serde_json::to_vec(&page).unwrap().len() <= wire::MAX_PAGE_BYTES);
             for row in page.rows {
                 let wire::ReportRow::Cohort { value } = row else {
@@ -193,24 +197,35 @@ async fn hostile_report_rows_page_without_skips_and_retention_change_clears_acce
         }
         counts.sort();
         assert_eq!(counts, (1..=40).collect::<Vec<_>>());
-        assert_eq!(store.state(), &state);
+        assert_eq!(store.archive_state().await.unwrap(), state);
         request.cursor = first_cursor;
         let mut foreign = request.clone();
         foreign.scope.session = id("foreign").unwrap();
-        assert!(read(&store, &access, &foreign, true, &|| Ok(())).is_err());
+        assert!(read(&store, &access, &foreign, true, &|| Ok(()))
+            .await
+            .is_err());
         let mut other_actor = access.clone();
         other_actor.actor = ActorId::new();
-        assert!(read(&store, &other_actor, &request, true, &|| Ok(())).is_err());
-        assert!(read(&store, &access, &request, false, &|| Ok(())).is_err());
+        assert!(read(&store, &other_actor, &request, true, &|| Ok(()))
+            .await
+            .is_err());
+        assert!(read(&store, &access, &request, false, &|| Ok(()))
+            .await
+            .is_err());
         assert!(read(&store, &access, &request, true, &|| Err(failure(
             Code::Cancelled
         )))
+        .await
         .is_err());
         let mut changed = request.clone();
         changed.section = wire::ReportSection::Uncertainty;
-        assert!(read(&store, &access, &changed, true, &|| Ok(())).is_err());
+        assert!(read(&store, &access, &changed, true, &|| Ok(()))
+            .await
+            .is_err());
         changed.cursor = None;
-        let page = read(&store, &access, &changed, true, &|| Ok(())).unwrap();
+        let page = read(&store, &access, &changed, true, &|| Ok(()))
+            .await
+            .unwrap();
         let wire::ReportRow::Uncertainty { text } = &page.rows[0] else {
             panic!("uncertainty")
         };
@@ -233,8 +248,12 @@ async fn hostile_report_rows_page_without_skips_and_retention_change_clears_acce
             Revision::ZERO,
         )
         .await;
-        assert!(read(&store, &access, &request, true, &|| Ok(())).is_err());
+        assert!(read(&store, &access, &request, true, &|| Ok(()))
+            .await
+            .is_err());
         request.cursor = None;
-        assert!(read(&store, &access, &request, true, &|| Ok(())).is_err());
+        assert!(read(&store, &access, &request, true, &|| Ok(()))
+            .await
+            .is_err());
     }
 }

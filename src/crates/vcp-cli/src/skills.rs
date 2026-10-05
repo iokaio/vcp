@@ -369,12 +369,13 @@ pub fn available_tools(profile: &crate::settings::Profile) -> std::collections::
     )
 }
 
-pub fn inspect(
+pub fn inspect<'a>(
     profile: &crate::settings::Profile,
     config: &vcp_lifecycle::foundation::Config,
-    state: &vcp_store::contract::State,
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
     offset: usize,
 ) -> Result<serde_json::Value, String> {
+    let state = state.into();
     let mut configuration = prepare(profile, config)?;
     let (mut catalog, integrity, _) = vcp_lifecycle::foundation::skills::discover_authorized(
         state,

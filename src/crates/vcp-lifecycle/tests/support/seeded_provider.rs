@@ -238,7 +238,7 @@ fn observe(
         "captured request bytes differ from actual HTTP bytes",
     )?;
     require(
-        attempt.quote.amount.micros.get() == FEE,
+        attempt.quote.amount.micros.known().unwrap().get() == FEE,
         "fixture admission deviated from independently fixed 100-micro fee",
     )?;
     Ok(Wire {
@@ -596,11 +596,11 @@ impl Fixture {
                     "reservation charge differs from independent response plan",
                 )?;
                 require(
-                    reservation.liability.get() == if paid { 0 } else { FEE },
+                    reservation.liability.known().unwrap().get() == if paid { 0 } else { FEE },
                     "unknown liability differs from fixed fee",
                 )?;
                 require(
-                    reservation.amount.micros.get() == FEE && reservation.attempt == current.id,
+                    reservation.amount.micros.known().unwrap().get() == FEE && reservation.attempt == current.id,
                     "reservation fee/attempt binding mismatch",
                 )?;
                 require(
@@ -617,17 +617,17 @@ impl Fixture {
         let unresolved: u64 = counts.iter().map(|row| row.2).sum();
         require(
             ledger.settled.get() == settled
-                && ledger.unresolved.get() == unresolved
-                && ledger.active.get() == 0
+                && ledger.unresolved.known().unwrap().get() == unresolved
+                && ledger.active.known().unwrap().get() == 0
                 && ledger.cap.finite().expect("finite historical fixture").get() == CAP
                 && !ledger.overrun,
             format!(
                 "ledger differs: settled={}/{} unresolved={}/{} active={} cap={}",
                 ledger.settled.get(),
                 settled,
-                ledger.unresolved.get(),
+                ledger.unresolved.known().unwrap().get(),
                 unresolved,
-                ledger.active.get(),
+                ledger.active.known().unwrap().get(),
                 ledger.cap.finite().expect("finite historical fixture").get()
             ),
         )?;

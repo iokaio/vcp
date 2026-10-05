@@ -53,7 +53,15 @@ fn transaction(id: &str, watermark: Watermark, payload_bytes: usize) -> Transact
 
 async fn assert_recovery(mut store: Store, acknowledged: State, attempted: Transaction) {
     assert!(!store.healthy(), "failed append must poison the writer");
-    assert_eq!(store.state(), &acknowledged);
+    assert!(store.archive_state().await.is_err());
+    let mut pages =
+        crate::store_history_reader::ReadPages::from_locked(store.canonical_lock(), store.kind())
+            .unwrap();
+    assert_eq!(
+        store.core.owner.archive_state(&mut pages).await.unwrap(),
+        acknowledged
+    );
+    pages.close().await.unwrap();
     assert!(matches!(
         store.transact(attempted.clone()).await,
         Err(Error::Unavailable(_))
@@ -65,9 +73,9 @@ async fn assert_recovery(mut store: Store, acknowledged: State, attempted: Trans
     // Reopening clears the test-only capacity constraint, as freeing capacity
     // would. It must retain every acknowledged byte and omit the failed append.
     let mut reopened = Store::open(&root, kind, &[]).await.unwrap();
-    assert_eq!(reopened.state(), &acknowledged);
+    assert_eq!((&reopened.archive_state().await.unwrap()), &acknowledged);
     let receipt = reopened.transact(attempted.clone()).await.unwrap();
-    let recovered = reopened.state().clone();
+    let recovered = (&reopened.archive_state().await.unwrap()).clone();
     assert_eq!(recovered.watermark, acknowledged.watermark.next().unwrap());
     assert_eq!(
         recovered.transactions.len(),
@@ -75,13 +83,13 @@ async fn assert_recovery(mut store: Store, acknowledged: State, attempted: Trans
     );
     assert_eq!(recovered.records.len(), acknowledged.records.len() + 1);
     assert_eq!(reopened.transact(attempted.clone()).await.unwrap(), receipt);
-    assert_eq!(reopened.state(), &recovered);
+    assert_eq!((&reopened.archive_state().await.unwrap()), &recovered);
     reopened.close().await.unwrap();
 
     let mut final_open = Store::open(&root, kind, &[]).await.unwrap();
-    assert_eq!(final_open.state(), &recovered);
+    assert_eq!((&final_open.archive_state().await.unwrap()), &recovered);
     assert_eq!(final_open.transact(attempted).await.unwrap(), receipt);
-    assert_eq!(final_open.state(), &recovered);
+    assert_eq!((&final_open.archive_state().await.unwrap()), &recovered);
     final_open.close().await.unwrap();
 }
 
@@ -94,9 +102,9 @@ async fn sqlite_full_preserves_acknowledged_state_and_retry_is_exactly_once() {
         .transact(transaction("acknowledged", Watermark::ZERO, 32))
         .await
         .unwrap();
-    let acknowledged = store.state().clone();
+    let acknowledged = (&store.archive_state().await.unwrap()).clone();
     save_evidence(&evidence, "acknowledged.json", &acknowledged);
-    let Backend::Sqlite(connection) = &mut store.backend else {
+    let Backend::Sqlite(connection) = &mut store.core.backend else {
         unreachable!()
     };
     let pages: i64 = sqlx::query_scalar("PRAGMA page_count")
@@ -144,12 +152,12 @@ async fn journal_injected_storage_full_preserves_acknowledged_state_and_retry_is
             .transact(transaction("acknowledged", Watermark::ZERO, 32))
             .await
             .unwrap();
-        let acknowledged = store.state().clone();
+        let acknowledged = (&store.archive_state().await.unwrap()).clone();
         save_evidence(&evidence, "acknowledged.json", &acknowledged);
         let attempted = transaction("retry", acknowledged.watermark, 4096);
         let (_, prepared) = acknowledged.prepare(&attempted).unwrap();
         let payload = canonical_bytes(&prepared).unwrap().len();
-        let header = 8 + 4 + 4 + 64;
+        let header = crate::journal_frame::CURRENT_HEADER;
         let budget = match boundary {
             "header" => header / 2,
             "payload" => header + payload / 2,
@@ -159,7 +167,7 @@ async fn journal_injected_storage_full_preserves_acknowledged_state_and_retry_is
         };
         let frames = root.join("canonical.frames");
         let before = fs::metadata(&frames).unwrap().len();
-        let Backend::Files(journal) = &mut store.backend else {
+        let Backend::Files(journal) = &mut store.core.backend else {
             unreachable!()
         };
         journal.write_budget = Some(budget);

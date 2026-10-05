@@ -94,7 +94,7 @@ pub async fn recover(
     })
 }
 pub fn resume(host: &CanonicalHost, child: &Child, scope: &Scope) -> Result<(), String> {
-    let task = crate::agents_view::child(&host.snapshot()?, scope, &child.task)?;
+    let task = crate::agents_view::child(host.current_state()?.as_ref(), scope, &child.task)?;
     if task.state.terminal() || task.state == vcp_domain::task::TaskState::Running {
         return Err("child resume requires a suspended task".into());
     }
@@ -128,7 +128,7 @@ pub async fn run(
     let mut scope = scope.clone();
     scope.task = child.task.clone();
     let task: vcp_domain::task::Task = host
-        .snapshot()?
+        .current_state()?
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|r| r.decode())
         .map_err(|e| e.to_string())?;
@@ -210,7 +210,7 @@ pub async fn run(
         .await;
         if outcome.is_err() {
             let task: vcp_domain::task::Task = host
-                .snapshot()?
+                .current_state()?
                 .record(Collection::Task, scope.task.as_str(), &scope.workspace)
                 .and_then(|r| r.decode())
                 .map_err(|e| e.to_string())?;
@@ -338,7 +338,7 @@ async fn prepare_specification(
         );
     }
     let snapshotter = native_snapshotter(spec.git)?;
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let workspace: Workspace = state
         .record(
             Collection::Workspace,
@@ -389,7 +389,7 @@ async fn prepare_specification(
         .await?;
     if let Err(error) = host.configure_child_from_parent(parent.id, session.id) {
         let pause = (|| -> Result<(), String> {
-            let state = host.snapshot()?;
+            let state = host.current_state()?;
             let child: vcp_domain::task::Task = state
                 .record(Collection::Task, task.as_str(), &scope.workspace)
                 .and_then(|r| r.decode())

@@ -12,7 +12,7 @@ impl Context {
         let root: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 self.config.root_task.as_str(),
@@ -22,7 +22,7 @@ impl Context {
         let attempt: Attempt = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Attempt,
                 context.attempt.as_str(),
@@ -54,17 +54,21 @@ impl Context {
                 let data = serde_json::json!({"schema_version":1,"component":"memory_extraction",
                     "status":"validation_failed","attempt_id":attempt.id,"output_artifact":context.output_artifact,
                     "extractor":context.extractor,"reason":"captured candidate output failed current scope, accounting, evidence or schema validation"});
-                if !self
-                    .engine
-                    .store()
-                    .state()
-                    .events
-                    .iter()
-                    .any(|event| event.event.data == data)
-                {
+                let seen = self.runtime.block_on(async {
+                    let store = self.engine.store();
+                    let mut pages =
+                        crate::foundation::routing_state::HistoryPages::new(store).await?;
+                    while let Some(events) = pages.next(store).await? {
+                        if events.iter().any(|event| event.event.data == data) {
+                            return Ok::<_, String>(true);
+                        }
+                    }
+                    Ok(false)
+                })?;
+                if !seen {
                     let tx = Transaction {
                         id: TransactionId::new(),
-                        expected_watermark: self.engine.store().state().watermark,
+                        expected_watermark: self.engine.store().current().watermark,
                         mutations: vec![],
                         command: None,
                         events: vec![vcp_protocol::event::EventInput {
@@ -118,7 +122,7 @@ impl Context {
         let Some(record) = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Task, self.config.root_task.as_str()))
         else {
@@ -164,7 +168,7 @@ impl Context {
             };
             let tx = Transaction {
                 id: TransactionId::new(),
-                expected_watermark: self.engine.store().state().watermark,
+                expected_watermark: self.engine.store().current().watermark,
                 mutations: vec![],
                 events: vec![event],
                 command: None,

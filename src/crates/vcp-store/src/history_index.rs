@@ -8,6 +8,8 @@ use vcp_protocol::{canonical_bytes, digest_bytes};
 mod copy;
 #[path = "history_index_io.rs"]
 pub(crate) mod io;
+#[path = "history_index_memo.rs"]
+pub(crate) mod memo;
 
 const FANOUT: usize = 32;
 const MAX_KEY_BYTES: usize = 512;
@@ -80,6 +82,9 @@ enum Body {
 pub(crate) trait Pages {
     async fn read(&mut self, digest: &str, limit: usize) -> Result<Vec<u8>>;
     async fn write(&mut self, digest: &str, bytes: &[u8]) -> Result<()>;
+    fn verified_pages(&mut self) -> Option<&mut memo::VerifiedPages> {
+        None
+    }
 }
 
 impl Root {
@@ -111,6 +116,12 @@ impl Root {
     }
     async fn load(&self, pages: &mut impl Pages, link: &Link) -> Result<Page> {
         valid_link(link)?;
+        if let Some(page) = pages
+            .verified_pages()
+            .and_then(|memo| memo.get(self.table, link))
+        {
+            return page;
+        }
         let bytes = pages.read(&link.digest, MAX_PAGE_BYTES).await?;
         if bytes.len() > MAX_PAGE_BYTES || digest_bytes(&bytes) != link.digest {
             return Err(Error::Corruption("history index page digest"));
@@ -121,6 +132,9 @@ impl Root {
         }
         if canonical_bytes(&page)? != bytes || describe(&page, link.digest.clone())? != *link {
             return Err(Error::Corruption("history index page commitment"));
+        }
+        if let Some(memo) = pages.verified_pages() {
+            memo.insert(link.clone(), page.clone(), bytes.len());
         }
         Ok(page)
     }

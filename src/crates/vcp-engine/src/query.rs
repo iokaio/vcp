@@ -235,7 +235,7 @@ mod tests {
     use vcp_store::{BackendKind, Store};
 
     struct CurrentOnly(std::sync::Arc<vcp_store::CurrentState>);
-    impl CanonicalStore for CurrentOnly {
+    impl vcp_store::contract::reference::ReferenceStore for CurrentOnly {
         fn state(&self) -> &vcp_store::contract::State {
             panic!("current query attempted complete historical materialization")
         }
@@ -251,7 +251,7 @@ mod tests {
     }
 
     struct ResidentHistory(vcp_store::contract::State);
-    impl CanonicalStore for ResidentHistory {
+    impl vcp_store::contract::reference::ReferenceStore for ResidentHistory {
         fn state(&self) -> &vcp_store::contract::State {
             &self.0
         }
@@ -266,7 +266,7 @@ mod tests {
         current: std::sync::Arc<vcp_store::CurrentState>,
         reads: std::sync::atomic::AtomicUsize,
     }
-    impl CanonicalStore for FailedHistory {
+    impl vcp_store::contract::reference::ReferenceStore for FailedHistory {
         fn state(&self) -> &vcp_store::contract::State {
             panic!("history query bypassed fallible reader")
         }
@@ -301,7 +301,7 @@ mod tests {
             let access = access();
             let receipt = initialize(&mut engine, &access).await;
             let current = engine.store().current_state();
-            let mut retained = ResidentHistory(engine.store().state().clone());
+            let mut retained = ResidentHistory(engine.store().archive_state().await.unwrap());
             engine.into_store().close().await.unwrap();
             assert_eq!(
                 retained
@@ -469,7 +469,7 @@ mod tests {
             .and_then(|id| {
                 engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Task, id.as_str(), &access.workspace)
                     .ok()
             })
@@ -556,7 +556,7 @@ mod tests {
             session: access.session.clone(),
             authority: access.authority,
             deletion: DeletionEpoch::ZERO,
-            watermark: engine.store().state().watermark,
+            watermark: engine.store().current().watermark,
             after: access.session.clone(),
             limit: 1,
         }
@@ -603,8 +603,9 @@ mod tests {
             let foreign_init = initialize(&mut engine, &foreign_workspace).await;
             owner.write = false;
             owner.bootstrap = false;
-            let before = serde_json::to_vec(engine.store().state()).unwrap();
-            let watermark = engine.store().state().watermark;
+            let before =
+                serde_json::to_vec(&engine.store().archive_state().await.unwrap()).unwrap();
+            let watermark = engine.store().current().watermark;
             let QueryResult::Sessions { sessions, next, .. } = engine
                 .query(
                     &owner,
@@ -682,7 +683,10 @@ mod tests {
                     Err(QueryError::Unavailable)
                 );
             }
-            assert_eq!(before, serde_json::to_vec(engine.store().state()).unwrap());
+            assert_eq!(
+                before,
+                serde_json::to_vec(&engine.store().archive_state().await.unwrap()).unwrap()
+            );
             engine.into_store().close().await.unwrap();
             let reopened = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
             assert_eq!(
@@ -837,12 +841,12 @@ mod tests {
                 )
                 .await;
             }
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine.query(&owner, &Query::Task { task }).await,
                 Err(QueryError::Limit)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
         }
     }

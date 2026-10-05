@@ -9,7 +9,10 @@ use vcp_context::{
     handoff::Packet,
     manifest::{Revisions, Sealed},
 };
-use vcp_domain::{accounting::Ledger, *};
+use vcp_domain::{
+    accounting::{EstimatedMicros, Ledger},
+    *,
+};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,10 +144,10 @@ pub struct Plan {
     pub policy: Policy,
     pub ledger_revision: Revision,
     pub remaining: vcp_domain::Limit<Micros>,
-    pub estimated_request: Micros,
-    pub estimated_handoff: Micros,
+    pub estimated_request: EstimatedMicros,
+    pub estimated_handoff: EstimatedMicros,
     /// Prior uncertainty is preserved, never reclassified as available funds.
-    pub unresolved: Micros,
+    pub unresolved: EstimatedMicros,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
@@ -312,26 +315,37 @@ pub fn evaluate(
         return Err(Error::Protocol("escalation currency"));
     }
     let held = [
-        ledger.settled,
+        ledger.settled.into(),
         ledger.active,
         ledger.unresolved,
-        ledger.protected,
+        ledger.protected.into(),
     ]
     .iter()
-    .try_fold(0u64, |total, amount| total.checked_add(amount.get()))
-    .ok_or(Error::Limit("escalation liabilities"))?;
-    let remaining = ledger.cap.map(|cap| cap.get().saturating_sub(held));
-    let needed = estimate
-        .total
-        .micros
-        .get()
-        .checked_add(
-            estimated_handoff
-                .get()
-                .saturating_sub(estimate.handoff.get()),
-        )
-        .ok_or(Error::Limit("escalation cost"))?;
-    if ledger.overrun || ledger.cap.exceeds(&Micros::new(held)) || remaining.exceeds(&needed) {
+    .try_fold(EstimatedMicros::ZERO, |total, amount| {
+        total.checked_add(*amount)
+    })
+    .map_err(|_| Error::Limit("escalation liabilities"))?;
+    let remaining = if let vcp_domain::Limit::Finite(cap) = ledger.cap {
+        let (Some(held), Some(total), Some(handoff)) = (
+            held.known(),
+            estimate.total.micros.known(),
+            estimate.handoff.known(),
+        ) else {
+            return blocked(Blocked::Budget);
+        };
+        let remaining = cap.get().saturating_sub(held.get());
+        let needed = total
+            .get()
+            .checked_add(estimated_handoff.get().saturating_sub(handoff.get()))
+            .ok_or(Error::Limit("escalation cost"))?;
+        if held > cap || needed > remaining {
+            return blocked(Blocked::Budget);
+        }
+        vcp_domain::Limit::Finite(remaining)
+    } else {
+        vcp_domain::Limit::Unbounded
+    };
+    if ledger.overrun {
         return blocked(Blocked::Budget);
     }
     let mut after = counters.clone();
@@ -358,7 +372,15 @@ pub fn evaluate(
             ledger_revision: ledger.revision,
             remaining: remaining.map(Micros::new),
             estimated_request: estimate.first_attempt,
-            estimated_handoff: estimated_handoff.max(estimate.handoff),
+            estimated_handoff: if let Some(handoff) = estimate.handoff.known() {
+                estimated_handoff.max(handoff).into()
+            } else {
+                EstimatedMicros::unknown(
+                    estimated_handoff.max(estimate.handoff.known_component()),
+                    estimate.handoff.unknown_components(),
+                )
+                .map_err(|_| Error::Limit("handoff estimate"))?
+            },
             unresolved: ledger.unresolved,
         },
     })

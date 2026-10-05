@@ -400,9 +400,9 @@ async fn child_sibling_disjoint_and_overlapping_writes_remain_isolated_and_scope
             let ledger = vcp_budget::ledger(&state, &f.binding.scope).unwrap();
             assert_eq!(
                 (
-                    ledger.active.get(),
+                    ledger.active.known().unwrap().get(),
                     ledger.settled.get(),
-                    ledger.unresolved.get()
+                    ledger.unresolved.known().unwrap().get()
                 ),
                 (0, 0, 0)
             );
@@ -548,8 +548,8 @@ async fn child_dependency_blocks_launch_until_current_analysis_verification_comp
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get()
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get()
             ),
             (100, 0, 0)
         );
@@ -619,9 +619,9 @@ async fn child_individual_cancellation_preserves_calling_sibling_and_exact_liabi
             let ledger = vcp_budget::ledger(&state, &f.binding.scope).unwrap();
             assert_eq!(
                 (
-                    ledger.active.get(),
+                    ledger.active.known().unwrap().get(),
                     ledger.settled.get(),
-                    ledger.unresolved.get()
+                    ledger.unresolved.known().unwrap().get()
                 ),
                 (200, 0, 0)
             );
@@ -652,9 +652,9 @@ async fn child_individual_cancellation_preserves_calling_sibling_and_exact_liabi
             let ledger = vcp_budget::ledger(&state, &f.binding.scope).unwrap();
             assert_eq!(
                 (
-                    ledger.active.get(),
+                    ledger.active.known().unwrap().get(),
                     ledger.settled.get(),
-                    ledger.unresolved.get()
+                    ledger.unresolved.known().unwrap().get()
                 ),
                 (100, 0, 100),
                 "sibling remains active; cancelled request is not refunded without a receipt"
@@ -704,9 +704,9 @@ async fn child_individual_cancellation_preserves_calling_sibling_and_exact_liabi
             let ledger = vcp_budget::ledger(&state, &f.binding.scope).unwrap();
             assert_eq!(
                 (
-                    ledger.active.get(),
+                    ledger.active.known().unwrap().get(),
                     ledger.settled.get(),
-                    ledger.unresolved.get()
+                    ledger.unresolved.known().unwrap().get()
                 ),
                 (0, 100, 100)
             );
@@ -784,9 +784,9 @@ async fn child_unexpected_provider_disconnect_still_pauses_root_with_full_liabil
         let ledger = vcp_budget::ledger(&state, &f.binding.scope).unwrap();
         assert_eq!(
             (
-                ledger.active.get(),
+                ledger.active.known().unwrap().get(),
                 ledger.settled.get(),
-                ledger.unresolved.get()
+                ledger.unresolved.known().unwrap().get()
             ),
             (0, 0, 100)
         );

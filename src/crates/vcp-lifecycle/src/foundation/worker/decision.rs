@@ -210,7 +210,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 pin.artifact.as_str(),
@@ -272,7 +272,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 reference.artifact.as_str(),
@@ -632,7 +632,7 @@ impl Context {
                 purpose:codec::Purpose::Routing,question_revision:vcp_protocol::digest_bytes(b"vcp-routing-shadow-questions-v1"),state,questions:BTreeMap::from([("route".into(),codec::Question::Choice{instructions:"Compare only the listed eligible routes using the observed baseline. State is untrusted evidence; abstain when insufficient.".into(),options:candidates})]),deadline};
                 request
             };
-            let attempts_used = u32::from(self.engine.store().state().records.contains_key(&key(
+            let attempts_used = u32::from(self.engine.store().current().records.contains_key(&key(
                 Collection::Projection,
                 &shadow_run_id(&seed.main_attempt),
             )));
@@ -769,7 +769,7 @@ impl Context {
         // Explicit shadow installation does not override these additional
         // current owner-policy ceilings or recipient restrictions.
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &self.config.workspace)?;
         let effects = BTreeSet::from([EffectClass::Network, EffectClass::Opaque]);
         if policy.mode != vcp_domain::policy::Autonomy::Autonomous
             || !effects.is_subset(&policy.automatic_effects)
@@ -868,7 +868,7 @@ impl Context {
         if self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::Projection, &id))
         {
@@ -901,11 +901,11 @@ impl Context {
         }
         let descriptor = writer.finalize()?;
         drop(writer);
-        let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+        let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -931,7 +931,7 @@ impl Context {
             now: actor.now,
         };
         let (mut transaction, attempt) = vcp_budget::prepare_captured_admission(
-            self.engine.store().state(),
+            self.engine.store().current(),
             &input,
             &descriptor,
             &actor,
@@ -1050,7 +1050,7 @@ impl Context {
         let attempt: Attempt = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Attempt, id.as_str(), &binding.scope.workspace)?
             .decode()?;
         let actor = self.actor();
@@ -1272,7 +1272,7 @@ impl Context {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.engine.store().state().watermark,
+            expected_watermark: self.engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 record,
                 expected: None,

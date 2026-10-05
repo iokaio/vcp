@@ -13,15 +13,16 @@ async fn declaration_artifact(store: &mut Store, scope: &Scope, input: &Input) -
         .unwrap();
     let artifact = writer.finalize().unwrap();
     drop(writer);
+    let archive = store.archive_state().await.unwrap();
     store
-        .transact(common::attach(store.state(), artifact.clone(), None))
+        .transact(common::attach(&archive, artifact.clone(), None))
         .await
         .unwrap();
     artifact.spec.id
 }
 async fn set_task_state(store: &mut Store, scope: &Scope, state: TaskState) -> Task {
     let mut task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .unwrap()
         .decode()
@@ -32,7 +33,7 @@ async fn set_task_state(store: &mut Store, scope: &Scope, state: TaskState) -> T
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Task,
@@ -53,7 +54,7 @@ async fn set_task_state(store: &mut Store, scope: &Scope, state: TaskState) -> T
 }
 async fn change_workspace(store: &mut Store, scope: &Scope, change: &str) -> AuthorityRevision {
     let mut workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             scope.workspace.as_str(),
@@ -73,7 +74,7 @@ async fn change_workspace(store: &mut Store, scope: &Scope, change: &str) -> Aut
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Workspace,
@@ -92,8 +93,10 @@ async fn change_workspace(store: &mut Store, scope: &Scope, change: &str) -> Aut
         .unwrap();
     workspace.authority
 }
-fn status(store: &Store, access: &Access, input: &Input) -> serde_json::Value {
-    declarations::inspect(store, access, &input.task).unwrap()["declarations"]
+async fn status(store: &Store, access: &Access, input: &Input) -> serde_json::Value {
+    declarations::inspect(store, access, &input.task)
+        .await
+        .unwrap()["declarations"]
         .as_array()
         .unwrap()
         .iter()
@@ -149,15 +152,21 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
         };
         let mut invalid = input.clone();
         invalid.expected_revision = Revision::new(1);
-        assert!(declarations::validate(&store, &access, &invalid).is_err());
+        assert!(declarations::validate(&store, &access, &invalid)
+            .await
+            .is_err());
         invalid = input.clone();
         invalid.evidence.push(previous.request.clone());
-        assert!(declarations::validate(&store, &access, &invalid).is_err());
+        assert!(declarations::validate(&store, &access, &invalid)
+            .await
+            .is_err());
         invalid = input.clone();
         invalid.declaration = Kind::UnsupportedCapability {
             capability: "invented\ncapability".into(),
         };
-        assert!(declarations::validate(&store, &access, &invalid).is_err());
+        assert!(declarations::validate(&store, &access, &invalid)
+            .await
+            .is_err());
         let artifact = declaration_artifact(&mut store, &scope, &input).await;
         let declaration = declarations::record(
             &mut store,
@@ -168,9 +177,12 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
         )
         .await
         .unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         access.write = false;
-        assert_eq!(status(&store, &access, &input)["disposition"], "pending");
+        assert_eq!(
+            status(&store, &access, &input).await["disposition"],
+            "pending"
+        );
         access.write = true;
         assert_eq!(
             declarations::record(
@@ -184,7 +196,7 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
             .unwrap(),
             declaration
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         let mut denied = Access {
             workspace: access.workspace.clone(),
             actor: access.actor.clone(),
@@ -225,11 +237,11 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
             .unwrap()
             .is_empty());
         assert_eq!(
-            status(&store, &access, &input)["disposition"],
+            status(&store, &access, &input).await["disposition"],
             "consumed_without_admission"
         );
         assert_eq!(
-            vcp_budget::ledger(store.state(), &scope).unwrap().active,
+            vcp_budget::ledger(store.current(), &scope).unwrap().active,
             Micros::new(25)
         );
         store.close().await.unwrap();
@@ -259,10 +271,10 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
         // A new task attempt invalidates the declaration's captured predecessor.
         reserve_attempt(&mut store, &scope, RequestRole::Main, 25, "new-model").await;
         assert_eq!(
-            status(&store, &access, &replacement)["disposition"],
+            status(&store, &access, &replacement).await["disposition"],
             "stale"
         );
-        assert!(status(&store, &access, &replacement)["stale_reason"]
+        assert!(status(&store, &access, &replacement).await["stale_reason"]
             .as_str()
             .unwrap()
             .contains("predecessor"));
@@ -274,7 +286,9 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
         let held = set_task_state(&mut store, &scope, TaskState::Paused).await;
         replacement.command = CommandId::new();
         replacement.expected_revision = held.revision;
-        assert!(declarations::validate(&store, &access, &replacement).is_err());
+        assert!(declarations::validate(&store, &access, &replacement)
+            .await
+            .is_err());
         assert!(
             declarations::claim(&mut store, &access, &scope.task, Timestamp::new(1008))
                 .await
@@ -323,12 +337,12 @@ async fn owner_declaration_claim_is_durable_and_revalidates_task_evidence_and_au
             .await
             .unwrap();
             assert_eq!(
-                status(&store, &access, &replacement)["disposition"],
+                status(&store, &access, &replacement).await["disposition"],
                 "pending"
             );
             access.authority = change_workspace(&mut store, &scope, change).await;
             assert_eq!(
-                status(&store, &access, &replacement)["disposition"],
+                status(&store, &access, &replacement).await["disposition"],
                 "stale",
                 "{change}"
             );

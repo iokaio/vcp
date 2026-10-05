@@ -168,14 +168,14 @@ impl Context {
                         decision.candidates.iter().any(|candidate| {
                             &candidate.identity == *member && candidate.exclusions.is_empty()
                         }) && catalog.snapshot(member).is_some_and(|snapshot| {
-                            vcp_models::rotation::reference_cost(
+                            self.config.cap.micros.is_unbounded() || vcp_models::rotation::reference_cost(
                                 snapshot,
                                 policy.reference_input_tokens,
                                 policy.reference_output_tokens,
                             )
                             .is_ok_and(|cost| {
                                 cost.currency == set.max_reference_request_cost.currency
-                                    && cost.micros <= set.max_reference_request_cost.micros
+                                    && !set.max_reference_request_cost.micros.exceeds(&cost.micros)
                             })
                         })
                     })
@@ -301,13 +301,7 @@ impl Context {
             return Err("provider deadline must be within 360 seconds".into());
         }
         snapshot.current(now())?;
-        if snapshot
-            != Snapshot::from_endpoints(
-                &raw,
-                snapshot.observed_at,
-                snapshot.valid_until,
-                snapshot.compatibility.clone(),
-            )?
+        if snapshot != snapshot.rebuild_captured(&raw)?
         {
             return Err("provider snapshot differs from captured endpoint catalog".into());
         }
@@ -322,6 +316,7 @@ impl Context {
         if snapshot.price.currency != self.config.cap.currency {
             return Err("provider currency differs from host ledger".into());
         }
+        let snapshot = snapshot.for_execution(&raw, self.config.cap.micros)?;
         let scope = Scope {
             workspace: self.config.workspace.clone(),
             session: self.config.session.clone(),
@@ -494,14 +489,7 @@ impl Context {
             } else {
                 MonetaryLimit {
                     currency: ledger.currency.clone(),
-                    micros: ledger.cap.map(|cap| {
-                        Micros::new(
-                            cap.get()
-                                .saturating_sub(ledger.settled.get())
-                                .saturating_sub(ledger.active.get())
-                                .saturating_sub(ledger.unresolved.get()),
-                        )
-                    }),
+                    micros: ledger.remaining_before_protected()?,
                 }
             };
             self.revalidate_routing_selection(
@@ -1080,14 +1068,7 @@ impl Context {
             // active reservation to unknown liability preserves this balance.
             input.available = MonetaryLimit {
                 currency: ledger.currency.clone(),
-                micros: ledger.cap.map(|cap| {
-                    Micros::new(
-                        cap.get()
-                            .saturating_sub(ledger.settled.get())
-                            .saturating_sub(ledger.active.get())
-                            .saturating_sub(ledger.unresolved.get()),
-                    )
-                }),
+                micros: ledger.remaining_before_protected()?,
             };
             input.protected_verification = ledger.protected;
             if vcp_models::routing::select_owner_set(&catalog, &policy, &input, assigned)?

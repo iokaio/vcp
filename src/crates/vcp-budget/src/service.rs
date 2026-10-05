@@ -224,14 +224,19 @@ fn refresh(
         }
     }
     ledger.settled = sum(settled)?;
-    ledger.active = sum(active)?;
-    ledger.unresolved = sum(unresolved)?;
-    ledger.overrun = ledger.cap.exceeds(&sum([
-        ledger.settled,
+    ledger.active = estimated_sum(active)?;
+    ledger.unresolved = estimated_sum(unresolved)?;
+    let total = estimated_sum([
+        ledger.settled.into(),
         ledger.active,
         ledger.unresolved,
-        ledger.protected,
-    ])?);
+        ledger.protected.into(),
+    ])?;
+    ledger.overrun = if let Some(cap) = ledger.cap.finite() {
+        known(total)? > *cap
+    } else {
+        false
+    };
     Ok(())
 }
 pub async fn initialize<S: CanonicalStore>(
@@ -256,8 +261,8 @@ pub async fn initialize<S: CanonicalStore>(
         cap: cap.micros,
         protected,
         settled: Micros::ZERO,
-        active: Micros::ZERO,
-        unresolved: Micros::ZERO,
+        active: EstimatedMicros::ZERO,
+        unresolved: EstimatedMicros::ZERO,
         allocations: BTreeMap::new(),
         daily,
         overrun: false,
@@ -423,6 +428,7 @@ pub fn prepare_admission<'a>(
     }
     let amount = input.quote.amount.micros;
     let draw = if input.draw_protected && !root.cap.is_unbounded() {
+        let amount = known(amount)?;
         if input.role != RequestRole::Verification || root.protected < amount {
             return Err(Error::Exhausted("protected verification reserve"));
         }
@@ -431,14 +437,17 @@ pub fn prepare_admission<'a>(
         Micros::ZERO
     };
     let protected = Micros::new(root.protected.get() - draw.get());
-    if root.cap.exceeds(&sum([
-        root.settled,
-        root.active,
-        root.unresolved,
-        protected,
-        amount,
-    ])?) {
-        return Err(Error::Exhausted("root cap"));
+    if let Some(cap) = root.cap.finite() {
+        if sum([
+            root.settled,
+            known(root.active)?,
+            known(root.unresolved)?,
+            protected,
+            known(amount)?,
+        ])? > *cap
+        {
+            return Err(Error::Exhausted("root cap"));
+        }
     }
     for (child, cap) in &root.allocations {
         if root.cap.is_unbounded() {
@@ -455,10 +464,10 @@ pub fn prepare_admission<'a>(
             if row.root == task.root
                 && descends(state, &row.scope.task, child, &input.scope.workspace)?
             {
-                committed.push(sum([row.charged, row.liability])?);
+                committed.push(sum([row.charged, known(row.liability)?])?);
             }
         }
-        if add(sum(committed)?, amount)? > *cap {
+        if add(sum(committed)?, known(amount)?)? > *cap {
             return Err(Error::Exhausted("child allocation"));
         }
     }
@@ -474,13 +483,13 @@ pub fn prepare_admission<'a>(
             let row: Reservation = record.decode()?;
             if row.root == task.root {
                 today.push(if row.day == day {
-                    sum([row.charged, row.liability])?
+                    sum([row.charged, known(row.liability)?])?
                 } else {
-                    row.liability
+                    known(row.liability)?
                 });
             }
         }
-        if sum([sum(today)?, amount, protected])? > daily.cap {
+        if sum([sum(today)?, known(amount)?, protected])? > daily.cap {
             return Err(Error::Exhausted("local root daily cap"));
         }
     }
@@ -723,15 +732,9 @@ async fn persist<S: CanonicalStore>(
             | ReservationState::Submitted
             | ReservationState::ReconciliationPending
     ) {
-        Micros::new(
-            reservation
-                .amount
-                .micros
-                .get()
-                .saturating_sub(next.charged.get()),
-        )
+        reservation.amount.micros.remaining_after(next.charged)
     } else {
-        Micros::ZERO
+        EstimatedMicros::ZERO
     };
     if next.phase == ReservationState::Released && reservation.protected_returned == Micros::ZERO {
         root.protected = add(root.protected, reservation.protected_draw)?;

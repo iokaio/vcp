@@ -275,11 +275,13 @@ async fn immutable_submission_and_each_governed_outcome_reopen_on_both_stores() 
             let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
             store.transact(common::initial()).await.unwrap();
             let s = submission();
-            let tx = review_tx(store.state(), row(Collection::Claim, s.id.as_str(), &s));
+            let tx = review_tx(
+                (&store.archive_state().await.unwrap()),
+                row(Collection::Claim, s.id.as_str(), &s),
+            );
             let receipt = store.transact(tx.clone()).await.unwrap();
             assert_eq!(store.transact(tx).await.unwrap(), receipt);
-            assert!(!store
-                .state()
+            assert!(!(&store.archive_state().await.unwrap())
                 .records
                 .values()
                 .any(|r| r.value["document_type"] == "vcp_memory_version_v1"));
@@ -293,26 +295,29 @@ async fn immutable_submission_and_each_governed_outcome_reopen_on_both_stores() 
                 outcome.unwrap_or(Outcome::Rejected),
             );
             let tx = if outcome.is_some() {
-                accepted_tx(store.state(), &s, &d)
+                accepted_tx((&store.archive_state().await.unwrap()), &s, &d)
             } else {
-                review_tx(store.state(), row(Collection::Projection, &d.id, &d))
+                review_tx(
+                    (&store.archive_state().await.unwrap()),
+                    row(Collection::Projection, &d.id, &d),
+                )
             };
             let receipt = store.transact(tx.clone()).await.unwrap();
             assert_eq!(store.transact(tx).await.unwrap(), receipt);
-            let snapshot = store.state().clone();
+            let snapshot = (&store.archive_state().await.unwrap()).clone();
             let other = decision(&s, Choice::Reject, Outcome::Rejected);
             assert_eq!(other.id, d.id);
             assert!(store
                 .transact(review_tx(
-                    store.state(),
+                    (&store.archive_state().await.unwrap()),
                     row(Collection::Projection, &other.id, &other)
                 ))
                 .await
                 .is_err());
-            assert_eq!(store.state(), &snapshot);
+            assert_eq!((&store.archive_state().await.unwrap()), &snapshot);
             store.close().await.unwrap();
             let store = Store::open(temp.path(), backend, &[]).await.unwrap();
-            assert_eq!(store.state(), &snapshot);
+            assert_eq!((&store.archive_state().await.unwrap()), &snapshot);
             store.close().await.unwrap();
         }
     }
@@ -498,7 +503,7 @@ async fn qualified_review_redaction_rewrites_and_reopens_both_stores() {
         let s = submission();
         store
             .transact(review_tx(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 row(Collection::Claim, s.id.as_str(), &s),
             ))
             .await
@@ -506,7 +511,7 @@ async fn qualified_review_redaction_rewrites_and_reopens_both_stores() {
         let d = decision(&s, Choice::Reject, Outcome::Rejected);
         store
             .transact(review_tx(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 row(Collection::Projection, &d.id, &d),
             ))
             .await
@@ -519,7 +524,7 @@ async fn qualified_review_redaction_rewrites_and_reopens_both_stores() {
         task.state = vcp_domain::task::TaskState::Cancelled;
         let tx = Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: (&store.archive_state().await.unwrap()).watermark,
             mutations: vec![
                 Mutation::Put {
                     expected: Some(Revision::ZERO),
@@ -548,7 +553,7 @@ async fn qualified_review_redaction_rewrites_and_reopens_both_stores() {
             command: None,
         };
         store.transact(tx).await.unwrap();
-        let source = store.state().clone();
+        let source = (&store.archive_state().await.unwrap()).clone();
         let mut erased = source.clone();
         for (collection, id) in [
             (Collection::Claim, s.id.as_str()),
@@ -573,8 +578,8 @@ async fn qualified_review_redaction_rewrites_and_reopens_both_stores() {
         store.rewrite_base(erased.clone(), &[]).await.unwrap();
         store.close().await.unwrap();
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(store.state(), &erased);
-        let text = serde_json::to_string(store.state()).unwrap();
+        assert_eq!((&store.archive_state().await.unwrap()), &erased);
+        let text = serde_json::to_string((&store.archive_state().await.unwrap())).unwrap();
         assert!(!text.contains("private submission marker"));
         assert!(!text.contains("private review reason"));
         store.close().await.unwrap();

@@ -398,7 +398,7 @@ async fn output_loss_case(backend: BackendKind) {
         .decode()
         .unwrap();
     assert_eq!(ledger.settled, Micros::new(100));
-    assert!(ledger.unresolved > Micros::ZERO);
+    assert!(ledger.unresolved.known().unwrap() > Micros::ZERO);
     let attempts: Vec<_> = state
         .records
         .values()

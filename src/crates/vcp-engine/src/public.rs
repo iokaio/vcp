@@ -946,7 +946,7 @@ mod tests {
     fn current_task(engine: &Engine<Store>) -> Task {
         engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, "task", &access().workspace)
             .unwrap()
             .decode()
@@ -982,7 +982,7 @@ mod tests {
                 mutation: mutation("durable-resume", 1, 0),
                 task: id("task"),
             });
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             let prepare = async |engine: &Engine<Store>| {
                 ready(
                     engine
@@ -1065,7 +1065,7 @@ mod tests {
                     .await,
                 Err(PublicError::Access)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let prepared = prepare(&engine).await;
             let duplicate = prepare(&engine).await;
             let receipt = engine
@@ -1074,7 +1074,7 @@ mod tests {
                 .unwrap();
             assert_eq!(current_task(&engine).state, TaskState::Running);
             assert_eq!(current_task(&engine).revision, Revision::new(2));
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             // A second already-prepared waiter gets the original receipt even
             // though its state revision is now old; it executes no new resume.
             assert_eq!(
@@ -1098,7 +1098,7 @@ mod tests {
                 engine.prepare_public(changed, &access(), &facts()).await,
                 Err(PublicError::CommandConflict)
             ));
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let reopened =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
@@ -1112,7 +1112,7 @@ mod tests {
                     .await,
                 Err(PublicError::Access)
             ));
-            assert_eq!(reopened.store().state().watermark, watermark);
+            assert_eq!(reopened.store().current().watermark, watermark);
             reopened.into_store().close().await.unwrap();
         }
     }
@@ -1175,14 +1175,14 @@ mod tests {
                 0,
             )
             .await;
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .commit_public_resume(stale, &access(), &facts())
                     .await,
                 Err(PublicError::StaleState)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let mut fresh = call;
             if let Call::SessionResume(p) = &mut fresh {
                 p.mutation.expected_revision = 1.into();
@@ -1205,14 +1205,14 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .commit_public_resume(pending, &access(), &facts())
                     .await,
                 Err(PublicError::Access)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             assert_eq!(current_task(&engine).state, TaskState::Paused);
             internal(
                 &mut engine,
@@ -1254,7 +1254,7 @@ mod tests {
                 let task = task(&mut engine).await;
                 start_turn(&mut engine, &task).await;
                 let pause = stop_call("pause", "pause-public", 1, "turn");
-                let watermark = engine.store().state().watermark;
+                let watermark = engine.store().current().watermark;
                 let unbound = ready(
                     engine
                         .prepare_public(pause.clone(), &access(), &facts())
@@ -1265,7 +1265,7 @@ mod tests {
                     engine.commit_public(unbound, &access(), &facts()).await,
                     Err(PublicError::CapabilityUnavailable)
                 );
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
                 let prepared = ready(
                     engine
                         .prepare_controlled_public(
@@ -1285,11 +1285,11 @@ mod tests {
                 let paused = current_task(&engine);
                 assert_eq!(paused.state, TaskState::Paused);
                 assert_eq!(paused.revision, Revision::new(2));
-                let watermark = engine.store().state().watermark;
+                let watermark = engine.store().current().watermark;
                 assert!(
                     matches!(engine.prepare_controlled_public(pause.clone(), &access(), &facts(), &connection, &token).await.unwrap(), PublicAdmission::Replay(value) if value == receipt)
                 );
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
                 let mut observer = access();
                 observer.write = false;
                 assert!(matches!(
@@ -1350,11 +1350,11 @@ mod tests {
                     .await
                     .unwrap();
                 assert_eq!(current_task(&engine).state, TaskState::Cancelled);
-                let watermark = engine.store().state().watermark;
+                let watermark = engine.store().current().watermark;
                 assert!(
                     matches!(engine.prepare_controlled_public(cancel.clone(), &access(), &facts(), &connection, &token).await.unwrap(), PublicAdmission::Replay(value) if value == receipt)
                 );
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
                 engine.into_store().close().await.unwrap();
                 let reopened =
                     Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
@@ -1365,7 +1365,7 @@ mod tests {
                     reopened.prepare_public(cancel, &observer, &facts()).await,
                     Err(PublicError::Access)
                 ));
-                assert_eq!(reopened.store().state().watermark, watermark);
+                assert_eq!(reopened.store().current().watermark, watermark);
                 reopened.into_store().close().await.unwrap();
             }
         }
@@ -1383,11 +1383,12 @@ mod tests {
                 .unwrap();
             let token = engine.controller_token(&access(), &connection).unwrap();
             let task = task(&mut engine).await;
-            assert!(
-                current_public_turn(engine.store().state(), &current_task(&engine).scope)
-                    .unwrap()
-                    .is_none()
-            );
+            assert!(current_public_turn(
+                &engine.store().archive_state().await.unwrap(),
+                &current_task(&engine).scope
+            )
+            .unwrap()
+            .is_none());
             start_turn(&mut engine, &task).await;
             internal(
                 &mut engine,
@@ -1413,11 +1414,14 @@ mod tests {
             )
             .await;
             assert_eq!(
-                current_public_turn(engine.store().state(), &current_task(&engine).scope)
-                    .unwrap()
-                    .unwrap()
-                    .id
-                    .as_str(),
+                current_public_turn(
+                    &engine.store().archive_state().await.unwrap(),
+                    &current_task(&engine).scope
+                )
+                .unwrap()
+                .unwrap()
+                .id
+                .as_str(),
                 "a-newer-turn"
             );
             assert!(matches!(
@@ -1472,7 +1476,7 @@ mod tests {
                     .await,
                 Err(PublicError::Access)
             ));
-            let mut retained = engine.store().state().clone();
+            let mut retained = engine.store().archive_state().await.unwrap();
             retained
                 .events
                 .retain(|event| event.event.kind != vcp_protocol::event::EventKind::TurnTransition);
@@ -1544,12 +1548,12 @@ mod tests {
             start_turn(&mut engine, &task).await;
             let current: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &access().workspace)
                 .unwrap()
                 .decode()
                 .unwrap();
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert!(matches!(
                 engine
                     .prepare_controlled_public(
@@ -1562,7 +1566,7 @@ mod tests {
                     .await,
                 Err(PublicError::StaleState)
             ));
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let call = steer_call("controlled-steer", current.revision.get());
             let prepared = ready(
                 engine
@@ -1580,7 +1584,7 @@ mod tests {
                 engine.commit_public(prepared, &access(), &facts()).await,
                 Err(PublicError::CapabilityUnavailable)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let prepared = ready(
                 engine
                     .prepare_controlled_public(
@@ -1608,14 +1612,14 @@ mod tests {
             assert_eq!(receipt.command.as_str(), "controlled-steer");
             let after: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &access().workspace)
                 .unwrap()
                 .decode()
                 .unwrap();
             assert_eq!(after.state, TaskState::Paused);
             assert_eq!(after.objectives.len(), current.objectives.len() + 1);
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert!(matches!(
                 engine
                     .prepare_controlled_public(
@@ -1629,7 +1633,7 @@ mod tests {
                     .unwrap(),
                 PublicAdmission::Replay(_)
             ));
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let mut engine =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
@@ -1640,7 +1644,7 @@ mod tests {
                     .unwrap(),
                 receipt
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
         }
     }
@@ -1660,7 +1664,7 @@ mod tests {
             start_turn(&mut engine, &task).await;
             let current: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &access().workspace)
                 .unwrap()
                 .decode()
@@ -1674,14 +1678,14 @@ mod tests {
             );
             let mut observer = access();
             observer.write = false;
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert!(matches!(
                 engine
                     .pause_public_for_authority(&prepared, &observer, &facts())
                     .await,
                 Err(PublicError::Access)
             ));
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let proof = engine
                 .pause_public_for_authority(&prepared, &access(), &facts())
                 .await
@@ -1698,14 +1702,14 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .commit_public_after_pause(prepared, proof, &access(), &facts())
                     .await,
                 Err(PublicError::Access)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
         }
     }
@@ -1719,7 +1723,7 @@ mod tests {
             start_turn(&mut engine, &task).await;
             let current: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &access().workspace)
                 .unwrap()
                 .decode()
@@ -1749,14 +1753,14 @@ mod tests {
                 .await
                 .unwrap();
             let paused = proof.revision();
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .commit_public_after_pause(other, proof, &access(), &facts())
                     .await,
                 Err(PublicError::StaleState)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let prepared = ready(
                 engine
                     .prepare_public(
@@ -1772,19 +1776,19 @@ mod tests {
                 .await
                 .unwrap();
             assert!(proof.receipt().is_none());
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine
                 .handle_public(steer_call("intervening", paused.get()), &access(), &facts())
                 .await
                 .unwrap();
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .commit_public_after_pause(prepared, proof, &access(), &facts())
                     .await,
                 Err(PublicError::StaleState)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let prepared = ready(
                 engine
                     .prepare_public(create_call("stale-owner"), &access(), &facts())
@@ -1817,7 +1821,7 @@ mod tests {
                 receipt.digest,
                 call.digest(access().actor.as_str()).unwrap()
             );
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .handle_public(call.clone(), &access(), &facts())
@@ -1855,7 +1859,7 @@ mod tests {
                     .await,
                 Err(PublicError::CommandConflict)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             let old_controller = engine.controller().clone();
             engine.into_store().close().await.unwrap();
             let mut reopened =
@@ -1868,7 +1872,7 @@ mod tests {
                     .unwrap(),
                 receipt
             );
-            assert_eq!(reopened.store().state().watermark, watermark);
+            assert_eq!(reopened.store().current().watermark, watermark);
 
             let mut direct = setup(&temp.path().join("internal"), backend).await;
             internal(
@@ -1885,7 +1889,7 @@ mod tests {
             let row = |engine: &Engine<Store>| {
                 engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Session, "created-session", &access().workspace)
                     .unwrap()
                     .value
@@ -1893,8 +1897,8 @@ mod tests {
             };
             assert_eq!(row(&reopened), row(&direct));
             assert_eq!(
-                reopened.store().state().events.len(),
-                direct.store().state().events.len()
+                reopened.store().archive_state().await.unwrap().events.len(),
+                direct.store().archive_state().await.unwrap().events.len()
             );
             reopened.into_store().close().await.unwrap();
             direct.into_store().close().await.unwrap();
@@ -1925,15 +1929,18 @@ mod tests {
             assert_eq!(
                 locked
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| row.collection == Collection::Session)
                     .count(),
                 2
             );
-            assert_eq!(locked.store().state().commands.len(), 2);
-            let watermark = locked.store().state().watermark;
+            assert_eq!(
+                locked.store().archive_state().await.unwrap().commands.len(),
+                2
+            );
+            let watermark = locked.store().current().watermark;
             // Export still requires its own shared durable workflow.
             let unsupported = Call::SessionExport(methods::SessionExport {
                 scope: scope(),
@@ -1963,7 +1970,7 @@ mod tests {
                     .await,
                 Err(PublicError::StaleState)
             );
-            assert_eq!(locked.store().state().watermark, watermark);
+            assert_eq!(locked.store().current().watermark, watermark);
             drop(locked);
             std::sync::Arc::try_unwrap(engine)
                 .ok()
@@ -2064,7 +2071,7 @@ mod tests {
             start_turn(&mut direct, &direct_task).await;
             let current: Task = public
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, public_task.as_str(), &access().workspace)
                 .unwrap()
                 .decode()
@@ -2097,7 +2104,7 @@ mod tests {
                     normalize(
                         engine
                             .store()
-                            .state()
+                            .current()
                             .record(collection, id, &access().workspace)
                             .unwrap()
                             .value
@@ -2106,7 +2113,7 @@ mod tests {
                 };
                 assert_eq!(value(&public), value(&direct));
             }
-            let watermark = public.store().state().watermark;
+            let watermark = public.store().current().watermark;
             assert_eq!(
                 public
                     .handle_public(call.clone(), &access(), &facts())
@@ -2122,11 +2129,11 @@ mod tests {
                 public.handle_public(stale, &access(), &facts()).await,
                 Err(PublicError::StaleState)
             );
-            assert_eq!(public.store().state().watermark, watermark);
+            assert_eq!(public.store().current().watermark, watermark);
             assert_eq!(
                 public
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| row.collection == Collection::Effect)
@@ -2188,7 +2195,7 @@ mod tests {
                 policy_revision: 0.into(),
                 decision: ApprovalDecision::Deny,
             });
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             let mut stale = call.clone();
             if let Call::ApprovalRespond(p) = &mut stale {
                 p.effect_revision = 1.into();
@@ -2212,7 +2219,7 @@ mod tests {
                     .await,
                 Err(PublicError::StaleState)
             );
-            assert_eq!(engine.store().state().watermark, before);
+            assert_eq!(engine.store().current().watermark, before);
             let receipt = engine
                 .handle_public(call.clone(), &access(), &facts())
                 .await
@@ -2234,7 +2241,7 @@ mod tests {
             );
             let approval: Approval = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Approval, "approval", &access().workspace)
                 .unwrap()
                 .decode()
@@ -2243,7 +2250,7 @@ mod tests {
             assert_eq!(
                 engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| row.collection == Collection::Effect)

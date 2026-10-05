@@ -559,7 +559,7 @@ mod tests {
         fail_after: Option<usize>,
         empty: bool,
     }
-    impl CanonicalStore for PagedOwner {
+    impl vcp_store::contract::reference::ReferenceStore for PagedOwner {
         fn state(&self) -> &vcp_store::contract::State {
             panic!("ingestion read complete history")
         }

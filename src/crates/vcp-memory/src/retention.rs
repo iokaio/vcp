@@ -1353,7 +1353,7 @@ async fn cleanup_inner(
             }
         }
         if !records.is_empty() || !events.is_empty() {
-            let candidate = store.retention_candidate(&records, &events, &tasks)?;
+            let candidate = store.retention_candidate(&records, &events, &tasks).await?;
             store.rewrite_base(candidate, &[]).await?;
         }
         job.rewrite_complete = true;

@@ -22,18 +22,18 @@ fn empty(identity: ModelEndpoint) -> CandidateDecision {
         assumptions: vec![],
     }
 }
-fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<Micros, Exclusion> {
+fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<EstimatedMicros, Exclusion> {
     if !validation::valid_usage(usage) {
         return Err(Exclusion::InvalidCost);
     }
     let categories = usage.disjoint().map_err(|_| Exclusion::InvalidCost)?;
     let mut total = 0u64;
+    let mut unknown = 0u64;
     for (category, units) in categories {
-        let rate = snapshot
-            .price
-            .rates
-            .get(&category)
-            .ok_or(Exclusion::UnknownCost)?;
+        let Some(rate) = snapshot.price.rates.get(&category) else {
+            unknown += 1;
+            continue;
+        };
         if rate.per_units == Units::ZERO {
             return Err(Exclusion::InvalidCost);
         }
@@ -44,7 +44,12 @@ fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<Micros, Exclu
         let amount = u64::try_from(amount).map_err(|_| Exclusion::InvalidCost)?;
         total = total.checked_add(amount).ok_or(Exclusion::InvalidCost)?;
     }
-    Ok(Micros::new(total))
+    if unknown == 0 {
+        Ok(Micros::new(total).into())
+    } else {
+        EstimatedMicros::unknown(Micros::new(total), Units::new(unknown))
+            .map_err(|_| Exclusion::InvalidCost)
+    }
 }
 fn estimate_cost(
     snapshot: &Snapshot,
@@ -59,11 +64,14 @@ fn estimate_cost(
         return Err(Exclusion::InvalidCost);
     }
     let fixed = |value: &Option<Money>| {
-        let value = value.as_ref().ok_or(Exclusion::UnknownCost)?;
+        let Some(value) = value.as_ref() else {
+            return EstimatedMicros::unknown(Micros::ZERO, Units::new(1))
+                .map_err(|_| Exclusion::InvalidCost);
+        };
         if value.currency != snapshot.price.currency {
             return Err(Exclusion::CurrencyMismatch);
         }
-        Ok(value.micros)
+        Ok(EstimatedMicros::from(value.micros))
     };
     let first_attempt = cost(snapshot, &estimate.first_attempt)?;
     let retries = cost(snapshot, &estimate.retries)?;
@@ -80,8 +88,8 @@ fn estimate_cost(
         verification,
     ]
     .into_iter()
-    .try_fold(0u64, |sum, part| {
-        sum.checked_add(part.get()).ok_or(Exclusion::InvalidCost)
+    .try_fold(EstimatedMicros::ZERO, |sum, part| {
+        sum.checked_add(part).map_err(|_| Exclusion::InvalidCost)
     })?;
     Ok(CostBreakdown {
         first_attempt,
@@ -90,9 +98,9 @@ fn estimate_cost(
         support,
         children,
         verification,
-        total: Money {
+        total: EstimatedMoney {
             currency: snapshot.price.currency.clone(),
-            micros: Micros::new(total),
+            micros: total,
         },
     })
 }
@@ -268,12 +276,19 @@ fn evaluate(
                 } else {
                     input.protected_verification.get()
                 };
-                if maximum
-                    .get()
-                    .checked_add(protected)
-                    .is_none_or(|amount| input.available.micros.exceeds(&Micros::new(amount)))
-                {
-                    row.exclusions.push(Exclusion::Budget);
+                if !input.available.micros.is_unbounded() {
+                    if let Some(maximum) = maximum.known() {
+                        if maximum.get().checked_add(protected).is_none_or(|amount| {
+                            input.available.micros.exceeds(&Micros::new(amount))
+                        }) {
+                            row.exclusions.push(Exclusion::Budget);
+                        }
+                    } else {
+                        row.exclusions.push(Exclusion::UnknownCost);
+                    }
+                } else if maximum.known().is_none() {
+                    row.assumptions
+                        .push("Immediate monetary bound unavailable; cost remains unknown.".into());
                 }
             }
         }
@@ -366,24 +381,33 @@ fn evaluate(
                     if cost.total.currency != input.available.currency {
                         row.exclusions.push(Exclusion::CurrencyMismatch);
                     }
-                    if !input.available.micros.is_unbounded()
-                        && cost.verification > input.protected_verification
-                    {
-                        row.exclusions
-                            .push(Exclusion::InsufficientVerificationReserve);
-                    }
-                    let protected = if input.role == RequestRole::Verification {
-                        0
-                    } else {
-                        input.protected_verification.get()
-                    };
-                    let without_verification = cost.total.micros.get() - cost.verification.get();
-                    let required =
-                        without_verification.checked_add(protected.max(cost.verification.get()));
-                    if required
-                        .is_none_or(|amount| input.available.micros.exceeds(&Micros::new(amount)))
-                    {
-                        row.exclusions.push(Exclusion::Budget);
+                    if !input.available.micros.is_unbounded() {
+                        if let (Some(total), Some(verification)) =
+                            (cost.total.micros.known(), cost.verification.known())
+                        {
+                            if verification > input.protected_verification {
+                                row.exclusions
+                                    .push(Exclusion::InsufficientVerificationReserve);
+                            }
+                            let protected = if input.role == RequestRole::Verification {
+                                0
+                            } else {
+                                input.protected_verification.get()
+                            };
+                            let required = (total.get() - verification.get())
+                                .checked_add(protected.max(verification.get()));
+                            if required.is_none_or(|amount| {
+                                input.available.micros.exceeds(&Micros::new(amount))
+                            }) {
+                                row.exclusions.push(Exclusion::Budget);
+                            }
+                        } else {
+                            row.exclusions.push(Exclusion::UnknownCost);
+                        }
+                    } else if cost.total.micros.known().is_none() {
+                        row.assumptions.push(
+                            "Cost estimate incomplete; unpriced components remain unknown.".into(),
+                        );
                     }
                     row.total_estimate = Some(cost);
                 }
@@ -414,11 +438,21 @@ fn compare(a: &CandidateDecision, b: &CandidateDecision, ordering: &[Preference]
             Preference::Quality => b.quality_bps.cmp(&a.quality_bps),
             Preference::Latency => a.latency_p95_ms.cmp(&b.latency_p95_ms),
             Preference::Capability => a.group.cmp(&b.group),
-            Preference::TotalCost => a
-                .total_estimate
-                .as_ref()
-                .map(|cost| cost.total.micros)
-                .cmp(&b.total_estimate.as_ref().map(|cost| cost.total.micros)),
+            // Unpriced totals have no numeric order; they must not become the
+            // cheapest candidate by treating absence as zero.
+            Preference::TotalCost => match (
+                a.total_estimate
+                    .as_ref()
+                    .and_then(|cost| cost.total.micros.known()),
+                b.total_estimate
+                    .as_ref()
+                    .and_then(|cost| cost.total.micros.known()),
+            ) {
+                (Some(a), Some(b)) => a.cmp(&b),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            },
         };
         if order != Ordering::Equal {
             return order;

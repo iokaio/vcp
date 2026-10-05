@@ -61,7 +61,7 @@ async fn transition(
         .unwrap();
     engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Task,
             task.scope.task.as_str(),
@@ -287,11 +287,13 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let (store, access) = cohort(temp.path(), backend, false).await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let mut read_only = copy_access(&access);
         read_only.write = false;
-        let report = forecasts::observe(&store, &read_only, window()).unwrap();
-        assert_eq!(store.state(), &before);
+        let report = forecasts::observe(&store, &read_only, window())
+            .await
+            .unwrap();
+        assert_eq!(store.archive_state().await.unwrap(), before);
         assert!(!report.serving_qualified);
         assert!(report.excluded.is_empty(), "{:?}", report.excluded);
         assert_eq!(report.episodes.len(), 20);
@@ -350,19 +352,23 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
         drop(store);
         let mut reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            serde_json::to_value(forecasts::observe(&reopened, &access, window()).unwrap())
-                .unwrap(),
+            serde_json::to_value(
+                forecasts::observe(&reopened, &access, window())
+                    .await
+                    .unwrap()
+            )
+            .unwrap(),
             serde_json::to_value(report).unwrap()
         );
         // Late provider accounting changes cost, never the already completed action interval.
         let task: Task = reopened
-            .state()
+            .current()
             .record(Collection::Task, "forecast-0", &access.workspace)
             .unwrap()
             .decode()
             .unwrap();
         let attempt: Attempt = reopened
-            .state()
+            .current()
             .records
             .values()
             .filter(|record| record.collection == Collection::Attempt)
@@ -393,7 +399,9 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
         )
         .await
         .unwrap();
-        let corrected = forecasts::observe(&reopened, &access, window()).unwrap();
+        let corrected = forecasts::observe(&reopened, &access, window())
+            .await
+            .unwrap();
         assert_eq!(corrected.episodes.len(), 20);
         assert!(corrected.excluded.is_empty(), "{:?}", corrected.excluded);
         assert_eq!(corrected.cohorts[0].known_cost_micros, 605);
@@ -412,10 +420,14 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
         assert!((expected_cost_micros[main].unwrap() - 30.25).abs() < 1e-9);
         let mut denied = copy_access(&access);
         denied.read = false;
-        assert!(forecasts::observe(&reopened, &denied, window()).is_err());
+        assert!(forecasts::observe(&reopened, &denied, window())
+            .await
+            .is_err());
         let mut restricted = copy_access(&access);
         restricted.tasks = Some(BTreeSet::from([TaskId::parse("forecast-0").unwrap()]));
-        let scoped = forecasts::observe(&reopened, &restricted, window()).unwrap();
+        let scoped = forecasts::observe(&reopened, &restricted, window())
+            .await
+            .unwrap();
         assert_eq!(scoped.episodes.len(), 1);
         assert!(matches!(
             scoped.cohorts[0].status,
@@ -429,6 +441,7 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
                 until: Timestamp::new(1000),
             },
         )
+        .await
         .unwrap();
         assert!(partial.episodes.is_empty());
         assert!(partial
@@ -443,6 +456,7 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
                 until: Timestamp::new(45),
             },
         )
+        .await
         .unwrap();
         assert!(censored.episodes.is_empty());
         assert!(!censored.excluded.is_empty());
@@ -458,16 +472,19 @@ async fn action_forecasts_match_hand_calculated_serial_costs_and_outcomes_withou
             },
             Action::Purge,
             Timestamp::new(1001),
-        ).await
+        )
+        .await
         .unwrap();
         assert!(plan.protected.is_empty());
         retention::apply(&mut reopened, &access, &plan, Timestamp::new(1001))
             .await
             .unwrap();
-        let before = reopened.state().clone();
-        let purged = forecasts::observe(&reopened, &access, window()).unwrap();
+        let before = reopened.archive_state().await.unwrap();
+        let purged = forecasts::observe(&reopened, &access, window())
+            .await
+            .unwrap();
         assert!(purged.episodes.is_empty());
-        assert_eq!(reopened.state(), &before);
+        assert_eq!(reopened.archive_state().await.unwrap(), before);
     }
 }
 
@@ -476,9 +493,9 @@ async fn action_forecasts_preserve_unknown_charge_liability_without_free_cost_pr
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let (store, access) = cohort(temp.path(), backend, true).await;
-        let before = store.state().clone();
-        let report = forecasts::observe(&store, &access, window()).unwrap();
-        assert_eq!(store.state(), &before);
+        let before = store.archive_state().await.unwrap();
+        let report = forecasts::observe(&store, &access, window()).await.unwrap();
+        assert_eq!(store.archive_state().await.unwrap(), before);
         assert_eq!(report.episodes.len(), 20);
         let cohort = &report.cohorts[0];
         assert_eq!(cohort.known_cost_micros, 590);
@@ -508,7 +525,7 @@ async fn action_forecasts_exclude_old_schema_and_revision_gaps_instead_of_joinin
         let mut store = episode(store, &access, 0, false, Some(TaskState::Failed)).await;
         store = episode(store, &access, 1, false, Some(TaskState::Cancelled)).await;
         let task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, "forecast-0", &access.workspace)
             .unwrap()
             .decode()
@@ -529,7 +546,7 @@ async fn action_forecasts_exclude_old_schema_and_revision_gaps_instead_of_joinin
         };
         // Import-style malformed retained evidence must never bridge a missing revision.
         let mut gap_task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, "forecast-1", &access.workspace)
             .unwrap()
             .decode()
@@ -546,29 +563,29 @@ async fn action_forecasts_exclude_old_schema_and_revision_gaps_instead_of_joinin
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![],
                 events: vec![event, gap_event],
                 command: None,
             })
             .await
             .unwrap();
-        let before = store.state().clone();
-        let report = forecasts::observe(&store, &access, window()).unwrap();
+        let before = store.archive_state().await.unwrap();
+        let report = forecasts::observe(&store, &access, window()).await.unwrap();
         assert!(report.episodes.is_empty());
         assert_eq!(report.excluded.len(), 2);
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
     }
 }
 
 fn saved_bytes(store: &Store, pin: &forecast_reports::ForecastPin) -> Vec<u8> {
     let descriptor: vcp_domain::artifact::ArtifactDescriptor = store
-        .state()
+        .current()
         .record(
             Collection::Artifact,
             pin.artifact.as_str(),
             &store
-                .state()
+                .current()
                 .records
                 .values()
                 .find(|record| record.collection == Collection::Workspace)
@@ -599,7 +616,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         let pin = baseline.forecast.as_ref().unwrap();
         assert_eq!(pin.source_tasks.len(), 2);
         let manifest = store
-            .state()
+            .current()
             .record(
                 Collection::Projection,
                 &pin.source_manifest,
@@ -610,11 +627,11 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         let mut replacement = manifest.clone();
         replacement.revision = replacement.revision.next().unwrap();
         replacement.value["revision"] = serde_json::to_value(replacement.revision).unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: replacement,
                     expected: Some(manifest.revision)
@@ -624,14 +641,17 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             })
             .await
             .is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         let bytes = saved_bytes(&store, pin);
         let frozen = forecast_reports::load(&store, &access, &baseline)
+            .await
             .unwrap()
             .unwrap();
         let mut mismatched = baseline.clone();
         mismatched.forecast.as_mut().unwrap().digest = "0".repeat(64);
-        assert!(forecast_reports::load(&store, &access, &mismatched).is_err());
+        assert!(forecast_reports::load(&store, &access, &mismatched)
+            .await
+            .is_err());
         let mut narrowed_manifest = baseline.clone();
         narrowed_manifest
             .forecast
@@ -639,7 +659,9 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             .unwrap()
             .source_tasks
             .pop_last();
-        assert!(forecast_reports::load(&store, &access, &narrowed_manifest).is_err());
+        assert!(forecast_reports::load(&store, &access, &narrowed_manifest)
+            .await
+            .is_err());
         assert_eq!(frozen.episodes.len(), 2);
         assert!(matches!(
             frozen.cohorts[0].status,
@@ -651,6 +673,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         let legacy: OptimizationReport = serde_json::from_value(legacy).unwrap();
         assert!(legacy.forecast.is_none());
         assert!(forecast_reports::load(&store, &access, &legacy)
+            .await
             .unwrap()
             .is_none());
         let mut store = episode(store, &access, 2, false, Some(TaskState::Cancelled)).await;
@@ -660,33 +683,41 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         assert_eq!(saved_bytes(&store, pin), bytes);
         assert_eq!(
             forecast_reports::load(&store, &access, &baseline)
+                .await
                 .unwrap()
                 .unwrap(),
             frozen
         );
         let mut read = copy_access(&access);
         read.write = false;
-        let before = store.state().clone();
-        assert_eq!(load_report(&store, &read, &baseline.id).unwrap(), baseline);
+        let before = store.archive_state().await.unwrap();
+        assert_eq!(
+            load_report(&store, &read, &baseline.id).await.unwrap(),
+            baseline
+        );
         assert!(
             forecast_drift::saved(&store, &read, &baseline.id, &current.id)
+                .await
                 .unwrap()
                 .is_some()
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         drop(store);
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(saved_bytes(&store, pin), bytes);
         assert_eq!(
             forecast_reports::load(&store, &read, &baseline)
+                .await
                 .unwrap()
                 .unwrap(),
             frozen
         );
         let mut narrow = copy_access(&read);
         narrow.tasks = Some(BTreeSet::from([TaskId::parse("forecast-0").unwrap()]));
-        assert!(load_report(&store, &narrow, &baseline.id).is_err());
-        assert!(forecast_reports::load(&store, &narrow, &baseline).is_err());
+        assert!(load_report(&store, &narrow, &baseline.id).await.is_err());
+        assert!(forecast_reports::load(&store, &narrow, &baseline)
+            .await
+            .is_err());
         let audit = vcp_audit::history::Access {
             workspace: access.workspace.clone(),
             authority: access.authority,
@@ -699,7 +730,8 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             &audit,
             &pin.artifact,
             &mut sink
-        ).await
+        )
+        .await
         .is_err());
         assert!(sink.is_empty());
         let audit = vcp_audit::history::Access {
@@ -711,7 +743,8 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             &audit,
             &pin.artifact,
             &mut sink
-        ).await
+        )
+        .await
         .is_err());
         assert!(sink.is_empty());
         let plan = retention::preview(
@@ -726,7 +759,8 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             },
             Action::Purge,
             Timestamp::new(1003),
-        ).await
+        )
+        .await
         .unwrap();
         assert!(plan.protected.is_empty());
         assert!(plan.dependent.contains(&retention::Target::Record(key(
@@ -736,17 +770,23 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         let receipt = retention::apply(&mut store, &access, &plan, Timestamp::new(1003))
             .await
             .unwrap();
-        let before = store.state().clone();
-        assert!(forecast_reports::load(&store, &read, &baseline).is_err());
-        assert!(load_report(&store, &read, &baseline.id).is_err());
-        assert!(forecast_drift::saved(&store, &read, &baseline.id, &current.id).is_err());
-        assert_eq!(store.state(), &before);
+        let before = store.archive_state().await.unwrap();
+        assert!(forecast_reports::load(&store, &read, &baseline)
+            .await
+            .is_err());
+        assert!(load_report(&store, &read, &baseline.id).await.is_err());
+        assert!(
+            forecast_drift::saved(&store, &read, &baseline.id, &current.id)
+                .await
+                .is_err()
+        );
+        assert_eq!(store.archive_state().await.unwrap(), before);
         let cleaned = retention::cleanup(&mut store, &access, &receipt.id, Timestamp::new(1004))
             .await
             .unwrap();
         assert!(cleaned.rewrite_complete);
         let tombstone = store
-            .state()
+            .current()
             .record(
                 Collection::Projection,
                 &pin.source_manifest,
@@ -759,7 +799,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         );
         let revision = tombstone.revision;
         let artifact: vcp_domain::artifact::ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 pin.artifact.as_str(),
@@ -772,11 +812,11 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
         let mut restored = manifest;
         restored.revision = revision.next().unwrap();
         restored.value["revision"] = serde_json::to_value(restored.revision).unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: restored,
                     expected: Some(revision)
@@ -786,7 +826,7 @@ async fn saved_action_forecasts_pin_immutable_bytes_reopen_and_recheck_complete_
             })
             .await
             .is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
     }
 }
 
@@ -800,21 +840,23 @@ async fn saved_action_forecasts_absent_for_empty_sources_and_rejected_save_publi
             .unwrap();
         assert!(empty.forecast.is_none());
         assert!(forecast_reports::load(&store, &access, &empty)
+            .await
             .unwrap()
             .is_none());
         assert!(forecast_drift::saved(&store, &access, &empty.id, &empty.id)
+            .await
             .unwrap()
             .is_none());
         let mut store = episode(store, &access, 0, false, Some(TaskState::Failed)).await;
         let mut read = copy_access(&access);
         read.write = false;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(
             save_report(&mut store, &read, window(), Timestamp::new(1002))
                 .await
                 .is_err()
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         #[cfg(feature = "qualification")]
         {
             let failure = forecast_reports::qualification_interrupt_after_spool(
@@ -827,16 +869,16 @@ async fn saved_action_forecasts_absent_for_empty_sources_and_rejected_save_publi
             .unwrap_err();
             assert!(failure.contains("qualification interruption"), "{failure}");
             // Finalized orphan bytes are unreachable until the atomic descriptor/report commit.
-            assert_eq!(store.state(), &before);
+            assert_eq!(store.archive_state().await.unwrap(), before);
         }
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|record| record.collection == Collection::Artifact
                 && record.value["spec"]["schema"] == forecast_reports::SCHEMA));
         drop(store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(reopened.state(), &before);
+        assert_eq!(reopened.archive_state().await.unwrap(), before);
     }
 }

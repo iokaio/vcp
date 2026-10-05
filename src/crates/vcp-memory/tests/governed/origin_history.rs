@@ -16,10 +16,10 @@ struct Reader {
     fail_page: bool,
 }
 impl Reader {
-    fn new(store: &Store) -> Self {
+    async fn new(store: &Store) -> Self {
         Self {
             current: store.current_state().as_ref().clone(),
-            events: store.state().events.to_vec(),
+            events: (&store.archive_state().await.unwrap()).events.to_vec(),
             exact_reads: Cell::new(0),
             pages: Cell::new(0),
             fail_exact: false,
@@ -27,7 +27,7 @@ impl Reader {
         }
     }
 }
-impl CanonicalStore for Reader {
+impl vcp_store::contract::reference::ReferenceStore for Reader {
     fn state(&self) -> &State {
         panic!("origin navigation materialized State")
     }
@@ -92,10 +92,12 @@ async fn bounded_origin_navigation_preserves_scopes_absence_and_read_failures() 
         .await
         .unwrap();
         let origins = f.proposal.origins.iter().cloned().collect();
-        let mut reader = Reader::new(&f.store);
-        let expected =
-            serde_json::to_value(history::origin_links(&f.store, &f.access, &origins).unwrap())
-                .unwrap();
+        let mut reader = Reader::new(&f.store).await;
+        let expected = serde_json::to_value(
+            history::origin_links(&f.store.archive_state().await.unwrap(), &f.access, &origins)
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             serde_json::to_value(
                 history::origin_links_store_with_check(&f.store, &f.access, &origins, &|| Ok(()),)
@@ -206,7 +208,7 @@ async fn retention_origin_and_receiptless_correlation_use_one_bounded_scan() {
             .unwrap();
         let origins: std::collections::BTreeSet<_> = f.proposal.origins.iter().cloned().collect();
         for by_origin in [true, false] {
-            let mut reader = Reader::new(&f.store);
+            let mut reader = Reader::new(&f.store).await;
             let row = reader
                 .events
                 .iter()
@@ -257,7 +259,7 @@ async fn redacted_conflict_origins_require_presence_and_current_source_scope() {
         .await
         .unwrap();
         let origins = f.proposal.origins.iter().cloned().collect();
-        let version = versions(f.store.state(), &f.access.workspace).remove(0);
+        let version = versions(f.store.current(), &f.access.workspace).remove(0);
         let mut redacted =
             vcp_protocol::redaction::version(&version, DeletionEpoch::new(1)).unwrap();
         redacted.id = ClaimVersionId::new();
@@ -265,7 +267,7 @@ async fn redacted_conflict_origins_require_presence_and_current_source_scope() {
             origins: vec![EventId::new()],
             ..Default::default()
         };
-        let mut reader = Reader::new(&f.store);
+        let mut reader = Reader::new(&f.store).await;
         let key = vcp_store::contract::key(Collection::Claim, version.id.as_str());
         reader.current.records.get_mut(&key).unwrap().value["resolution"]["conflicts"] =
             serde_json::json!([redacted.id]);
@@ -328,8 +330,8 @@ async fn early_navigation_limit_does_not_validate_later_malformed_claims() {
         .await
         .unwrap();
         let origins = f.proposal.origins.iter().cloned().collect();
-        let version = versions(f.store.state(), &f.access.workspace).remove(0);
-        let mut reader = Reader::new(&f.store);
+        let version = versions(f.store.current(), &f.access.workspace).remove(0);
+        let mut reader = Reader::new(&f.store).await;
         reader.current.records.remove(&vcp_store::contract::key(
             Collection::Claim,
             version.id.as_str(),

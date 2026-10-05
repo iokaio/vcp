@@ -70,7 +70,7 @@ async fn current_fork_proof_matches_frozen_full_history_predicates() {
         let temp = tempfile::tempdir().unwrap();
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         let tx = atomic::fixture(&mut store).await;
-        let original = store.state().clone();
+        let original = (&store.archive_state().await.unwrap()).clone();
         compare(&original, &tx, true);
         let acceptance: Acceptance = serde_json::from_value(tx.events[0].data.clone()).unwrap();
         let turn: Turn = original

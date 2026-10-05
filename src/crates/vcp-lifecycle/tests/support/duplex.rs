@@ -401,7 +401,7 @@ async fn canonical_duplex_drop_retains_unknown_process_intent_after_reopen() {
             .await
             .unwrap();
         let durable: Effect = store
-            .state()
+            .current()
             .record(Collection::Effect, effect.as_str(), &config.workspace)
             .unwrap()
             .decode()
@@ -409,7 +409,7 @@ async fn canonical_duplex_drop_retains_unknown_process_intent_after_reopen() {
         assert_eq!(durable.state, EffectState::OutcomeUnknown);
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Effect)

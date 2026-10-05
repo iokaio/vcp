@@ -307,10 +307,12 @@ fn capacity(state: CurrentStateView<'_>, graph: &TaskGraph) -> Result<()> {
             r.collection == Collection::Reservation && r.workspace == graph.scope.workspace
         }) {
             let reservation: Reservation = row.decode()?;
-            if &reservation.scope.task == parent {
+            if &reservation.scope.task == parent && !cap.is_unbounded() {
+                let liability = reservation.liability.known()
+                    .ok_or(Error::Corruption("unpriced finite allocation exposure"))?;
                 used = used
                     .checked_add(reservation.charged.get())
-                    .and_then(|v| v.checked_add(reservation.liability.get()))
+                    .and_then(|v| v.checked_add(liability.get()))
                     .ok_or(Error::Corruption("allocation exposure overflow"))?;
             }
         }

@@ -93,13 +93,14 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
             .unwrap(),
         });
         source.transact(initial).await.unwrap();
-        let original = source.state().clone();
+        let original = (&source.archive_state().await.unwrap()).clone();
         let archive = Archive::capture(
             &source,
             &source.snapshot().unwrap(),
             &workspace().id,
             &|| false,
         )
+        .await
         .unwrap();
         let payloads = archive.payloads().unwrap();
         let manifest = Manifest {
@@ -163,7 +164,7 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
             .authenticate(&trust, &wrong_copy, Limits::default(), &|| false)
             .is_err());
         assert_eq!(restore.status().stage, Stage::Acquired);
-        assert_eq!(source.state(), &original);
+        assert_eq!((&source.archive_state().await.unwrap()), &original);
         let proof = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
             .unwrap();
@@ -185,7 +186,7 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
         assert!(!restore.status().search_ready);
         let restored = imported.reopen_verified().await.unwrap();
         let new_workspace: Workspace = restored
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 workspace().id.as_str(),
@@ -204,7 +205,7 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
             workspace().binding.revision.next().unwrap()
         );
         let task: Task = restored
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 task().scope.task.as_str(),
@@ -215,7 +216,7 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
             .unwrap();
         assert_eq!(task.state, TaskState::Paused);
         let restored_grant: AuthorityDocument = restored
-            .state()
+            .current()
             .record(Collection::Access, "restore-grant", &workspace().id)
             .unwrap()
             .decode()
@@ -224,13 +225,18 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
             matches!(restored_grant.data,AuthorityData::Grant {grant} if grant.revoked && grant.revision==Revision::new(1))
         );
         for (id, receipt) in &original.transactions {
-            assert_eq!(restored.state().transactions.get(id), Some(receipt));
+            assert_eq!(
+                (&restored.archive_state().await.unwrap())
+                    .transactions
+                    .get(id),
+                Some(receipt)
+            );
         }
         assert_eq!(
-            &restored.state().events[..original.events.len()],
+            &(&restored.archive_state().await.unwrap()).events[..original.events.len()],
             original.events.as_slice()
         );
-        assert_eq!(source.state(), &original);
+        assert_eq!((&source.archive_state().await.unwrap()), &original);
         restored.close().await.unwrap();
         drop(imported);
         drop(restore);
@@ -253,7 +259,7 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
             .unwrap();
         let restored = imported.reopen_verified().await.unwrap();
         assert_eq!(
-            restored.state().watermark,
+            restored.current().watermark,
             original.watermark.next().unwrap()
         );
         restored.close().await.unwrap();
@@ -338,9 +344,9 @@ async fn process_kill_restore_reconciles_owned_import_without_replaying_authorit
         )
         .await
         .unwrap();
-        assert_eq!(restored.state().watermark.get(), 3); // Initial facts, source artifact, one authority reset.
+        assert_eq!(restored.current().watermark.get(), 3); // Initial facts, source artifact, one authority reset.
         let workspace: Workspace = restored
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 workspace().id.as_str(),
@@ -408,7 +414,7 @@ fn restore_process_child() {
         let mut source = Store::open(&root.join("source"), source_backend, &forbidden)
             .await
             .unwrap();
-        if source.state().watermark.get() == 0 {
+        if source.current().watermark.get() == 0 {
             source.transact(initial()).await.unwrap();
             let mut writer = source.spool().create(spec()).unwrap();
             for _ in 0..3 {
@@ -419,7 +425,11 @@ fn restore_process_child() {
             let descriptor = writer.finalize().unwrap();
             drop(writer);
             source
-                .transact(attach(source.state(), descriptor, None))
+                .transact(attach(
+                    (&source.archive_state().await.unwrap()),
+                    descriptor,
+                    None,
+                ))
                 .await
                 .unwrap();
         }
@@ -431,6 +441,7 @@ fn restore_process_child() {
                 &workspace().id,
                 &|| false,
             )
+            .await
             .unwrap();
             let payloads = archive.payloads().unwrap();
             let manifest = Manifest {
@@ -491,7 +502,7 @@ fn restore_process_child() {
             .unwrap();
         barrier("validated");
         let artifact = source
-            .state()
+            .current()
             .records
             .values()
             .find(|r| r.collection == Collection::Artifact)

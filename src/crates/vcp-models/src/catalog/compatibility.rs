@@ -21,6 +21,7 @@ pub fn evidence_id() -> String {
         include_bytes!("../request.rs").as_slice(),
         include_bytes!("../stream.rs").as_slice(),
         include_bytes!("../catalog.rs").as_slice(),
+        include_bytes!("estimates.rs").as_slice(),
     ]
     .concat();
     format!("{PREFIX}{}", vcp_protocol::digest_bytes(&source))
@@ -124,7 +125,7 @@ pub fn snapshots(raw: &[u8], observed: Timestamp) -> Result<Vec<Snapshot>> {
     let result: Vec<_> = tags
         .into_iter()
         .filter_map(|endpoint| {
-            Snapshot::from_endpoints(
+            Snapshot::from_endpoints_unbounded(
                 raw,
                 observed,
                 expires,
@@ -173,11 +174,20 @@ mod tests {
     }
     #[test]
     fn unsupported_ambiguous_and_forged_capabilities_fail_closed() {
-        for field in ["supported_parameters", "status", "pricing"] {
+        for field in ["supported_parameters", "status"] {
             let mut value = catalog();
             value["data"]["endpoints"][0][field] = serde_json::Value::Null;
             assert!(snapshots(&serde_json::to_vec(&value).unwrap(), REVIEWED_AT).is_err());
         }
+        let mut unpriced = catalog();
+        unpriced["data"]["endpoints"][0]["pricing"] = serde_json::Value::Null;
+        let unpriced_snapshots =
+            snapshots(&serde_json::to_vec(&unpriced).unwrap(), REVIEWED_AT).unwrap();
+        assert_eq!(unpriced_snapshots[0].tariff_normalization, Some(3));
+        assert!(!unpriced_snapshots[0]
+            .price
+            .rates
+            .contains_key(&vcp_domain::accounting::ChargeCategory::Input));
         let mut value = catalog();
         let duplicate = value["data"]["endpoints"][0].clone();
         value["data"]["endpoints"]

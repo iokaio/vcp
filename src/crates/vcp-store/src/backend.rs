@@ -21,7 +21,6 @@ const MAGIC: &[u8; 8] = b"VCPJ0001";
 const COMMITTED: &[u8; 8] = b"VCPCMIT1";
 const HEADER: usize = 8 + 4 + 4 + 64;
 const TRAILER: usize = 64 + 8;
-#[cfg(test)]
 #[path = "backend_current.rs"]
 pub(crate) mod current_publication;
 #[path = "backend_history.rs"]
@@ -509,7 +508,6 @@ impl Backend {
         }
         Ok(())
     }
-    #[cfg(test)]
     pub(crate) fn checkpoint_current(
         &mut self,
         owner: &crate::durable_owner::DurableOwner,

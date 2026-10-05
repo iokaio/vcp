@@ -198,14 +198,14 @@ pub struct OriginLink {
 /// Bounded navigation only: source identities are checked before publishing a
 /// claim link. Detailed content still requires the governed history query.
 pub fn origin_links(
-    store: &Store,
+    state: &State,
     access: &Access,
     origins: &std::collections::BTreeSet<EventId>,
 ) -> Result<(Vec<OriginLink>, bool)> {
-    origin_links_with_check(store, access, origins, &|| Ok(()))
+    origin_links_with_check(state, access, origins, &|| Ok(()))
 }
 pub fn origin_links_with_check(
-    store: &Store,
+    state: &State,
     access: &Access,
     origins: &std::collections::BTreeSet<EventId>,
     check: &dyn Fn() -> Result<()>,
@@ -214,9 +214,9 @@ pub fn origin_links_with_check(
     if origins.len() > 128 {
         return Err(Error::Invalid("origin navigation limit".into()));
     }
-    access::authorize(store.current(), access, false)?;
+    access::authorize(state, access, false)?;
     let mut links = Vec::new();
-    for row in store.current().records.values().filter(|row| {
+    for row in state.records.values().filter(|row| {
         row.workspace == access.workspace
             && row.collection == Collection::Claim
             && row.value["document_type"] == "vcp_memory_version_v1"
@@ -234,11 +234,11 @@ pub fn origin_links_with_check(
             continue;
         }
         let version: Version = row.decode()?;
-        match access::version_scope(store.state(), access, &version) {
+        match access::version_scope(state, access, &version) {
             Err(Error::Access) => continue,
             result => result?,
         }
-        if removed(store.state(), &access.workspace, &version)? {
+        if removed(state, &access.workspace, &version)? {
             continue;
         }
         for origin in version

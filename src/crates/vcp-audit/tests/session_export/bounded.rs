@@ -12,7 +12,7 @@ struct Reader<'a> {
     receipt_error: bool,
     artifact_index_error: bool,
 }
-impl CanonicalStore for Reader<'_> {
+impl vcp_store::contract::reference::ReferenceStore for Reader<'_> {
     fn state(&self) -> &State {
         panic!("export reader requested resident history")
     }

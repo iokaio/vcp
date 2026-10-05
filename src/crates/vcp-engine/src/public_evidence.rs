@@ -402,7 +402,7 @@ mod tests {
     ) {
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: engine.store().state().watermark,
+            expected_watermark: engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(collection, name, access().workspace, Revision::ZERO, value)
@@ -497,7 +497,7 @@ mod tests {
         reads: std::cell::Cell<usize>,
         fail: bool,
     }
-    impl CanonicalStore for PagedEvidence {
+    impl vcp_store::contract::reference::ReferenceStore for PagedEvidence {
         fn state(&self) -> &vcp_store::contract::State {
             panic!("public inspectors requested resident history")
         }
@@ -712,7 +712,7 @@ mod tests {
                 )
                 .await;
             }
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             let first = engine.public_context(&access(), &request).await.unwrap();
             assert_eq!(first.rows.len(), 1);
             assert_eq!(first.rows[0].id.as_str(), "a-manifest");
@@ -747,7 +747,7 @@ mod tests {
                 Err(QueryError::StaleCursor)
             );
             request.limit = 1;
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let engine =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();

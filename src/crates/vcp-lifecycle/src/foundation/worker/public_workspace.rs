@@ -68,7 +68,7 @@ impl PublicConnection {
                     let workspace: Workspace = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Workspace,
                             access.workspace.as_str(),

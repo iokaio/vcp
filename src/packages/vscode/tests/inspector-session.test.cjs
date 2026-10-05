@@ -3,11 +3,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { InspectorSession } = require('../dist/inspector_session.js');
 const { decodeInspectorArtifact } = require('../dist/inspector_projection.js');
+const { projectInspector } = require('../dist/inspector_projection.js');
 const scope = {workspace:'workspace',session:'session'};
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() { let resolve,reject; const promise=new Promise((a,b)=>{resolve=a;reject=b;}); return {promise,resolve,reject}; }
 const history = (task='root', text='retained', cursor='next') => ({kind:'history',value:{scope,task,source_watermark:'9007199254740993',observed_watermark:'9007199254740994',newer_events:'1',search_scope:text,rows:[],gaps:[],claim_links:[],claim_links_truncated:false,next_cursor:cursor,complete:cursor===null}});
 const status = generation => ({phase:'connected',generation,editorTrusted:true,engineTrust:'trusted',limitations:[]});
+test('usage inspector shows unpriced estimates explicitly and keeps actual settlement exact',()=>{
+ const unknown={kind:'unknown',version:1,known_component:'9007199254740993',unknown_components:'2'};
+ const sections=projectInspector({kind:'usage',value:{scope,task:'root',root:'root',currency:'USD',cap_micros:{kind:'unbounded',version:1},settled_micros:'17',reserved_micros:unknown,unresolved_micros:'0',overrun:false}});
+ const fields=sections[0].fields;
+ assert.equal(fields.find(f=>f.label==='Settled (micros)').value,'17');
+ assert.equal(fields.find(f=>f.label==='Unresolved (micros)').value,'0');
+ assert.match(fields.find(f=>f.label==='Reserved (micros)').value,/Unknown.*9007199254740993.*unpriced terms 2/);
+});
 function harness(handler=()=>history(), prompt=async()=>undefined) {
  const calls=[],states=[],contexts=[]; let invalidations=0, dispatched=0;
  const actions={register(c){contexts.push(c);return [{id:require('node:crypto').randomUUID(),label:'Controlled action'}];},invalidate(){invalidations++;},records(){return[];},async dispatch(){dispatched++;}};

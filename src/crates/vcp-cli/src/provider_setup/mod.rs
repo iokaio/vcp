@@ -25,7 +25,7 @@ use vcp_models::{
     stream::{ResultBody, Status},
 };
 use vcp_protocol::{canonical_bytes, command::Command, digest_bytes};
-use vcp_store::{contract::Collection, BackendKind};
+use vcp_store::{contract::{CanonicalStore, Collection}, BackendKind};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub mod connection;
 pub mod metadata;
@@ -386,7 +386,7 @@ async fn execute(
         Ok(vec![first, second])
     }
     .await;
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let records: Vec<_> = state
         .records
         .values()
