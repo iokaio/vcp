@@ -84,7 +84,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-01a | Harness deadline/spend removal | EE-00a/b | implemented; live probe and first full-A attempt exercised the changed harness |
 | EE-01b | Versioned explicit limit representation | EE-00a | implemented across core, schema, SDK and editor; full candidate qualification pending |
 | EE-01c | Financial admission with durable attempt fences | EE-01b | unknown-price routed/reopen fixture passed both stores; final routing 41/41 passed; integrated A/B pending |
-| EE-01d | Derived bounds and start/resume conversion | EE-01b/c | startup, pacing, old-task and child conversions qualified; worker-result fix awaits live candidate |
+| EE-01d | Derived bounds and start/resume conversion | EE-01b/c | startup, pacing, old-task and child conversions qualified; worker-result fix exercised by successful >30-second A T1 admissions |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | startup retention and removal of automatic billing waits qualified; full A/B pending |
 | EE-02a | Consolidate opens and reconstruction | EE-00b | in progress; duplicate replay and SQL paging verified |
 | EE-02b | Incremental validation | EE-00b | in progress; exact byte accounting verified |
@@ -101,7 +101,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-04c | Progress pause and reason evidence | EE-04a, EE-00c | implemented; repeated-failure pause, public reason and deliberate resume/cancel passed |
 | EE-05 | Integrated stop and resume | EE-01, EE-04; integrate adopted EE-02/03 changes | mocked integration and small live recorded-checkpoint resume passed; full A/B pending |
 | EE-06 | Recurring execution experiment and analysis | First diagnostic slice: EE-00a–c, EE-01a, EE-03a, EE-04a; intended full collection: all EE-01 | small live repair/checkpoint passed; owner timings, exact allocation archive and repeated-open observations analyzed; integrated candidate pending |
-| EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | full A failed on diagnosed worker timeout; B preflight passed; engagement runner qualified offline; full acceptance outstanding |
+| EE-07 | Full A/B and larger-engagement evidence review | All EE-01; scoped EE-02 acceptance; EE-03a/b/c, EE-04, EE-05 and corresponding EE-06 evidence | A.28 T1 passed, T2 failed on diagnosed cursor expiry; B.28 T1 native completion failed supplementary enum quality check; future independent gate qualified; full acceptance outstanding |
 | EE-08 | Deferred selective constraints, if needed | Sufficient EE-07 data and separate owner decision | deferred |
 
 ## Traceability
