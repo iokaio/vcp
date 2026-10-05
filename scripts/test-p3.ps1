@@ -56,7 +56,7 @@ try {
         Stage 'contracts' 'cargo' ($base + @('-p','vcp-cli','-p','vcp-domain','-p','vcp-protocol','-p','vcp-store','-p','vcp-engine','-p','vcp-budget','-p','vcp-models','-p','vcp-tools','--tests'))
         Stage 'executable' 'cargo' ($base + @('-p','vcp-cli','--features','qualification','--test','executable'))
         $executableLog = Get-Content -LiteralPath (Join-Path $output 'executable.log') -Raw
-        foreach ($required in @('executable_runs_verifies_lists_inspects_and_forks','executable_owner_controls_authenticate_and_cancel_inflight_work','executable_preflight_budget_question_and_incomplete_are_truthful','executable_closed_consumer_pauses_before_send_and_resume_keeps_its_cap','executable_terminal_pauses_steers_resizes_and_resumes_in_same_console','executable_terminal_question_requires_explicit_answer_and_resume')) {
+        foreach ($required in @('executable_runs_verifies_lists_inspects_and_forks','executable_owner_controls_authenticate_and_cancel_inflight_work','executable_preflight_legacy_budget_question_and_incomplete_are_truthful','executable_closed_consumer_pauses_before_send_and_resume_keeps_its_cap','executable_terminal_pauses_steers_resizes_and_resumes_in_same_console','executable_terminal_question_requires_explicit_answer_and_resume')) {
             if ($executableLog -notmatch ('test ' + [regex]::Escape($required) + ' \.\.\. ok')) { throw "Required executable qualification did not run: $required" }
         }
         Stage 'native-terminal' 'cargo' ($base + @('-p','vcp-cli','--features','qualification','--test','terminal_console'))
