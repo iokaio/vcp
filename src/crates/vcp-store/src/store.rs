@@ -58,6 +58,17 @@ impl Snapshot {
     pub async fn logical_digest(&self) -> Result<String> {
         self.inner.logical_digest().await
     }
+    pub(crate) async fn capture_stream(
+        &mut self,
+        destination: &mut impl crate::history_index::Pages,
+        workspace: &WorkspaceId,
+        inputs: &crate::snapshot_inputs::Inputs,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<crate::portable_snapshot::complete::Archive> {
+        self.inner
+            .capture(destination, workspace, inputs, check)
+            .await
+    }
     pub(crate) async fn verify_workspace(&self, workspace: &WorkspaceId) -> Result<()> {
         self.inner.verify_workspace(workspace).await
     }

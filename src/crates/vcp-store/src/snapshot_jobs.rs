@@ -27,6 +27,24 @@ use vcp_domain::{
 use vcp_protocol::{canonical_bytes, digest_bytes};
 #[path = "snapshot_job_ciphertext.rs"]
 mod ciphertext;
+#[path = "snapshot_job_stream.rs"]
+mod stream;
+#[cfg(test)]
+#[path = "snapshot_job_stream_tests.rs"]
+mod stream_tests;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ArchiveFormat {
+    #[default]
+    Legacy,
+    Stream,
+}
+impl ArchiveFormat {
+    fn legacy(&self) -> bool {
+        *self == Self::Legacy
+    }
+}
 
 const TAG: &str = "vcp_snapshot_job_v1";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +81,10 @@ pub struct Job {
     pub active: bool,
     pub inventory: Option<String>,
     pub archive_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "ArchiveFormat::legacy")]
+    archive_format: ArchiveFormat,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stream: Option<stream::Descriptor>,
     finalization: Option<Finalization>,
     pub publication: Option<serde_json::Value>,
     copy_identity: Option<crate::vault_publish::CopyIdentity>,
@@ -75,6 +97,7 @@ impl Job {
 }
 pub struct Jobs {
     directory: Arc<Directory>,
+    forbidden: Vec<PathBuf>,
 }
 pub struct Capture {
     job: Job,
@@ -111,6 +134,7 @@ pub struct Prepared {
     digest: String,
     source: String,
     inputs: String,
+    stream: Option<stream::Descriptor>,
 }
 pub struct Encrypted {
     job: CommandId,
@@ -190,6 +214,7 @@ impl Jobs {
     pub fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Ok(Self {
             directory: Arc::new(Directory::open(path, forbidden)?),
+            forbidden: forbidden.to_vec(),
         })
     }
     fn path(&self, id: &CommandId, suffix: &str) -> Result<PathBuf> {
@@ -347,6 +372,18 @@ impl Jobs {
         trust: &LocalTrust,
         prepared: PreparedInputs,
     ) -> Result<Capture> {
+        self.begin_prepared_format(store, id, workspace, trust, prepared, ArchiveFormat::Legacy)
+            .await
+    }
+    async fn begin_prepared_format(
+        &self,
+        store: &mut Store,
+        id: CommandId,
+        workspace: &WorkspaceId,
+        trust: &LocalTrust,
+        prepared: PreparedInputs,
+        archive_format: ArchiveFormat,
+    ) -> Result<Capture> {
         self.path(&id, "archive")?;
         let InputCapture {
             snapshot,
@@ -398,6 +435,8 @@ impl Jobs {
             active: true,
             inventory: None,
             archive_digest: None,
+            archive_format,
+            stream: None,
             finalization: None,
             publication: None,
             copy_identity: None,
@@ -448,6 +487,9 @@ impl Jobs {
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Prepared> {
         self.owns(&capture.job)?;
+        if capture.job.archive_format == ArchiveFormat::Stream {
+            return self.prepare_stream(capture, cancelled).await;
+        }
         let archive = Archive::capture_with_spool(
             &capture.spool,
             &capture.snapshot,
@@ -469,6 +511,7 @@ impl Jobs {
             digest,
             source: digest_bytes(&canonical_bytes(archive.state())?),
             inputs: digest_bytes(&canonical_bytes(archive.inputs())?),
+            stream: None,
         })
     }
     pub async fn accept_prepared(
@@ -484,6 +527,7 @@ impl Jobs {
         }
         if prepared.source != job.state_digest
             || prepared.inputs != digest_bytes(&canonical_bytes(&job.inputs)?)
+            || prepared.stream.is_some() != (job.archive_format == ArchiveFormat::Stream)
         {
             return Err(Error::Conflict(
                 "prepared archive differs from captured snapshot",
@@ -491,6 +535,7 @@ impl Jobs {
         }
         job.inventory = Some(prepared.inventory);
         job.archive_digest = Some(prepared.digest);
+        job.stream = prepared.stream;
         job.stage = Stage::ArchiveReady;
         advance(store, job).await
     }
@@ -531,6 +576,9 @@ impl Jobs {
                 "snapshot encryption not ready or cancelled",
             ));
         }
+        if job.archive_format == ArchiveFormat::Stream {
+            return self.encrypt_stream(job, trust, keys, staging, cancelled);
+        }
         let archive = self.archive(job)?;
         let payloads = archive.payloads()?;
         let checkpoint = &trust.configuration().checkpoint;
@@ -557,6 +605,25 @@ impl Jobs {
                 })
                 .collect(),
         };
+        self.encrypt_owned(job, keys, manifest.clone().into(), cancelled, || {
+            trust.encrypt(
+                keys,
+                staging,
+                manifest,
+                payloads,
+                job.trust_revision,
+                Limits::default(),
+            )
+        })
+    }
+    fn encrypt_owned(
+        &self,
+        job: &Job,
+        keys: &VerifiedKeys,
+        manifest: crate::vault_crypto::ManifestEnvelope,
+        cancelled: &dyn Fn() -> bool,
+        produce: impl FnOnce() -> Result<FinalizedCiphertext>,
+    ) -> Result<Encrypted> {
         let directory = self.path(&job.id, "encrypted")?;
         match fs::create_dir(&directory) {
             Ok(()) => {}
@@ -577,7 +644,7 @@ impl Jobs {
         if marker.exists() {
             let finalization: Finalization =
                 serde_json::from_slice(&crate::artifact::read_bounded(&marker, 128 * 1024)?)?;
-            if finalization.manifest != manifest.clone().into()
+            if finalization.manifest != manifest
                 || finalization.writer != keys.public().writer
                 || finalization.recipient != keys.public().recipient
             {
@@ -603,14 +670,7 @@ impl Jobs {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
-        let mut encrypted = trust.encrypt(
-            keys,
-            staging,
-            manifest,
-            payloads,
-            job.trust_revision,
-            Limits::default(),
-        )?;
+        let mut encrypted = produce()?;
         if cancelled() {
             return Err(Error::Unavailable("snapshot encryption cancelled"));
         }
@@ -893,6 +953,19 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
     if prepared && (job.inventory.is_none() || job.archive_digest.is_none()) {
         return Err(Error::Corruption("snapshot preparation receipt"));
     }
+    if (job.archive_format == ArchiveFormat::Legacy && job.stream.is_some())
+        || (prepared && job.archive_format == ArchiveFormat::Stream && job.stream.is_none())
+    {
+        return Err(Error::Corruption("snapshot archive representation"));
+    }
+    if let Some(stream) = &job.stream {
+        stream.validate()?;
+        if job.inventory.as_ref() != Some(&stream.root.sha256)
+            || job.archive_digest.as_ref() != Some(&stream.payload.sha256)
+        {
+            return Err(Error::Corruption("snapshot archive commitment"));
+        }
+    }
     if matches!(
         job.stage,
         Stage::CiphertextReady | Stage::Admitted | Stage::Published
@@ -907,13 +980,24 @@ pub(crate) fn shape(record: &Record) -> Result<()> {
                 &finalization.recipient,
                 finalization.writer,
             ))?) != job.key_ref
-            || finalization.bytes > 65 * 1024 * 1024
+            || finalization.bytes > finalization.manifest.ciphertext_limit()?
             || finalization.manifest.workspace() != &job.workspace
             || finalization.manifest.deletion() != job.deletion
-            || finalization.manifest.format() != FORMAT
+            || finalization.manifest.format()
+                != match job.archive_format {
+                    ArchiveFormat::Legacy => FORMAT,
+                    ArchiveFormat::Stream => crate::vault_crypto::stream::FORMAT,
+                }
             || finalization.manifest.validate().is_err()
         {
             return Err(Error::Corruption("snapshot finalized identity"));
+        }
+        if let crate::vault_crypto::ManifestEnvelope::Stream(manifest) = &finalization.manifest {
+            if !job.stream.as_ref().is_some_and(|stream| {
+                stream.root == manifest.archive_root && stream.payload == manifest.payload
+            }) {
+                return Err(Error::Corruption("snapshot finalized stream differs"));
+            }
         }
     }
     if let Some(copy) = &job.copy_identity {
@@ -1007,6 +1091,7 @@ pub(crate) fn transition(before: &Record, after: &Record) -> Result<()> {
         || old.id != new.id
         || old.workspace != new.workspace
         || old.inputs != new.inputs
+        || old.archive_format != new.archive_format
         || old.watermark != new.watermark
         || old.state_digest != new.state_digest
         || old.source_root != new.source_root
@@ -1018,6 +1103,7 @@ pub(crate) fn transition(before: &Record, after: &Record) -> Result<()> {
         || (!release && old.pins != new.pins)
         || old.inventory.is_some() && old.inventory != new.inventory
         || old.archive_digest.is_some() && old.archive_digest != new.archive_digest
+        || old.stream.is_some() && old.stream != new.stream
         || old.finalization.is_some()
             && canonical_bytes(&old.finalization)? != canonical_bytes(&new.finalization)?
         || old.publication.is_some() && old.publication != new.publication
