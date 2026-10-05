@@ -288,6 +288,12 @@ pub(super) async fn execute(
         config.session = session;
         (host, owner) = CanonicalHost::open(config.clone())?;
     }
+    // New invocations stream events from this invocation's start, not older
+    // session history. Concurrent authorized session events remain visible.
+    // Capture before exposing control or changing policy/admitting the new task.
+    // Resume retains its historical behavior until a separate acknowledgement
+    // contract exists; task revision is not a durable last-delivered cursor.
+    let mut after = invocation_event_start(&host, &config.session, objective.is_some())?;
     let _service = AbortOnDrop(control::serve(
         pipe,
         host.clone(),
@@ -359,7 +365,6 @@ pub(super) async fn execute(
         owner,
     )
     .map_err(|e| e.to_string())?;
-    let mut after = SessionSeq::ZERO;
     let mut active_session = None;
     let automatic_backup = crate::backup::configuration_status(
         data,
@@ -511,6 +516,26 @@ pub(super) async fn execute(
     }
     Ok(result.unwrap_or(1))
 }
+
+fn invocation_event_start(
+    host: &CanonicalHost,
+    session: &SessionId,
+    new_task: bool,
+) -> Result<SessionSeq, String> {
+    if !new_task {
+        return Ok(SessionSeq::ZERO);
+    }
+    Ok(host
+        .current_state()?
+        .sequences
+        .get(session)
+        .copied()
+        .unwrap_or(SessionSeq::ZERO))
+}
+
+#[cfg(all(test, windows))]
+#[path = "execute_event_start_tests.rs"]
+mod event_start_tests;
 struct AbortOnDrop(tokio::task::JoinHandle<()>);
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {

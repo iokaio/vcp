@@ -192,6 +192,8 @@ line can be promised to a disconnected consumer. Ctrl+C requests cancellation;
 console close uses the existing durable owner-loss pause policy. In interactive
 text mode Ctrl+C pauses and leaves the CLI open; `/cancel` explicitly cancels.
 
+For a new `run` or `fork`, the event stream begins at the selected session's current sequence before invocation setup and task acceptance. It includes subsequent authorized session events and the final receipt, without replaying older tasks; historical evidence remains available through inspection. `resume` retains its existing historical replay behavior. Event drainage keeps a finite captured end and may renew an expired snapshot only when scope, authority and retention remain unchanged. Missing history and changed authority remain explicit cursor gaps.
+
 Exit codes: 0 verified completion/command success; 1 internal or output failure;
 2 invalid configuration/control delivery; 3 failed verification or incomplete;
 4 required input; 5 exhausted budget; 6 cancelled; 7 unresolved effect; 8 saved
