@@ -2181,7 +2181,7 @@ async fn executable_runs_verifies_lists_inspects_and_forks() {
     );
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
+async fn executable_preflight_legacy_budget_question_and_incomplete_are_truthful() {
     for mode in ["budget", "question", "incomplete"] {
         let server = MockServer::start().await;
         let count = Arc::new(AtomicUsize::new(0));
@@ -2220,7 +2220,7 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
         assert_eq!(
             output.status.code(),
             Some(match mode {
-                "budget" => 5,
+                "budget" => 0,
                 "question" => 4,
                 _ => 3,
             }),
@@ -2230,7 +2230,33 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
             count.load(Ordering::SeqCst)
         );
         if mode == "budget" {
-            assert_eq!(count.load(Ordering::SeqCst), 0);
+            // EE-01 keeps legacy amounts parseable while public execution is
+            // unbounded. Actual charges must still survive the final result.
+            assert_eq!(count.load(Ordering::SeqCst), 3);
+            let result = values.last().unwrap();
+            assert_eq!(result["conditions"]["completed"], true);
+            assert_eq!(result["conditions"]["budget_exhausted"], false);
+            let task = result["scope"]["task"].as_str().unwrap();
+            let costs = fixture.run(&["inspect", task, "--view", "costs"]).await;
+            assert!(
+                costs.status.success(),
+                "{}",
+                String::from_utf8_lossy(&costs.stderr)
+            );
+            let costs = records(&costs);
+            let ledger = costs[0]["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["collection"] == "ledger")
+                .unwrap();
+            let ledger: vcp_domain::accounting::Ledger =
+                serde_json::from_value(ledger["record"].clone()).unwrap();
+            assert!(ledger.cap.is_unbounded());
+            assert!(
+                ledger.settled.get() > 1,
+                "retained charges must exceed the ignored one-micro legacy cap"
+            );
         }
     }
 }
