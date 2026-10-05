@@ -422,6 +422,7 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
         &scope.task,
     )
     .unwrap();
+    assert_live_control_bundle(&host, &state, &scope).await;
     bundle["lifecycle_diagnostics"] = serde_json::to_value(&diagnostics).unwrap();
     if missing_cost {
         assert!(bundle.to_string().contains("provider-completed-execution/1"), "inspection retains the reporting proof metadata");
@@ -471,6 +472,7 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
         },
         &scope.task,
     ).unwrap();
+    assert_live_control_bundle(&reopened, &reopened_state, &scope).await;
     let retained = reopened_bundle["retained_lifecycle_diagnostics"].as_array().unwrap();
     assert_eq!(retained.len(), 1, "explicit shutdown retains the execution owner's timing window");
     assert_eq!(retained[0]["snapshot"]["owner"], diagnostics.owner);
@@ -496,6 +498,51 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
         "read-only reopen cannot dispatch inference"
     );
     reopened_owner.close().await.unwrap();
+}
+
+// Exercise the production private control connection and its pinned
+// HistoryReader, not only the explicit archival comparison oracle above.
+async fn assert_live_control_bundle(
+    host: &CanonicalHost,
+    state: &vcp_store::contract::State,
+    scope: &Scope,
+) {
+    let name = crate::control::pipe(&format!("inspection-fixture-{}", EventId::new()));
+    let server = crate::control::serve(&name, host.clone(), scope.workspace.clone()).unwrap();
+    let result = crate::control::request(
+        &name,
+        &crate::control::Request::Query {
+            workspace: scope.workspace.clone(),
+            query: crate::app::Query::InspectBundle {
+                task: scope.task.clone(),
+            },
+        },
+    )
+    .await;
+    // Release the connection and its cloned host before any assertion/reopen.
+    server.abort();
+    let stopped = server.await;
+    assert!(stopped.is_ok() || stopped.is_err_and(|error| error.is_cancelled()));
+    let mut actual = result.unwrap();
+    assert_eq!(actual["kind"], "inspection_bundle");
+    assert!(actual["store_diagnostics"].is_object());
+    assert_eq!(actual["lifecycle_diagnostics"]["schema_version"], 1);
+    let mut expected = crate::inspection_bundle::collect(
+        state,
+        &crate::app::inspection_access(state, &scope.workspace).unwrap(),
+        &scope.task,
+    )
+    .unwrap();
+    // Supplemental owner windows are intentionally collected after the
+    // canonical snapshot. Compare every canonical field and cursor exactly.
+    actual.as_object_mut().unwrap().remove("store_diagnostics");
+    actual
+        .as_object_mut()
+        .unwrap()
+        .remove("lifecycle_diagnostics");
+    actual["collection"]["elapsed_micros"] = json!(0);
+    expected["collection"]["elapsed_micros"] = json!(0);
+    assert_eq!(actual, expected);
 }
 
 // Optional qualification evidence only: all bytes originate in this synthetic
