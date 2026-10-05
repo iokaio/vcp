@@ -242,7 +242,7 @@
     },
     {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
-      "sha256": "7d50a04cbd1c12c3d53a62f97d151b1484249c163c745a4a07081c8a26eff8f5"
+      "sha256": "8ed6a77757114be4e05c73ec54b3e4c5ed12d3bfad0e944fda46ec8902b4d25a"
     }
   ],
   "licenses": [
