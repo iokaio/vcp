@@ -8,6 +8,8 @@ struct Memory {
     reads: usize,
     fail_read: bool,
     fail_write: bool,
+    ignore_limit: bool,
+    pending_write: bool,
 }
 impl Pages for Memory {
     async fn read(&mut self, digest: &str, limit: usize) -> Result<Vec<u8>> {
@@ -16,12 +18,15 @@ impl Pages for Memory {
             return Err(Error::Unavailable("memo physical read"));
         }
         let bytes = self.rows.get(digest).ok_or(Error::Corruption("missing"))?;
-        if bytes.len() > limit {
+        if !self.ignore_limit && bytes.len() > limit {
             return Err(Error::Limit("memo physical read"));
         }
         Ok(bytes.clone())
     }
     async fn write(&mut self, digest: &str, bytes: &[u8]) -> Result<()> {
+        if self.pending_write {
+            std::future::pending::<()>().await;
+        }
         if self.fail_write {
             return Err(Error::Unavailable("memo physical write"));
         }
@@ -167,4 +172,136 @@ async fn memo_limits_do_not_limit_valid_history_or_skip_uncached_reads() {
         .unwrap();
     assert!(session.verified.entries.is_empty());
     assert_eq!(session.verified.bytes, MAX_BYTES);
+}
+
+#[tokio::test]
+async fn repeated_blob_passes_reuse_bytes_but_new_operation_rechecks_storage() {
+    let mut memory = Memory::default();
+    let original = vec![b'a'; crate::history_blob::CHUNK_BYTES + 13];
+    let blob = crate::history_blob::write_bytes(&mut memory, &original)
+        .await
+        .unwrap();
+    {
+        let mut session = ReadSession::new(&mut memory);
+        assert_eq!(
+            crate::history_blob::read_bounded(&mut session, &blob, original.len())
+                .await
+                .unwrap(),
+            original
+        );
+        let reads = session.inner.reads;
+        for _ in 0..2 {
+            assert_eq!(
+                crate::history_blob::read_bounded(&mut session, &blob, original.len())
+                    .await
+                    .unwrap(),
+                original
+            );
+        }
+        assert_eq!(session.inner.reads, reads);
+        assert_eq!(session.chunks.len(), 2);
+    }
+    let key = vcp_protocol::digest_bytes(&original[..crate::history_blob::CHUNK_BYTES]);
+    memory.rows.insert(key, b"later corruption".to_vec());
+    assert!(crate::history_blob::read_bounded(
+        &mut ReadSession::new(&mut memory),
+        &blob,
+        original.len()
+    )
+    .await
+    .is_err());
+}
+
+#[tokio::test]
+async fn chunk_hits_preserve_limits_and_failed_writes_invalidate_bytes() {
+    let mut memory = Memory::default();
+    let bytes = b"physical payload".to_vec();
+    let digest = vcp_protocol::digest_bytes(&bytes);
+    memory.rows.insert(digest.clone(), bytes.clone());
+    let mut session = ReadSession::new(&mut memory);
+    assert_eq!(session.read(&digest, 64).await.unwrap(), bytes);
+    assert!(matches!(
+        session.read(&digest, 1).await,
+        Err(Error::Limit("memo physical read"))
+    ));
+    assert_eq!(session.inner.reads, 2);
+    session.inner.fail_write = true;
+    assert!(session.write(&digest, &bytes).await.is_err());
+    assert!(session.chunks.is_empty());
+    assert_eq!(session.chunk_bytes, 0);
+    session.inner.fail_read = true;
+    assert!(session.read(&digest, 64).await.is_err());
+    assert!(session.chunks.is_empty());
+}
+
+#[tokio::test]
+async fn invalid_physical_bytes_and_failed_reads_never_enter_chunk_memo() {
+    let mut memory = Memory::default();
+    let correct = b"correct".to_vec();
+    let digest = vcp_protocol::digest_bytes(&correct);
+    memory.rows.insert(digest.clone(), b"wrong".to_vec());
+    let mut session = ReadSession::new(&mut memory);
+    assert_eq!(session.read(&digest, 64).await.unwrap(), b"wrong");
+    assert!(session.chunks.is_empty());
+    session.inner.rows.insert(digest.clone(), correct.clone());
+    session.inner.fail_read = true;
+    assert!(session.read(&digest, 64).await.is_err());
+    assert!(session.chunks.is_empty());
+    session.inner.fail_read = false;
+    assert!(session.read(&digest, 1).await.is_err());
+    assert!(session.chunks.is_empty());
+    session.inner.ignore_limit = true;
+    assert_eq!(session.read(&digest, 1).await.unwrap(), correct);
+    assert!(session.chunks.is_empty());
+    assert_eq!(session.read(&digest, 64).await.unwrap(), correct);
+    assert_eq!(session.chunks.len(), 1);
+}
+
+#[tokio::test]
+async fn cancelled_write_discards_verified_payload_observations() {
+    let mut memory = Memory::default();
+    let bytes = b"observed payload".to_vec();
+    let digest = vcp_protocol::digest_bytes(&bytes);
+    memory.rows.insert(digest.clone(), bytes.clone());
+    let mut session = ReadSession::new(&mut memory);
+    session.read(&digest, 64).await.unwrap();
+    session.inner.pending_write = true;
+    {
+        let mut writing = Box::pin(session.write(&digest, &bytes));
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(writing.as_mut(), cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+    }
+    assert!(session.chunks.is_empty());
+    assert_eq!(session.chunk_bytes, 0);
+    session.inner.fail_read = true;
+    assert!(session.read(&digest, 64).await.is_err());
+}
+
+#[tokio::test]
+async fn chunk_memo_bounds_fall_back_without_limiting_valid_history() {
+    let mut memory = Memory::default();
+    for index in 0..MAX_ENTRIES + 1 {
+        let bytes = index.to_le_bytes().to_vec();
+        memory
+            .rows
+            .insert(vcp_protocol::digest_bytes(&bytes), bytes);
+    }
+    let keys: Vec<_> = memory.rows.keys().cloned().collect();
+    let mut session = ReadSession::new(&mut memory);
+    for key in &keys {
+        session.read(key, 64).await.unwrap();
+    }
+    assert_eq!(session.chunks.len(), MAX_ENTRIES);
+    let reads = session.inner.reads;
+    session.read(keys.last().unwrap(), 64).await.unwrap();
+    assert_eq!(session.inner.reads, reads + 1);
+    session.chunks.clear();
+    session.chunk_bytes = MAX_BYTES;
+    session.read(&keys[0], 64).await.unwrap();
+    assert!(session.chunks.is_empty());
+    assert_eq!(session.chunk_bytes, MAX_BYTES);
+    assert_eq!(session.inner.reads, reads + 2);
 }
