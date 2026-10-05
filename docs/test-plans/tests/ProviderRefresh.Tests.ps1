@@ -156,11 +156,17 @@ exit 0
     $other = Invoke-Fixture 'other-endpoint' -Root $otherRoot
     Check ($other.Code -eq 0 -and @($other.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Another cached endpoint replaced selected provider instead of refreshing exact identity'
     New-Metadata $connection 10
+    # EE-01 suspends task elapsed-time enforcement. Catalog freshness is a
+    # separate five-minute admission margin, not the legacy 30-minute task cap.
+    $fresh = Invoke-Fixture 'outside-admission-margin' -Case 'failure'
+    Check ($fresh.Code -eq 0 -and $fresh.Output.Contains('REFRESH_CHILD_STARTED') -and
+        @($fresh.Commands | Where-Object label -like 'refresh-provider*').Count -eq 0) 'Current metadata outside the admission margin was unnecessarily renewed'
+    New-Metadata $connection 2
     $near = Invoke-Fixture 'near-expiry'
-    Check ($near.Code -eq 0 -and @($near.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Metadata expiring within next task window was reused'
+    Check ($near.Code -eq 0 -and @($near.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Metadata expiring within the five-minute admission margin was reused'
     # Expiration renewal can reveal that the installed CLI has a newer adapter.
     # Recovery constructs fresh metadata from the same retained identity only.
-    foreach ($minutes in -60, 10) {
+    foreach ($minutes in -60, 2) {
         New-Metadata $connection $minutes
         $retainedHashes = @{}; foreach ($path in $completion, (Join-Path $connection 'snapshot.json'), (Join-Path $connection 'endpoints.json')) { $retainedHashes[$path] = (Get-FileHash -LiteralPath $path).Hash }
         $adapter = Invoke-Fixture "adapter-success-$minutes" -Case 'adapter-success'

@@ -60,7 +60,8 @@ jobs:
         timeout-minutes: 2
         run: ./scripts/release/msvc-supervision-smoke.ps1
       - name: Run offline CLI scenario regressions
-        timeout-minutes: 2
+        # The expanded 37-script batch takes about two minutes locally.
+        timeout-minutes: 4
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/cli-scenario-regressions | Out-Null
           foreach ($test in Get-ChildItem docs/test-plans/tests -Filter '*.Tests.ps1' | Sort-Object Name) {
