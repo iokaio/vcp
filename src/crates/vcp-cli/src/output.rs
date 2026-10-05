@@ -9,7 +9,9 @@ use std::{
 use tokio::sync::oneshot;
 use vcp_domain::{ids::CommandId, revision::SessionSeq, workspace::Scope};
 use vcp_lifecycle::foundation::{CanonicalHost, CanonicalOwner};
-use vcp_protocol::subscription::EventPage;
+use vcp_protocol::subscription::{Cursor, EventPage, GapReason};
+
+mod event_drain;
 
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 type Frame = (Vec<u8>, oneshot::Sender<io::Result<()>>);
@@ -34,11 +36,19 @@ impl OwnedJsonl {
         correlation: &CommandId,
         after: SessionSeq,
     ) -> Result<SessionSeq, String> {
-        let mut cursor = host.subscribe_events(after, 32)?;
-        let snapshot = cursor.snapshot.clone();
+        self.drain_events_from(host, correlation, after).await
+    }
+
+    async fn drain_events_from(
+        &mut self,
+        source: &impl event_drain::Source,
+        correlation: &CommandId,
+        after: SessionSeq,
+    ) -> Result<SessionSeq, String> {
+        let mut drain = event_drain::Drain::new(source.subscribe(after, 32)?);
         let result = async {
             loop {
-                match host.events(cursor.clone())? {
+                match drain.page(source)? {
                     EventPage::Events {
                         events,
                         next_cursor,
@@ -46,6 +56,9 @@ impl OwnedJsonl {
                         ..
                     } => {
                         for event in &events {
+                            if event.sequence > drain.end() {
+                                break;
+                            }
                             let scope = event.event.task.as_ref().map(|task| Scope {
                                 workspace: event.event.workspace.clone(),
                                 session: event.event.session.clone(),
@@ -54,10 +67,11 @@ impl OwnedJsonl {
                             self.emit(correlation, scope.as_ref(), Payload::Event { event })
                                 .await?;
                         }
-                        cursor = next_cursor;
-                        if at_end {
-                            return Ok(cursor.after);
+                        if next_cursor.after >= drain.end() {
+                            return Ok(drain.end());
                         }
+                        debug_assert!(!at_end);
+                        drain.advance(next_cursor);
                     }
                     EventPage::Gap { reason, .. } => {
                         let reason = serde_json::to_string(&reason).map_err(|e| e.to_string())?;
@@ -69,7 +83,7 @@ impl OwnedJsonl {
             }
         }
         .await;
-        let released = host.unsubscribe_events(snapshot);
+        let released = source.unsubscribe(drain.snapshot());
         match result {
             Ok(after) => {
                 released?;
@@ -205,3 +219,7 @@ impl OwnedJsonl {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "output/event_drain_tests.rs"]
+mod event_drain_tests;
