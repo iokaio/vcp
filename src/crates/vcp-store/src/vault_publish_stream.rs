@@ -27,7 +27,7 @@ impl LocalTrust {
         manifest: StreamManifest,
         input: impl Read,
         expected: u64,
-        limits: Limits,
+        limits: impl Into<stream::StreamLimits>,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<FinalizedCiphertext> {
         self.check_revision(expected)?;
@@ -55,7 +55,7 @@ impl LocalTrust {
         staging: &PrivateStaging,
         path: &Path,
         copy: &RecoveryCopy,
-        limits: Limits,
+        limits: impl Into<stream::StreamLimits>,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<VerifiedStreamRestore> {
         let keys = LocalKeys::import(copy)?;

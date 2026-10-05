@@ -6,7 +6,7 @@ use std::io::Read;
 
 pub(super) fn persist_ciphertext(path: &Path, ciphertext: &mut FinalizedCiphertext) -> Result<()> {
     if path.exists() {
-        let mut input = private_paths::PublicCiphertext::open(path, 65 * 1024 * 1024)?;
+        let mut input = private_paths::PublicCiphertext::open_stream(path, ciphertext.bytes())?;
         let mut digest = Sha256::new();
         let mut bytes = 0u64;
         let mut buffer = [0u8; 65536];

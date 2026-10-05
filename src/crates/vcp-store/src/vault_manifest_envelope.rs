@@ -23,6 +23,14 @@ impl From<StreamManifest> for ManifestEnvelope {
     }
 }
 impl ManifestEnvelope {
+    pub(crate) fn ciphertext_limit(&self) -> Result<u64> {
+        match self {
+            Self::Legacy(_) => Ok(65 * 1024 * 1024),
+            Self::Stream(v) => {
+                Ok(super::stream::StreamLimits::for_payload(v.payload.bytes)?.ciphertext_bytes)
+            }
+        }
+    }
     pub(crate) fn workspace(&self) -> &WorkspaceId {
         match self {
             Self::Legacy(v) => &v.workspace,
@@ -69,12 +77,7 @@ impl ManifestEnvelope {
             }
             Self::Stream(v) => super::stream::validate(
                 v,
-                super::Limits {
-                    plaintext_bytes: 64 * 1024 * 1024,
-                    payload_bytes: 64 * 1024 * 1024,
-                    ciphertext_bytes: 65 * 1024 * 1024,
-                    objects: 4096,
-                },
+                super::stream::StreamLimits::for_payload(v.payload.bytes)?,
             ),
         }
     }

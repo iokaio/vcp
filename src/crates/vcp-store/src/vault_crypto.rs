@@ -102,7 +102,7 @@ pub struct Restored {
 }
 struct BoundedOutput {
     file: File,
-    remaining: usize,
+    remaining: u64,
     #[cfg(feature = "qualification")]
     storage_full_after: Option<usize>,
 }
@@ -112,7 +112,7 @@ impl Write for BoundedOutput {
         if self.storage_full_after == Some(0) {
             return Err(std::io::ErrorKind::StorageFull.into());
         }
-        if bytes.len() > self.remaining {
+        if bytes.len() as u64 > self.remaining {
             return Err(std::io::Error::other("ciphertext output limit"));
         }
         #[cfg(feature = "qualification")]
@@ -125,7 +125,7 @@ impl Write for BoundedOutput {
         if let Some(remaining) = &mut self.storage_full_after {
             *remaining -= count;
         }
-        self.remaining -= count;
+        self.remaining -= count as u64;
         Ok(count)
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -331,7 +331,7 @@ pub fn encrypt(
     let mut encoder = encryptor
         .wrap_output(BoundedOutput {
             file,
-            remaining: limits.ciphertext_bytes,
+            remaining: limits.ciphertext_bytes as u64,
             #[cfg(feature = "qualification")]
             storage_full_after: staging.storage_full_after,
         })
@@ -472,7 +472,7 @@ impl FinalizedCiphertext {
     ) -> Result<Self> {
         regular(path)?;
         receipt.manifest.validate()?;
-        if receipt.bytes > 65 * 1024 * 1024 || !hash(&receipt.sha256) {
+        if receipt.bytes > receipt.manifest.ciphertext_limit()? || !hash(&receipt.sha256) {
             return Err(Error::Limit("persisted ciphertext"));
         }
         let mut options = OpenOptions::new();

@@ -232,6 +232,9 @@ pub(crate) struct PublicCiphertext {
 }
 impl PublicCiphertext {
     pub(crate) fn open(path: &Path, limit: usize) -> Result<Self> {
+        Self::open_stream(path, limit as u64)
+    }
+    pub(crate) fn open_stream(path: &Path, limit: u64) -> Result<Self> {
         let absolute = std::path::absolute(path)?;
         let parent = Directory::hold(absolute.parent().ok_or(Error::Access)?, true)?;
         if fs::symlink_metadata(&absolute)?.file_type().is_symlink() {
@@ -249,7 +252,7 @@ impl PublicCiphertext {
         if !metadata.is_file() || !allowed_handle(&file, true)? {
             return Err(Error::Access);
         }
-        if metadata.len() > limit as u64 {
+        if metadata.len() > limit {
             return Err(Error::Limit("snapshot ciphertext input"));
         }
         Ok(Self {
@@ -312,6 +315,12 @@ pub(crate) fn write_private_with(
     }
     drop(file);
     result
+}
+
+/// Create a private, exclusive, create-only stream file. The async caller must
+/// sync it before publication; a failed prefix carries no completion authority.
+pub(crate) fn create_private(path: &Path) -> Result<File> {
+    private_file(path)
 }
 
 #[cfg(test)]

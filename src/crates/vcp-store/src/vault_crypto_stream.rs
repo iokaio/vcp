@@ -10,6 +10,56 @@ const MAGIC: &[u8; 8] = b"VCPAGE02";
 const FRAME_BYTES: usize = 128 * 1024;
 const HEADER_BYTES: usize = 16 * 1024;
 
+/// Operation bounds for the streamed format. These govern checked byte counts,
+/// never allocation sizes; each frame/header retains its separate fixed bound.
+#[derive(Clone, Copy)]
+pub(crate) struct StreamLimits {
+    pub(crate) plaintext_bytes: u64,
+    pub(crate) payload_bytes: u64,
+    pub(crate) ciphertext_bytes: u64,
+}
+impl StreamLimits {
+    pub(crate) fn for_payload(bytes: u64) -> Result<Self> {
+        let frames = bytes.div_ceil(FRAME_BYTES as u64);
+        let plaintext_bytes = frames
+            .checked_mul(36)
+            .and_then(|overhead| bytes.checked_add(overhead))
+            .and_then(|bytes| bytes.checked_add(HEADER_BYTES as u64 + 64))
+            .ok_or(Error::Limit("streaming plaintext size"))?;
+        // age uses 64KiB chunks with a 16-byte tag. The extra 64KiB covers
+        // the single-recipient age header and final chunk, without buffering it.
+        let ciphertext_bytes = plaintext_bytes
+            .div_ceil(65536)
+            .checked_mul(16)
+            .and_then(|overhead| plaintext_bytes.checked_add(overhead))
+            .and_then(|bytes| bytes.checked_add(65536))
+            .ok_or(Error::Limit("streaming ciphertext size"))?;
+        Ok(Self {
+            plaintext_bytes,
+            payload_bytes: bytes,
+            ciphertext_bytes,
+        })
+    }
+    fn validate(self) -> Result<()> {
+        if self.plaintext_bytes == 0
+            || self.payload_bytes > self.plaintext_bytes
+            || self.ciphertext_bytes == 0
+        {
+            return Err(Error::Limit("streaming transport bounds"));
+        }
+        Ok(())
+    }
+}
+impl From<Limits> for StreamLimits {
+    fn from(value: Limits) -> Self {
+        Self {
+            plaintext_bytes: value.plaintext_bytes as u64,
+            payload_bytes: value.payload_bytes as u64,
+            ciphertext_bytes: value.ciphertext_bytes as u64,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RootDescriptor {
@@ -38,7 +88,7 @@ struct Header {
     manifest: StreamManifest,
     signature: Vec<u8>,
 }
-pub(super) fn validate(manifest: &StreamManifest, limits: Limits) -> Result<()> {
+pub(super) fn validate(manifest: &StreamManifest, limits: StreamLimits) -> Result<()> {
     limits.validate()?;
     if manifest.format != FORMAT || manifest.archive_root.format != "vcp-neutral-history/2" {
         return Err(Error::Incompatible);
@@ -50,13 +100,13 @@ pub(super) fn validate(manifest: &StreamManifest, limits: Limits) -> Result<()> 
         || manifest.archive_root.descriptor_bytes == 0
         || manifest.archive_root.descriptor_bytes > FRAME_BYTES as u64
         || !hash(&manifest.payload.sha256)
-        || manifest.payload.bytes > limits.payload_bytes as u64
+        || manifest.payload.bytes > limits.payload_bytes
     {
         return Err(Error::Corruption("streaming snapshot manifest"));
     }
     Ok(())
 }
-fn trust_manifest(header: &Header, trust: &Trust, limits: Limits) -> Result<()> {
+fn trust_manifest(header: &Header, trust: &Trust, limits: StreamLimits) -> Result<()> {
     if !hash(&trust.lineage)
         || trust.writers.is_empty()
         || trust.writers.len() > 256
@@ -121,11 +171,11 @@ struct Counted<T> {
     limit: u64,
 }
 impl<T> Counted<T> {
-    fn new(inner: T, limit: usize) -> Self {
+    fn new(inner: T, limit: u64) -> Self {
         Self {
             inner,
             count: 0,
-            limit: limit as u64,
+            limit,
         }
     }
     fn advance(&mut self, bytes: usize) -> std::io::Result<()> {
@@ -154,7 +204,7 @@ impl<T: Read> Read for Counted<T> {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
         // Permit one byte beyond the bound only to detect overflow, never to
         // return a false EOF and accidentally bypass age's final authentication.
-        let limit = bytes.len().min((self.limit - self.count + 1) as usize);
+        let limit = (bytes.len() as u64).min((self.limit - self.count).saturating_add(1)) as usize;
         let count = self.inner.read(&mut bytes[..limit])?;
         self.advance(count)?;
         Ok(count)
@@ -316,7 +366,7 @@ pub(crate) fn encrypt(
     writer: &SigningKey,
     manifest: StreamManifest,
     input: impl Read,
-    limits: Limits,
+    limits: impl Into<StreamLimits>,
 ) -> Result<Encrypted> {
     encrypt_checked(staging, recipient, writer, manifest, input, limits, &|| {
         Ok(())
@@ -328,10 +378,11 @@ pub(crate) fn encrypt_checked(
     writer: &SigningKey,
     manifest: StreamManifest,
     input: impl Read,
-    limits: Limits,
+    limits: impl Into<StreamLimits>,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<Encrypted> {
     check()?;
+    let limits = limits.into();
     validate(&manifest, limits)?;
     let body = canonical_bytes(&manifest)?;
     let header = Header {
@@ -413,7 +464,7 @@ pub(crate) fn decrypt(
     path: &Path,
     identity: &Identity,
     trust: &Trust,
-    limits: Limits,
+    limits: impl Into<StreamLimits>,
 ) -> Result<Authenticated> {
     decrypt_checked(staging, path, identity, trust, limits, &|| Ok(()))
 }
@@ -422,13 +473,14 @@ pub(crate) fn decrypt_checked(
     path: &Path,
     identity: &Identity,
     trust: &Trust,
-    limits: Limits,
+    limits: impl Into<StreamLimits>,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<Authenticated> {
     check()?;
+    let limits = limits.into();
     limits.validate()?;
     let mut ciphertext =
-        crate::private_paths::PublicCiphertext::open(path, limits.ciphertext_bytes)?;
+        crate::private_paths::PublicCiphertext::open_stream(path, limits.ciphertext_bytes)?;
     let decryptor = age::Decryptor::new(&mut ciphertext)
         .map_err(|_| Error::Corruption("invalid age ciphertext"))?;
     let decoder = decryptor

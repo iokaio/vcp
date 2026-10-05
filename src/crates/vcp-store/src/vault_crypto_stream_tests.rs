@@ -131,6 +131,70 @@ fn framed_transport_streams_beyond_v1_archive_bound_without_payload_map() {
 }
 
 #[test]
+fn large_stream_has_bounded_frames_and_reopens_without_legacy_aggregate_cap() {
+    let root = tempfile::tempdir().unwrap();
+    let stage = staging(root.path());
+    let identity = Identity::generate();
+    let writer = SigningKey::from_bytes(&[43; 32]);
+    let size = 66 * 1024 * 1024 + 17;
+    let manifest = manifest(size);
+    let bounds = StreamLimits::for_payload(size as u64).unwrap();
+    let calls = Cell::new(0);
+    let largest = Cell::new(0);
+    let mut encrypted = encrypt(
+        &stage,
+        &identity.to_public(),
+        &writer,
+        manifest.clone(),
+        Pattern {
+            remaining: size,
+            calls: &calls,
+            largest: &largest,
+        },
+        bounds,
+    )
+    .unwrap()
+    .into_finalized();
+    assert!(largest.get() <= FRAME_BYTES);
+    let path = root.path().join("large.age");
+    encrypted
+        .copy_ciphertext(File::create(&path).unwrap())
+        .unwrap();
+    let receipt = encrypted.finalization();
+    assert!(receipt.bytes > 65 * 1024 * 1024);
+    let mut reopened =
+        FinalizedCiphertext::reopen(&path, &receipt, stage.directory.clone()).unwrap();
+    reopened.copy_ciphertext(std::io::sink()).unwrap();
+    drop(reopened);
+    let mut result = decrypt(&stage, &path, &identity, &trust(&writer), bounds).unwrap();
+    let mut reader = result.reader().unwrap();
+    let mut actual = Sha256::new();
+    let mut count = 0u64;
+    let mut buffer = [0; 65536];
+    loop {
+        let used = reader.read(&mut buffer).unwrap();
+        if used == 0 {
+            break;
+        }
+        count += used as u64;
+        actual.update(&buffer[..used]);
+    }
+    assert_eq!(count, manifest.payload.bytes);
+    assert_eq!(format!("{:x}", actual.finalize()), manifest.payload.sha256);
+    assert!(decrypt(&stage, &path, &identity, &trust(&writer), Limits::default()).is_err());
+    assert!(StreamLimits::for_payload(u64::MAX).is_err());
+    // V1 remains allocation-bounded even if given enlarged explicit limits.
+    assert!(Limits {
+        plaintext_bytes: size,
+        payload_bytes: size,
+        ciphertext_bytes: size + 65536,
+        objects: 1
+    }
+    .validate()
+    .is_err());
+}
+
+#[test]
 fn full_authentication_freshness_and_failure_leave_no_plaintext_capability() {
     let root = tempfile::tempdir().unwrap();
     let identity = Identity::generate();
@@ -279,9 +343,9 @@ fn signed_root_is_immutable_and_cancellation_discards_tentative_plaintext() {
             .to_bytes()
             .to_vec(),
     };
-    trust_manifest(&header, &trust(&writer), limits()).unwrap();
+    trust_manifest(&header, &trust(&writer), limits().into()).unwrap();
     header.manifest.archive_root.sha256 = "f".repeat(64);
-    assert!(trust_manifest(&header, &trust(&writer), limits()).is_err());
+    assert!(trust_manifest(&header, &trust(&writer), limits().into()).is_err());
     let path = encrypted(root.path(), &identity, &writer, FRAME_BYTES + 7);
     let checks = Cell::new(0);
     let check = || {
