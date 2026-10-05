@@ -4,6 +4,8 @@ Approved October 4, 2026. Branch: `feature/execution-engine-refinements`. Delive
 
 ## Current integration checkpoint
 
+Final routing qualification passed all 41 tests in 882.67 seconds after the existing awaited SQLite-close contract was applied to the fixture. The previously failing transition-evidence reopen and all long forecast/unknown-liability cases passed without weakened assertions. The earlier 39/41 and 40/41 runs remain failed historical evidence. Compilation used the bounded-reader migration plus the recorded source-equivalent removal of an unused import; exact binary/source provenance is retained beside `artifacts/ee02-routing-supported-close-full-tests.log`. This closes that regression-suite gap, not full A/B acceptance.
+
 The bounded collector's actual private control connection is now qualified on Files and SQLite. The existing shared-driver repair fixture made four live `InspectBundle` requests (before close and after reopen on each backend), matched every canonical field/cursor to the archival oracle, retained original-owner diagnostics and preserved the four-request/no-extra-inference assertions. The single both-store fixture passed in 267.20 seconds. Only its test was augmented; production matches candidate 0.2.28 source `90f4863f`. This debug qualification used rustc 1.98.1 and an 8 MiB test stack, separately from the candidate's pinned release toolchain. Evidence: `.codex-tmp-ee00-live-control-inspection-tests.log`.
 
 EE-00c/02c ordinary offline and live `inspect-bundle` now read one pinned current/history cut through the narrow read-only `CanonicalHistory` contract. They no longer materialize the legacy full-history DTO. Existing audit access, compaction/redaction, receipt meaning, page limits and the final 16 MiB bundle bound remain; retained diagnostic expansion is charged before accumulation. Nineteen focused tests passed in 0.36 seconds, including reference parity, short pages, denied/failed reads, diagnostic masking, explicit unknown receipt evidence and actual Files/SQLite snapshot append/reopen. A lazy synthetic 66 MiB unrelated-history stream verifies bounded consumer behavior; it is separate from prior durable large-history fixtures. Independent review found no remaining issue. Evidence: `.codex-tmp-ee00-bounded-inspection-final-tests.log`. The integrated distributable candidate and full scenario checks remain next.
@@ -61,7 +63,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-00c | Bundle integration and reconstruction | EE-00a/b | scripted repair/live allocation archives verified; bounded collection passed 19 tests; final live candidate pending |
 | EE-01a | Harness deadline/spend removal | EE-00a/b | implemented; live probe and first full-A attempt exercised the changed harness |
 | EE-01b | Versioned explicit limit representation | EE-00a | implemented across core, schema, SDK and editor; full candidate qualification pending |
-| EE-01c | Financial admission with durable attempt fences | EE-01b | unknown-price routed/reopen fixture passed both stores; full routing rerun and integrated A/B pending |
+| EE-01c | Financial admission with durable attempt fences | EE-01b | unknown-price routed/reopen fixture passed both stores; final routing 41/41 passed; integrated A/B pending |
 | EE-01d | Derived bounds and start/resume conversion | EE-01b/c | startup, pacing, old-task and child conversions qualified; worker-result fix awaits live candidate |
 | EE-01e | Settlement/retention separation and test disposition | EE-01a–d | startup retention and removal of automatic billing waits qualified; full A/B pending |
 | EE-02a | Consolidate opens and reconstruction | EE-00b | in progress; duplicate replay and SQL paging verified |
@@ -71,7 +73,7 @@ The [architecture plan](../architecture/execution-architecture-review.md) owns i
 | EE-03a | Bounded output, CI fixtures and artifact access | EE-00a | implemented; codec, authorized reader and redaction fixtures passed |
 | EE-03b | File/range working-set index | EE-03a | implemented; seven-file reconstruction and coalescing fixtures passed |
 | EE-03c1 | Per-request allocation contract | EE-01b/c, EE-03a | implemented; allocator fixtures and six exact live request/allocation joins passed |
-| EE-03c2 | Routed allocation and encoding order | EE-03c1 | candidate routing/admission fixtures passed; final routing rerun pending |
+| EE-03c2 | Routed allocation and encoding order | EE-03c1 | candidate routing/admission fixtures and final 41-test routing suite passed |
 | EE-03c3 | Truncation evidence and continuation | EE-03c1; integrate c2 | retained continuation fixtures passed; live probe had no truncated responses |
 | EE-03d | Conditional caching/encoding refinements | Measured EE-06 need and applicable EE-03 inputs | planned |
 | EE-04a | Shared-driver completion repair | EE-00a/c; current full requirement set | implemented; same-task CLI repair and typed approval/refresh fixtures passed |
