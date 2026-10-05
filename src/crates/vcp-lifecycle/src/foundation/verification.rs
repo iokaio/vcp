@@ -44,7 +44,8 @@ pub enum CompletionAttempt {
     Rejected(CompletionFailure),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
 pub enum VerificationSelection {
     #[default]
     Completion,
@@ -206,8 +207,10 @@ impl CanonicalHost {
         &self,
         thread: ThreadId,
         citations: Vec<ArtifactId>,
+        selection: VerificationSelection,
     ) -> Result<VerificationPresentation, String> {
-        self.verify_before_publish(thread, citations, || {}).await
+        self.verify_selected(thread, citations, selection, || {})
+            .await
     }
 
     /// Qualification-only control injection after checks, before publication.

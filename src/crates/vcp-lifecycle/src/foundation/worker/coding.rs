@@ -241,6 +241,7 @@ impl Context {
                         }
                         "vcp_patch" => Activity::Editing,
                         "vcp_verify" => Activity::Summary,
+                        "vcp_verify_focused" => Activity::Repair,
                         _ => Activity::Unclassified,
                     }),
                     _ => None,
@@ -960,6 +961,7 @@ impl Context {
             "vcp_patch",
             "vcp_exec",
             "vcp_verify",
+            "vcp_verify_focused",
             "vcp_mcp",
             "vcp_skill",
             "vcp_artifact_read",
@@ -1216,10 +1218,12 @@ impl Context {
             None
         };
         if response.calls.len() > 1
-            && response
-                .calls
-                .iter()
-                .any(|call| matches!(call.name.as_str(), "vcp_verify" | "vcp_mcp"))
+            && response.calls.iter().any(|call| {
+                matches!(
+                    call.name.as_str(),
+                    "vcp_verify" | "vcp_verify_focused" | "vcp_mcp"
+                )
+            })
         {
             // Retained async tasks need not acquire their execution lock in
             // response order. Never infer that a mixed check precedes/follows
@@ -1476,6 +1480,7 @@ impl Context {
             "vcp_patch",
             "vcp_exec",
             "vcp_verify",
+            "vcp_verify_focused",
             "vcp_mcp",
             "vcp_skill",
             "vcp_artifact_read",
@@ -1553,7 +1558,9 @@ impl Context {
                     call.arguments["path"].as_str().ok_or("list path missing")?,
                 )?;
             }
-            "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
+            "vcp_search" | "vcp_verify" | "vcp_verify_focused" => {
+                self.child_context_scope(binding)?
+            }
             "vcp_exec" => self.child_process_scope(binding)?,
             // A materialization is an Add File at its destination.
             "vcp_skill" => {
@@ -1571,7 +1578,9 @@ impl Context {
             _ => {}
         }
         let paths = match call.name.as_str() {
-            "vcp_verify" => self.verification_paths(binding)?,
+            "vcp_verify" | "vcp_verify_focused" => {
+                self.verification_tool_paths(binding, &call.name)?
+            }
             "vcp_read" => vec![std::path::PathBuf::from(
                 call.arguments["path"].as_str().ok_or("read path missing")?,
             )],

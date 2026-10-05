@@ -76,11 +76,28 @@ pub fn focused_requirements(
     affected_paths: &[String],
     failed_checks: &[String],
 ) -> Result<Vec<Requirement>> {
+    Ok(select_focused_requirements(requirements, affected_paths, failed_checks)?.requirements)
+}
+
+pub struct FocusedRequirements {
+    pub requirements: Vec<Requirement>,
+    pub full_fallback: bool,
+}
+
+pub fn select_focused_requirements(
+    requirements: &[Requirement],
+    affected_paths: &[String],
+    failed_checks: &[String],
+) -> Result<FocusedRequirements> {
+    let fallback = || FocusedRequirements {
+        requirements: requirements.to_vec(),
+        full_fallback: true,
+    };
     if affected_paths.len() > 256 || failed_checks.len() > 32 {
         return Err(Error::Invalid("focused verification selector ceiling"));
     }
     if affected_paths.is_empty() && failed_checks.is_empty() {
-        return Ok(requirements.to_vec());
+        return Ok(fallback());
     }
     let mut selected = BTreeSet::new();
     for path in affected_paths {
@@ -101,7 +118,7 @@ pub fn focused_requirements(
             .map(|(index, _)| index)
             .collect();
         if matches.len() != 1 {
-            return Ok(requirements.to_vec());
+            return Ok(fallback());
         }
         selected.insert(matches[0]);
     }
@@ -113,16 +130,19 @@ pub fn focused_requirements(
             .map(|(index, _)| index)
             .collect();
         if matches.len() != 1 {
-            return Ok(requirements.to_vec());
+            return Ok(fallback());
         }
         selected.insert(matches[0]);
     }
-    Ok(requirements
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| selected.contains(index))
-        .map(|(_, requirement)| requirement.clone())
-        .collect())
+    Ok(FocusedRequirements {
+        requirements: requirements
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| selected.contains(index))
+            .map(|(_, requirement)| requirement.clone())
+            .collect(),
+        full_fallback: false,
+    })
 }
 
 #[cfg(test)]
@@ -147,6 +167,11 @@ mod focused_tests {
         let selected = focused_requirements(&requirements, &["ui/src/app.ts".into()], &[]).unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].manifest, "ui/package.json");
+        assert!(
+            !select_focused_requirements(&requirements, &["ui/src/app.ts".into()], &[])
+                .unwrap()
+                .full_fallback
+        );
         let selected = focused_requirements(
             &requirements,
             &["ui/src/app.ts".into()],
@@ -160,6 +185,16 @@ mod focused_tests {
                 .collect::<Vec<_>>(),
             vec!["api/package.json", "ui/package.json"]
         );
+        assert!(
+            !select_focused_requirements(
+                &requirements,
+                &["ui/src/app.ts".into()],
+                &["api/package.json#test".into()]
+            )
+            .unwrap()
+            .full_fallback,
+            "selecting every requirement explicitly is not a fallback"
+        );
     }
     #[test]
     fn unknown_or_ambiguous_coverage_falls_back_and_invalid_paths_reject() {
@@ -172,6 +207,11 @@ mod focused_tests {
             (vec!["shared/types.ts".into()], vec![]),
             (vec![], vec!["unknown#test".into()]),
         ] {
+            assert!(
+                select_focused_requirements(&requirements, &paths, &failed)
+                    .unwrap()
+                    .full_fallback
+            );
             assert_eq!(
                 focused_requirements(&requirements, &paths, &failed)
                     .unwrap()

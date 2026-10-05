@@ -259,7 +259,17 @@ impl Context {
         &self,
         binding: &ThreadBinding,
     ) -> Result<Vec<std::path::PathBuf>> {
+        self.verification_tool_paths(binding, "vcp_verify")
+    }
+    pub(super) fn verification_tool_paths(
+        &self,
+        binding: &ThreadBinding,
+        tool: &str,
+    ) -> Result<Vec<std::path::PathBuf>> {
         self.tool_identity(binding, "vcp_verify")?;
+        if tool != "vcp_verify" {
+            self.tool_identity(binding, tool)?;
+        }
         let policy =
             vcp_engine::policy::current(self.engine.store().current(), &binding.scope.workspace)?;
         // A verification runner can have opaque effects. A named workflow
@@ -269,7 +279,11 @@ impl Context {
             .host_tool_denials
             .iter()
             .chain(policy.denials.iter())
-            .any(|rule| rule.tool.as_deref() == Some("vcp_verify"))
+            .any(|rule| {
+                rule.tool
+                    .as_deref()
+                    .is_some_and(|name| name == "vcp_verify" || name == tool)
+            })
         {
             return Err("current policy denies the verification workflow".into());
         }
@@ -800,18 +814,21 @@ impl Context {
             selection,
             crate::foundation::verification::VerificationSelection::Completion
         );
-        let requirements = match selection {
+        let (requirements, full_fallback) = match &selection {
             crate::foundation::verification::VerificationSelection::Completion => {
-                setup.config.requirements.clone()
+                (setup.config.requirements.clone(), false)
             }
             crate::foundation::verification::VerificationSelection::Focused {
                 affected_paths,
                 failed_checks,
-            } => vcp_tools::verification::focused_requirements(
-                &setup.config.requirements,
-                &affected_paths,
-                &failed_checks,
-            )?,
+            } => {
+                let selected = vcp_tools::verification::select_focused_requirements(
+                    &setup.config.requirements,
+                    affected_paths,
+                    failed_checks,
+                )?;
+                (selected.requirements, selected.full_fallback)
+            }
         };
         let plans = vcp_tools::verification::discover(&before, &requirements)?;
         let profiles: Vec<_> = plans
@@ -826,7 +843,7 @@ impl Context {
         let environment = vcp_protocol::digest_bytes(&canonical_bytes(&profiles)?);
         let source_artifacts = self.verification_sources(&binding.scope, &before)?;
         let plan_artifact = self.capture(&binding.scope,Channel::Evidence,&canonical_bytes(&serde_json::json!({
-            "plans":plans,"completion":completion,"revisions":revisions,"before":before.manifest,"source_artifacts":source_artifacts,"environment":environment
+            "plans":plans,"completion":completion,"selection":selection,"full_fallback":full_fallback,"revisions":revisions,"before":before.manifest,"source_artifacts":source_artifacts,"environment":environment
         }))?,"verification-plan/1")?.spec.id;
         Ok(Run {
             completion,

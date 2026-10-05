@@ -41,8 +41,13 @@ impl<'de> serde::Deserialize<'de> for CanonicalTools {
 /// themselves. `vcp_skill` reads verified skill references and, with the
 /// patch ceiling, materializes helpers as ordinary `vcp_patch` creations
 /// (ADR-070/071), so it follows the read ceiling and leaves recorded ceilings
-/// and legacy defaults unchanged.
-const IMPLIED: [(&str, &str); 2] = [("vcp_skill", "vcp_read"), ("vcp_artifact_read", "vcp_read")];
+/// and legacy defaults unchanged. Focused verification is a diagnostic subset
+/// of the existing verification ceiling, never a separate execution grant.
+const IMPLIED: [(&str, &str); 3] = [
+    ("vcp_skill", "vcp_read"),
+    ("vcp_artifact_read", "vcp_read"),
+    ("vcp_verify_focused", "vcp_verify"),
+];
 
 impl CanonicalTools {
     pub fn contains(&self, name: &str) -> bool {
@@ -77,6 +82,7 @@ impl CanonicalTools {
         }
         if verification_configured && self.contains("vcp_verify") {
             tools.insert("vcp_verify".into());
+            tools.insert("vcp_verify_focused".into());
         }
         tools
     }
@@ -142,6 +148,13 @@ mod tests {
         assert!(!tools
             .allowed_tools()
             .contains(&ToolName::plain("vcp_verify")));
+        assert!(!tools.permits("vcp_verify_focused"));
+        let verification: CanonicalTools = serde_json::from_value(json!(["vcp_verify"])).unwrap();
+        assert!(verification.permits("vcp_verify_focused"));
+        assert!(verification
+            .allowed_tools()
+            .contains(&ToolName::plain("vcp_verify_focused")));
+        assert!(serde_json::from_value::<CanonicalTools>(json!(["vcp_verify_focused"])).is_err());
         assert!(tools.permits("vcp_skill"));
         assert!(tools
             .allowed_tools()

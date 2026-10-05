@@ -54,7 +54,9 @@ impl Context {
         if let Some(existing) = declarations::existing(self.engine.store(), &access, &input)? {
             return Ok(serde_json::to_value(existing)?);
         }
-        let (task, _) = self.runtime.block_on(declarations::validate(self.engine.store(), &access, &input))?;
+        let (task, _) =
+            self.runtime
+                .block_on(declarations::validate(self.engine.store(), &access, &input))?;
         let artifact = self.capture(
             &task.scope,
             Channel::Evidence,
@@ -238,7 +240,9 @@ impl Context {
                 return Err("orphan escalation result".into());
             }
             let result: serde_json::Value = serde_json::from_str(output)?;
-            let observed = if name == "vcp_verify" && result.get("verification").is_some() {
+            let observed = if matches!(name.as_str(), "vcp_verify" | "vcp_verify_focused")
+                && result.get("verification").is_some()
+            {
                 let verification: vcp_domain::verification::Verification =
                     serde_json::from_value(result["verification"].clone())?;
                 let canonical: vcp_domain::verification::Verification = self

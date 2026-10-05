@@ -107,7 +107,7 @@ impl Context {
             }
             match kind {
                 ObservationKind::Check => {
-                    if name != "vcp_verify" {
+                    if !matches!(name.as_str(), "vcp_verify" | "vcp_verify_focused") {
                         return Err("escalation advisory verification tool mismatch".into());
                     }
                     let verification: vcp_domain::verification::Verification =
@@ -140,7 +140,8 @@ impl Context {
                     }
                 }
                 ObservationKind::Error => {
-                    if (name == "vcp_verify" && result.get("verification").is_some())
+                    if (matches!(name.as_str(), "vcp_verify" | "vcp_verify_focused")
+                        && result.get("verification").is_some())
                         || result["complete"] != false
                         || !result["error"].is_string()
                         || result["stale"] == true

@@ -84,6 +84,19 @@ impl CodingConfig {
         Ok(())
     }
 }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerificationInput {
+    citations: Vec<ArtifactId>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerificationFocus {
+    affected_paths: Vec<String>,
+    failed_checks: Vec<String>,
+}
+
 pub fn schemas() -> Value {
     let mut schemas = vcp_tools::schema::definitions();
     schemas.as_array_mut().unwrap().push(json!({
@@ -99,6 +112,11 @@ pub fn schemas() -> Value {
         "type":"function","name":"vcp_verify","strict":true,
         "description":"Call this tool after your final edit and before your final response. It runs the owner's configured acceptance checks against current sources and records the observed evidence required for completion; ordinary vcp_exec test output alone does not register that evidence. No separate vcp_exec call is needed to run these checks. For unchanged analysis, citations must contain at least one relevant complete same-task artifact ID, such as the top-level evidence UUID from a successful vcp_read, vcp_list or vcp_search result. Use artifact IDs, not paths, effect IDs or check selectors such as package.json#test. Resolve verification.outstanding_issues within current authority and rerun when applicable checks can run. An isolated child without executable checks must report them as not run and return its result for current-parent verification; do not retry unavailable checks through another tool. complete:false means this tool records evidence without finalizing the task; the host decides completion.",
         "parameters":{"type":"object","properties":{"citations":{"type":"array","items":{"type":"string"}}},"required":["citations"],"additionalProperties":false}
+    }));
+    schemas.as_array_mut().unwrap().push(json!({
+        "type":"function","name":"vcp_verify_focused","strict":true,
+        "description":"Request intermediate diagnostic checks from the owner's configured acceptance set. Call alone, without sibling tools. Supply normalized workspace-relative affected_paths and/or exact failed_checks IDs (manifest#test); unused hints are empty arrays. The host maps hints deterministically to configured checks; missing, unknown or ambiguous coverage runs the full set. Results are diagnostic_only even after full fallback and cannot authorize completion. Call vcp_verify after the final edit for full completion evidence. This tool grants no new command, path or process authority; unavailable child process checks remain not run.",
+        "parameters":{"type":"object","properties":{"affected_paths":{"type":"array","items":{"type":"string"}},"failed_checks":{"type":"array","items":{"type":"string"}}},"required":["affected_paths","failed_checks"],"additionalProperties":false}
     }));
     schemas.as_array_mut().unwrap().push(json!({
         "type":"function","name":"vcp_skill","strict":true,
@@ -242,7 +260,7 @@ fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
     }
 }
 fn check_hook_tool_boundary(name: &str, authorization_hooks: bool) -> Result<(), String> {
-    if authorization_hooks && matches!(name, "vcp_mcp" | "vcp_verify") {
+    if authorization_hooks && matches!(name, "vcp_mcp" | "vcp_verify" | "vcp_verify_focused") {
         return Err(format!("{name} is unavailable with configured before_tool_authorization hooks: version 1 supports native file/process authorization and rewrites only; the operation was not dispatched"));
     }
     Ok(())
@@ -500,7 +518,10 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
     fn supports_parallel_tool_calls(&self) -> bool {
         // Only VCP's prepared resource scheduler may decide which effects
         // overlap. Verification remains an isolated retained operation.
-        !matches!(self.name.as_str(), "vcp_verify" | "vcp_mcp")
+        !matches!(
+            self.name.as_str(),
+            "vcp_verify" | "vcp_verify_focused" | "vcp_mcp"
+        )
     }
     fn tool_name(&self) -> ToolName {
         ToolName::plain(self.name.clone())
@@ -575,21 +596,25 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     else { value = json!({"result":value,"after_hooks":after_hooks}); }
                     return Ok(value);
                 }
-                if self.name == "vcp_verify" {
+                if matches!(self.name.as_str(), "vcp_verify" | "vcp_verify_focused") {
                     check_hook_tool_boundary(&self.name, self.host.has_tool_hooks(self.thread)?)?;
-                    #[derive(serde::Deserialize)]
-                    #[serde(deny_unknown_fields)]
-                    struct Input { citations: Vec<ArtifactId> }
-                    let input: Input = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
-                    let observed = self.host.verify_for_coding(self.thread, input.citations).await?;
+                    let diagnostic_only = self.name == "vcp_verify_focused";
+                    let (citations, selection) = if diagnostic_only {
+                        let focus: VerificationFocus = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
+                        (vec![], super::verification::VerificationSelection::Focused { affected_paths: focus.affected_paths, failed_checks: focus.failed_checks })
+                    } else {
+                        let input: VerificationInput = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
+                        (input.citations, super::verification::VerificationSelection::Completion)
+                    };
+                    let observed = self.host.verify_for_coding(self.thread, citations, selection).await?;
                     let report = observed.verification;
                     sources.extend(report.outputs.clone());
                     sources.extend(report.checks.iter().map(|c| c.output.clone()));
                     let hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterVerification,
-                        format!("verify-{}", call.call_id), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
+                        format!("verify-{}", call.call_id), vec![], json!({"tool":self.name}), &mut sources).await;
                     let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
-                        format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
-                    return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
+                        format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":self.name}), &mut sources).await;
+                    return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"diagnostic_only":diagnostic_only,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
                 }
                 if self.name == "vcp_artifact_read" {
                     let scoped = binding.clone();
@@ -717,8 +742,58 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
 mod mcp_content_tests {
     use super::*;
     #[test]
+    fn verification_focus_preserves_legacy_calls_and_strict_schema() {
+        let definitions = schemas();
+        let codec = vcp_models::request::Tools::parse(&definitions).unwrap();
+        codec
+            .validate_call("vcp_verify", r#"{"citations":[]}"#)
+            .unwrap();
+        serde_json::from_str::<VerificationInput>(r#"{"citations":[]}"#).unwrap();
+        let focused = json!({"affected_paths":["ui/source.ts"],"failed_checks":[]});
+        codec
+            .validate_call("vcp_verify_focused", &focused.to_string())
+            .unwrap();
+        assert_eq!(
+            serde_json::from_value::<VerificationFocus>(focused)
+                .unwrap()
+                .affected_paths,
+            ["ui/source.ts"]
+        );
+        for value in [
+            json!({"affected_paths":[],"failed_checks":[],"command":"arbitrary"}),
+            json!({"affected_paths":[]}),
+            json!(null),
+        ] {
+            assert!(codec
+                .validate_call("vcp_verify_focused", &value.to_string())
+                .is_err());
+            assert!(serde_json::from_value::<VerificationFocus>(value).is_err());
+        }
+        assert!(codec
+            .validate_call("vcp_verify", r#"{"citations":[],"focus":null}"#)
+            .is_err());
+        for name in ["vcp_verify", "vcp_verify_focused"] {
+            let verify = definitions
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|value| value["name"] == name)
+                .unwrap();
+            assert_eq!(verify["strict"], true);
+            assert_eq!(verify["parameters"]["additionalProperties"], false);
+            assert_eq!(
+                verify["parameters"]["required"],
+                if name == "vcp_verify" {
+                    json!(["citations"])
+                } else {
+                    json!(["affected_paths", "failed_checks"])
+                }
+            );
+        }
+    }
+    #[test]
     fn unsupported_tool_paths_cannot_bypass_configured_authorization_hooks() {
-        for tool in ["vcp_mcp", "vcp_verify"] {
+        for tool in ["vcp_mcp", "vcp_verify", "vcp_verify_focused"] {
             assert!(check_hook_tool_boundary(tool, true)
                 .unwrap_err()
                 .contains("not dispatched"));

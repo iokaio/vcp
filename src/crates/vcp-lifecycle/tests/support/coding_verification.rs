@@ -80,7 +80,30 @@ async fn owner_completion_repairs_then_reverifies_same_task() {
         run(backend, "owner_repaired").await;
     }
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_focused_tool_checks_are_diagnostic_until_full_completion() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for mode in [
+            "focused",
+            "focused_fallback",
+            "focused_denied",
+            "focused_named_denied",
+        ] {
+            run(backend, mode).await;
+        }
+        // Unchanged legacy script omits focus entirely, through actual retained
+        // schema/tool dispatch and ordinary full completion, not just serde.
+        run(backend, "pass").await;
+    }
+}
 async fn run(backend: BackendKind, mode: &'static str) {
+    let focused = mode.starts_with("focused");
+    let focused_named_denied = mode == "focused_named_denied";
+    let mode = if mode == "focused_denied" || focused_named_denied {
+        "denied"
+    } else {
+        mode
+    };
     let owner_recheck = mode.starts_with("owner_");
     let scope_refresh = mode == "owner_refresh";
     let changed_instructions = mode == "owner_changed_instructions";
@@ -129,6 +152,24 @@ async fn run(backend: BackendKind, mode: &'static str) {
     )
     .unwrap();
     fs::write(workspace.join("acceptance.cjs"), format!("const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');test('changed_value',()=>{{fs.writeFileSync({},'ran');assert.equal(fs.readFileSync('value.txt','utf8').trim(),'42');}});", serde_json::to_string(&oracle).unwrap())).unwrap();
+    if focused {
+        fs::create_dir(workspace.join("other")).unwrap();
+        fs::write(
+            workspace.join("other/package.json"),
+            br#"{"scripts":{"test":"node --test acceptance.cjs"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            workspace.join("other/acceptance.cjs"),
+            "require('node:test')('other_acceptance',()=>{});",
+        )
+        .unwrap();
+        fs::write(
+            workspace.join("other/AGENTS.md"),
+            "Focused fixture guidance: review the other project before reissuing verification.",
+        )
+        .unwrap();
+    }
     if mode == "failed_large" {
         // Actual configured check output. The mock provider cannot manufacture
         // the diagnostic; assertions below inspect its next received context.
@@ -152,7 +193,14 @@ async fn run(backend: BackendKind, mode: &'static str) {
             } else {
                 EffectClass::Execute
             }]),
-            tool: Some("vcp_verify".into()),
+            tool: Some(
+                if focused_named_denied {
+                    "vcp_verify_focused"
+                } else {
+                    "vcp_verify"
+                }
+                .into(),
+            ),
             roots: BTreeSet::new(),
             paths: vec![],
         });
@@ -214,7 +262,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
     // The repair adds another complete tool pair after failed-check output.
     // The historical 24-KiB fixture legitimately cannot contain that request;
     // this workflow fixture declares its larger synthetic endpoint explicitly.
-    let (snapshot, raw) = if owner_recheck {
+    let (snapshot, raw) = if owner_recheck || focused {
         provider_snapshot_capacity(240_000, 200_000)
     } else {
         provider_snapshot()
@@ -227,12 +275,23 @@ async fn run(backend: BackendKind, mode: &'static str) {
     let server = start_mock_server().await;
     Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request:&wiremock::Request| {
         let index = calls.fetch_add(1,Ordering::SeqCst);
-        observed.lock().unwrap().push(serde_json::from_slice::<serde_json::Value>(&request.body).unwrap());
+        let received: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        observed.lock().unwrap().push(received.clone());
         let mut events=Vec::new();
         let mut output=Vec::new();
         let selected = match index {
             0 => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}))),
             1 => Some(("vcp_patch",serde_json::json!({"patch":format!("*** Begin Patch\n*** Update File: value.txt\n@@\n-41\n+{}\n*** End Patch",if mode=="failed" {43}else{42})}))),
+            2 | 3 if focused && (index == 2 || mode != "denied") => {
+                if index == 3 {
+                    let prior = received["input"].as_array().unwrap().iter().find(|item| item["type"] == "function_call_output" && item["call_id"] == "call-2").unwrap();
+                    let prior: serde_json::Value = serde_json::from_str(prior["output"].as_str().unwrap()).unwrap();
+                    assert_eq!(prior["executed"], false);
+                    assert_eq!(prior["code"], "instruction_scope_refresh");
+                    assert!(received.to_string().contains("Focused fixture guidance: review the other project before reissuing verification."));
+                }
+                Some(("vcp_verify_focused",serde_json::json!({"affected_paths":if mode=="focused" {vec!["value.txt"]} else {vec![]},"failed_checks":if mode=="focused_fallback" {vec!["unknown#test"]} else {vec![]}})))
+            },
             2 if mode != "missing" => Some(("vcp_verify",serde_json::json!({"citations":[]}))),
             3 if mode == "later_effect" => Some(("vcp_read",serde_json::json!({"path":"value.txt","max_bytes":1024,"start_line":null,"end_line":null}))),
             3 if mode == "siblings" => Some(("vcp_verify",serde_json::json!({"citations":[]}))),
@@ -278,14 +337,27 @@ async fn run(backend: BackendKind, mode: &'static str) {
     host.configure_verification(
         thread,
         VerificationConfig {
-            requirements: vec![Requirement {
-                timeout_ms: None,
-                manifest: "package.json".into(),
-                runner: Runner::Node,
-                profile: "node".into(),
-                expected_tests: vec!["changed_value".into()],
-                rationale: "Assert the source changed by the retained patch".into(),
-            }],
+            requirements: {
+                let mut requirements = vec![Requirement {
+                    timeout_ms: None,
+                    manifest: "package.json".into(),
+                    runner: Runner::Node,
+                    profile: "node".into(),
+                    expected_tests: vec!["changed_value".into()],
+                    rationale: "Assert the source changed by the retained patch".into(),
+                }];
+                if focused {
+                    requirements.push(Requirement {
+                        timeout_ms: None,
+                        manifest: "other/package.json".into(),
+                        runner: Runner::Node,
+                        profile: "node".into(),
+                        expected_tests: vec!["other_acceptance".into()],
+                        rationale: "Independent full completion requirement".into(),
+                    });
+                }
+                requirements
+            },
             rationale: "Native retained-loop acceptance".into(),
         },
     )
@@ -339,7 +411,7 @@ async fn run(backend: BackendKind, mode: &'static str) {
         0
     } else if mode == "missing" {
         3
-    } else if matches!(mode, "later_effect" | "siblings") {
+    } else if matches!(mode, "later_effect" | "siblings") || (focused && mode != "denied") {
         5
     } else {
         4
@@ -364,7 +436,21 @@ async fn run(backend: BackendKind, mode: &'static str) {
     assert_eq!(
         oracle.exists(),
         !matches!(mode, "missing" | "denied" | "denied_context" | "not_run"),
-        "actual independent test execution: {mode}"
+        "actual independent test execution: {mode}; tool result: {:?}",
+        requests
+            .lock()
+            .unwrap()
+            .last()
+            .and_then(|request| request["input"].as_array())
+            .and_then(|input| input
+                .iter()
+                .find(|item| item["type"] == "function_call_output" && item["call_id"] == "call-2"))
+            .map(|item| item["output"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(4096)
+                .collect::<String>())
     );
     assert!(!workspace.join("must-not-exist.txt").exists());
     let before = host.snapshot().unwrap();
@@ -384,6 +470,65 @@ async fn run(backend: BackendKind, mode: &'static str) {
         );
     } else {
         assert!(reports.is_empty());
+    }
+    if focused && mode != "denied" {
+        let fallback = mode == "focused_fallback";
+        assert_eq!(reports[0].checks.len(), if fallback { 2 } else { 1 });
+        let captured = requests.lock().unwrap();
+        let output = captured.last().unwrap()["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["type"] == "function_call_output" && item["call_id"] == "call-3")
+            .unwrap();
+        let output: serde_json::Value =
+            serde_json::from_str(output["output"].as_str().unwrap()).unwrap();
+        assert_eq!(output["diagnostic_only"], true);
+        assert_eq!(
+            output["diagnostics"].as_array().unwrap().len(),
+            if fallback { 2 } else { 1 }
+        );
+        drop(captured);
+        let plan = before
+            .records
+            .values()
+            .filter(|r| r.collection == Collection::Artifact)
+            .map(|r| r.decode::<ArtifactDescriptor>().unwrap())
+            .find(|a| a.spec.schema == "verification-plan/1")
+            .unwrap();
+        let plan: serde_json::Value =
+            serde_json::from_slice(&host.read_artifact(plan.spec.id).unwrap()).unwrap();
+        assert_eq!(plan["completion"], false);
+        assert_eq!(plan["selection"]["mode"], "focused");
+        assert_eq!(plan["full_fallback"], fallback);
+        assert_eq!(
+            plan["plans"].as_array().unwrap().len(),
+            if fallback { 2 } else { 1 }
+        );
+        assert!(host.complete_coding_turn(thread).is_err());
+        assert!(matches!(
+            host.try_complete_verified(thread, reports[0].id.clone())
+                .unwrap(),
+            vcp_lifecycle::foundation::verification::CompletionAttempt::Rejected(_)
+        ));
+        let full = host.verify_for_completion(thread).await.unwrap();
+        assert_eq!(full.checks.len(), 2);
+        assert!(full
+            .checks
+            .iter()
+            .all(|check| check.outcome == CheckOutcome::Passed));
+        assert!(matches!(
+            host.try_complete_verified(thread, full.id).unwrap(),
+            vcp_lifecycle::foundation::verification::CompletionAttempt::Completed(_)
+        ));
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            expected,
+            "owner full verification does not dispatch inference"
+        );
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        return;
     }
     if !matches!(mode, "missing" | "denied_context" | "siblings") {
         let captured = requests.lock().unwrap();

@@ -76,6 +76,7 @@ impl Context {
                 "vcp_patch",
                 "vcp_exec",
                 "vcp_verify",
+                "vcp_verify_focused",
             ] {
                 self.tool_read_access(&root.identity.root, tool)?;
             }
