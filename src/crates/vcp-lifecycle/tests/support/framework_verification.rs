@@ -8,7 +8,7 @@ use vcp_domain::{policy::*, verification::CheckOutcome};
 use vcp_lifecycle::foundation::verification::VerificationConfig;
 use vcp_tools::{
     process::{Mode, Profile},
-    verification::{Requirement, Runner},
+    verification::{MavenLauncher, Requirement, Runner},
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -28,7 +28,29 @@ async fn actual_dotnet_checks_preserve_failed_evidence_before_completion() {
     }
 }
 
+#[cfg(feature = "maven-qualification")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn actual_maven_checks_preserve_failed_evidence_before_completion() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        run(backend, Runner::Maven).await;
+        run_case(backend, Runner::Maven, true).await;
+    }
+}
+
+#[cfg(feature = "python-qualification")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn actual_pytest_checks_preserve_failed_evidence_before_completion() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        run(backend, Runner::Pytest).await;
+        run_case(backend, Runner::Pytest, true).await;
+    }
+}
+
 async fn run(backend: BackendKind, runner: Runner) {
+    run_case(backend, runner, false).await;
+}
+
+async fn run_case(backend: BackendKind, runner: Runner, missing_required_test: bool) {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     fs::create_dir(&workspace).unwrap();
@@ -44,6 +66,7 @@ async fn run(backend: BackendKind, runner: Runner) {
         ("TEMP".into(), temp.path().display().to_string()),
         ("TMP".into(), temp.path().display().to_string()),
     ]);
+    let mut maven = None;
     let (manifest, expected, changed, initial, defective, fixed, executable) = match runner {
         Runner::Cargo => {
             fs::create_dir(workspace.join("src")).unwrap();
@@ -100,6 +123,92 @@ async fn run(backend: BackendKind, runner: Runner) {
                 "# Initial documentation\n",
                 "[Guide](missing.md)\n",
                 "[Guide](guide.md)\n",
+                executable,
+            )
+        }
+        Runner::Maven => {
+            let executable: std::path::PathBuf = std::env::var_os("VCP_TEST_JAVA")
+                .expect("explicit real Java executable")
+                .into();
+            let home = std::path::PathBuf::from(
+                std::env::var_os("VCP_TEST_MAVEN_HOME")
+                    .expect("explicit verified Maven installation"),
+            );
+            let repository = std::path::PathBuf::from(
+                std::env::var_os("VCP_TEST_MAVEN_REPOSITORY")
+                    .expect("explicit offline Maven dependency cache"),
+            );
+            assert!(executable.is_absolute() && home.is_absolute() && repository.is_absolute());
+            let jars: Vec<_> = fs::read_dir(home.join("boot"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| {
+                    let name = path.file_name().unwrap().to_string_lossy();
+                    name.starts_with("plexus-classworlds-") && name.ends_with(".jar")
+                })
+                .collect();
+            assert_eq!(jars.len(), 1, "one explicit Maven ClassWorlds launcher");
+            maven = Some(MavenLauncher {
+                classworlds_jar: jars[0].display().to_string(),
+                classworlds_conf: home.join("bin/m2.conf").display().to_string(),
+                home: home.display().to_string(),
+            });
+            fs::create_dir_all(workspace.join("src/main/java/acceptance")).unwrap();
+            fs::create_dir_all(workspace.join("src/test/java/acceptance")).unwrap();
+            fs::create_dir(workspace.join(".mvn")).unwrap();
+            fs::write(workspace.join(".gitignore"), "/target/\n").unwrap();
+            // The real Maven runner stays offline and uses only the explicitly
+            // supplied cache, without ambient Maven settings or credentials.
+            let repository = repository
+                .display()
+                .to_string()
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            fs::write(
+                workspace.join("vcp-settings.xml"),
+                format!("<settings><localRepository>{repository}</localRepository><offline>true</offline></settings>\n"),
+            )
+            .unwrap();
+            fs::write(
+                workspace.join(".mvn/maven.config"),
+                "--settings\nvcp-settings.xml\n--global-settings\nvcp-settings.xml\n",
+            )
+            .unwrap();
+            fs::write(workspace.join("pom.xml"), r#"<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>io.vcp</groupId><artifactId>verification-fixture</artifactId><version>1.0.0</version><properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin></plugins></build></project>"#).unwrap();
+            fs::write(workspace.join("src/test/java/acceptance/AcceptanceTest.java"), "package acceptance;\nimport org.junit.jupiter.api.Test;\nimport org.junit.jupiter.api.io.TempDir;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\nimport static org.junit.jupiter.api.Assertions.assertEquals;\npublic class AcceptanceTest { @Test void observedAnswer(@TempDir Path temporary) throws Exception { Files.writeString(Path.of(\"../assertion-observed\"), \"ran\"); Path answer = temporary.resolve(\"answer.txt\"); Files.writeString(answer, Integer.toString(Value.answer())); assertEquals(\"42\", Files.readString(answer)); } }\n").unwrap();
+            (
+                "pom.xml",
+                "acceptance.AcceptanceTest.observedAnswer",
+                "src/main/java/acceptance/Value.java",
+                "package acceptance; public class Value { public static int answer() { return 40; } }\n",
+                "package acceptance; public class Value { public static int answer() { return 41; } }\n",
+                "package acceptance; public class Value { public static int answer() { return 42; } }\n",
+                executable,
+            )
+        }
+        Runner::Pytest => {
+            let executable = std::env::var_os("VCP_TEST_PYTHON")
+                .expect("explicit real Python interpreter with pytest installed")
+                .into();
+            fs::write(
+                workspace.join(".gitignore"),
+                "__pycache__/\n.pytest_cache/\n",
+            )
+            .unwrap();
+            fs::write(
+                workspace.join("pyproject.toml"),
+                "[tool.pytest.ini_options]\ntestpaths = [\"test_acceptance.py\"]\n",
+            )
+            .unwrap();
+            fs::write(workspace.join("test_acceptance.py"), "from pathlib import Path\nfrom value import answer\n\ndef test_observed_answer():\n    Path('../assertion-observed').write_text('ran')\n    assert answer() == 42\n").unwrap();
+            (
+                "pyproject.toml",
+                "test_acceptance.py::test_observed_answer",
+                "value.py",
+                "def answer():\n    return 40\n",
+                "def answer():\n    return 41\n",
+                "def answer():\n    return 42\n",
                 executable,
             )
         }
@@ -179,7 +288,50 @@ async fn run(backend: BackendKind, runner: Runner) {
             )
         }
     };
-    fs::write(workspace.join(changed), initial).unwrap();
+    let stale_python_timestamp = if runner == Runner::Pytest {
+        // A normal timestamp/size-valid cache contains the passing answer while
+        // the current source below contains a defect. Verification must execute
+        // source, even when an edit preserves both byte length and modification time.
+        fs::write(workspace.join(changed), fixed).unwrap();
+        let timestamp = fs::metadata(workspace.join(changed))
+            .unwrap()
+            .modified()
+            .unwrap();
+        let compiled = std::process::Command::new(&executable)
+            .current_dir(&workspace)
+            .env_clear()
+            .envs(&environment)
+            .args([
+                "-c",
+                "import py_compile; py_compile.compile('value.py', doraise=True)",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        assert!(fs::read_dir(workspace.join("__pycache__"))
+            .unwrap()
+            .next()
+            .is_some());
+        Some(timestamp)
+    } else {
+        None
+    };
+    let write_source = |source: &str| {
+        fs::write(workspace.join(changed), source).unwrap();
+        if let Some(timestamp) = stale_python_timestamp {
+            fs::File::options()
+                .write(true)
+                .open(workspace.join(changed))
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(timestamp))
+                .unwrap();
+        }
+    };
+    write_source(initial);
     let config = config(&temp.path().join("canonical"), &workspace, backend);
     let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
     let binding = task(&host, &config, config.root_task.clone(), None);
@@ -256,12 +408,51 @@ async fn run(backend: BackendKind, runner: Runner) {
         .unwrap(),
     )
     .unwrap();
-    host.configure_verification(thread, VerificationConfig {
-        requirements: vec![Requirement { timeout_ms: None,manifest: manifest.into(),runner,profile:"check".into(),expected_tests:vec![expected.into()],rationale:"Exercise the actual changed source or documentation target".into()}],
-        rationale:"Native framework qualification with a seeded defect and independently observed test execution".into(),
-    }).unwrap();
+    let verification_config = VerificationConfig {
+        requirements: vec![Requirement {
+            timeout_ms: None,
+            manifest: manifest.into(),
+            runner,
+            profile: "check".into(),
+            expected_tests: vec![if missing_required_test {
+                "absent_named_acceptance".into()
+            } else {
+                expected.into()
+            }],
+            maven,
+            rationale: "Exercise the actual changed source or documentation target".into(),
+        }],
+        rationale: "Native framework qualification with a seeded defect and independently observed test execution".into(),
+    };
+    host.configure_verification(thread, verification_config)
+        .unwrap();
 
-    fs::write(workspace.join(changed), defective).unwrap();
+    if missing_required_test {
+        // Acceptance configuration is immutable after execution starts. Use a
+        // fresh owner/task whose initial requirement names an absent test, while
+        // the real runner executes the valid passing test against fixed source.
+        write_source(fixed);
+        let absent = host.verify(thread, vec![]).await.unwrap();
+        assert_eq!(
+            absent.checks[0].outcome,
+            CheckOutcome::Failed {
+                reason: "expected acceptance tests were not observed".into(),
+            },
+            "{backend:?}/{runner:?}: {absent:?}"
+        );
+        assert_eq!(fs::read(&oracle).unwrap(), b"ran");
+        assert!(host.complete_verified(thread, absent.id).is_err());
+        assert_ne!(
+            host.project().unwrap().tasks[&config.root_task].state,
+            TaskState::Completed
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+        return;
+    }
+
+    write_source(defective);
     let failed = host.verify(thread, vec![]).await.unwrap();
     assert!(
         matches!(failed.checks[0].outcome, CheckOutcome::Failed { .. }),
@@ -280,7 +471,7 @@ async fn run(backend: BackendKind, runner: Runner) {
         .clone();
     let failed_output = host.read_artifact(failed.checks[0].output.clone()).unwrap();
 
-    fs::write(workspace.join(changed), fixed).unwrap();
+    write_source(fixed);
     fs::write(&oracle, b"awaiting fresh check").unwrap();
     let passed = host.verify(thread, vec![]).await.unwrap();
     assert_eq!(
@@ -295,7 +486,18 @@ async fn run(backend: BackendKind, runner: Runner) {
         "{backend:?}/{runner:?}: {:?}",
         passed.outstanding_issues
     );
-    host.complete_verified(thread, passed.id).unwrap();
+    if matches!(runner, Runner::Maven | Runner::Pytest) {
+        write_source(defective);
+        assert!(host.complete_verified(thread, passed.id).is_err());
+        write_source(fixed);
+        fs::write(&oracle, b"awaiting fresh check").unwrap();
+        let fresh = host.verify(thread, vec![]).await.unwrap();
+        assert_eq!(fresh.checks[0].outcome, CheckOutcome::Passed);
+        assert_eq!(fs::read(&oracle).unwrap(), b"ran");
+        host.complete_verified(thread, fresh.id).unwrap();
+    } else {
+        host.complete_verified(thread, passed.id).unwrap();
+    }
     let state = host.snapshot().unwrap();
     assert_eq!(
         state

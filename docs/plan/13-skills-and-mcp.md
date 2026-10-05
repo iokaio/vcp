@@ -89,6 +89,14 @@ Create each skill with bounded purpose, project-detection cues, analysis/review/
 
 Publish coverage as analyze/review/generate/test capabilities per family and validated host/toolchain. Package only versioned assets with source/license records. A skill must not install a missing toolchain merely because it recommends a check.
 
+The October 5 owner-directed TI-01 extension adds the cross-stack
+`toolchain-installation` skill for authorized environment setup and missing-tool
+repair. An install already covered by the user's task and current runtime effects
+is work to perform before retrying the original task. Discovery or a recommended
+check alone is still not installation authority. See the
+[TI-01 contract and evidence](../research/skills-upgrade-plan.md#ti-01--cross-stack-toolchain-installation)
+for supported workflows and actual qualification.
+
 Tests pair descriptors with small source fixtures and deterministic expectation checks: correct project commands/paths, architecture conventions, lockfile preservation, useful findings and explicit not-run checks. Use selected live U01–U03/U08 tasks for output quality; do not grade by exact prose matching.
 
 **Construction sequence.** Start each family from a coverage row and fixture,

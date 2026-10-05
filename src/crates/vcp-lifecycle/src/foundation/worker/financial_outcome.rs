@@ -5,6 +5,18 @@ use serde::{Deserialize, Serialize};
 
 const SCHEMA: &str = "provider-completed-execution/1";
 const MARKER_LIMIT: u64 = 8192;
+const EMPTY_RETRY_SCHEMA: &str = "provider-empty-response-retry/1";
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyRetryProof {
+    attempt: AttemptId,
+    scope: Scope,
+    send_intent: EventId,
+    request_digest: String,
+    admission_digest: String,
+    raw: ArtifactDescriptor,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +32,156 @@ struct Proof {
 }
 
 impl Context {
+    // A failed response with no bytes cannot have supplied an executable tool
+    // call. Retain that evidence separately from its still-unknown charge. This
+    // marker is written only by bounded retry scheduling, never by permit drop.
+    pub(super) fn record_empty_response_retry(&mut self, id: &AttemptId) -> Result<()> {
+        let attempt =
+            vcp_budget::attempt(self.engine.store().current(), id, &self.config.workspace)?;
+        let captures: Vec<ArtifactDescriptor> = self
+            .engine
+            .store()
+            .current()
+            .records
+            .values()
+            .filter(|row| {
+                row.collection == Collection::Artifact && row.workspace == attempt.scope.workspace
+            })
+            .map(Record::decode)
+            .collect::<std::result::Result<_, _>>()?;
+        let captures: Vec<_> = captures
+            .into_iter()
+            .filter(|raw| {
+                raw.spec.scope == attempt.scope
+                    && raw.spec.channel == Channel::Response
+                    && raw.spec.schema == "responses-sse-observed-through-terminal/1"
+                    && raw.spec.source == capture_recovery::source(id)
+            })
+            .collect();
+        let [raw] = captures.as_slice() else {
+            return Ok(());
+        };
+        if raw.state != CaptureState::Aborted
+            || raw.length.get() != 0
+            || raw.sha256 != vcp_protocol::digest_bytes(&[])
+        {
+            return Ok(());
+        }
+        let proof = EmptyRetryProof {
+            attempt: attempt.id,
+            scope: attempt.scope.clone(),
+            send_intent: attempt.send_intent.ok_or("empty retry lacks send intent")?,
+            request_digest: attempt.request_digest,
+            admission_digest: attempt.admission_digest,
+            raw: raw.clone(),
+        };
+        let bytes = canonical_bytes(&proof)?;
+        if bytes.len() as u64 > MARKER_LIMIT {
+            return Err("empty retry proof exceeds bound".into());
+        }
+        self.capture(
+            &attempt.scope,
+            Channel::Evidence,
+            &bytes,
+            EMPTY_RETRY_SCHEMA,
+        )?;
+        Ok(())
+    }
+
+    fn retried_empty_response(&self, current: &Attempt) -> Result<bool> {
+        // Do not present an exhausted, cancelled or merely scheduled retry as
+        // recovered execution. Completion still requires ordinary verification.
+        let task: Task = self
+            .engine
+            .store()
+            .current()
+            .record(
+                Collection::Task,
+                current.scope.task.as_str(),
+                &current.scope.workspace,
+            )?
+            .decode()?;
+        if task.scope != current.scope || task.state != TaskState::Completed {
+            return Ok(false);
+        }
+        let mut selected = None;
+        let mut successors = 0;
+        for row in self
+            .engine
+            .store()
+            .current()
+            .records
+            .values()
+            .filter(|row| row.workspace == current.scope.workspace)
+        {
+            if row.collection == Collection::Attempt {
+                let next: Attempt = row.decode()?;
+                if next.previous.as_ref() == Some(&current.id)
+                    && next.scope == current.scope
+                    && next.root == current.root
+                    && next.send_intent.is_some()
+                {
+                    successors += 1;
+                }
+            } else if row.collection == Collection::Artifact {
+                let descriptor: ArtifactDescriptor = row.decode()?;
+                if descriptor.spec.schema != EMPTY_RETRY_SCHEMA
+                    || descriptor.spec.scope != current.scope
+                {
+                    continue;
+                }
+                let bytes = self.financial_proof_bytes(&descriptor, MARKER_LIMIT)?;
+                let proof: EmptyRetryProof = serde_json::from_slice(&bytes)?;
+                if canonical_bytes(&proof)? != bytes {
+                    return Err("empty retry proof is not canonical".into());
+                }
+                if proof.attempt == current.id && selected.replace(proof).is_some() {
+                    return Ok(false);
+                }
+            }
+        }
+        let Some(proof) = selected else {
+            return Ok(false);
+        };
+        if successors != 1
+            || proof.scope != current.scope
+            || Some(&proof.send_intent) != current.send_intent.as_ref()
+            || proof.request_digest != current.request_digest
+            || proof.admission_digest != current.admission_digest
+            || proof.raw.spec.scope != current.scope
+            || proof.raw.spec.source != capture_recovery::source(&current.id)
+            || proof.raw.spec.schema != "responses-sse-observed-through-terminal/1"
+            || proof.raw.spec.channel != Channel::Response
+        {
+            return Ok(false);
+        }
+        let raw: ArtifactDescriptor = self
+            .engine
+            .store()
+            .current()
+            .record(
+                Collection::Artifact,
+                proof.raw.spec.id.as_str(),
+                &current.scope.workspace,
+            )?
+            .decode()?;
+        if raw != proof.raw
+            || raw.state != CaptureState::Aborted
+            || raw.length.get() != 0
+            || raw.sha256 != vcp_protocol::digest_bytes(&[])
+        {
+            return Ok(false);
+        }
+        let mut bytes = Vec::new();
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &raw.spec.id,
+                &mut bytes,
+            ))?;
+        Ok(bytes.is_empty())
+    }
     pub(super) fn record_completed_financial_uncertainty(
         &mut self,
         attempt: &Attempt,
@@ -95,7 +257,7 @@ impl Context {
             }
         }
         let Some(proof) = selected else {
-            return Ok(false);
+            return self.retried_empty_response(&current);
         };
         if proof.scope != current.scope
             || Some(&proof.send_intent) != current.send_intent.as_ref()

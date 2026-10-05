@@ -342,3 +342,378 @@ async fn new_invocation_stream_keeps_acceptance_and_final_receipt_without_prior_
         }
     }
 }
+
+fn assert_live_status(host: &CanonicalHost, scope: &Scope, state: TaskState, required_input: bool) {
+    let live = crate::outcome::LiveStatus::read(host, scope).unwrap();
+    let full = crate::outcome::Outcome::read(host, scope).unwrap();
+    assert_eq!(live.state, state);
+    assert_eq!(live.required_input, required_input);
+    assert_eq!(live.state, full.task.state);
+    assert_eq!(live.required_input, full.conditions.required_input);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_status_preserves_task_states_and_owner_approval() {
+    use vcp_protocol::command::{Approval, ApprovalState};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let config = config(&temp, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        for state in [
+            TaskState::Pending,
+            TaskState::Running,
+            TaskState::WaitingForInput,
+            TaskState::Blocked,
+            TaskState::Paused,
+            TaskState::Failed,
+            TaskState::Cancelled,
+        ] {
+            let task = TaskId::new();
+            create(&host, &task, None);
+            let scope = Scope {
+                workspace: config.workspace.clone(),
+                session: config.session.clone(),
+                task: task.clone(),
+            };
+            if state != TaskState::Pending {
+                host.command(
+                    Command::Transition {
+                        next: state,
+                        reason: "live status fixture".into(),
+                        verification: None,
+                    },
+                    Some(task),
+                    Revision::ZERO,
+                )
+                .unwrap();
+            }
+            assert_live_status(&host, &scope, state, state == TaskState::WaitingForInput);
+        }
+        let task = TaskId::new();
+        create(&host, &task, None);
+        host.command(
+            Command::Transition {
+                next: TaskState::Paused,
+                reason: "approval on paused task".into(),
+                verification: None,
+            },
+            Some(task.clone()),
+            Revision::ZERO,
+        )
+        .unwrap();
+        let scope = Scope {
+            workspace: config.workspace.clone(),
+            session: config.session.clone(),
+            task: task.clone(),
+        };
+        assert_live_status(&host, &scope, TaskState::Paused, false);
+        let effect = ToolRunId::new();
+        host.command(
+            Command::ProposeEffect {
+                id: effect.clone(),
+                operation_digest: "a".repeat(64),
+            },
+            Some(task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        let envelope = host
+            .control_envelope(
+                CommandId::new(),
+                task.clone(),
+                Revision::new(1),
+                Command::Inspect,
+            )
+            .unwrap();
+        let workspace: vcp_domain::workspace::Workspace = host
+            .current_state()
+            .unwrap()
+            .record(
+                Collection::Workspace,
+                config.workspace.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let approval = Approval {
+            id: ApprovalId::new(),
+            scope: scope.clone(),
+            effect: effect.clone(),
+            effect_revision: Revision::ZERO,
+            steering: SteeringRevision::ZERO,
+            operation_digest: "a".repeat(64),
+            actor: envelope.caller,
+            policy: PolicyRevision::ZERO,
+            expires_at: Timestamp::new(u64::MAX),
+            state: ApprovalState::Pending,
+            revision: Revision::ZERO,
+            controller: Some(envelope.controller),
+            owner_epoch: Some(envelope.owner_epoch),
+            authority: Some(workspace.authority),
+            binding: Some(workspace.binding.revision),
+        };
+        host.command(
+            Command::Ask {
+                approval: approval.clone(),
+            },
+            Some(task.clone()),
+            Revision::ZERO,
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Paused, true);
+        assert_eq!(
+            crate::outcome::Outcome::read(&host, &scope)
+                .unwrap()
+                .approvals,
+            vec![approval.clone()]
+        );
+        host.command(
+            Command::Decide {
+                id: approval.id,
+                operation_digest: approval.operation_digest,
+                effect_revision: Revision::ZERO,
+                allow: false,
+            },
+            Some(task),
+            Revision::ZERO,
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Paused, false);
+        owner.close().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_status_preserves_latest_turn_input_and_final_verification() {
+    use vcp_domain::verification::{CostCertainty, Verification};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temp = tempfile::tempdir().unwrap();
+        let config = config(&temp, backend);
+        let scope = Scope {
+            workspace: config.workspace.clone(),
+            session: config.session.clone(),
+            task: config.root_task.clone(),
+        };
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        owner.close().await.unwrap();
+        drop(host);
+        let store = Store::open(&config.canonical_root, backend, &[])
+            .await
+            .unwrap();
+        let mut capture = store
+            .spool()
+            .create(ArtifactSpec {
+                id: ArtifactId::new(),
+                scope: scope.clone(),
+                media_type: "text/plain".into(),
+                schema: "coding-turn-input/1".into(),
+                source: "live status fixture".into(),
+                channel: Channel::Evidence,
+                retention: "history".into(),
+                omissions: vec![],
+            })
+            .unwrap();
+        capture
+            .write_chunk(b"live status input and verification evidence")
+            .unwrap();
+        let descriptor = capture.finalize().unwrap();
+        drop(capture);
+        store.close().await.unwrap();
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        create(&host, &scope.task, None);
+        host.command(
+            Command::AttachArtifact {
+                descriptor: descriptor.clone(),
+            },
+            Some(scope.task.clone()),
+            Revision::ZERO,
+        )
+        .unwrap();
+        host.command(
+            Command::Transition {
+                next: TaskState::Running,
+                reason: "live turn fixture".into(),
+                verification: None,
+            },
+            Some(scope.task.clone()),
+            Revision::ZERO,
+        )
+        .unwrap();
+        let turn = TurnId::new();
+        host.command(
+            Command::StartTurn {
+                id: turn.clone(),
+                trigger: descriptor.spec.id.clone(),
+            },
+            Some(scope.task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        host.command(
+            Command::AdvanceTurn {
+                id: turn.clone(),
+                next: TurnState::WaitingForInput,
+                reason: "input needed".into(),
+            },
+            Some(scope.task.clone()),
+            Revision::ZERO,
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Running, true);
+        host.command(
+            Command::AdvanceTurn {
+                id: turn,
+                next: TurnState::Failed,
+                reason: "old turn failed".into(),
+            },
+            Some(scope.task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Running, false);
+        assert!(
+            crate::outcome::Outcome::read(&host, &scope)
+                .unwrap()
+                .conditions
+                .incomplete
+        );
+        host.command(
+            Command::StartTurn {
+                id: TurnId::new(),
+                trigger: descriptor.spec.id.clone(),
+            },
+            Some(scope.task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Running, false);
+        let full = crate::outcome::Outcome::read(&host, &scope).unwrap();
+        assert!(
+            !full.conditions.incomplete,
+            "older failed turn must not override the latest turn"
+        );
+        let report = Verification {
+            redaction: None,
+            id: VerificationId::new(),
+            scope: scope.clone(),
+            steering: full.task.steering,
+            fingerprint: full.task.fingerprint,
+            outputs: vec![descriptor.spec.id],
+            checks: vec![],
+            unresolved_effects: vec![],
+            outstanding_issues: vec!["failed fixture check".into()],
+            cost: CostCertainty::Known,
+        };
+        host.command(
+            Command::RecordVerification {
+                verification: report.clone(),
+            },
+            Some(scope.task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Running, false);
+        assert!(
+            crate::outcome::Outcome::read(&host, &scope)
+                .unwrap()
+                .conditions
+                .incomplete
+        );
+        let repaired = Verification {
+            id: VerificationId::new(),
+            outstanding_issues: vec![],
+            ..report
+        };
+        host.command(
+            Command::RecordVerification {
+                verification: repaired,
+            },
+            Some(scope.task.clone()),
+            Revision::new(1),
+        )
+        .unwrap();
+        assert_live_status(&host, &scope, TaskState::Running, false);
+        assert!(
+            !crate::outcome::Outcome::read(&host, &scope)
+                .unwrap()
+                .conditions
+                .incomplete
+        );
+        owner.close().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_status_does_not_scan_verification_history_but_final_outcome_rejects_malformed_events()
+{
+    use vcp_protocol::event::{EventInput, EventKind};
+    use vcp_store::contract::Transaction;
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for (data, expected_error) in [
+            (
+                serde_json::json!({}),
+                Some("verification event facts missing"),
+            ),
+            (
+                serde_json::json!({"facts":[]}),
+                Some("verification event reference missing"),
+            ),
+            (
+                serde_json::json!({"facts":[{"collection":"verification","id":"missing-report"}]}),
+                None,
+            ),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let config = config(&temp, backend);
+            let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+            create(&host, &config.root_task, None);
+            let scope = Scope {
+                workspace: config.workspace.clone(),
+                session: config.session.clone(),
+                task: config.root_task.clone(),
+            };
+            assert_live_status(&host, &scope, TaskState::Pending, false);
+            owner.close().await.unwrap();
+            drop(host);
+            let mut store = Store::open(&config.canonical_root, backend, &[])
+                .await
+                .unwrap();
+            store
+                .transact(Transaction {
+                    id: TransactionId::new(),
+                    expected_watermark: store.current().watermark,
+                    mutations: vec![],
+                    events: vec![EventInput {
+                        id: EventId::new(),
+                        workspace: scope.workspace.clone(),
+                        session: scope.session.clone(),
+                        task: Some(scope.task.clone()),
+                        actor: config.actor.clone(),
+                        correlation: CommandId::new(),
+                        causation: None,
+                        timestamp: crate::settings::now(),
+                        kind: EventKind::VerificationRecorded,
+                        artifacts: vec![],
+                        data,
+                        metadata: None,
+                    }],
+                    command: None,
+                })
+                .await
+                .unwrap();
+            store.close().await.unwrap();
+            let (host, owner) = CanonicalHost::open(config).unwrap();
+            let live = crate::outcome::LiveStatus::read(&host, &scope).unwrap();
+            assert!(!live.required_input);
+            let error = match crate::outcome::Outcome::read(&host, &scope) {
+                Ok(_) => panic!("final outcome accepted malformed verification history"),
+                Err(error) => error,
+            };
+            if let Some(expected) = expected_error {
+                assert_eq!(error, expected);
+            }
+            owner.close().await.unwrap();
+        }
+    }
+}

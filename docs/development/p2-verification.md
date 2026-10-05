@@ -61,6 +61,43 @@ repository discovery. Otherwise regenerated SDK files correctly make check
 evidence stale. The [.NET qualification](../evaluations/p2-dotnet-verification.md)
 records the supported toolchain and both-store evidence.
 
+Maven requirements use an observed `pom.xml` and a configured Java process
+profile. The owner supplies a `maven` object with absolute `home`,
+`classworlds_jar` (under that installation's `boot` directory) and
+`classworlds_conf` (`bin/m2.conf`) paths. Discovery constructs literal Java
+ClassWorlds arguments; it does not execute `mvn.cmd`, enable a shell, or accept
+extra launcher options. The current project directory supplies Maven's base
+directory. Verification runs offline `clean test`, disables test skipping and
+requires tests, with Surefire's plain console reports and color disabled.
+Dependencies must already be resolved through authorized process execution.
+The parser reconciles distinct `package.Class.method` results with every running
+class's nonempty count, the aggregate count and a single successful build.
+Surefire's ordinary method signatures, including JUnit-injected arguments such
+as `method(Path)` for `@TempDir`, normalize to the same bare method identity.
+Malformed signatures and overloaded or repeated results that collide after
+normalization fail closed; parameterized invocation labels are not collapsed.
+Missing method results, skipped/error/failure counts, duplicate names and
+multiple aggregate summaries fail closed. This qualifies ordinary single-project
+Surefire output; reactor builds, localized output and test engines that omit or
+duplicate method identities need separate qualification.
+
+Pytest requirements use an observed `pyproject.toml` and the configured Python
+process profile. Discovery runs `python -B -X pycache_prefix=<source namespace>
+-m pytest -vv --color=no -o addopts= -p no:cacheprovider`. The cache namespace is
+`.vcp-verification-pycache/` plus a digest of the complete observed source
+manifest. This bypasses ordinary timestamp-based bytecode caches, including
+same-size edits made within one timestamp interval; `-B` prevents new cache
+writes. The namespace is source-specific, not a sandbox against deliberately
+forged caches or test output. Clearing `addopts` prevents configured filtering or quiet
+output from hiding required tests; pytest still reads the project's test paths
+and other configuration. Distinct exact node IDs such as
+`tests/test_cli.py::test_version_flag` must all pass, and the collected count and
+final passed count must agree. Skipped, deselected, failed, xfailed/xpassed,
+duplicate and missing results cannot prove completion. Output from both runners
+uses the existing one-MiB parser ceiling and current process receipts; an exit
+code alone never satisfies either check. Build/cache directories must be
+explicitly ignored before establishing the observed source baseline.
+
 The configured runner must be direct and nonterminal. It still uses current
 policy, explicit filtered environment, native job ownership, process/time/output
 ceilings, durable dispatch and complete output receipts. Streaming native file

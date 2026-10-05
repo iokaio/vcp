@@ -73,6 +73,7 @@ async fn fixture(backend: BackendKind) -> Fixture {
                     timeout_ms: None,
                     manifest: "package.json".into(),
                     runner: Runner::Node,
+                    maven: None,
                     profile: "node".into(),
                     expected_tests: vec!["observer_acceptance".into()],
                     rationale: "Observe repeated actual failed checks".into(),

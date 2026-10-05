@@ -140,6 +140,8 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run Python helper regressions
         run: python -m unittest discover -s src/tests/skills -v
+      - name: Run verified toolchain installer regressions
+        run: pwsh -NoProfile -NonInteractive -File src/tests/skills/ToolchainInstallation.Tests.ps1
       - name: Run authoring validator and real browser checks
         env:
           VCP_SKILL_PLAYWRIGHT: ${{ github.workspace }}/src/tests/skills/browser/node_modules/playwright

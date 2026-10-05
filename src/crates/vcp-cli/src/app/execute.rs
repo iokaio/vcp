@@ -124,12 +124,11 @@ pub(super) async fn execute(
             .as_ref()
             .ok_or("resume selection owner unavailable")?;
         let selected = match &cli.command {
-            ValidatedCommand::Resume(resume) => match &resume.task {
-                Some(id) => task_from(store.current(), &config.workspace, id),
-                None => latest(store, &config.workspace, None).await,
-            },
+            ValidatedCommand::Resume(resume) => {
+                resume_selection(store, &config.workspace, resume.task.as_ref(), None).await
+            }
             ValidatedCommand::Sessions(Sessions::Resume { session }) => {
-                latest(store, &config.workspace, Some(session)).await
+                resume_selection(store, &config.workspace, None, Some(session)).await
             }
             ValidatedCommand::Sessions(Sessions::Fork {
                 session,
@@ -156,17 +155,13 @@ pub(super) async fn execute(
                 );
                 fork_origin = Some(source.scope.task.clone());
                 fork_boundary = Some(through_turn.clone());
-                Ok(source)
+                Ok((source, None))
             }
             _ => Err("unsupported execution command".into()),
         };
-        let selected = selected?;
+        let (selected, summary) = selected?;
         if objective.is_none() {
             selected_revision = Some(selected.revision);
-            let summary = crate::continuation::candidates_store(store, &config.workspace)
-                .await?
-                .into_iter()
-                .find(|row| row.task == selected.scope.task);
             if let Some(summary) = summary {
                 let summary = crate::continuation::summarize(summary)?;
                 eprintln!(
@@ -464,11 +459,11 @@ pub(super) async fn execute(
                     }
                 }
             _=tick.tick()=>{
-                let outcome=crate::outcome::Outcome::read(&host,&scope)?;
-                if outcome.conditions.required_input {
+                let status=crate::outcome::LiveStatus::read(&host,&scope)?;
+                if status.required_input {
                     break;
                 }
-                if outcome.task.state!=TaskState::Running{break;}
+                if status.state!=TaskState::Running{break;}
                 if lifecycle_pending.is_none() {if let Some(notice)=shadow.poll(&host,session.id).await{eprintln!("vcp: {notice}");}}
                 after=output.drain_events(&host,&correlation,after).await?;
             }

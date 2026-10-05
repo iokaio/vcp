@@ -715,7 +715,9 @@ fn response(index: usize, mode: &str) -> String {
     let call = match index {
         0 => Some((
             "vcp_patch",
-            json!({"patch":"*** Begin Patch\n*** Update File: value.txt\n@@\n-41\n+42\n*** End Patch"}),
+            // Missing model verification is repaired by owner completion;
+            // the incomplete case must actually fail the acceptance check.
+            json!({"patch":format!("*** Begin Patch\n*** Update File: value.txt\n@@\n-41\n+{}\n*** End Patch", if mode == "incomplete" {43} else {42})}),
         )),
         1 if mode != "incomplete" => Some(("vcp_verify", json!({"citations":[]}))),
         _ => None,
@@ -2181,7 +2183,7 @@ async fn executable_runs_verifies_lists_inspects_and_forks() {
     );
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
+async fn executable_preflight_legacy_budget_question_and_incomplete_are_truthful() {
     for mode in ["budget", "question", "incomplete"] {
         let server = MockServer::start().await;
         let count = Arc::new(AtomicUsize::new(0));
@@ -2196,6 +2198,14 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
             .mount(&server)
             .await;
         let fixture = Fixture::new(&server.uri(), mode);
+        if mode == "incomplete" {
+            // This exit fixture needs a patch, final response and real failed
+            // owner check; repeated unchanged repair answers belong elsewhere.
+            let mut profile: Value =
+                serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+            profile["max_requests"] = json!(2);
+            fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        }
         for args in [
             vec!["run"],
             vec!["run", "--file", "missing-task-file"],
@@ -2220,7 +2230,7 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
         assert_eq!(
             output.status.code(),
             Some(match mode {
-                "budget" => 5,
+                "budget" => 0,
                 "question" => 4,
                 _ => 3,
             }),
@@ -2230,7 +2240,64 @@ async fn executable_preflight_budget_question_and_incomplete_are_truthful() {
             count.load(Ordering::SeqCst)
         );
         if mode == "budget" {
-            assert_eq!(count.load(Ordering::SeqCst), 0);
+            // EE-01 keeps legacy amounts parseable while public execution is
+            // unbounded. Actual charges must still survive the final result.
+            assert_eq!(count.load(Ordering::SeqCst), 3);
+            let result = values.last().unwrap();
+            assert_eq!(result["conditions"]["completed"], true);
+            assert_eq!(result["conditions"]["budget_exhausted"], false);
+            let task = result["scope"]["task"].as_str().unwrap();
+            let costs = fixture.run(&["inspect", task, "--view", "costs"]).await;
+            assert!(
+                costs.status.success(),
+                "{}",
+                String::from_utf8_lossy(&costs.stderr)
+            );
+            let costs = records(&costs);
+            let ledger = costs[0]["data"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["collection"] == "ledger")
+                .unwrap();
+            let ledger: vcp_domain::accounting::Ledger =
+                serde_json::from_value(ledger["record"].clone()).unwrap();
+            assert!(ledger.cap.is_unbounded());
+            assert!(
+                ledger.settled.get() > 1,
+                "retained charges must exceed the ignored one-micro legacy cap"
+            );
+        }
+        if mode == "incomplete" {
+            assert_eq!(count.load(Ordering::SeqCst), 2);
+            let result = values.last().unwrap();
+            assert_eq!(result["conditions"]["completed"], false);
+            assert_eq!(result["conditions"]["incomplete"], true);
+            assert_eq!(
+                fs::read_to_string(fixture.workspace.join("value.txt")).unwrap(),
+                "43\n"
+            );
+            let task = result["scope"]["task"].as_str().unwrap();
+            let verification = fixture
+                .run(&["inspect", task, "--view", "verification"])
+                .await;
+            assert!(verification.status.success());
+            let verification = records(&verification);
+            assert!(
+                verification[0]["data"]["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| {
+                        row["collection"] == "verification"
+                            && row["record"]["checks"].as_array().is_some_and(|checks| {
+                                checks
+                                    .iter()
+                                    .any(|check| check["outcome"]["status"] == "failed")
+                            })
+                    }),
+                "incomplete exit requires retained failed owner acceptance"
+            );
         }
     }
 }

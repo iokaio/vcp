@@ -245,8 +245,12 @@
       "sha256": "2799535afb26be662ac25b51837e4e5bfc3bd9c3e650a5af3a137222ff1099a3"
     },
     {
+      "path": "src/third_party/patches/codex/0053-empty-provider-body-retry.patch",
+      "sha256": "fb546b50b1db75284be5a36208f1c07759f55d6653191aaf8eebdde1563d5007"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
-      "sha256": "bb0f1b0475713b4d8fd807163803555a0d4215b2a2f99a67fac08d054537c970"
+      "sha256": "033c9d8021f92af6e6baed7c2621d41df669c320d9a38c412e46f517bf402226"
     }
   ],
   "licenses": [

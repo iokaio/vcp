@@ -182,6 +182,42 @@ host/toolchains remain explicitly unvalidated in the coverage matrix; they must
 not acquire execution-support claims from guidance or another family's checks.
 Static lint, fake model outputs and successful packaging do not qualify usefulness.
 
+### TI-01: Common development toolchain setup
+
+Catalog `1.75.0` adds `toolchain-installation` as the 30th bundled package. It is
+available by description even in an empty workspace. Select it with
+`vcp run --skill vcp-builtin::toolchain-installation::toolchain-installation`
+or the ordinary `/skills activate` control before asking VCP to prepare tools.
+The installation's sidecar catalog must match its executable; the next reviewed
+build carries these source changes. Do not replace a running older installation's
+assets independently of its embedded catalog.
+
+The skill covers finding the requested versions, authorized installation via
+platform package managers or official distributions, environment setup and actual
+project verification across common stacks. It follows project version pins and
+existing user scope. Its on-demand references include Windows/macOS/Linux setup
+and JVM, JavaScript, Python, .NET, Rust, Go, C/C++, Ruby, PHP, Dart/Flutter,
+Swift/mobile, data and infrastructure tools. New tools use the same documented
+vendor/package-manager procedure rather than a hard-coded package allowlist.
+
+The PowerShell 7.4+ `install-verified-archive.ps1` resource supplies verified
+portable ZIP installation. VCP copies it with `vcp_skill materialize` and invokes
+it with an existing authorized PowerShell process profile. The helper requires
+an exact SHA256/SHA512 digest and a fresh workspace-relative destination, rejects
+unsafe archive paths/links/collisions and excessive sizes, and preserves existing
+files. It neither executes the downloaded tool nor changes PATH. Package-manager,
+SDK-workload and non-ZIP installs use their own authorized vendor procedures.
+
+Run its offline regressions with
+`pwsh -NoProfile -File src/tests/skills/ToolchainInstallation.Tests.ps1` or the
+`toolchain-installation` case in `scripts/test.ps1`. They also run in the fast
+suite and skill-helper CI. The native CLI test
+`installed_toolchain_helper_materializes_and_installs_verified_local_archive`
+checks real installed-skill materialization/execution using a synthetic provider
+and local ZIP. See [TI-01](../research/skills-upgrade-plan.md#ti-01--cross-stack-toolchain-installation)
+for actual results and unrun platform/vendor cases. No blanket all-stack or live
+model-quality claim follows from these checks.
+
 The [native toolchain report](../evaluations/p7-02-native-toolchains.md) records
 actual isolated-copy checks, including the seeded failing regression and all
 not-run cases. The [paired live runner](../../scripts/evals/builtin-live-runner.md)

@@ -77,9 +77,16 @@ descriptor or JSONL stream. Do not put credential values in arguments or profile
 A process entry has `name`, absolute `executable`, explicit `environment` map,
 `required_isolation` array, `reduced_isolation` boolean, and `inputs` array.
 Reduced isolation requires that explicit user choice. Each check has `manifest`
-(relative `package.json` or `Cargo.toml`), `runner` (`node` or `cargo`), `profile`
-(process entry name), nonempty `expected_tests`, and `rationale`. Project scripts
-are observed as data; only these explicit profiles can authorize execution.
+(a workspace-relative project manifest), `runner` (`node`, `cargo`, `dotnet`,
+`maven` or `pytest`), `profile` (process entry name), nonempty `expected_tests`,
+and `rationale`. Maven uses `pom.xml` and a Java profile with an owner-configured
+`maven` object containing absolute `home`, `classworlds_jar` and `classworlds_conf`
+paths from one Maven installation. Pytest uses `pyproject.toml` and the selected
+Python profile. Expected tests are exact runner names, including Maven's
+`package.Class.method` or pytest's `tests/test_file.py::test_name`.
+See [native verification](p2-verification.md) for supported output and command
+forms. Project scripts remain data; execution still requires current process
+policy and authority.
 
 ## Commands
 

@@ -306,3 +306,213 @@ async fn installed_pdf_helper_materializes_and_runs_through_authorized_process()
     let materialized = String::from_utf8_lossy(&requests[1].body).into_owned();
     assert!(materialized.contains(&vcp_protocol::digest_bytes(&script)));
 }
+
+// P7-02: installed setup guidance uses the same materialization and process
+// authority as every other skill. The provider and ZIP are synthetic; this
+// exercises actual extraction without downloads or running archive contents.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn installed_toolchain_helper_materializes_and_installs_verified_local_archive() {
+    let powershell = std::env::var_os("VCP_TEST_PWSH")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .map(|directory| directory.join("pwsh.exe"))
+                .find(|file| file.is_absolute() && file.is_file())
+        })
+        .expect("PowerShell 7 required for the native toolchain helper smoke");
+    assert!(powershell.is_absolute() && powershell.is_file());
+    let server = MockServer::start().await;
+    let mut fixture = Fixture::new(&server.uri(), "complete");
+    let installed = fixture.package(true);
+    let original = fs::read(fixture.workspace.join("value.txt")).unwrap();
+    let archive = fixture.workspace.join("toolchain-fixture.zip");
+    let zip_fixture = fixture.data.join("make-archive.ps1");
+    fs::write(
+        &zip_fixture,
+        r#"param([string]$Destination)
+$ErrorActionPreference = 'Stop'
+$archive = [IO.Compression.ZipFile]::Open($Destination, [IO.Compression.ZipArchiveMode]::Create)
+try {
+    $entry = $archive.CreateEntry('bin/tool.txt')
+    $stream = $entry.Open()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes('synthetic toolchain payload')
+        $stream.Write($bytes, 0, $bytes.Length)
+    } finally { $stream.Dispose() }
+} finally { $archive.Dispose() }
+"#,
+    )
+    .unwrap();
+    let created = Command::new(&powershell)
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+        .arg(&zip_fixture)
+        .arg(&archive)
+        .output()
+        .unwrap();
+    assert!(
+        created.status.success(),
+        "synthetic ZIP creation: {}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let archive_bytes = fs::read(&archive).unwrap();
+    let digest = vcp_protocol::digest_bytes(&archive_bytes);
+    fs::write(
+        fixture.workspace.join("acceptance.cjs"),
+        format!(r#"const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+test('toolchain_installed', () => {{
+  assert.equal(fs.readFileSync('.vcp/tools/synthetic/bin/tool.txt', 'utf8'), 'synthetic toolchain payload');
+  assert.equal(fs.readFileSync('value.txt', 'utf8').trim(), '41');
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync('toolchain-fixture.zip')).digest('hex'), '{digest}');
+}});
+"#),
+    ).unwrap();
+    let requested_digest = digest.clone();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let responses = calls.clone();
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(move |_: &wiremock::Request| {
+            let body = match responses.fetch_add(1, Ordering::SeqCst) {
+                0 => function_call(0, "vcp_skill", json!({"action":"materialize","skill":"toolchain-installation","resource":"scripts/install-verified-archive.ps1","destination":"install-verified-archive.ps1"})),
+                1 => function_call(1, "vcp_exec", json!({"profile":"powershell","arguments":["-NoLogo","-NoProfile","-NonInteractive","-File","install-verified-archive.ps1","-ArchivePath","toolchain-fixture.zip","-ExpectedDigest",requested_digest,"-Destination",".vcp/tools/synthetic","-Algorithm","SHA256"],"directory":"","timeout_ms":60000,"output_bytes":65536,"input":null})),
+                index => function_call(index, "", json!(null)),
+            };
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(body)
+        })
+        .mount(&server)
+        .await;
+    let mut profile: Value = serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+    profile["processes"].as_array_mut().unwrap().push(
+        json!({"name":"powershell","executable":powershell,
+        "environment":{"SystemRoot":std::env::var("SystemRoot").unwrap()},
+        "required_isolation":[],"reduced_isolation":true,"inputs":[]}),
+    );
+    profile["checks"][0]["expected_tests"] = json!(["toolchain_installed"]);
+    profile["checks"][0]["rationale"] =
+        json!("Verify installation and preservation of supplied inputs");
+    profile["affected_paths"] = json!([
+        "install-verified-archive.ps1",
+        ".vcp/tools/synthetic/bin/tool.txt"
+    ]);
+    profile["max_requests"] = json!(4);
+    profile["max_transport_retries"] = json!(0);
+    fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+    let output = fixture
+        .run(&[
+            "run",
+            "Install the supplied synthetic ZIP into .vcp/tools/synthetic using the active skill helper and supplied digest. Preserve value.txt and the archive; do not execute archive contents.",
+            "--autonomy",
+            "autonomous",
+            "--skill",
+            "vcp-builtin::toolchain-installation::toolchain-installation",
+        ])
+        .await;
+    let results = records(&output);
+    assert!(
+        output.status.success(),
+        "{} {:?}",
+        String::from_utf8_lossy(&output.stderr),
+        results.last()
+    );
+    assert_eq!(results.last().unwrap()["conditions"]["completed"], true);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 3, "materialize, execute, and report");
+    let script =
+        fs::read(installed.join("toolchain-installation/scripts/install-verified-archive.ps1"))
+            .unwrap();
+    assert_eq!(
+        fs::read(fixture.workspace.join("install-verified-archive.ps1")).unwrap(),
+        script,
+        "the executed helper is copied byte-exactly from the installed package"
+    );
+    let first: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    let helper_text = std::str::from_utf8(&script).unwrap();
+    for message in first["input"].as_array().unwrap() {
+        if let Some(content) = message["content"].as_array() {
+            for part in content {
+                if let Some(text) = part["text"].as_str() {
+                    let context: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+                    assert!(
+                        !context["text"]
+                            .as_str()
+                            .is_some_and(|text| text.contains(helper_text)),
+                        "file-role helper source must not enter activation context"
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        String::from_utf8_lossy(&requests[1].body).contains(&vcp_protocol::digest_bytes(&script))
+    );
+    assert_eq!(
+        fs::read(fixture.workspace.join(".vcp/tools/synthetic/bin/tool.txt")).unwrap(),
+        b"synthetic toolchain payload"
+    );
+    assert_eq!(fs::read(&archive).unwrap(), archive_bytes);
+    assert_eq!(
+        fs::read(fixture.workspace.join("value.txt")).unwrap(),
+        original
+    );
+
+    let facts: Vec<_> = results
+        .iter()
+        .flat_map(|value| {
+            value
+                .pointer("/event/event/data/facts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .collect();
+    let effect = facts
+        .iter()
+        .find(|fact| fact["collection"] == "effect" && fact["value"]["exit_code"] == 0)
+        .expect("authorized process must retain its successful exit receipt");
+    let receipts: BTreeSet<_> = effect["value"]["observed_changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect();
+    let stdout = facts
+        .iter()
+        .find(|fact| {
+            fact["collection"] == "artifact"
+                && receipts.contains(fact["id"].as_str().unwrap())
+                && fact.pointer("/value/spec/channel") == Some(&json!("stdout"))
+        })
+        .expect("process stdout must be retained as an inspectable artifact");
+    let inspected = fixture
+        .run(&[
+            "inspect",
+            stdout["id"].as_str().unwrap(),
+            "--view",
+            "tools",
+            "--offset",
+            "0",
+            "--length",
+            "65536",
+        ])
+        .await;
+    assert!(inspected.status.success());
+    let bytes: Vec<u8> =
+        serde_json::from_value(records(&inspected)[0]["data"]["items"][0]["bytes"].clone())
+            .unwrap();
+    let receipt: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(receipt["algorithm"], "SHA256");
+    assert!(receipt["digest"]
+        .as_str()
+        .unwrap()
+        .eq_ignore_ascii_case(&digest));
+    assert_eq!(receipt["entries"], 1);
+    assert_eq!(
+        receipt["expanded_bytes"],
+        b"synthetic toolchain payload".len()
+    );
+}

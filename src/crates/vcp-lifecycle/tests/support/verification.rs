@@ -215,6 +215,7 @@ async fn verification_case(backend: BackendKind, mode: &str, node: &std::ffi::Os
                     }
                     .into(),
                     runner: Runner::Node,
+                    maven: None,
                     profile: "node".into(),
                     expected_tests: vec!["seeded_acceptance".into()],
                     rationale: "Read the changed value and assert the accepted answer".into(),

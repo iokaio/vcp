@@ -16,6 +16,7 @@
       "cli-trace-fixtures",
       "builtin-skills",
       "builtin-packages",
+      "toolchain-installation",
       "p6-task-quality",
       "p6-live-runner",
       "p6-profile-qualification",
@@ -47,6 +48,14 @@
     ]
   },
   "cases": {
+    "toolchain-installation": {
+      "task_ids": ["P7-02"],
+      "args": ["--test", "src/tests/contracts/toolchain-installation.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 180000,
+      "max_output_bytes": 2097152
+    },
     "execution-analysis": {
       "task_ids": ["EE-00c"],
       "args": ["--test", "src/tests/contracts/execution-analysis.test.cjs", "src/tests/contracts/execution-archive-export.test.cjs", "src/tests/contracts/invocation-stream.test.cjs"],

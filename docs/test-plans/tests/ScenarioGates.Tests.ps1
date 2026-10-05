@@ -239,6 +239,58 @@ try {
     $predictions[0].category = 'a'; $predictions[0].category_confidence = $null
     Assert-Rejected { Get-PredictionMetrics $predictions $expected @('a', 'b') 'category' } 'Missing confidence was accepted'
 
+    # Execute the real input-errors gate, including retained repair detail. The
+    # missing-file check belongs to evaluate; predict checks a missing column.
+    $tokens = $null; $errors = $null
+    $textlabAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $scenarioRoot 'scenario-d-python-textlab.ps1'), [ref]$tokens, [ref]$errors)
+    Assert-That ($errors.Count -eq 0) 'TextLab scenario parse errors'
+    $inputErrorsCommand = $textlabAst.Find({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -eq 'Invoke-Gate' -and
+        "'input-errors'" -in $node.CommandElements.Extent.Text
+    }, $true)
+    Assert-That ($null -ne $inputErrorsCommand) 'Missing TextLab input-errors gate'
+    $inputErrorsGate = [scriptblock]::Create($inputErrorsCommand.Extent.Text)
+    $ctx.Temp = $testRoot
+    $models = Join-Path $testRoot 'models with spaces'
+    $missingColumnPath = Join-Path $testRoot 'missing text column.csv'
+    $script:inputErrorCalls = [System.Collections.Generic.List[object]]::new()
+    function Invoke-Python {
+        param($Stage, $Label, $Arguments)
+        $script:inputErrorCalls.Add(@{ Label = $Label; Arguments = @($Arguments) })
+        $code = if ($Label -eq 'evaluate-missing') { $script:evaluateExit } else { $script:predictExit }
+        @{ ExitCode = $code; Output = ''; Errors = 'fixture input error' }
+    }
+    foreach ($case in @(
+        @{ Evaluate = 4; Predict = 4; Outcome = 'pass' },
+        @{ Evaluate = 1; Predict = 4; Outcome = 'fail' },
+        @{ Evaluate = 4; Predict = 2; Outcome = 'fail' },
+        @{ Evaluate = 1; Predict = 2; Outcome = 'fail' }
+    )) {
+        $Stage = "input-errors-$($case.Evaluate)-$($case.Predict)"
+        $script:evaluateExit = $case.Evaluate; $script:predictExit = $case.Predict
+        $script:inputErrorCalls.Clear()
+        & $inputErrorsGate | Out-Null
+        Assert-Gate $Stage 'input-errors' $case.Outcome
+        Assert-That ($script:inputErrorCalls.Count -eq 2) 'Input errors must still execute both checks'
+        $evaluateArguments = @('-m', 'textlab', 'evaluate', '--model-dir', $models, '--data', (Join-Path $ctx.Temp 'nope.csv'), '--output', (Join-Path $ctx.Temp 'nope.json'))
+        $predictArguments = @('-m', 'textlab', 'predict', '--model-dir', $models, '--input', $missingColumnPath, '--output', (Join-Path $ctx.Temp 'nope.csv'))
+        foreach ($index in 0, 1) {
+            $expectedArguments = if ($index -eq 0) { $evaluateArguments } else { $predictArguments }
+            Assert-That ((ConvertTo-Json -InputObject $script:inputErrorCalls[$index].Arguments -Compress) -ceq (ConvertTo-Json -InputObject $expectedArguments -Compress)) 'Input-error command or fixture changed'
+        }
+        $gate = @($ctx.Gates | Where-Object { $_.stage -eq $Stage -and $_.id -eq 'input-errors' })[-1]
+        Assert-That ($gate.required -and $gate.description -match 'evaluate --data' -and $gate.description -match 'predict --input') 'Input-error gate lost its required command identity'
+        if ($case.Outcome -eq 'fail') {
+            Assert-That ($gate.detail.Contains("evaluate --data (missing file): expected exit 4, actual $($case.Evaluate)")) 'Repair detail did not identify the evaluate failure accurately'
+            Assert-That ($gate.detail.Contains("predict --input (CSV missing text column): expected exit 4, actual $($case.Predict)")) 'Repair detail did not identify the predict result accurately'
+            foreach ($call in $script:inputErrorCalls) {
+                Assert-That ($gate.detail.Contains((ConvertTo-Json -InputObject $call.Arguments -Compress))) 'Repair detail omitted exact observed arguments'
+            }
+        }
+    }
+
     Import-ScenarioFunction 'scenario-d-python-textlab.ps1' 'Test-Robustness'
     $holdoutRows = $expected; $labels = @('a', 'b'); $holdoutPath = 'fixture.csv'; $edgePath = 'fixture-edge.csv'
     $script:confidenceFixture = 'valid'
@@ -317,7 +369,7 @@ try {
     Test-MavenVerify 'maven' 1 @('required')
     Assert-Gate 'maven' 'mvn-verify' 'fail'
 
-    Write-Host 'Scenario gate regressions passed (API create IDs, SQL safety, fresh reports, skipped tests, ledger exports, independent ML scoring).'
+    Write-Host 'Scenario gate regressions passed (API create IDs, SQL safety, fresh reports, skipped tests, ledger exports, independent ML scoring, exact input-error commands).'
 }
 finally {
     $resolved = [System.IO.Path]::GetFullPath($testRoot)

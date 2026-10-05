@@ -194,6 +194,7 @@ async fn run(backend: BackendKind, exec: bool) {
             requirements: vec![Requirement {
                 manifest: "package.json".into(),
                 runner: Runner::Node,
+                maven: None,
                 profile: "check".into(),
                 expected_tests: vec!["long_check".into()],
                 rationale: "Observe a real check longer than the legacy 120-second ceiling".into(),

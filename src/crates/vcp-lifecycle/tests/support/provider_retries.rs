@@ -278,11 +278,47 @@ async fn setup_with_bounds(
     TestCodex,
     wiremock::MockServer,
 ) {
+    setup_with_fixture_options(
+        temp,
+        backend,
+        timeout,
+        cap,
+        coding,
+        retries,
+        output_ceiling,
+        byte_qualified,
+        None,
+        false,
+    )
+    .await
+}
+
+pub(super) async fn setup_with_fixture_options(
+    temp: &tempfile::TempDir,
+    backend: BackendKind,
+    timeout: Duration,
+    cap: u64,
+    coding: bool,
+    retries: u32,
+    output_ceiling: Option<Units>,
+    byte_qualified: bool,
+    endpoint: Option<String>,
+    unbounded: bool,
+) -> (
+    CanonicalHost,
+    vcp_lifecycle::foundation::CanonicalOwner,
+    ThreadBinding,
+    TestCodex,
+    wiremock::MockServer,
+) {
     let workspace = temp.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let workspace = workspace.canonicalize().unwrap();
     let mut config = config(&temp.path().join("canonical"), &workspace, backend);
     config.cap.micros = Micros::new(cap).into();
+    if unbounded {
+        config.cap.micros = vcp_domain::Limit::Unbounded;
+    }
     config.max_transport_retries = retries;
     if let Some(output) = output_ceiling {
         config.output_ceiling = output;
@@ -347,6 +383,9 @@ async fn setup_with_bounds(
         .with_config(move |c| {
             c.cwd = workspace.try_into().unwrap();
             configure_provider_fixture(c);
+            if let Some(endpoint) = endpoint {
+                c.model_provider.base_url = Some(endpoint);
+            }
             starter
                 .lifecycle()
                 .authorize_startup(c.cwd.as_path(), None)

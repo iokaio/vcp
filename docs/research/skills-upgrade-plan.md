@@ -1,5 +1,9 @@
 # Skills upgrade: runtime, helpers and content
 
+October 5 owner-directed extension: [TI-01](#ti-01--cross-stack-toolchain-installation)
+adds general development-toolchain installation to VCP itself. Local commits only;
+no push, release build or publication until the owner's review.
+
 Status: SU series complete, September 30, 2026 (catalog `1.41.0`); the
 [post-upgrade review and SH series](#post-upgrade-review-and-hardening-plan-sh-series)
 is planned. Follows the completed
@@ -989,3 +993,68 @@ Deviations and limits recorded during delivery:
   purpose: a cue would hide these always-listed skills from projects without the
   marker. Nested-only projects and PowerShell-only repositories remain
   undetected.
+
+## TI-01 — Cross-stack toolchain installation
+
+Owner direction October 5, 2026; extension of P7-02. Dependencies: the completed
+P7-01/P7-02 loader/catalog, SU-03 materialization, SH-04 references and existing
+P2-04 authorized process execution. ADR-069, ADR-070 and ADR-071 continue to apply.
+
+The scenario-C Maven bootstrap is useful harness setup, but does not give VCP
+general installation capability. Add one shared `toolchain-installation` skill
+covering language runtimes, SDKs, build tools and common infrastructure on Windows,
+macOS and Linux. Include Java/Maven/Gradle, JavaScript/TypeScript, Python, .NET,
+Rust, Go, C/C++, Ruby, PHP, Dart/Flutter, Swift/mobile and data/infrastructure stacks.
+Keep platform-specific details in on-demand references and follow official vendor
+or established package-manager procedures for unlisted tools.
+
+The skill must inspect project pins and installed capabilities, choose the smallest
+authorized installation, verify the source/version/architecture and integrity,
+make the resulting tool usable in the actual configured execution environment,
+then retry the original work. Existing authorization suffices; grants never come
+from skill activation. Respect no-install/offline instructions, process/network
+policy, existing user data, machine scope, credentials, licensing and reboots.
+
+Provide a reusable PowerShell helper for verified ZIP distributions. It must have
+explicit source/digest/destination, bound download/extraction work, reject links,
+traversal and collisions, preserve existing destinations, and produce evidence.
+It must neither run downloaded code nor change global state. Package-manager and
+non-ZIP installation remain supported through the skill's vendor/OS workflows;
+do not claim the helper implements every installer format or platform.
+
+Acceptance: native descriptor/catalog/discovery/activation and resource integrity
+checks; real helper success and adversarial failure tests; a real tool distribution
+smoke; installed VCP materializes and runs the helper through its ordinary process
+authority using a synthetic provider and local fixture; docs/coverage and CI tests
+updated. No universal paid model campaign, new runtime permission, provider binding
+or replacement installer service is required. All-host and all-stack execution
+claims require their own evidence. Preserve C/D scorecards and historical failures.
+
+Implementation: `toolchain-installation` 1.0.0 in builtin catalog 1.75.0 (30
+packages), with platform/stack references, an original Apache-2.0 verified ZIP
+helper and explicit existing process authority. The earlier scenario harness
+correction remains a separate local commit on `fix/cli-tests-2`.
+
+Verification on Windows, October 5, 2026:
+
+* 235 real offline helper assertions passed, including SHA256/SHA512, input
+  preservation, corrupt archives, links/junctions, traversal, collisions and limits.
+* 33 Node contracts passed for helper execution, packaging/hash integrity, harness
+  registration and CI boundaries. Native catalog/discovery/activation: 8 tests
+  passed. Repository contracts: 750 Markdown files / 3,396 links, no errors.
+* Real HTTPS Apache Maven 3.9.16 ZIP verified against the official SHA512 digest,
+  installed through this generic helper, then launched through Java 21 with its
+  classworlds entry point: version check and offline minimal-POM validation passed.
+  Local evidence: `artifacts/ti01-maven-0b18aed5e83b40ab9fa2ed2dc0327937/smoke.json`.
+* Package rehash check reported no changes or warnings; Rust formatting and diff
+  whitespace checks passed. Ubuntu CI now includes the offline helper suite.
+* Installed native VCP integration passed: a synthetic provider activated the
+  skill, materialized the exact packaged helper, executed it through an authorized
+  PowerShell profile, retained its receipt and completed the real installation/
+  input-preservation acceptance check. The initial fixture without an acceptance
+  check correctly failed completion verification; its failure log is retained.
+
+Limits: no paid provider campaign, Linux/macOS execution or exhaustive actual
+stack installations; adversarial HTTPS redirect/timeout behavior is not covered
+by the live download smoke. Full C/D success and any distributable build remain
+separate. Delivery is local commits only at the owner's direction.

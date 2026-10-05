@@ -5,6 +5,8 @@ mod fork;
 mod handoff;
 mod instructions;
 mod request_allowance;
+#[cfg(test)]
+mod source_access_tests;
 mod tool_ceiling;
 mod turns;
 use super::*;
@@ -19,6 +21,11 @@ use vcp_models::{
     request,
     stream::{Call, ResultBody, Status},
 };
+
+#[cfg(test)]
+thread_local! {
+    static START_WINDOW_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 pub(super) struct Loop {
     turn: Option<TurnId>,
@@ -512,6 +519,8 @@ impl Context {
     pub(super) fn check_public_start_window(
         &self,
     ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>> {
+        #[cfg(test)]
+        START_WINDOW_CHECKS.with(|count| count.set(count.get() + 1));
         let scope = Scope {
             workspace: self.config.workspace.clone(),
             session: self.config.session.clone(),
@@ -954,20 +963,7 @@ impl Context {
         parts.extend(state.history.clone());
         // Apply the most conservative read ceiling of every registered tool.
         // This prevents selecting a less restrictive tool name to read context.
-        for name in [
-            "vcp_read",
-            "vcp_list",
-            "vcp_search",
-            "vcp_patch",
-            "vcp_exec",
-            "vcp_verify",
-            "vcp_verify_focused",
-            "vcp_mcp",
-            "vcp_skill",
-            "vcp_artifact_read",
-        ] {
-            self.tool_identity(binding, name)?;
-        }
+        self.validate_coding_tool_access(binding)?;
         self.child_context_scope(binding)?;
         let root = self.task_root(&binding.scope.task)?;
         let parents = self.instruction_parents(binding)?;
@@ -1473,8 +1469,24 @@ impl Context {
         {
             return Err("canonical coding deadline elapsed".into());
         }
+        self.validate_coding_tool_access(binding)?;
+        let state = self
+            .coding
+            .get(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        let mut roots = self.instruction_parents(binding)?;
+        roots.push(self.task_root(&binding.scope.task)?);
+        vcp_repository::instructions::revalidate_probes(&state.probes, &roots)?;
+        Ok(())
+    }
+    fn validate_coding_tool_access(&self, binding: &ThreadBinding) -> Result<()> {
+        // The worker's canonical state is immutable throughout this synchronous
+        // check. Prove common owner/start/binding/trust facts once, then retain
+        // every tool-specific read denial. Admission and consumption call this
+        // independently; actual preparation and dispatch still revalidate.
+        let identity = self.tool_identity(binding, "vcp_read")?;
+        let root = RootId::parse(identity.scope.workspace.as_str())?;
         for name in [
-            "vcp_read",
             "vcp_list",
             "vcp_search",
             "vcp_patch",
@@ -1485,15 +1497,8 @@ impl Context {
             "vcp_skill",
             "vcp_artifact_read",
         ] {
-            self.tool_identity(binding, name)?;
+            self.tool_read_access(&root, name)?;
         }
-        let state = self
-            .coding
-            .get(&binding.scope.task)
-            .ok_or("coding setup missing")?;
-        let mut roots = self.instruction_parents(binding)?;
-        roots.push(self.task_root(&binding.scope.task)?);
-        vcp_repository::instructions::revalidate_probes(&state.probes, &roots)?;
         Ok(())
     }
     fn reject_coding_call(
