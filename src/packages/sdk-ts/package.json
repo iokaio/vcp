@@ -1,6 +1,6 @@
 {
   "name": "@vcp/sdk",
-  "version": "0.2.32",
+  "version": "0.2.33",
   "private": true,
   "description": "Typed client for VCP's authenticated local API.",
   "license": "Apache-2.0",
