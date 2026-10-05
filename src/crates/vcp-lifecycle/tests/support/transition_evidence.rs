@@ -331,7 +331,9 @@ async fn canonical_transition_chains_are_scoped_ordered_read_only_and_rebuild_af
         .unwrap();
         assert_eq!(serde_json::from_value::<Evidence>(value).unwrap(), evidence);
         assert_eq!(store.archive_state().await.unwrap(), before);
-        drop(store);
+        // Immediate reopen requires the SQLite worker to finish closing its
+        // native WAL/SHM handles; dropping the owner does not await shutdown.
+        store.close().await.unwrap();
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(observe(&store, &access, window()).await.unwrap(), evidence);
         access.tasks = Some(BTreeSet::from([TaskId::parse("a").unwrap()]));
