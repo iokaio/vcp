@@ -9,10 +9,44 @@ param(
     [string]$ProjectPath = ('D:\clitests\execution-engine-probe-' + [guid]::NewGuid().ToString('N')),
     [switch]$SkipPaidStages,
     [switch]$PauseAfterProgress,
-    [switch]$PauseAtCheckpoint
+    [switch]$PauseAtCheckpoint,
+    [switch]$SecondInvocation
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force -DisableNameChecking
+function Test-SecondInvocation {
+    param($Ctx, $First, [string]$Profile, [string]$Node, $Protected)
+    foreach ($stage in 'repair','resume','FINAL-quality') {
+        Assert-That (@(Get-FailedGates $Ctx $stage).Count -eq 0) "First invocation has failed $stage gates; refusing a second paid invocation."
+    }
+    Assert-That ($First.Run.ExitCode -eq 0 -and -not $First.Run.TimedOut) 'A completed first invocation is required.'
+    $before = Get-WorkspaceManifest $Ctx.Workspace
+    $manifestPath = Join-Path $Ctx.Logs 'second-invocation-source-before.json'
+    Write-JsonFile $manifestPath $before
+    Add-Asset -Ctx $Ctx -Path $manifestPath -Description 'Authored source hashes before the verification-only second invocation'
+    $second = Invoke-VcpTask -Ctx $Ctx -Stage 'second-invocation' -Title 'Verify the repaired cart without changing source' -Config $Profile -Prompt 'The cart implementation has already been repaired. Do not change any source, tests, package configuration or documentation. Use the configured verification check to verify all six existing required cart tests. If they fail, report the failure without editing. Complete this verification-only task with the observed result.'
+    Assert-That ($null -ne $second) 'Second invocation did not run.'
+    Test-StageExit $Ctx $second 'second-invocation'
+    [void](Invoke-Gate $Ctx 'SECOND-quality' 'invocation-stream' 'new same-session task retains its acceptance and final receipt without replaying prior task events, with retained encoding measurements' {
+        Assert-That (@(Get-FailedGates $Ctx 'second-invocation').Count -eq 0) 'Second native invocation or evidence inspection failed.'
+        $evaluator = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../scripts/evals/verify-invocation-stream.cjs'))
+        $report = Join-Path $Ctx.Logs ('second-invocation-stream-' + [guid]::NewGuid().ToString('N') + '.json')
+        $run = Invoke-Tool -Ctx $Ctx -Stage 'SECOND-quality' -Label 'invocation-stream' -FilePath $Node -ArgumentList @($evaluator,$First.Run.StdoutPath,$second.Run.StdoutPath,(Join-Path $Ctx.Logs ($First.stage + '/inspection-bundle.json')),(Join-Path $Ctx.Logs 'second-invocation/inspection-bundle.json'),$report) -TimeoutSeconds 60
+        Assert-That ($run.ExitCode -eq 0 -and -not $run.TimedOut) 'Independent stream/encoding check failed; inspect the retained evaluator output.'
+        Add-Asset -Ctx $Ctx -Path $report -Description 'Hash-bound invocation receipt, event sequence and encoding evidence'
+        $true
+    })
+    [void](Invoke-Gate $Ctx 'SECOND-quality' 'unchanged-source' 'verification-only invocation preserves repaired source and protected acceptance files' {
+        $delta = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $Ctx.Workspace)
+        Assert-That ($delta.Changed -eq 0) 'Second invocation changed authored workspace files.'
+        foreach ($name in $Protected.Keys) { Assert-That ((Get-Sha256 (Join-Path $Ctx.Workspace $name)) -ceq $Protected[$name]) "Protected file changed: $name" }
+        $true
+    })
+    [void](Invoke-Gate $Ctx 'SECOND-quality' 'independent-tests' 'all six original owner acceptance tests still pass after the second invocation' {
+        $run = Invoke-Tool -Ctx $Ctx -Stage 'SECOND-quality' -Label 'independent-node-tests' -FilePath $Node -ArgumentList @('--test','cart.test.js') -TimeoutSeconds 60
+        Assert-That ($run.ExitCode -eq 0 -and -not $run.TimedOut) 'Independent acceptance failed after the second invocation.'; $true
+    })
+}
 $ctx = Initialize-VcpScenario -Name 'ee06-cart-repair' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration -AllowProcessPublish -SkipPaidStages:$SkipPaidStages
 try {
     Assert-That (-not $ctx.ReuseProject) 'The diagnostic probe requires a fresh empty project; retained runs must not be overwritten.'
@@ -82,6 +116,10 @@ test('inputs unchanged', () => {
             $run = Invoke-Tool -Ctx $ctx -Stage 'FINAL-quality' -Label 'independent-node-tests' -FilePath $node -ArgumentList @('--test','cart.test.js') -TimeoutSeconds 60
             Assert-That ($run.ExitCode -eq 0 -and -not $run.TimedOut) 'Independent acceptance failed'; $true
         })
+        if ($SecondInvocation) {
+            $completed = if ($PauseAfterProgress) { $resumed } else { $result }
+            Test-SecondInvocation -Ctx $ctx -First $completed -Profile $profile -Node $node -Protected $protected
+        }
         Save-Checkpoint $ctx 'EE-06: retain observed cart repair'
     }
 } catch {
