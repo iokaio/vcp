@@ -245,7 +245,7 @@ async fn search_publication_routes_new_and_retained_receipts_and_checks_prior_po
 }
 
 #[tokio::test]
-async fn ingestion_uses_complete_third_pass_and_preserves_domain_error_order() {
+async fn ingestion_uses_complete_history_pass_and_preserves_domain_error_order() {
     let source = State::default()
         .prepare_reference(&common::initial())
         .unwrap()
@@ -272,8 +272,13 @@ async fn ingestion_uses_complete_third_pass_and_preserves_domain_error_order() {
         prepared.proposed().current,
         crate::CurrentState::from_state(&expected.0)
     );
-    assert_eq!(prepared.history_work().full_passes, 3);
-    assert_eq!(prepared.history_work().rows, source.events.len() as u64 * 3);
+    assert_eq!(prepared.history_work().full_passes, 2);
+    assert_eq!(prepared.history_work().rows, source.events.len() as u64 * 2);
+    assert_eq!(prepared.history_work().event_validation.prefix_reuses, 1);
+    assert_eq!(
+        prepared.history_work().event_validation.rows_examined,
+        good.events.len() as u64
+    );
     let (mut bad, _) = publication(&source, None);
     bad.mutations.pop(); // A later publication error, after the ingestion phase.
     bad.mutations

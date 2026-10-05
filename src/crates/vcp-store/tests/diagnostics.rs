@@ -51,6 +51,63 @@ async fn physical_history_reads_are_aggregated_by_replay_phase_on_both_backends(
             rejected.validation_phases.redaction,
             before_rejection.validation_phases.redaction
         );
+        let mut session = common::session();
+        session.id = vcp_domain::SessionId::parse("second-session").unwrap();
+        let mut task: vcp_domain::task::Task = expected
+            .record(
+                vcp_store::contract::Collection::Task,
+                "task",
+                &common::workspace().id,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        let previous = task.revision;
+        task.revision = previous.next().unwrap();
+        task.scope.session = session.id.clone();
+        let changed_scope = vcp_store::contract::Transaction {
+            id: vcp_domain::TransactionId::parse("changed-old-event-scope").unwrap(),
+            expected_watermark: store.current().watermark,
+            mutations: vec![
+                vcp_store::contract::Mutation::Put {
+                    expected: None,
+                    record: vcp_store::contract::Record::typed(
+                        vcp_store::contract::Collection::Session,
+                        session.id.to_string(),
+                        session.workspace.clone(),
+                        session.revision,
+                        &session,
+                    )
+                    .unwrap(),
+                },
+                vcp_store::contract::Mutation::Put {
+                    expected: Some(previous),
+                    record: vcp_store::contract::Record::typed(
+                        vcp_store::contract::Collection::Task,
+                        "task",
+                        task.scope.workspace.clone(),
+                        task.revision,
+                        &task,
+                    )
+                    .unwrap(),
+                },
+            ],
+            events: vec![],
+            command: None,
+        };
+        assert!(matches!(
+            store.transact(changed_scope).await,
+            Err(vcp_store::Error::Access)
+        ));
+        assert_eq!(
+            store
+                .diagnostics()
+                .event_validation_work
+                .dependency_fallbacks,
+            1
+        );
+        assert_eq!(store.diagnostics().event_validation_work.full_passes, 1);
+        assert_eq!(store.archive_state().await.unwrap(), expected);
         store.close().await.unwrap();
         let reopened = Store::open(&root, backend, &[]).await.unwrap();
         assert_eq!(reopened.archive_state().await.unwrap(), expected);
@@ -61,15 +118,16 @@ async fn physical_history_reads_are_aggregated_by_replay_phase_on_both_backends(
         assert_eq!(total.physical_failed, 0);
         assert!(total.physical_bytes > 0);
         let events = observed.validation_history_reads.events;
-        assert!(events.physical_started > 0);
-        assert!(events.physical_bytes > 0);
-        assert!(events.index_misses > 0);
         let redaction = observed.validation_history_reads.redaction;
-        assert!(redaction.index_hits > 0);
-        assert!(redaction.payload_hits > 0);
-        assert_eq!(redaction.physical_started, 0);
+        assert!(redaction.physical_started > 0);
+        assert!(redaction.physical_bytes > 0);
+        assert!(redaction.index_misses > 0);
         assert!(events.physical_started <= total.physical_started);
         assert_eq!(observed.validation_phases.events.completed, 4);
+        assert_eq!(observed.validation_input_events, 10);
+        assert_eq!(observed.event_validation_work.rows_examined, 4);
+        assert_eq!(observed.event_validation_work.prefix_reuses, 4);
+        assert_eq!(observed.event_validation_work.full_passes, 0);
         let json = serde_json::to_value(observed).unwrap();
         assert!(json.get("history_reads").is_some());
         assert!(json.get("validation_history_reads").is_some());

@@ -76,3 +76,83 @@ pub(super) async fn replay_payload_observed(
         .await?;
     Ok(next)
 }
+
+/// Test-only session experiment. Uses the same physical ComparePages and full
+/// original payload/receipt/publication checks as ordinary cold replay.
+#[cfg(test)]
+pub(crate) async fn replay_with_event_proof(
+    pages: &mut impl Pages,
+    source: &DurableOwner,
+    payload: &[u8],
+    publication: &str,
+    proof: &mut crate::contract::event_history_validation::replay_proof::EventReplayProof,
+) -> Result<DurableOwner> {
+    proof.discard_pending();
+    let result = async {
+        let commit: Commit = serde_json::from_slice(payload)?;
+        if commit.version != FORMAT_VERSION {
+            return Err(Error::Incompatible);
+        }
+        if commit.receipt.watermark != source.semantic().current().watermark.next()? {
+            return Err(Error::Corruption("replayed current watermark"));
+        }
+        let mut pages = ComparePages { source: pages };
+        let durable_owner::Outcome::Prepared(prepared) = source
+            .prepare_with_event_proof(&mut pages, &commit.transaction, proof)
+            .await?
+        else {
+            return Err(Error::Corruption("duplicate current replay transaction"));
+        };
+        if prepared.commit() != &commit {
+            return Err(Error::Corruption("replayed receipt differs"));
+        }
+        let next = source.advance(&mut pages, &prepared, payload).await?;
+        crate::history_publication::verify(
+            &mut pages,
+            publication,
+            source,
+            &prepared,
+            &next,
+            payload,
+        )
+        .await?;
+        proof.install(source.semantic(), next.semantic())?;
+        Ok(next)
+    }
+    .await;
+    if result.is_err() {
+        proof.discard_pending();
+    }
+    result
+}
+
+/// Preserved complete event-phase replay oracle for the bounded implementation.
+#[cfg(test)]
+pub(crate) async fn replay_full_events(
+    pages: &mut impl Pages,
+    source: &DurableOwner,
+    payload: &[u8],
+    publication: &str,
+) -> Result<DurableOwner> {
+    let commit: Commit = serde_json::from_slice(payload)?;
+    if commit.version != FORMAT_VERSION {
+        return Err(Error::Incompatible);
+    }
+    if commit.receipt.watermark != source.semantic().current().watermark.next()? {
+        return Err(Error::Corruption("replayed current watermark"));
+    }
+    let mut pages = ComparePages { source: pages };
+    let durable_owner::Outcome::Prepared(prepared) = source
+        .prepare_full_events(&mut pages, &commit.transaction)
+        .await?
+    else {
+        return Err(Error::Corruption("duplicate current replay transaction"));
+    };
+    if prepared.commit() != &commit {
+        return Err(Error::Corruption("replayed receipt differs"));
+    }
+    let next = source.advance(&mut pages, &prepared, payload).await?;
+    crate::history_publication::verify(&mut pages, publication, source, &prepared, &next, payload)
+        .await?;
+    Ok(next)
+}

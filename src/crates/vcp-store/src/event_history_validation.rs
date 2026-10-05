@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Full historical validation fed by bounded, fallible row reads. No event
-//! payload is retained here, and no previously validated prefix is skipped.
-//! Identity metadata still grows with history; this is not bounded reopen.
+//! Event predicates fed by bounded, fallible row reads. Full passes retain
+//! identity metadata for their history; the incremental adapter seeds admitted
+//! frontiers and checks only new rows when prefix dependencies are unchanged.
 use super::{key, Collection, Record};
 use crate::{Error, Result};
 use std::{
@@ -18,6 +18,13 @@ use vcp_protocol::event::EventEnvelope;
 // cap falls back to the original decode; it never changes acceptance.
 const MAX_SCOPE_FACTS: usize = 512;
 
+#[cfg(test)]
+#[path = "event_replay_proof.rs"]
+pub(crate) mod replay_proof;
+
+#[path = "event_history_incremental.rs"]
+pub(crate) mod incremental;
+
 pub(crate) struct EventHistoryValidator<'a> {
     watermark: Watermark,
     records: &'a BTreeMap<String, Record>,
@@ -25,6 +32,7 @@ pub(crate) struct EventHistoryValidator<'a> {
     event_ids: BTreeSet<EventId>,
     sequences: BTreeMap<SessionId, SessionSeq>,
     previous_watermark: Watermark,
+    examined: u64,
     task_sessions: BTreeMap<&'a str, SessionId>,
     artifact_scopes: BTreeMap<&'a str, (SessionId, TaskId)>,
     #[cfg(test)]
@@ -46,6 +54,7 @@ impl<'a> EventHistoryValidator<'a> {
             event_ids: BTreeSet::new(),
             sequences: BTreeMap::new(),
             previous_watermark: Watermark::ZERO,
+            examined: 0,
             task_sessions: BTreeMap::new(),
             artifact_scopes: BTreeMap::new(),
             #[cfg(test)]
@@ -74,6 +83,7 @@ impl<'a> EventHistoryValidator<'a> {
     }
 
     fn event(&mut self, event: &EventEnvelope) -> Result<()> {
+        self.examined = self.examined.saturating_add(1);
         if event.version != 1
             || event.watermark > self.watermark
             || event.watermark < self.previous_watermark
@@ -175,6 +185,10 @@ impl<'a> EventHistoryValidator<'a> {
             return Err(Error::Corruption("session watermark"));
         }
         Ok(())
+    }
+
+    pub(crate) fn examined(&self) -> u64 {
+        self.examined
     }
 }
 

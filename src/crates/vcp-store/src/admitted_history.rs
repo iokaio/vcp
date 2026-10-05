@@ -11,6 +11,8 @@ pub(crate) struct AdmittedCut {
     catalog: Catalog,
     identity: String,
     size: CurrentSize,
+    // Derived only from validated rows; never decoded as persisted authority.
+    last_event_watermark: vcp_domain::Watermark,
 }
 
 #[cfg(test)]
@@ -41,6 +43,10 @@ impl AdmittedCut {
             catalog,
             identity,
             size,
+            last_event_watermark: replayed
+                .events
+                .last()
+                .map_or(vcp_domain::Watermark::ZERO, |event| event.watermark),
         })
     }
     pub(crate) fn size(&self) -> CurrentSize {
@@ -54,6 +60,9 @@ impl AdmittedCut {
     }
     pub(crate) fn identity(&self) -> &str {
         &self.identity
+    }
+    pub(crate) fn last_event_watermark(&self) -> vcp_domain::Watermark {
+        self.last_event_watermark
     }
 
     /// Stage the exact certificate's append without changing this source cut.
@@ -76,6 +85,11 @@ impl AdmittedCut {
             catalog,
             identity,
             size: prepared.size(),
+            last_event_watermark: prepared
+                .proposed()
+                .events
+                .last()
+                .map_or(self.last_event_watermark, |event| event.watermark),
         })
     }
 }

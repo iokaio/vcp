@@ -49,3 +49,25 @@ pub struct HistoryReadPhases {
     pub search: HistoryReads,
     pub agents: HistoryReads,
 }
+
+/// Actual event-phase work, distinct from the size of its logical input.
+/// Rows count envelopes examined, including the envelope that rejects; unread
+/// rows after a semantic or I/O failure are not charged as examined.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EventValidationWork {
+    pub rows_examined: u64,
+    pub prefix_reuses: u64,
+    pub dependency_fallbacks: u64,
+    pub full_passes: u64,
+}
+impl EventValidationWork {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.rows_examined = self.rows_examined.saturating_add(other.rows_examined);
+        self.prefix_reuses = self.prefix_reuses.saturating_add(other.prefix_reuses);
+        self.dependency_fallbacks = self
+            .dependency_fallbacks
+            .saturating_add(other.dependency_fallbacks);
+        self.full_passes = self.full_passes.saturating_add(other.full_passes);
+    }
+}

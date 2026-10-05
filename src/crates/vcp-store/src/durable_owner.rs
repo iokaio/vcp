@@ -166,6 +166,55 @@ impl DurableOwner {
             },
         )
     }
+    /// Test-only event-phase experiment; production uses bounded authenticated IDs.
+    #[cfg(test)]
+    pub(crate) async fn prepare_with_event_proof(
+        &self,
+        pages: &mut impl Pages,
+        transaction: &Transaction,
+        proof: &mut crate::contract::event_history_validation::replay_proof::EventReplayProof,
+    ) -> Result<Outcome> {
+        Ok(
+            match current_transition::prepare_with_event_proof(
+                pages,
+                &self.semantic,
+                transaction,
+                proof,
+            )
+            .await?
+            {
+                current_transition::Outcome::Duplicate(receipt) => Outcome::Duplicate(receipt),
+                current_transition::Outcome::Prepared(semantic) => {
+                    Outcome::Prepared(PreparedDurable {
+                        source: self.identity.clone(),
+                        semantic,
+                    })
+                }
+            },
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn prepare_full_events(
+        &self,
+        pages: &mut impl Pages,
+        transaction: &Transaction,
+    ) -> Result<Outcome> {
+        Ok(
+            match current_transition::prepare_full_events(pages, &self.semantic, transaction)
+                .await?
+            {
+                current_transition::Outcome::Duplicate(receipt) => Outcome::Duplicate(receipt),
+                current_transition::Outcome::Prepared(semantic) => {
+                    Outcome::Prepared(PreparedDurable {
+                        source: self.identity.clone(),
+                        semantic,
+                    })
+                }
+            },
+        )
+    }
+
     /// Tentative immutable writes only. Native publication must atomically bind
     /// this exact returned owner, original bytes and commit before installing it.
     pub(crate) async fn advance(

@@ -115,8 +115,10 @@ async fn compare(pages: &mut Memory, cut: &AdmittedCut, source: &State, tx: &Tra
             Outcome::Prepared(prepared) => {
                 assert_eq!(prepared.source_identity(), cut.identity());
                 let work = prepared.history_work();
-                assert_eq!(work.full_passes, 2);
-                assert_eq!(work.rows, (source.events.len() * 2) as u64);
+                assert_eq!(work.full_passes, 1);
+                assert_eq!(work.rows, source.events.len() as u64);
+                assert_eq!(work.event_validation.prefix_reuses, 1);
+                assert_eq!(work.event_validation.rows_examined, tx.events.len() as u64);
                 assert!(work.maximum_page_rows <= 64);
                 assert_eq!(
                     prepared.size().bytes(),
@@ -229,13 +231,17 @@ async fn preparation_owns_no_archival_state_and_unavailable_history_cannot_issue
     assert_eq!(diagnostics.history_reads.physical_started, 1);
     assert_eq!(diagnostics.history_reads.physical_failed, 1);
     assert_eq!(
-        diagnostics.validation_history_reads.events.physical_failed,
+        diagnostics
+            .validation_history_reads
+            .redaction
+            .physical_failed,
         1
     );
-    assert_eq!(diagnostics.validation_phases.events.failed, 1);
-    assert_eq!(diagnostics.validation_phases.redaction.completed, 0);
+    assert_eq!(diagnostics.validation_phases.events.failed, 0);
+    assert_eq!(diagnostics.validation_phases.redaction.failed, 1);
+    assert_eq!(diagnostics.event_validation_work.rows_examined, 1);
     assert_eq!(
-        diagnostics.validation_history_reads.redaction,
+        diagnostics.validation_history_reads.accounting,
         crate::HistoryReads::default()
     );
     pages.failed = false;

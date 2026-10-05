@@ -25,6 +25,7 @@ pub(crate) struct HistoryWork {
     pub(crate) rows: u64,
     pub(crate) maximum_page_rows: usize,
     pub(crate) resolutions: crate::resolved_history::ResolutionDiagnostics,
+    pub(crate) event_validation: crate::EventValidationWork,
 }
 /// Construction is private to the full validator below. The source identity
 /// binds every catalog root and the current projection, not just its watermark.
@@ -74,6 +75,10 @@ pub(crate) async fn prepare_observed(
         source,
         transaction,
         diagnostics.as_deref_mut(),
+        #[cfg(test)]
+        None,
+        #[cfg(test)]
+        false,
     )
     .await;
     if let Some(diagnostics) = diagnostics {
@@ -87,6 +92,8 @@ async fn prepare_in_session(
     source: &AdmittedCut,
     transaction: &Transaction,
     mut diagnostics: Option<&mut crate::StoreDiagnostics>,
+    #[cfg(test)] proof: Option<&mut event_history_validation::replay_proof::EventReplayProof>,
+    #[cfg(test)] full_events: bool,
 ) -> Result<Outcome> {
     let mut history = ResolvedHistory::new(source);
     let proposed = match history
@@ -151,19 +158,46 @@ async fn prepare_in_session(
                 .await?;
             Ok::<_, Error>(())
         })?;
-        phase!(events, async {
+        let event_result = phase!(events, async {
+            #[cfg(test)]
+            if let Some(proof) = proof {
+                return proof.validate(pages, source, &proposed).await;
+            }
+            #[cfg(not(test))]
+            let full_events = false;
+            if !full_events
+                && event_history_validation::incremental::validate_appended(
+                    pages,
+                    source,
+                    &proposed,
+                    &mut work.event_validation,
+                )
+                .await?
+            {
+                return Ok(());
+            }
+            work.event_validation.full_passes = work.event_validation.full_passes.saturating_add(1);
             let mut events = event_history_validation::EventHistoryValidator::new(
                 current.watermark,
                 current.records,
                 current.sequences,
             );
-            visit_events(pages, source, &proposed.events, &mut work, |rows| {
+            let result = visit_events(pages, source, &proposed.events, &mut work, |rows| {
                 events.extend(rows.iter().map(Ok))
             })
-            .await?;
+            .await;
+            work.event_validation.rows_examined = work
+                .event_validation
+                .rows_examined
+                .saturating_add(events.examined());
+            result?;
             events.finish()?;
             Ok::<_, Error>(())
-        })?;
+        });
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics.event_validation_work.add(work.event_validation);
+        }
+        event_result?;
         phase!(redaction, async {
             history
                 .run(pages, |history| {
@@ -259,9 +293,38 @@ async fn prepare_in_session(
     }))
 }
 
-// Preserve validation order: each phase receives every row before the next
-// phase starts. Multiple bounded passes currently trade I/O for exact semantics;
-// no page prefix or historical dependency is silently trusted or skipped.
+/// Feasibility harness only. No production caller can select prefix evidence.
+#[cfg(test)]
+pub(crate) async fn prepare_with_event_proof(
+    pages: &mut impl Pages,
+    source: &AdmittedCut,
+    transaction: &Transaction,
+    proof: &mut event_history_validation::replay_proof::EventReplayProof,
+) -> Result<Outcome> {
+    proof.discard_pending();
+    let mut session = crate::history_index::memo::ReadSession::new(pages);
+    let result =
+        prepare_in_session(&mut session, source, transaction, None, Some(proof), false).await;
+    if !matches!(result, Ok(Outcome::Prepared(_))) {
+        proof.discard_pending();
+    }
+    result
+}
+
+/// Frozen full event-phase orchestration for incremental differential tests.
+#[cfg(test)]
+pub(crate) async fn prepare_full_events(
+    pages: &mut impl Pages,
+    source: &AdmittedCut,
+    transaction: &Transaction,
+) -> Result<Outcome> {
+    let mut session = crate::history_index::memo::ReadSession::new(pages);
+    prepare_in_session(&mut session, source, transaction, None, None, true).await
+}
+
+// Each full-history phase consumes every row before the next phase starts.
+// Event-phase prefix reuse is separately guarded by admitted source evidence
+// and exact current dependencies; remaining full passes keep their order.
 async fn visit_events(
     pages: &mut impl Pages,
     source: &AdmittedCut,

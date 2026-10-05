@@ -7,7 +7,7 @@ mod common;
 
 // Frozen pre-extraction implementation: compare acceptance and exact error
 // ordering independently of the new fallible/page-fed validator.
-fn reference(state: &State) -> Result<()> {
+pub(super) fn reference(state: &State) -> Result<()> {
     let mut event_ids = BTreeSet::new();
     let mut sequences = BTreeMap::<SessionId, SessionSeq>::new();
     let mut previous_watermark = Watermark::ZERO;
