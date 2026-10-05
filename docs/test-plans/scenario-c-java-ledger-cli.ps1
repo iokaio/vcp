@@ -569,8 +569,9 @@ $promptT2 = New-Prompt @'
 - `ledger categorize --db <ledger.json> --rules <rules.csv>`: rules CSV has header `pattern,category`;
   the first rule whose pattern is a case-insensitive substring of the description wins; no match ->
   `Uncategorized`. Re-running replaces earlier categories. Output exactly one line:
-  `Categorized N transactions (K uncategorized)`. Never-categorized transactions report as
-  `Uncategorized`.
+  `Categorized N transactions (K uncategorized)`. N is the total number of ledger transactions
+  processed, including the K transactions assigned `Uncategorized`; it is not just the matched
+  rule count. Never-categorized transactions report as `Uncategorized`.
 - `ledger report --db <ledger.json> --month yyyy-MM [--format json|table]` (default table; implement
   json now): prints exactly one JSON object
   `{"month":"2026-02","income":"6500.00","expenses":"-3210.55","net":"3289.45",
