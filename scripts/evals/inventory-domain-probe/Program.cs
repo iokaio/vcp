@@ -39,7 +39,7 @@ static class Probe
             // Exercise actual DataAnnotations/IValidatableObject validation, not a test name.
             if (model is not null && quantity?.PropertyType == typeof(int) && quantity.CanWrite && reason?.CanWrite == true)
             {
-                foreach (var sample in new[] { (0, "Receipt", false), (0, "Sale", false), (0, "Adjustment", false), (1, "Receipt", true), (-1, "Sale", true), (1, "Adjustment", true), (-1, "Adjustment", true) })
+                foreach (var sample in new[] { (0, "Receipt", false), (0, "Sale", false), (0, "Adjustment", false), (1, "Receipt", true), (-1, "Receipt", true), (1, "Sale", true), (-1, "Sale", true), (1, "Adjustment", true), (-1, "Adjustment", true) })
                 {
                     var instance = Activator.CreateInstance(model) ?? throw new InvalidOperationException("Cannot construct model.");
                     Set(instance, "Id", 1); Set(instance, "ProductId", 1);

@@ -15,6 +15,13 @@ $scenarioRootLiteral = "'" + ((Split-Path -Parent $file) -replace "'", "''") + "
 $t1 = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left -is [Management.Automation.Language.VariableExpressionAst] -and $n.Left.VariablePath.UserPath -eq 'gatesT1' }, $true))
 $commands = @($t1[0].FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true) | ForEach-Object GetCommandName)
 if (($commands -join ',') -ne 'Test-Build,Test-Tests,Test-DomainModel,Test-Migrations,Test-ProtectedUnchanged') { throw 'T1 gate ordering or original acceptance changed.' }
+$source = Get-Content -LiteralPath $file -Raw
+if (-not $source.Contains('$protected[$ownerContract] = Get-Sha256 $ownerContractSource')) { throw 'Executable owner fixture must be hash protected.' }
+if (-not $source.Contains('Existing owner contract differs; preserve it and select a fresh project.')) { throw 'Existing owner fixture must not be overwritten.' }
+if ($source.IndexOf('$ownerContract = ') -lt $source.IndexOf('Baseline solution does not build/test')) { throw 'Model assertions must be seeded after the model-free baseline.' }
+foreach ($name in 'Reason_is_exact_required_enum', 'Quantity_rejects_zero_and_accepts_nonzero_contract_examples') {
+    if (-not $source.Contains($name)) { throw "Required native owner assertion absent: $name" }
+}
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('vcp-domain-gate-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temporary | Out-Null
 try {
@@ -52,7 +59,7 @@ try {
     $ctx.Gates[0].outcome = 'pass'; $ctx.Stages[0].Run.ExitCode = 7; $script:gateFailure = $null
     Test-DomainModel 'T1-data'
     Assert-That ($script:calls.Count -eq 0 -and $script:gateFailure -match 'completed successful') 'Unresolved native stage must deny evaluator execution.'
-    Write-Output 'Independent domain gate wiring: 9 assertions passed; no app, database or provider execution.'
+    Write-Output 'Independent domain gate wiring: 14 assertions passed; no app, database or provider execution.'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($temporary)

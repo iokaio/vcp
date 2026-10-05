@@ -18,6 +18,16 @@ test('external compiled model probe catches weakened tests and rejects invalid e
     const build=dotnet(['build',evaluator,'--artifacts-path',artifacts,'--nologo','-v:q']);
     assert.equal(build.status,0,build.stdout+build.stderr);
     const executable=path.join(artifacts,'bin/InventoryDomainProbe/debug/InventoryDomainProbe.dll');
+    // Execute the exact protected fixture through VSTest, not a mocked test-name oracle.
+    const ownerTests=path.join(root,'owner-tests');
+    const seeded=dotnet(['new','xunit','-n','OwnerTests','-o',ownerTests,'-f','net10.0','--no-restore']);
+    assert.equal(seeded.status,0,seeded.stdout+seeded.stderr);
+    fs.copyFileSync(path.join(repository,'scripts/evals/inventory-domain-probe/OwnerDomainContractTests.cs'),path.join(ownerTests,'OwnerDomainContractTests.cs'));
+    const ownerProject=path.join(ownerTests,'OwnerTests.csproj');
+    const template=fs.readFileSync(ownerProject,'utf8').replace('</Project>','<ItemGroup><Compile Remove="UnitTest1.cs" /><Reference Include="Inventory.Web"><HintPath>$(InventoryModelPath)</HintPath></Reference></ItemGroup></Project>');
+    fs.writeFileSync(ownerProject,template);
+    const restored=dotnet(['restore',ownerProject,'--nologo']);
+    assert.equal(restored.status,0,restored.stdout+restored.stderr);
     const scope={workspace:'synthetic-domain-fixture',session:'fixture',task:'t1'};
     const terminal=path.join(root,'terminal.jsonl');
     const accepted={type:'accepted',correlation:'fixture-correlation',scope};
@@ -29,6 +39,7 @@ test('external compiled model probe catches weakened tests and rejects invalid e
       {name:'valid-memberless',reason:'StockMovementReason',members:'Receipt, Sale, Adjustment',validation:'if (Quantity == 0) yield return new ValidationResult("nonzero");',passed:true},
       {name:'weakened-zero-and-string',reason:'string',members:'Receipt, Sale, Adjustment',validation:'yield break;',failed:['reason-exact-enum','quantity-0-Receipt']},
       {name:'positive-only',reason:'StockMovementReason',members:'Receipt, Sale, Adjustment',validation:'if (Quantity <= 0) yield return new ValidationResult("positive");',failed:['quantity--1-Sale','quantity--1-Adjustment']},
+      {name:'api-sign-rules-in-model',reason:'StockMovementReason',members:'Receipt, Sale, Adjustment',validation:'if (Quantity == 0 || (Reason == StockMovementReason.Receipt && Quantity < 0) || (Reason == StockMovementReason.Sale && Quantity > 0)) yield return new ValidationResult("sign");',failed:['quantity--1-Receipt','quantity-1-Sale']},
       {name:'extra-enum-member',reason:'StockMovementReason',members:'Receipt, Sale, Adjustment, Other',validation:'if (Quantity == 0) yield return new ValidationResult("nonzero");',failed:['reason-exact-enum']},
       {name:'rejects-everything',reason:'StockMovementReason',members:'Receipt, Sale, Adjustment',validation:'yield return new ValidationResult("always invalid");',failed:['quantity-1-Receipt','quantity--1-Sale']},
       {name:'source-mutates-during-probe',reason:'StockMovementReason',members:'Receipt, Sale, Adjustment',mutates:true},
@@ -37,7 +48,7 @@ test('external compiled model probe catches weakened tests and rejects invalid e
     for(const item of cases) {
       const workspace=path.join(root,item.name); fs.mkdirSync(workspace);
       const validation=item.mutates ? `System.IO.File.AppendAllText(${JSON.stringify(path.join(workspace,'Marker.txt'))}, "x"); yield break;` : item.validation;
-      fs.writeFileSync(path.join(workspace,'Model.csproj'),'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings></PropertyGroup></Project>');
+      fs.writeFileSync(path.join(workspace,'Model.csproj'),'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><AssemblyName>Inventory.Web</AssemblyName><ImplicitUsings>enable</ImplicitUsings></PropertyGroup></Project>');
       fs.writeFileSync(path.join(workspace,'Model.cs'),`using System.ComponentModel.DataAnnotations;
 namespace Inventory.Web.Data;
 public enum StockMovementReason { ${item.members} }
@@ -51,7 +62,15 @@ public class DomainValidationTests { public bool StockMovement_requires_nonzero_
 `);
       const compiled=dotnet(['build',path.join(workspace,'Model.csproj'),'--nologo','-v:q']);
       assert.equal(compiled.status,0,compiled.stdout+compiled.stderr);
-      const assembly=path.join(workspace,'bin/Debug/net10.0/Model.dll');
+      const assembly=path.join(workspace,'bin/Debug/net10.0/Inventory.Web.dll');
+      if(!item.mutates) {
+        const checks=dotnet(['test',ownerProject,'--no-restore','--nologo','--logger','console;verbosity=normal','--disable-build-servers',`-p:InventoryModelPath=${assembly}`]);
+        assert.equal(checks.status,item.passed?0:1,item.name+'\n'+checks.stdout+checks.stderr);
+        assert.match(checks.stdout,/Reason_is_exact_required_enum/);
+        assert.match(checks.stdout,/Quantity_rejects_zero_and_accepts_nonzero_contract_examples/);
+        if(item.passed) assert.match(checks.stdout,/Passed:\s+2/);
+        else assert.match(checks.stdout,/Failed:\s+[12]/);
+      }
       const report=path.join(root,item.name+'.json');
       const args=[executable,'--workspace',workspace,'--assembly',assembly,'--terminal-jsonl',terminal,'--out',report];
       const result=dotnet(args);

@@ -75,7 +75,7 @@ try {
         Assert-That ($review.checks.Count -eq 0) 'Review gained native execution checks'
         $previous = @()
         $previousNames = @()
-        $expectedCounts = @(3, 11, 14, 18, 21)
+        $expectedCounts = @(5, 13, 16, 20, 23)
         foreach ($number in 1..5) {
             $profile = Get-Content -LiteralPath $profiles["T$number"] -Raw | ConvertFrom-Json -Depth 100
             Assert-That ($profile.checks.Count -eq 1) "T$number missing required native check"
@@ -95,7 +95,12 @@ try {
             Assert-That ($prompt.Contains('Then call `vcp_verify`') -and $prompt.Contains('an empty `verification.outstanding_issues` list')) "T$number does not require current native verification with no outstanding issues"
             if ($number -ne 4) {
                 foreach ($name in @($check.expected_tests | Where-Object { $previousNames -notcontains $_ })) {
-                    Assert-That ($prompt.Contains(($name -split '\.')[-1])) "T$number prompt/check name mismatch: $name"
+                    if ($name.StartsWith('Inventory.Tests.OwnerDomainContractTests.')) {
+                        $ownerSource = Get-Content -LiteralPath (Join-Path $scenarioRoot '../../scripts/evals/inventory-domain-probe/OwnerDomainContractTests.cs') -Raw
+                        Assert-That ($ownerSource.Contains('void ' + ($name -split '\.')[-1] + '()')) "Missing executable owner assertion: $name"
+                        Assert-That ($prompt.Contains('OwnerDomainContractTests.cs')) 'Prompt omitted protected owner acceptance'
+                    }
+                    else { Assert-That ($prompt.Contains(($name -split '\.')[-1])) "T$number prompt/check name mismatch: $name" }
                 }
             }
             else {

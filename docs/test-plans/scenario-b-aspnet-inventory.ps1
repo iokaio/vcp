@@ -285,7 +285,10 @@ $environmentBlock = @'
   `dotnet tool run dotnet-ef database update` itself.
 - Startup must not require a connection string or database in the `Testing` environment; tests
   replace the DbContext registration with EF Core InMemory via `WebApplicationFactory<Program>`.
-- Protected files (never edit, rename or delete): `src/Inventory.Web/appsettings.Development.json`{{PROTECTED}}.
+- Protected files (never edit, rename, exclude from compilation or delete): `src/Inventory.Web/appsettings.Development.json`,
+  `tests/Inventory.Tests/OwnerDomainContractTests.cs`{{PROTECTED}}. The owner tests assert the actual
+  Reason enum and nonzero Quantity model contract. They must run unchanged through `vcp_verify`;
+  generated tests with matching names or weakened assertions cannot replace them.
 - Before finishing, build the solution and run all tests, and fix any failure. Then call `vcp_verify`
   and require an empty `verification.outstanding_issues` list before claiming completion. It runs the
   configured stage checks itself; `complete:false` is expected because the host finalizes the task.
@@ -730,6 +733,16 @@ function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
     if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline solution does not build/test; fix the .NET toolchain before spending on VCP turns.' }
     Initialize-GitCheckpoint $ctx
     $protected = @{ 'src/Inventory.Web/appsettings.Development.json' = (Get-Sha256 (Join-Path $ws 'src\Inventory.Web\appsettings.Development.json')) }
+    # Seed after baseline: the fresh scaffold intentionally has no domain model yet.
+    # The ordinary configured dotnet verifier builds/runs this independent fixture.
+    $ownerContract = 'tests/Inventory.Tests/OwnerDomainContractTests.cs'
+    $ownerContractSource = Join-Path $PSScriptRoot '../../scripts/evals/inventory-domain-probe/OwnerDomainContractTests.cs'
+    $ownerContractPath = Join-Path $ws $ownerContract
+    if (Test-Path -LiteralPath $ownerContractPath) {
+        Assert-That ((Get-Sha256 $ownerContractPath) -ceq (Get-Sha256 $ownerContractSource)) 'Existing owner contract differs; preserve it and select a fresh project.'
+    }
+    else { Copy-Item -LiteralPath $ownerContractSource -Destination $ownerContractPath }
+    $protected[$ownerContract] = Get-Sha256 $ownerContractSource
     if (Test-Path -LiteralPath (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')) {
         $protected['tests/Inventory.Tests/RegressionTests.cs'] = Get-Sha256 (Join-Path $ws 'tests/Inventory.Tests/RegressionTests.cs')
     }
@@ -885,6 +898,7 @@ listing at most 10 findings ordered by severity.
     }
     $affected = @('README.md', 'src', 'tests')
     $namesT1 = @('Supplier_requires_valid_email', 'Product_rejects_invalid_sku', 'StockMovement_requires_nonzero_quantity') | ForEach-Object { "Inventory.Tests.DomainValidationTests.$_" }
+    $namesT1 += @('Reason_is_exact_required_enum', 'Quantity_rejects_zero_and_accepts_nonzero_contract_examples') | ForEach-Object { "Inventory.Tests.OwnerDomainContractTests.$_" }
     $namesT2 = @($namesT1) + @(@('Suppliers_are_ordered_by_name', 'Duplicate_supplier_name_returns_conflict', 'Products_support_search_and_paging', 'Invalid_product_page_returns_bad_request', 'Product_creation_returns_location', 'Unknown_supplier_returns_validation_error', 'Sale_requires_negative_quantity', 'Low_stock_report_is_ordered_by_sku') | ForEach-Object { "Inventory.Tests.ApiContractTests.$_" })
     $namesT3 = @($namesT2) + @(@('Products_page_filters_search', 'Create_page_rejects_invalid_input', 'Details_page_lists_movements_newest_first') | ForEach-Object { "Inventory.Tests.RazorPageTests.$_" })
     $regressionNames = @('Sku_is_trimmed_and_uppercased_on_create', 'Sale_exceeding_stock_returns_insufficient_stock_problem', 'Whitespace_only_product_name_is_rejected', 'Supplier_email_must_be_valid')

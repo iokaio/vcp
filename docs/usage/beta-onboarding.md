@@ -214,7 +214,7 @@ budget; setup never retries with a larger cap or cheaper provider automatically.
 
 ```powershell
 $profile = Join-Path $private ('beta-sample-' + [guid]::NewGuid().ToString('N') + '.json')
-$taskBudget = Read-Host 'Authorized per-task budget in USD'
+$taskBudget = Read-Host 'Recorded task budget in USD (task spending caps are suspended in this beta)'
 & $vcp --workspace $workspace setup profile `
   --snapshot (Join-Path $generation 'qualified\snapshot.json') `
   --catalog (Join-Path $generation 'endpoints.json') --output $profile `
@@ -229,15 +229,20 @@ if ($LASTEXITCODE -ne 0) { throw 'Profile preflight failed.' }
 `--trust-workspace` is required and binds this profile to that exact workspace.
 Only reads are automatic in the generated policy; the default tool ceiling
 includes repository reading, search, patch and source-integrity verification.
-External process execution and MCP are absent. The profile limits each root task
-to eight model requests, 2,048 output tokens per request, zero transport retries,
-and a five-minute task deadline. A denied effect needs explicit applicable user
-approval; changing the requested autonomy cannot exceed the profile ceiling.
+External process execution and MCP are absent. The generated profile records request
+and output allowances and disables transport retries; execution adapts token allowances
+to context and activity. Normal task execution in this beta suspends task deadlines
+and spending caps even when finite values appear in the profile. The recorded budget
+is not an enforced spending ceiling. Monitor charges and explicitly pause or stop when
+needed; provider setup probes retain their separate bounds. A denied effect needs
+explicit applicable user approval; changing autonomy cannot exceed the profile ceiling.
 
 The first accepted task registers the workspace and durable history. Starting
 `& $vcp --workspace $workspace workspace discover` discovers unfinished tasks.
 Reopening does not resume a task. Use the displayed task ID and revision for an
-explicit resume; the original task's budget and spent amount remain in force.
+explicit resume. The original budget and spent amount remain recorded, but task
+spending-cap and deadline enforcement remain suspended on resume. Uncertain sent
+requests and effects still require their existing reconciliation safeguards.
 
 Each workspace gets its own profile filename. Always pass its matching
 `--workspace` and `--config`; the legacy global `profile.json` default cannot
