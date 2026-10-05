@@ -135,6 +135,14 @@ These tests used a changing local source tree and synthetic endpoint, not a froz
 
 ## Live qualification and analysis
 
+### Candidate 0.2.28 integration checkpoint
+
+Candidate 0.2.28 built from clean source `90f4863fbbf44890d08b1b2171ca1b6e7d04cfa3` in 15 minutes 20 seconds. The actual executable reports `vcp 0.2.28`, is 225,402,368 bytes, and has SHA-256 `e9aa55d4f50d4301d81dff93618be9a97fb1fa433aa7fd64f4f2b1608c0d1300`. It includes the worker-result fix, streamed-job activation and bounded diagnostic collection. The build receipt is `artifacts/a-b-tests-candidates/0.2.28/build-evidence.json`; no installer or VSIX was produced.
+
+Read-only inspection of the unchanged 249-commit probe succeeded and preserved its database hash. Every canonical bundle field matched the 0.2.27 output exactly after excluding only Store timing diagnostics and collection elapsed time. Store open took 14.610 seconds, including 11.202 seconds of validation over the same 25,435 record inputs and 29,575 event inputs. The wall time was 14.928 seconds. Concurrent qualification and uncontrolled cache conditions prevent a regression or speedup conclusion against 0.2.27; the cold-open target remains outstanding. Evidence: `artifacts/ee02-probe-0.2.28-inspection-evidence.json`, adjacent original JSONL/stderr, and `artifacts/compare-ee07-candidate-bundle.cjs`.
+
+Fresh full A/B runs started October 5 at 02:06 UTC (October 4 local time), with exact initial evaluator/provider hashes recorded in `artifacts/ee07-full-a-0.2.28-019ea9a6532a459ba3b8bbe527e16585-inputs.json` and `artifacts/ee07-full-b-0.2.28-53ef56a7acff46e98e91130712e9ed04-inputs.json`. These are ongoing attempts, not passes. Candidate bytes stay frozen while separate encoding diagnostics and validation improvements are developed. Any later offline reanalysis must record its own committed evaluator identity; an initial evaluator hash does not identify subsequent changed analyzer code.
+
 ### Candidate 0.2.27 retained-history measurement and B preflight
 
 Candidate 0.2.27 (source `bb849189cbfc63b9cbac923244a01fd82de53dfd`, executable SHA-256 `7f267edd985d224fbfd4cff5bc932c5a823c3016b5ee11e1a554858725b56f2f`) reopened the unchanged completed 0.2.26 probe read-only. At the same 249 commits, Store open took 11.898 seconds, replay 11.766 seconds and validation 9.080 seconds, versus the earlier 17.323/17.197/14.555 seconds. Both reads performed 249 validations over 29,575 event inputs and 25,435 record inputs. Event validation was 6.679 seconds versus 6.778; ingestion was 0.910 versus 3.573 and redaction 0.926 versus 3.561. The original database remained SHA-256 `bf6d03c23bbb4256a19c5566b2028b87af20383326faa0628dbf150b04ec0ed8` before and after; inspection exited successfully.
