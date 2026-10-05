@@ -2,6 +2,23 @@
 
 Work items: EE-00c, EE-06 and EE-07. The [implementation ledger](../plan/25-execution-engine-refinements.md) records completed checks and outstanding acceptance. Experiments exercise the existing engine. A test helper does not provide a second execution path or authority to dispatch model requests.
 
+## Candidate 0.2.31 combined integration
+
+Candidate `0.2.31` was built from clean source `5c5839d0cd1ee6f3b17ecd20c87543577c3ec86e`; the actual executable reports `vcp 0.2.31` and SHA-256 `509cd3b517206196aae792deb57ae0dc46099295b0083173fa2168a072ceea69`. The build completed at 04:24:57 UTC on October 5. It combines the qualified event/redaction/ingestion prefix reuse, physical-read and encoding diagnostics, CLI stream corrections and strict focused-verification tool. Full A and B launched together at 04:26 UTC, with the independent B domain gate enabled. Source, executable, launcher, evaluator and provider-generation hashes are retained in `artifacts/ee07-full-a-0.2.31-8b55811a496e4b2797f17442f7a41ce5-inputs.json` and `artifacts/ee07-full-b-0.2.31-90aa07da725745fb88754b5711d42993-inputs.json`. Both passed baseline/setup gates and accepted T1; full acceptance remains pending.
+
+### Retained-history comparison
+
+Read-only inspection of retained A.26 and B.28 completed alongside the fresh runs. Both complete canonical bundles match their retained baselines after the existing narrow diagnostic/legacy-default normalization. Database hashes remain unchanged, A's submitted attempt and unknown liability remain intact, and B's original terminal/owner joins still pass. Every original commit is replayed. This qualifies semantic equivalence on these datasets, not fresh scenario success or bounded cold reopen.
+
+| Retained dataset | Commits | .30 / .31 open seconds | .30 / .31 validation seconds | .30 / .31 underlying reads | .30 / .31 returned bytes |
+|---|---:|---:|---:|---:|---:|
+| A | 684 | 100.767 / 25.695 | 88.342 / 10.062 | 560,884 / 31,102 | 569,429,480 / 102,298,760 |
+| B | 1,543 | 848.224 / 113.239 | 798.560 / 59.406 | 4,875,665 / 211,030 | 4,966,014,715 / 518,724,292 |
+
+Actual event and redaction work now visits 679 rows each for A and 1,518 each for B, with prefix reuse on every preparation and no dependency fallback in these two phases. Ingestion examines 55 rows with five full fallbacks for A and 29,610 with 25 full fallbacks for B; changing dependencies retain full validation. A's event/redaction/ingestion phases take 0.277/0.129/0.068 seconds; B's take 0.802/0.582/10.225 seconds. Accounting is now the largest validation phase, at 7.189 seconds for A and 35.823 for B. These counters demonstrate removed repeated work. Elapsed comparisons have uncontrolled cache and scheduling effects, including concurrent fresh A/B and both inspections; they are not causal speedup or cold-cache p95 measurements. Physical byte counts include repeated reads and phase counters are subsets of preparation totals.
+
+Exact per-phase counters, canonical/output/input hashes, unchanged database hashes and provenance are retained in `artifacts/ee02-retained-0.2.31-phase-summary.json`, SHA-256 `3259edf9733f77774d140e0885328d90f929440a906f4dc1502b6106f3d8d67e`, and the referenced per-case evidence/comparison receipts. The two-second reopen target remains outstanding. Further repair work will be driven by concrete full-run failures and collected into coherent batches.
+
 ## Candidate 0.2.30 evidence
 
 ### Candidate 0.2.30 retained-A physical-read attribution
