@@ -256,6 +256,7 @@ async fn repaired(backend: BackendKind, stale_verification: bool, missing_cost: 
             requirements: vec![vcp_tools::verification::Requirement {
                 manifest: "package.json".into(),
                 runner: vcp_tools::verification::Runner::Node,
+                maven: None,
                 profile: "node".into(),
                 timeout_ms: None,
                 expected_tests: vec!["changed_value".into()],

@@ -666,9 +666,10 @@ function Write-VcpCommandCompletion {
 function New-ScenarioPauseCheckpoint {
     <# An explicit test fixture, not a deadline or a second execution path.
        VCP owns the waiting native process; the normal pause must contain it. #>
-    param($Ctx, [string]$Profile = 'node')
+    param($Ctx, [string]$Profile = 'node', [ValidateSet('node', 'python', 'java')][string]$Runtime = 'node')
     $token = [guid]::NewGuid().ToString('N')
-    $name = ".vcp-pause-checkpoint-$token.cjs"
+    $extension = @{ node = 'cjs'; python = 'py'; java = 'java' }[$Runtime]
+    $name = ".vcp-pause-checkpoint-$token.$extension"
     $path = Join-Path $Ctx.Workspace $name
     $source = @'
 // Owner-authored scenario checkpoint. Preserve this fixture.
@@ -686,7 +687,58 @@ if (fs.existsSync(marker)) {
   setTimeout(() => { console.error('Owner pause checkpoint was not exercised.'); process.exitCode = 1; }, 180000);
 }
 '@
-    $source = $source.Replace('__TOKEN__', $token)
+    if ($Runtime -eq 'python') {
+        $source = @'
+# Owner-authored scenario checkpoint. Preserve this fixture.
+import json
+import os
+from pathlib import Path
+import time
+
+token = '__TOKEN__'
+marker = Path(__file__).resolve().with_name(Path(__file__).name + '.reached.json')
+if marker.exists():
+    previous = json.loads(marker.read_text(encoding='utf-8'))
+    if previous.get('version') != 1 or previous.get('token') != token:
+        raise RuntimeError('Checkpoint marker changed')
+    print('Checkpoint already reached; continue the original task.', flush=True)
+else:
+    with marker.open('x', encoding='utf-8') as output:
+        json.dump({'version': 1, 'token': token, 'pid': os.getpid()}, output)
+    print('Checkpoint reached; waiting for the explicit owner pause.', flush=True)
+    time.sleep(180)
+    raise RuntimeError('Owner pause checkpoint was not exercised.')
+'@
+    }
+    elseif ($Runtime -eq 'java') {
+        $source = @'
+// Owner-authored scenario checkpoint. Preserve this fixture.
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+
+class VcpPauseCheckpoint {
+    public static void main(String[] args) throws Exception {
+        String token = "__TOKEN__";
+        Path marker = Path.of("__NAME__.reached.json").toAbsolutePath();
+        if (Files.exists(marker)) {
+            String previous = Files.readString(marker);
+            if (!previous.matches("\\{\"version\":1,\"token\":\"" + token + "\",\"pid\":[1-9][0-9]*\\}")) {
+                throw new IllegalStateException("Checkpoint marker changed");
+            }
+            System.out.println("Checkpoint already reached; continue the original task.");
+        } else {
+            Files.writeString(marker, "{\"version\":1,\"token\":\"" + token + "\",\"pid\":"
+                + ProcessHandle.current().pid() + "}", StandardOpenOption.CREATE_NEW);
+            System.out.println("Checkpoint reached; waiting for the explicit owner pause.");
+            Thread.sleep(180000);
+            throw new IllegalStateException("Owner pause checkpoint was not exercised.");
+        }
+    }
+}
+'@
+    }
+    $source = $source.Replace('__TOKEN__', $token).Replace('__NAME__', $name)
     $file = [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     try { $bytes = $script:Utf8NoBom.GetBytes($source); $file.Write($bytes, 0, $bytes.Length) } finally { $file.Dispose() }
     $Ctx.PauseCheckpoint = @{ token=$token; script=$path; marker=($path + '.reached.json'); sha256=(Get-Sha256 $path) }

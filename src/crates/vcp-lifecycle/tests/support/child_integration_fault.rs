@@ -105,6 +105,7 @@ pub(super) fn configure_parent_verification(
                 timeout_ms: None,
                 manifest: "package.json".into(),
                 runner: Runner::Node,
+                maven: None,
                 profile: "node".into(),
                 expected_tests: vec!["integrated_parent".into()],
                 rationale: "Read the actual integrated parent bytes".into(),

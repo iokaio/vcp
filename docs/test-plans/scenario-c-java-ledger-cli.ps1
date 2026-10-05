@@ -11,7 +11,7 @@ See docs/test-plans/cli-test-plans.md, "Scenario C". The harness generates a
 deterministic three-month transaction fixture and computes every expected
 report itself, so CLI output is compared exactly. Turns: import, categorize and
 JSON reports, table/budget/error handling, protected regression tests, export
-and date ranges (interrupted by a short deadline and continued with
+and date ranges (explicitly paused at a recorded process checkpoint and continued with
 'vcp sessions resume <session>'), and a plan-mode review. It finishes with
 'mvn verify', the shaded executable jar and sample outputs in artifacts/.
 
@@ -531,8 +531,9 @@ $environmentBlock = @'
 - Exit codes: 0 success, 2 usage error (picocli default), 3 budget exceeded, 4 input or data error
   (missing or malformed file; message on stderr; nothing written).
 - Protected files (never edit, rename or delete): `samples/transactions-2026Q1.csv`, `samples/rules.csv`{{PROTECTED}}.
-- Before finishing, run `mvn verify` (or compile and run your tests) and fix any failure. Finish with a
-  short summary of changed files and command results.
+- Before finishing, run `mvn verify` and fix any failure. Then call `vcp_verify` and resolve every
+  failed check and outstanding issue before reporting completion. Finish with a short summary of
+  changed files and observed command results.
 '@
 $environmentBlock = $environmentBlock.Replace('{{JAVA}}', [string]$javaMajor).Replace('{{MAVEN}}', $mavenLine)
 function New-Prompt([string]$Body, [string]$Protected = '') {
@@ -883,16 +884,32 @@ $regressionNames = @('parenthesizedAmountsAreNegative', 'thousandsSeparatorsAreP
         (New-ProcessProfile -Name 'java' -Executable $java -Ctx $ctx -MaxTimeoutMs 1200000),
         (New-ProcessProfile -Name 'javac' -Executable $javac -Ctx $ctx -MaxTimeoutMs 600000))
     $affected = @('README.md', 'pom.xml', 'src', 'samples')
-    $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes $javaProcesses
-    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes $javaProcesses -DeadlineSeconds $ctx.ShortDeadlineSeconds
+    $namesT1 = @('csvQuoting', 'normalizesTransactions', 'skipsDuplicates', 'rejectsMalformedInputAtomically') | ForEach-Object { "io.vcp.ledger.ImportTest.$_" }
+    $namesT2 = @($namesT1) + @(@('firstMatchingRuleWins', 'monthlyReportArithmetic', 'categoryOrdering') | ForEach-Object { "io.vcp.ledger.ReportTest.$_" })
+    $namesT3 = @($namesT2) + @(@('tableOutput', 'overBudgetExitCode', 'invalidInputExitCodes') | ForEach-Object { "io.vcp.ledger.BudgetTest.$_" })
+    $namesT4 = @($namesT3) + @($regressionNames | ForEach-Object { "io.vcp.ledger.RegressionTest.$_" })
+    $namesT5 = @($namesT4) + @(@('exportOrderingAndQuoting', 'dateRangeValidation') | ForEach-Object { "io.vcp.ledger.ExportTest.$_" })
+    $profiles = @{}
+    $previousNames = @()
+    foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT2), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
+        $check = [ordered]@{ manifest = 'pom.xml'; runner = 'maven'; profile = 'java'; timeout_ms = 1200000
+            maven = [ordered]@{ classworlds_jar = $classworlds.FullName; classworlds_conf = $m2conf; home = $mavenHome }
+            expected_tests = $pair[1]; rationale = 'Owner acceptance: cumulative named Ledger JUnit tests must pass against current source.' }
+        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes $javaProcesses -Checks @($check)
+        $newNames = @($pair[1] | Where-Object { $previousNames -notcontains $_ })
+        $instruction = "`nRequired named JUnit tests for this stage (fully qualified class.method; each must assert the corresponding behavior above):`n" + (($newNames | ForEach-Object { '- ' + $_ }) -join "`n") + "`nKeep all earlier stage tests passing. Do not rename or skip these tests.`n"
+        Set-Variable -Name "prompt$($pair[0])" -Value ((Get-Variable -Name "prompt$($pair[0])" -ValueOnly) + $instruction)
+        $previousNames = @($pair[1])
+    }
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
-    foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    foreach ($key in 'T1', 'T2', 'T3', 'T4', 'T5') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    [void](Test-ProfileCheck $ctx $stage $profileReview 'review')
     [void](Test-ProcessEnvironment $ctx $stage $javaProcesses[0] 'java-tests' ($mavenViaJava + @('-B', '-ntp', 'test')))
 
     # --- G0: zero-spend guardrail: empty task file -------------------------
     $emptyPrompt = Join-Path $ctx.Logs 'G0-guardrail\empty-task.md'
     Write-Utf8File $emptyPrompt ''
-    Invoke-GuardrailRun -Ctx $ctx -Stage 'G0-guardrail' -Id 'empty-task-file' -Config $profileMain `
+    Invoke-GuardrailRun -Ctx $ctx -Stage 'G0-guardrail' -Id 'empty-task-file' -Config $profiles['T1'] `
         -Description 'run --file with an empty task file is rejected, exit 2, no task' `
         -Arguments @('run', '--file', $emptyPrompt, '--budget-usd', '0.01', '--autonomy', 'autonomous')
 
@@ -903,18 +920,18 @@ $regressionNames = @('parenthesizedAmountsAreNegative', 'thousandsSeparatorsAreP
 
     # --- T1..T3 -------------------------------------------------------------
     $gatesT1 = { param($s) Test-MavenVerify $s 4; Test-Import $s; Test-ProtectedUnchanged $s $protected }
-    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-import' -Title 'CSV import into JSON ledger' -Prompt $promptT1 -Config $profileMain
-    if ($t1) { Test-StageExit $ctx $t1 'T1-import'; & $gatesT1 'T1-import'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-import' -Config $profileMain -GateScript $gatesT1) }
+    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-import' -Title 'CSV import into JSON ledger' -Prompt $promptT1 -Config $profiles['T1']
+    if ($t1) { Test-StageExit $ctx $t1 'T1-import'; & $gatesT1 'T1-import'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-import' -Config $profiles['T1'] -GateScript $gatesT1) }
     Save-Checkpoint $ctx 'T1: import'
 
     $gatesT2 = { param($s) Test-MavenVerify $s 7; Test-Reports $s; Test-Import $s; Test-ProtectedUnchanged $s $protected }
-    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-reports' -Title 'Categorize and JSON monthly report' -Prompt $promptT2 -Config $profileMain
-    if ($t2) { Test-StageExit $ctx $t2 'T2-reports'; & $gatesT2 'T2-reports'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-reports' -Config $profileMain -GateScript $gatesT2) }
+    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-reports' -Title 'Categorize and JSON monthly report' -Prompt $promptT2 -Config $profiles['T2']
+    if ($t2) { Test-StageExit $ctx $t2 'T2-reports'; & $gatesT2 'T2-reports'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-reports' -Config $profiles['T2'] -GateScript $gatesT2) }
     Save-Checkpoint $ctx 'T2: categorize and reports'
 
     $gatesT3 = { param($s) Test-MavenVerify $s 10; Test-TableAndBudgets $s; Test-Reports $s; Test-ProtectedUnchanged $s $protected }
-    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-budgets' -Title 'Table output, budgets, exit codes' -Prompt $promptT3 -Config $profileMain
-    if ($t3) { Test-StageExit $ctx $t3 'T3-budgets'; & $gatesT3 'T3-budgets'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-budgets' -Config $profileMain -GateScript $gatesT3) }
+    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-budgets' -Title 'Table output, budgets, exit codes' -Prompt $promptT3 -Config $profiles['T3']
+    if ($t3) { Test-StageExit $ctx $t3 'T3-budgets'; & $gatesT3 'T3-budgets'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-budgets' -Config $profiles['T3'] -GateScript $gatesT3) }
     Save-Checkpoint $ctx 'T3: table, budgets, exit codes'
 
     # --- T4: protected regression tests -------------------------------------
@@ -922,26 +939,33 @@ $regressionNames = @('parenthesizedAmountsAreNegative', 'thousandsSeparatorsAreP
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
     $protected['src/test/java/io/vcp/ledger/RegressionTest.java'] = Get-Sha256 (Join-Path $ws 'src\test\java\io\vcp\ledger\RegressionTest.java')
     $gatesT4 = { param($s) Test-MavenVerify $s 15 $regressionNames; Test-BankExport $s; Test-Reports $s; Test-ProtectedUnchanged $s $protected }
-    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profileMain
-    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profileMain -GateScript $gatesT4) }
+    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected regression tests pass' -Prompt $promptT4 -Config $profiles['T4']
+    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'
 
-    # --- T5: short deadline then 'sessions resume <session>' ---------------
+    # --- T5: explicit acknowledged pause, then same-task session resume ----
+    $checkpointPrompt = New-ScenarioPauseCheckpoint $ctx -Profile 'java' -Runtime 'java'
+    $protected[(Split-Path -Leaf $ctx.PauseCheckpoint.script)] = $ctx.PauseCheckpoint.sha256
+    $promptT5 = $checkpointPrompt + "`n`n" + $promptT5
+    Save-Checkpoint $ctx 'T5 setup: recorded native process pause checkpoint'
     $gatesT5 = { param($s) Test-MavenVerify $s 17 $regressionNames; Test-ExportAndRange $s; Test-BankExport $s; Test-ProtectedUnchanged $s $protected }
-    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-export' -Title 'Export and date ranges (short deadline)' -Prompt $promptT5 -Config $profileShort -AcceptExit @(0, 3, 8)
+    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-export' -Title 'Export and date ranges with explicit pause' -Prompt $promptT5 -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)
     if ($t5) {
         Test-StageExit $ctx $t5 'T5-export'
-        if ($t5.exit_code -eq 8 -and $t5.session) {
-            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "sessions resume $($t5.session)" -Arguments @('sessions', 'resume', $t5.session) -Config $profileMain -AcceptExit @(0, 3)
-            if ($resumed) {
-                Test-StageExit $ctx $resumed 'T5-resume'
-                [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'sessions resume continued the paused T5 task' -Test {
-                        Assert-That ($resumed.task -eq $t5.task) "resumed '$($resumed.task)' != paused '$($t5.task)'"; $true })
-            }
+        [void](Invoke-Gate $ctx 'T5-export' 'explicit-pause' 'owner acknowledged pause and execution ended durably paused' {
+            Assert-That ($t5.explicit_pause.acknowledged -and $t5.exit_code -eq 8 -and $t5.session -and
+                $t5.conditions -contains 'durably_paused' -and $ctx.PaidExecutionBlock.resume_same_task) 'Explicit pause lacks acknowledged, scoped terminal proof'
+            $true
+        })
+        if (@(Get-FailedGates $ctx 'T5-export').Count) { throw 'Explicit pause qualification failed; retained evidence requires diagnosis before continuation.' }
+        $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "sessions resume $($t5.session)" -Arguments @('sessions', 'resume', $t5.session) -Config $profiles['T5'] -AcceptExit @(0, 3)
+        if ($resumed) {
+            Test-StageExit $ctx $resumed 'T5-resume'
+            [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'sessions resume continued the explicitly paused T5 task' -Test {
+                    Assert-That ($resumed.task -eq $t5.task) "resumed '$($resumed.task)' != paused '$($t5.task)'"; $true })
         }
-        else { [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'sessions resume continued the paused T5 task' "T5 ended with exit $($t5.exit_code); continuation not exercised") }
         & $gatesT5 'T5-export'
-        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-export' -Config $profileMain -GateScript $gatesT5)
+        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-export' -Config $profiles['T5'] -GateScript $gatesT5)
     }
     Save-Checkpoint $ctx 'T5: export and date ranges'
 

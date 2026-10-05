@@ -254,7 +254,7 @@ to `<run>\artifacts` and D writes final deliverables to `<run>\deliverables`.
 | P1-profiles | none | Compose profiles, validate each with `vcp setup check`, then run toolchain probes with the exact cleared process environment before inference |
 | G0-guardrail | none | A `vcp run` that must be rejected before execution with exit 2 and no accepted task |
 | T1-T5 | paid | Feature turns, each followed by the evidence sweep (3.4), deterministic gates (3.6) and at most `-MaxRepairTurns` repair turns |
-| T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. A/B also support a transient billing-only exit 7 after the mandatory reconciliation proof described below. |
+| T5 continuation | paid | The harness requests an explicit pause at a recorded process checkpoint. It requires an acknowledged receipt and a durably paused exit 8 before the scenario-specific continuation resumes the same task with its full T5 checks. Suspended deadlines cannot trigger this test. |
 | T6-review | paid, small (cap 2.00 USD) | A review in `--autonomy plan` with a read-only profile. The workspace must stay byte-identical, and the answer ends with a JSON findings block. |
 | T7-fork (D only) | paid | `sessions fork` of the review session, which tests consistency and immutability |
 | FINAL | none (VCP) | Independent build and functional regression gates for the final project, packaging of compiled assets; lifecycle actions are not repeated |
@@ -336,7 +336,12 @@ Design notes, each based on the current source:
   execution fixtures. Toolchains need to read SDK, cache and package locations outside the
   workspace. This is an explicit owner choice for a test machine; review it before reusing
   these profiles anywhere else.
-- **Checks.** The VCP verification runner supports `node`, `cargo` and `dotnet`.
+- **Checks.** The VCP verification runner supports `node`, `cargo`, `dotnet`, `maven` and `pytest`.
+  C and D configure cumulative named acceptance tests in separate T1-T5 profiles.
+  Maven uses the owner-selected Java ClassWorlds launcher and offline clean tests;
+  pytest uses verbose, uncolored output. Both require complete, nonempty, unskipped
+  named test results before native completion. The independent scenario output,
+  metrics and protected-file gates still run separately.
   Scenario A adds a per-turn `node` check with cumulative expected test names.
   Scenario B requires a solution-level `dotnet test` check with cumulative fully
   qualified acceptance-test names. Its configured normal console logger must show
@@ -698,7 +703,7 @@ and a README. Baseline: `mvn -B -ntp clean verify`.
 | T2-reports | `categorize` (first-match rules), `report --format json` with exact field semantics and ordering | `Categorized 146 transactions (13 uncategorized)`; JSON reports for 2026-01/02/03 **equal** the harness-computed income, expenses, net and byCategory; empty month gives zeros; missing ledger gives exit 4; T1 replayed |
 | T3-budgets | Table format, `budget check` lines and exit 3, usage errors exit 2 | table has the header, every category row and Net; tight budget gives exit 3 with the exact `Dining: spent X of Y (OVER)` and `Housing ... (OK)` lines; loose budget gives exit 0; unknown subcommand gives exit 2; T2 replayed |
 | T4-regressions | Harness adds the protected `RegressionTest.java` (parenthesized negatives, thousands separators, quoted commas, re-import duplicates, empty month) | >= 15 tests incl. the 5 named; bank-export fixture with `(1,204.10)`, `"3,250.00"`, quoted commas, extra whitespace and a duplicate gives `Imported 7 transactions (1 duplicates skipped)` and an exact April report; T2 replayed; protected files unchanged |
-| T5-export (short deadline) | `export` (csv/json, ordered), `--from/--to` ranges, mutually exclusive options, help, README | `sessions resume <session>` continues the same task (if paused); export JSON has 146 ordered, categorized items; CSV header and rows; quarter report equals the harness Q1 totals; `--month` with `--from` gives exit 2; `--help` lists all subcommands |
+| T5-export (explicit pause) | `export` (csv/json, ordered), `--from/--to` ranges, mutually exclusive options, help, README | Recorded Java checkpoint, acknowledged durable pause, then `sessions resume <session>` must continue the same task; export JSON has 146 ordered, categorized items; CSV header and rows; quarter report equals the harness Q1 totals; `--month` with `--from` gives exit 2; `--help` lists all subcommands |
 | T6-review | Read-only review | workspace byte-identical |
 | FINAL | none | `mvn verify`; import, reports, budgets, bank-export and export/range suites against the final jar; protected files |
 
@@ -714,24 +719,25 @@ vcp $G skills list
 vcp $G models
 
 # P1 - profile validation (no inference)
-vcp $G --config <profiles>\profile-main-<run>.json setup check
-vcp $G --config <profiles>\profile-short-<run>.json setup check
+# Validate each stage profile T1 through T5:
+vcp $G --config <profiles>\profile-Tn-<run>.json setup check
 vcp $G --config <profiles>\profile-review-<run>.json setup check
 
 # G0 - guardrail: empty task file (expect exit 2, no task)
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\G0-guardrail\empty-task.md --budget-usd 0.01 --autonomy autonomous
+vcp $G --config <profiles>\profile-T1-<run>.json run --file <logs>\G0-guardrail\empty-task.md --budget-usd 0.01 --autonomy autonomous
 
 # T1..T4 - each followed by the evidence sweep (3.4) and, on gate failure, one repair run
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T1-import\prompt.md --budget-usd 3.00 --autonomy autonomous
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T2-reports\prompt.md --budget-usd 3.00 --autonomy autonomous
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T3-budgets\prompt.md --budget-usd 3.00 --autonomy autonomous
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T4-regressions\prompt.md --budget-usd 3.00 --autonomy autonomous
-[repair] vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\Tn-<name>-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T1-<run>.json run --file <logs>\T1-import\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T2-<run>.json run --file <logs>\T2-reports\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T3-<run>.json run --file <logs>\T3-budgets\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T4-<run>.json run --file <logs>\T4-regressions\prompt.md --budget-usd 3.00 --autonomy autonomous
+[repair] vcp $G --config <profiles>\profile-Tn-<run>.json run --file <logs>\Tn-<name>-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
-# T5 - short deadline, then session-level resume
-vcp $G --config <profiles>\profile-short-<run>.json run --file <logs>\T5-export\prompt.md --budget-usd 3.00 --autonomy autonomous
-[if exit 8] vcp $G --config <profiles>\profile-main-<run>.json sessions resume <T5 session id>
-[repair]    vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T5-export-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
+# T5 - explicit recorded-checkpoint pause, then session-level resume
+vcp $G --config <profiles>\profile-T5-<run>.json run --file <logs>\T5-export\prompt.md --budget-usd 3.00 --autonomy autonomous
+[at recorded checkpoint, separate control invocation] vcp $G tasks pause <T5 task id>
+[if exit 8] vcp $G --config <profiles>\profile-T5-<run>.json sessions resume <T5 session id>
+[repair]    vcp $G --config <profiles>\profile-T5-<run>.json run --file <logs>\T5-export-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
 # T6 - plan-mode review
 vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 2.00 --autonomy plan
@@ -794,7 +800,7 @@ Do not lower a threshold after observing a run and relabel that same run as pass
 | T2-sentiment | Sentiment model, extended predict output, `keywords` command | pytest >= 10; T1 gates with sentiment; **holdout sentiment accuracy >= 0.70**; keywords: 10 lowercase non-stop-word terms per category, with >= 2 known signal words each |
 | T3-robustness | Empty text gives `unknown`; 5,000-char truncation; probabilities; `--min-confidence` gives `needs_review`; BOM, emoji, non-English and multi-line input | pytest >= 14; **holdout macro-F1 >= 0.85**; edge-case batch (BOM, empty, whitespace, emoji, Spanish, a 20,000-char text, a multi-line quoted field): ids kept in order, empty rows `unknown`, long refund text billing, confidences in [0,1]; `--min-confidence 0.999` gives >= 1 `needs_review` and `0` gives none |
 | T4-regressions | Harness adds the protected `tests/test_regressions.py` (NFKC/casefold, `<url>`, `<email>`, `<order>` masking, whitespace) | pytest >= 19 incl. the 5 named; model and robustness gates still pass after preprocessing changes; protected files unchanged |
-| T5-report (short deadline) | Self-contained HTML report (tables, confusion matrix, keywords, escaped examples) and MODEL_CARD.md | If paused: `workspace discover` lists the task with an expected revision; **stale `--expected-revision` gives exit 2 with no events**; valid revision resumes the same task. Report has >= 2 tables and every label; an intentionally misclassified XSS fixture checks escaping; no scripts or external URLs; MODEL_CARD sections |
+| T5-report (explicit pause) | Self-contained HTML report (tables, confusion matrix, keywords, escaped examples) and MODEL_CARD.md | Recorded Python checkpoint and acknowledged durable pause; `workspace discover` lists the task with an expected revision; **stale `--expected-revision` gives exit 2 with no events**; valid revision resumes the same task. Report has >= 2 tables and every label; an intentionally misclassified XSS fixture checks escaping; no scripts or external URLs; MODEL_CARD sections |
 | T6-review | Read-only ML review | workspace byte-identical |
 | T7-fork | `sessions fork` of the review session through its last completed turn | new session and task; workspace byte-identical; advisory: overlap of cited files between the two reviews (Jaccard >= 0.3) |
 | FINAL | none | pytest, model, robustness, keywords, report and protection gates on the final code; verified model bytes and metrics copied into deliverables; dev-set report; keywords; wheel built in a fresh directory; `compileall`; required artifact gates |
@@ -811,26 +817,27 @@ vcp $G skills list
 vcp $G models
 
 # P1 - profile validation (no inference)
-vcp $G --config <profiles>\profile-main-<run>.json setup check
-vcp $G --config <profiles>\profile-short-<run>.json setup check
+# Validate each stage profile T1 through T5:
+vcp $G --config <profiles>\profile-Tn-<run>.json setup check
 vcp $G --config <profiles>\profile-review-<run>.json setup check
 
 # G0 - guardrail: max_requests 0 violates profile bounds (expect exit 2, no task)
 vcp $G --config <profiles>\profile-bad-bounds-<run>.json run --file <logs>\G0-guardrail\prompt.md --budget-usd 0.01 --autonomy autonomous
 
 # T1..T4 - each followed by the evidence sweep (3.4) and, on gate failure, one repair run
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T1-baseline\prompt.md --budget-usd 3.00 --autonomy autonomous
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T2-sentiment\prompt.md --budget-usd 3.00 --autonomy autonomous
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T3-robustness\prompt.md --budget-usd 3.00 --autonomy autonomous
-vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T4-regressions\prompt.md --budget-usd 3.00 --autonomy autonomous
-[repair] vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\Tn-<name>-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T1-<run>.json run --file <logs>\T1-baseline\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T2-<run>.json run --file <logs>\T2-sentiment\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T3-<run>.json run --file <logs>\T3-robustness\prompt.md --budget-usd 3.00 --autonomy autonomous
+vcp $G --config <profiles>\profile-T4-<run>.json run --file <logs>\T4-regressions\prompt.md --budget-usd 3.00 --autonomy autonomous
+[repair] vcp $G --config <profiles>\profile-Tn-<run>.json run --file <logs>\Tn-<name>-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
-# T5 - short deadline, chooser data, stale-revision rejection, then revision-checked resume
-vcp $G --config <profiles>\profile-short-<run>.json run --file <logs>\T5-report\prompt.md --budget-usd 3.00 --autonomy autonomous
+# T5 - explicit recorded-checkpoint pause, chooser data, stale-revision rejection, then revision-checked resume
+vcp $G --config <profiles>\profile-T5-<run>.json run --file <logs>\T5-report\prompt.md --budget-usd 3.00 --autonomy autonomous
+[at recorded checkpoint, separate control invocation] vcp $G tasks pause <T5 task id>
 [if exit 8] vcp $G workspace discover
-[if exit 8] vcp $G --config <profiles>\profile-main-<run>.json resume <T5 task id> --expected-revision <rev+1000>   (expect rejection)
-[if exit 8] vcp $G --config <profiles>\profile-main-<run>.json resume <T5 task id> --expected-revision <rev>
-[repair]    vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T5-report-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
+[if exit 8] vcp $G --config <profiles>\profile-T5-<run>.json resume <T5 task id> --expected-revision <rev+1000>   (expect rejection)
+[if exit 8] vcp $G --config <profiles>\profile-T5-<run>.json resume <T5 task id> --expected-revision <rev>
+[repair]    vcp $G --config <profiles>\profile-T5-<run>.json run --file <logs>\T5-report-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
 # T6 - plan-mode review, T7 - fork of that review
 vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 2.00 --autonomy plan
@@ -926,6 +933,8 @@ These limitations need evidence from actual scenario runs:
 | `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
 | `tests/ScenarioInitialization.Tests.ps1` | Toolchain/setup failures retain zero-spend fatal scorecards and summaries and close transcripts for all four scenarios |
 | `tests/MavenBootstrap.Tests.ps1` | C preserves installed Maven or provisions run-local tools; rejects failed downloads, checksum mismatches and invalid distributions |
+| `tests/StackVerificationProfiles.Tests.ps1` | C/D cumulative named native checks, matching prompts, per-stage task/repair profiles and read-only review permissions |
+| `tests/StackPauseCheckpoints.Tests.ps1` | C/D explicit pause/resume and revision rejection; `-RunStackHelpers` additionally executes the real Java/Python checkpoint helpers |
 | `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
 | `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |

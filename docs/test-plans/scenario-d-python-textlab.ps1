@@ -13,7 +13,7 @@ deterministic labelled train/dev data inside the workspace and a holdout set
 predictions. This is a withheld fixture, not a security boundary or a blind
 evaluation: repair feedback can expose results across turns. Turns: baseline classifier and evaluation, sentiment and
 keywords, robustness, protected preprocessing regression tests, HTML report
-and model card (interrupted by a short deadline, then resumed with
+and model card (explicitly paused at a recorded process checkpoint, then resumed with
 'vcp resume <task> --expected-revision <rev>' from 'vcp workspace discover'),
 a plan-mode review and a 'vcp sessions fork' of that review. It finishes with
 retrained models, holdout metrics, a wheel and compiled bytecode.
@@ -316,7 +316,8 @@ $environmentBlock = @'
   column; message on stderr). Machine-readable outputs are UTF-8 JSON or CSV.
 - Protected files (never edit, rename or delete): `data/tickets_train.csv`, `data/tickets_dev.csv`{{PROTECTED}}.
 - Before finishing, run the tests and a training run on the provided data and fix any failure.
-  Finish with a short summary of changed files, dev metrics and command results.
+  Then call `vcp_verify` and resolve every failed check and outstanding issue before reporting
+  completion. Finish with a short summary of changed files, dev metrics and observed command results.
 '@
 $environmentBlock = $environmentBlock.Replace('{{PY}}', [string]$pyVersion)
 function New-Prompt([string]$Body, [string]$Protected = '') {
@@ -741,12 +742,27 @@ $regressionNames = @('test_fullwidth_and_case_are_normalized', 'test_urls_are_ma
     $stage = 'P1-profiles'
     $pythonProcess = New-ProcessProfile -Name 'python' -Executable $python -Ctx $ctx -ExtraPath @((Split-Path -Parent $basePython)) -MaxTimeoutMs 1800000
     $affected = @('README.md', 'MODEL_CARD.md', 'pyproject.toml', 'src', 'tests', 'data', 'models', 'reports')
-    $profileMain = New-ScenarioProfile -Ctx $ctx -Name 'profile-main' -AffectedPaths $affected -Processes @($pythonProcess)
-    $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes @($pythonProcess) -DeadlineSeconds $ctx.ShortDeadlineSeconds
+    $namesT1 = @('test_normalization', 'test_loading', 'test_training', 'test_cli_train', 'test_cli_evaluate', 'test_cli_predict') | ForEach-Object { "tests/test_acceptance.py::$_" }
+    $namesT2 = @($namesT1) + @(@('test_sentiment_model', 'test_keywords', 'test_extended_prediction') | ForEach-Object { "tests/test_acceptance.py::$_" })
+    $namesT3 = @($namesT2) + @(@('test_empty_text', 'test_long_text', 'test_confidence_threshold', 'test_bom_multiline_unicode_batch', 'test_missing_text_column') | ForEach-Object { "tests/test_acceptance.py::$_" })
+    $namesT4 = @($namesT3) + @($regressionNames | ForEach-Object { "tests/test_regressions.py::$_" })
+    $namesT5 = @($namesT4) + @(@('test_report_structure', 'test_report_escaping') | ForEach-Object { "tests/test_acceptance.py::$_" })
+    $profiles = @{}
+    $previousNames = @()
+    foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT2), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
+        $check = [ordered]@{ manifest = 'pyproject.toml'; runner = 'pytest'; profile = 'python'; timeout_ms = 1200000
+            expected_tests = $pair[1]; rationale = 'Owner acceptance: cumulative named TextLab pytest tests must pass against current source.' }
+        $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($pythonProcess) -Checks @($check)
+        $newNames = @($pair[1] | Where-Object { $previousNames -notcontains $_ })
+        $instruction = "`nRequired named pytest tests for this stage (file::function; each must assert the corresponding behavior above):`n" + (($newNames | ForEach-Object { '- ' + $_ }) -join "`n") + "`nKeep all earlier stage tests passing. Do not rename, parametrize or skip these required test functions; add separate tests for additional cases.`n"
+        Set-Variable -Name "prompt$($pair[0])" -Value ((Get-Variable -Name "prompt$($pair[0])" -ValueOnly) + $instruction)
+        $previousNames = @($pair[1])
+    }
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profileBounds = New-ScenarioProfile -Ctx $ctx -Name 'profile-bad-bounds' -AffectedPaths $affected -Processes @($pythonProcess) -Guardrail
     Write-Utf8File $profileBounds ([regex]::Replace([System.IO.File]::ReadAllText($profileBounds), '"max_requests":\s*\d+', '"max_requests": 0'))
-    foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    foreach ($key in 'T1', 'T2', 'T3', 'T4', 'T5') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    [void](Test-ProfileCheck $ctx $stage $profileReview 'review')
     [void](Test-ProcessEnvironment $ctx $stage $pythonProcess 'python-tests' @('-m', 'pytest', '-q'))
 
     # --- G0: zero-spend guardrail: resource bounds -------------------------
@@ -763,20 +779,20 @@ $regressionNames = @('test_fullwidth_and_case_are_normalized', 'test_urls_are_ma
 
     # --- T1 ----------------------------------------------------------------
     $gatesT1 = { param($s) Test-Pytest $s 7; [void](Test-Model $s $BaselineMacroF1); Test-ProtectedUnchanged $s $protected }
-    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-baseline' -Title 'Preprocessing, loading, category classifier' -Prompt $promptT1 -Config $profileMain
-    if ($t1) { Test-StageExit $ctx $t1 'T1-baseline'; & $gatesT1 'T1-baseline'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-baseline' -Config $profileMain -GateScript $gatesT1) }
+    $t1 = Invoke-VcpTask -Ctx $ctx -Stage 'T1-baseline' -Title 'Preprocessing, loading, category classifier' -Prompt $promptT1 -Config $profiles['T1']
+    if ($t1) { Test-StageExit $ctx $t1 'T1-baseline'; & $gatesT1 'T1-baseline'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T1-baseline' -Config $profiles['T1'] -GateScript $gatesT1) }
     Save-Checkpoint $ctx 'T1: baseline classifier'
 
     # --- T2 ----------------------------------------------------------------
     $gatesT2 = { param($s) Test-Pytest $s 10; [void](Test-Model $s $BaselineMacroF1 -Sentiment); Test-Keywords $s; Test-ProtectedUnchanged $s $protected }
-    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-sentiment' -Title 'Sentiment model and keywords' -Prompt $promptT2 -Config $profileMain
-    if ($t2) { Test-StageExit $ctx $t2 'T2-sentiment'; & $gatesT2 'T2-sentiment'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-sentiment' -Config $profileMain -GateScript $gatesT2) }
+    $t2 = Invoke-VcpTask -Ctx $ctx -Stage 'T2-sentiment' -Title 'Sentiment model and keywords' -Prompt $promptT2 -Config $profiles['T2']
+    if ($t2) { Test-StageExit $ctx $t2 'T2-sentiment'; & $gatesT2 'T2-sentiment'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T2-sentiment' -Config $profiles['T2'] -GateScript $gatesT2) }
     Save-Checkpoint $ctx 'T2: sentiment and keywords'
 
     # --- T3 ----------------------------------------------------------------
     $gatesT3 = { param($s) Test-Pytest $s 14; $m = Test-Model $s $TargetMacroF1 -Sentiment; Test-Robustness $s $m; Test-Keywords $s; Test-ProtectedUnchanged $s $protected }
-    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-robustness' -Title 'Robustness and calibrated confidences' -Prompt $promptT3 -Config $profileMain
-    if ($t3) { Test-StageExit $ctx $t3 'T3-robustness'; & $gatesT3 'T3-robustness'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-robustness' -Config $profileMain -GateScript $gatesT3) }
+    $t3 = Invoke-VcpTask -Ctx $ctx -Stage 'T3-robustness' -Title 'Robustness and calibrated confidences' -Prompt $promptT3 -Config $profiles['T3']
+    if ($t3) { Test-StageExit $ctx $t3 'T3-robustness'; & $gatesT3 'T3-robustness'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T3-robustness' -Config $profiles['T3'] -GateScript $gatesT3) }
     Save-Checkpoint $ctx 'T3: robustness'
 
     # --- T4: protected regression tests --------------------------------------
@@ -784,30 +800,42 @@ $regressionNames = @('test_fullwidth_and_case_are_normalized', 'test_urls_are_ma
     Save-Checkpoint $ctx 'T4 setup: protected regression tests added by harness'
     $protected['tests/test_regressions.py'] = Get-Sha256 (Join-Path $ws 'tests\test_regressions.py')
     $gatesT4 = { param($s) Test-Pytest $s 19 $regressionNames; $m = Test-Model $s $TargetMacroF1 -Sentiment; Test-Robustness $s $m; Test-ProtectedUnchanged $s $protected }
-    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected preprocessing tests pass' -Prompt $promptT4 -Config $profileMain
-    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profileMain -GateScript $gatesT4) }
+    $t4 = Invoke-VcpTask -Ctx $ctx -Stage 'T4-regressions' -Title 'Make protected preprocessing tests pass' -Prompt $promptT4 -Config $profiles['T4']
+    if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: preprocessing regression fixes'
 
-    # --- T5: short deadline, discover, stale-revision guardrail, resume -----
+    # --- T5: explicit pause, discover, stale-revision guardrail, resume -----
+    $checkpointPrompt = New-ScenarioPauseCheckpoint $ctx -Profile 'python' -Runtime 'python'
+    $protected[(Split-Path -Leaf $ctx.PauseCheckpoint.script)] = $ctx.PauseCheckpoint.sha256
+    $promptT5 = $checkpointPrompt + "`n`n" + $promptT5
+    Save-Checkpoint $ctx 'T5 setup: recorded native process pause checkpoint'
     $gatesT5 = { param($s) Test-Pytest $s 20 $regressionNames; $m = Test-Model $s $TargetMacroF1 -Sentiment; Test-Report $s $m; Test-ProtectedUnchanged $s $protected }
-    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-report' -Title 'HTML report and model card (short deadline)' -Prompt $promptT5 -Config $profileShort -AcceptExit @(0, 3, 8)
+    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-report' -Title 'HTML report and model card with explicit pause' -Prompt $promptT5 -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)
     if ($t5) {
         Test-StageExit $ctx $t5 'T5-report'
-        if ($t5.exit_code -eq 8 -and $t5.task) {
+        [void](Invoke-Gate $ctx 'T5-report' 'explicit-pause' 'owner acknowledged pause and execution ended durably paused' {
+            Assert-That ($t5.explicit_pause.acknowledged -and $t5.exit_code -eq 8 -and $t5.task -and
+                $t5.conditions -contains 'durably_paused' -and $ctx.PaidExecutionBlock.resume_same_task) 'Explicit pause lacks acknowledged, scoped terminal proof'
+            $true
+        })
+        if (@(Get-FailedGates $ctx 'T5-report').Count) { throw 'Explicit pause qualification failed; retained evidence requires diagnosis before continuation.' }
+        & {
             $discover = Invoke-WorkspaceDiscover $ctx 'T5-resume'
             $candidate = @($discover.Result.data.candidates | Where-Object { [string]$_.task -eq $t5.task }) | Select-Object -First 1
             [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'discover-lists-paused' -Description 'workspace discover lists the paused T5 task with an expected revision' -Test {
                     Assert-That ($null -ne $candidate -and $null -ne $candidate.expected_revision) "candidates: $($discover.Result.data | ConvertTo-Json -Depth 6 -Compress)"; $true })
+            if (@(Get-FailedGates $ctx 'T5-resume').Count) { throw 'Paused task discovery failed; retained evidence requires diagnosis before continuation.' }
             if ($candidate) {
                 $revision = [uint64]([string]$candidate.expected_revision)
                 $staleRevision = if ($revision -eq 0) { '1' } else { '0' }
-                $stale = Invoke-Vcp -Ctx $ctx -Stage 'T5-resume' -Label 'resume-stale-revision' -Config $profileMain -Arguments @('resume', $t5.task, '--expected-revision', $staleRevision)
+                $stale = Invoke-Vcp -Ctx $ctx -Stage 'T5-resume' -Label 'resume-stale-revision' -Config $profiles['T5'] -Arguments @('resume', $t5.task, '--expected-revision', $staleRevision)
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'stale-revision-rejected' -Description 'resume with a stale --expected-revision is rejected without continuing' -Test {
                         $errorText = Get-Content -LiteralPath $stale.StderrPath -Raw
                         Assert-That ($stale.ExitCode -eq 2 -and $errorText -match '(?i)revision|selection') "exit $($stale.ExitCode): $errorText"
                         Assert-That (@($stale.Frames | Where-Object { $_.type -eq 'event' }).Count -eq 0) 'task events emitted for a stale selection'; $true })
+                if (@(Get-FailedGates $ctx 'T5-resume').Count) { throw 'Stale revision guardrail failed; retained evidence requires diagnosis before continuation.' }
                 $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title "resume $($t5.task) --expected-revision $revision" `
-                    -Arguments @('resume', $t5.task, '--expected-revision', [string]$revision) -Config $profileMain -AcceptExit @(0, 3)
+                    -Arguments @('resume', $t5.task, '--expected-revision', [string]$revision) -Config $profiles['T5'] -AcceptExit @(0, 3)
                 if ($resumed) {
                     Test-StageExit $ctx $resumed 'T5-resume'
                     [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'resume continued the paused T5 task' -Test {
@@ -815,9 +843,8 @@ $regressionNames = @('test_fullwidth_and_case_are_normalized', 'test_urls_are_ma
                 }
             }
         }
-        else { [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'resume continued the paused T5 task' "T5 ended with exit $($t5.exit_code); continuation not exercised") }
         & $gatesT5 'T5-report'
-        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-report' -Config $profileMain -GateScript $gatesT5)
+        [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-report' -Config $profiles['T5'] -GateScript $gatesT5)
     }
     Save-Checkpoint $ctx 'T5: report and model card'
 

@@ -48,6 +48,7 @@ fn verification_discovers_real_targets_and_rejects_shell_hooks_and_wrong_project
         timeout_ms: None,
         manifest: "project/package.json".into(),
         runner: Runner::Node,
+        maven: None,
         profile: "node".into(),
         expected_tests: vec!["acceptance".into()],
         rationale: "explicit expected project target".into(),
@@ -122,6 +123,49 @@ fn verification_discovers_real_targets_and_rejects_shell_hooks_and_wrong_project
         b"[package]\nname='synthetic'\nversion='0.1.0'\n",
     )
     .unwrap();
+    fs::write(
+        path.join("project/pyproject.toml"),
+        b"[tool.pytest.ini_options]\n",
+    )
+    .unwrap();
+    fs::write(path.join("project/value.py"), b"answer = 40\n").unwrap();
+    let pytest = Requirement {
+        manifest: "project/pyproject.toml".into(),
+        runner: Runner::Pytest,
+        profile: "python".into(),
+        ..requirement.clone()
+    };
+    let first = discover(&observe(), std::slice::from_ref(&pytest)).unwrap();
+    assert!(first[0].not_run.is_none());
+    assert_eq!(first[0].request.directory, "project");
+    assert_eq!(&first[0].request.arguments[..2], ["-B", "-X"]);
+    assert!(first[0].request.arguments[2].starts_with("pycache_prefix=.vcp-verification-pycache/"));
+    assert_eq!(
+        &first[0].request.arguments[3..],
+        [
+            "-m",
+            "pytest",
+            "-vv",
+            "--color=no",
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider"
+        ]
+    );
+    fs::write(path.join("project/value.py"), b"answer = 41\n").unwrap();
+    let second = discover(&observe(), std::slice::from_ref(&pytest)).unwrap();
+    assert_ne!(
+        first[0].request.arguments[2], second[0].request.arguments[2],
+        "equal-size source edits must not reuse a verification bytecode namespace"
+    );
+    let mismatched = Requirement {
+        runner: Runner::Pytest,
+        ..requirement.clone()
+    };
+    assert!(discover(&observe(), &[mismatched]).unwrap()[0]
+        .not_run
+        .is_some());
     let cargo = Requirement {
         timeout_ms: None,
         manifest: "project/Cargo.toml".into(),

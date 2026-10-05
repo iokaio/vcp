@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use vcp_domain::verification::CheckOutcome;
 use vcp_repository::{observation::Observation, FileVersion};
+mod java_python;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -12,6 +13,47 @@ pub enum Runner {
     Node,
     Cargo,
     Dotnet,
+    Maven,
+    Pytest,
+}
+/// Owner-selected Apache Maven installation, launched directly through Java.
+/// These paths are configuration, not instructions discovered in project files.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MavenLauncher {
+    pub classworlds_jar: String,
+    pub classworlds_conf: String,
+    pub home: String,
+}
+impl MavenLauncher {
+    fn validate(&self) -> Result<()> {
+        for path in [&self.classworlds_jar, &self.classworlds_conf, &self.home] {
+            if path.len() > 4096
+                || !Path::new(path).is_absolute()
+                || path.chars().any(char::is_control)
+                || path.contains(';')
+                || Path::new(path)
+                    .components()
+                    .any(|part| matches!(part, std::path::Component::ParentDir))
+            {
+                return Err(Error::Invalid(
+                    "literal absolute Maven installation paths required",
+                ));
+            }
+        }
+        let home = Path::new(&self.home);
+        if !Path::new(&self.classworlds_jar).starts_with(home.join("boot"))
+            || Path::new(&self.classworlds_jar)
+                .extension()
+                .is_none_or(|extension| extension != "jar")
+            || Path::new(&self.classworlds_conf) != home.join("bin").join("m2.conf")
+        {
+            return Err(Error::Invalid(
+                "Maven launcher must belong to its selected installation",
+            ));
+        }
+        Ok(())
+    }
 }
 /// Explicit owner acceptance, not model-supplied assertions about coverage.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,11 +64,22 @@ pub struct Requirement {
     pub profile: String,
     #[serde(default)]
     pub timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maven: Option<MavenLauncher>,
     pub expected_tests: Vec<String>,
     pub rationale: String,
 }
 impl Requirement {
     pub fn validate(&self) -> Result<()> {
+        match (&self.maven, self.runner) {
+            (Some(launcher), Runner::Maven) => launcher.validate()?,
+            (None, Runner::Maven) | (Some(_), _) => {
+                return Err(Error::Invalid(
+                    "Maven launcher configuration is required only for Maven checks",
+                ));
+            }
+            (None, _) => {}
+        }
         if vcp_repository::path::relative(Path::new(&self.manifest))? != self.manifest {
             return Err(Error::Invalid("normalized manifest path required"));
         }
@@ -152,6 +205,7 @@ mod focused_tests {
         Requirement {
             manifest: manifest.into(),
             runner: Runner::Node,
+            maven: None,
             profile: "node".into(),
             timeout_ms: None,
             expected_tests: vec!["acceptance".into()],
@@ -294,6 +348,32 @@ pub fn discover(observation: &Observation, requirements: &[Requirement]) -> Resu
                     // MSBuild validates project XML. The owner selects the direct
                     // executable profile; discovery never enables a shell or restore.
                     Ok(["test", filename, "--no-restore", "--nologo", "--logger", "console;verbosity=normal", "--disable-build-servers"].into_iter().map(str::to_owned).collect())
+                }
+                Runner::Maven => {
+                    if requirement.manifest.rsplit('/').next() != Some("pom.xml") { return Err("Maven check requires pom.xml".into()); }
+                    let launcher = requirement.maven.as_ref().ok_or("Maven Java launcher is not configured")?;
+                    // Literal JVM arguments avoid mvn.cmd/shell interpretation. The
+                    // current observed project is selected by the process directory.
+                    let mut arguments = vec!["-classpath".into(), launcher.classworlds_jar.clone(),
+                        format!("-Dclassworlds.conf={}", launcher.classworlds_conf), format!("-Dmaven.home={}", launcher.home),
+                        "-Dmaven.multiModuleProjectDirectory=.".into(), "org.codehaus.plexus.classworlds.launcher.Launcher".into()];
+                    arguments.extend(["-B", "-ntp", "-o", "-Dstyle.color=never", "-Dsurefire.useFile=false", "-Dsurefire.reportFormat=plain",
+                        "-DskipTests=false", "-Dmaven.test.skip=false", "-DfailIfNoTests=true", "clean", "test"].into_iter().map(str::to_owned));
+                    Ok(arguments)
+                }
+                Runner::Pytest => {
+                    if requirement.manifest.rsplit('/').next() != Some("pyproject.toml") { return Err("pytest check requires pyproject.toml".into()); }
+                    // The selected Python installation supplies pytest. Clear
+                    // configured filtering/quiet options and require named results.
+                    // -B alone still reads timestamp-based .pyc files. A namespace
+                    // derived from every observed source identity prevents an
+                    // ordinary stale cache from hiding same-size/same-time edits.
+                    let source_identity = vcp_protocol::canonical_bytes(&observation.manifest)
+                        .map_err(|_| "cannot fingerprint Python verification inputs")?;
+                    let digest = vcp_protocol::digest_bytes(&source_identity);
+                    let mut arguments = vec!["-B".into(), "-X".into(), format!("pycache_prefix=.vcp-verification-pycache/{digest}")];
+                    arguments.extend(["-m", "pytest", "-vv", "--color=no", "-o", "addopts=", "-p", "no:cacheprovider"].into_iter().map(str::to_owned));
+                    Ok(arguments)
                 }
             }
         })();
@@ -478,6 +558,12 @@ pub fn evaluate(
     };
     let mut passed = BTreeSet::new();
     match plan.runner {
+        Runner::Maven | Runner::Pytest => {
+            passed = match java_python::results(plan.runner, stdout, stderr) {
+                Ok(results) => results,
+                Err(reason) => return fail(reason),
+            };
+        }
         Runner::Dotnet => {
             let Ok(duration_pattern) = regex::Regex::new(
                 r"^(?:< )?[0-9]+(?:\.[0-9]+)? (?:ms|s|m|h)(?: [0-9]+(?:\.[0-9]+)? (?:ms|s|m|h))*\]$",
@@ -656,6 +742,67 @@ pub fn evaluate(
 mod tests {
     use super::*;
     #[test]
+    fn java_python_require_expected_identity_and_successful_process_receipt() {
+        for (runner, output, expected) in [
+            (Runner::Maven, "[INFO] Running example.Check\n[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.01 s -- in example.Check\n[INFO] example.Check.acceptance -- Time elapsed: 0.01 s\n[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0\n[INFO] BUILD SUCCESS\n", "example.Check.acceptance"),
+            (Runner::Pytest, "collected 1 item\ntest_check.py::test_acceptance PASSED [100%]\n=== 1 passed in 0.01s ===\n", "test_check.py::test_acceptance"),
+        ] {
+            let mut plan = plan(runner);
+            assert!(matches!(evaluate(&plan, Some(0), output.as_bytes(), b"", None), CheckOutcome::Failed { .. }));
+            plan.expected_tests = vec![expected.into()];
+            assert_eq!(evaluate(&plan, Some(0), output.as_bytes(), b"", None), CheckOutcome::Passed);
+            for (code, reason) in [(Some(1), None), (None, None), (Some(0), Some("output truncated"))] {
+                assert!(matches!(evaluate(&plan, code, output.as_bytes(), b"", reason), CheckOutcome::Failed { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn maven_configuration_is_explicit_bounded_and_runner_specific() {
+        let install = std::env::temp_dir().join("maven-install");
+        let launcher = MavenLauncher {
+            home: install.to_string_lossy().into_owned(),
+            classworlds_jar: install
+                .join("boot/plexus-classworlds.jar")
+                .to_string_lossy()
+                .into_owned(),
+            classworlds_conf: install.join("bin/m2.conf").to_string_lossy().into_owned(),
+        };
+        let mut requirement = Requirement {
+            manifest: "pom.xml".into(),
+            runner: Runner::Maven,
+            profile: "java".into(),
+            timeout_ms: None,
+            maven: Some(launcher.clone()),
+            expected_tests: vec!["example.Check.acceptance".into()],
+            rationale: "Owner acceptance".into(),
+        };
+        assert!(requirement.validate().is_ok());
+        requirement.maven = None;
+        assert!(requirement.validate().is_err());
+        requirement.maven = Some(launcher.clone());
+        requirement.runner = Runner::Pytest;
+        assert!(requirement.validate().is_err());
+        requirement.runner = Runner::Maven;
+        for invalid in [
+            "relative.jar".into(),
+            format!("{};extra.jar", launcher.classworlds_jar),
+            install
+                .join("boot/../other.jar")
+                .to_string_lossy()
+                .into_owned(),
+            install.join("other.jar").to_string_lossy().into_owned(),
+            format!("{}\n", launcher.classworlds_jar),
+        ] {
+            requirement.maven = Some(MavenLauncher {
+                classworlds_jar: invalid,
+                ..launcher.clone()
+            });
+            assert!(requirement.validate().is_err());
+        }
+    }
+
+    #[test]
     fn dotnet_requires_complete_unskipped_exact_test_evidence() {
         let plan = plan(Runner::Dotnet);
         let output = "  Passed seeded_acceptance [2 ms]\nTest Run Successful.\nTotal tests: 1\n     Passed: 1\n Total time: 0.6910 Seconds\n";
@@ -824,6 +971,7 @@ mod tests {
         let requirement = Requirement {
             manifest: "Fixture.slnx".into(),
             runner: Runner::Dotnet,
+            maven: None,
             profile: "dotnet".into(),
             timeout_ms: Some(120000),
             expected_tests: vec!["Fixture.Checks.Acceptance".into()],
