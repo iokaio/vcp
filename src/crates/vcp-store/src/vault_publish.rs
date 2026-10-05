@@ -326,6 +326,26 @@ impl LocalTrust {
             revision: self.public.revision,
         })
     }
+    pub(crate) fn verify_restore_exact(
+        &self,
+        path: &Path,
+        copy: &RecoveryCopy,
+        limits: Limits,
+        expected: &crate::vault_crypto::Object,
+    ) -> Result<VerifiedRestore> {
+        let keys = LocalKeys::import(copy)?;
+        let restored = vault_crypto::decrypt_exact(
+            path,
+            keys.identity(),
+            &self.trust(),
+            limits,
+            Some(expected),
+        )?;
+        Ok(VerifiedRestore {
+            restored,
+            revision: self.public.revision,
+        })
+    }
     /// Parent activation commits this update with its canonical restore receipt.
     /// The source is a verified opaque receipt, never archive-supplied trust.
     pub fn advance_after_restore(

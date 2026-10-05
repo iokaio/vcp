@@ -329,6 +329,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             let mut restore = Restore::open(&restore_root, &forbidden).unwrap();
             let proof = restore
                 .authenticate(&trust, &copy, Limits::default(), &|| false)
+                .await
                 .unwrap();
             let imported = restore
                 .import(

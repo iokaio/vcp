@@ -421,6 +421,7 @@ async fn restore(
     let mut restore = Restore::open(&acquisition, &forbidden).unwrap();
     let proof = restore
         .authenticate(&trust, &copy, Limits::default(), &|| false)
+        .await
         .unwrap();
     let imported = restore
         .import(

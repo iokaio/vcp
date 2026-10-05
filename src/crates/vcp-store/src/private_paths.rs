@@ -228,6 +228,7 @@ pub(crate) struct PublicCiphertext {
     file: File,
     bytes: u64,
     read: u64,
+    digest: sha2::Sha256,
     _parent: Directory,
 }
 impl PublicCiphertext {
@@ -259,6 +260,7 @@ impl PublicCiphertext {
             file,
             bytes: metadata.len(),
             read: 0,
+            digest: <sha2::Sha256 as sha2::Digest>::new(),
             _parent: parent,
         })
     }
@@ -273,15 +275,25 @@ impl PublicCiphertext {
         }
         Ok(())
     }
+    pub(crate) fn finish_identity(&self, bytes: u64, sha256: &str) -> Result<()> {
+        use sha2::Digest;
+        self.finish()?;
+        if self.bytes != bytes || format!("{:x}", self.digest.clone().finalize()) != sha256 {
+            return Err(Error::Corruption("held ciphertext commitment differs"));
+        }
+        Ok(())
+    }
 }
 impl std::io::Read for PublicCiphertext {
     fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        use sha2::Digest;
         let count = self.file.read(bytes)?;
         self.read = self
             .read
             .checked_add(count as u64)
             .filter(|read| *read <= self.bytes)
             .ok_or_else(|| std::io::Error::other("ciphertext input changed"))?;
+        self.digest.update(&bytes[..count]);
         Ok(count)
     }
 }

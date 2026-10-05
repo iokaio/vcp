@@ -86,6 +86,30 @@ impl LocalTrust {
         self.public.revision = next;
         Ok(())
     }
+    pub(crate) fn verify_stream_restore_exact(
+        &self,
+        staging: &PrivateStaging,
+        path: &Path,
+        copy: &RecoveryCopy,
+        limits: impl Into<stream::StreamLimits>,
+        expected: &crate::vault_crypto::Object,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<VerifiedStreamRestore> {
+        let keys = LocalKeys::import(copy)?;
+        let authenticated = stream::decrypt_exact_checked(
+            staging,
+            path,
+            keys.identity(),
+            &self.trust(),
+            limits,
+            Some(expected),
+            check,
+        )?;
+        Ok(VerifiedStreamRestore {
+            authenticated,
+            revision: self.public.revision,
+        })
+    }
 }
 #[cfg(test)]
 #[path = "vault_publish_stream_tests.rs"]

@@ -13,6 +13,8 @@ use std::{
 };
 use vcp_domain::{ActorId, CommandId, Timestamp, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
+#[path = "restore_import_stream.rs"]
+mod stream;
 
 pub struct Imported {
     root: PathBuf,
@@ -79,7 +81,23 @@ pub(crate) async fn prepare(
     if cancelled() {
         return Err(Error::Unavailable("restore import cancelled"));
     }
-    let archive = &validated.archive;
+    let (archive, proof) = match &validated.data {
+        crate::restore_stage::Data::Stream(stream) => {
+            return self::stream::prepare_stream(
+                stream,
+                &digest_bytes(&canonical_bytes(&validated.manifest())?),
+                root,
+                forbidden,
+                backend,
+                operation,
+                actor,
+                timestamp,
+                cancelled,
+            )
+            .await;
+        }
+        crate::restore_stage::Data::Legacy { archive, proof } => (archive, proof),
+    };
     let source = archive.state();
     let transaction = crate::restore_authority::transaction(
         source,
@@ -143,7 +161,7 @@ pub(crate) async fn prepare(
         root: root.to_owned(),
         workspace: archive.workspace().clone(),
         state_digest: crate::legacy_state_stream::digest(&expected)?,
-        source_manifest: digest_bytes(&canonical_bytes(&validated.proof.restored().manifest)?),
+        source_manifest: digest_bytes(&canonical_bytes(&proof.restored().manifest)?),
         checkpoint: archive.inputs().checkpoint.clone(),
         backend,
         forbidden: forbidden.to_vec(),

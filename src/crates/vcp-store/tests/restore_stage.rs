@@ -160,14 +160,59 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
         let mut restore = Restore::open(&paths[2], &forbidden).unwrap();
         let wrong = LocalKeys::generate().unwrap();
         let wrong_copy = wrong.export_recovery(&recovery).unwrap();
+        let wrong_keys = wrong.verify_recovery(&wrong_copy).unwrap();
+        let mut wrong_trust = LocalTrust::enroll(
+            &wrong_keys,
+            workspace().id,
+            "a".repeat(64),
+            Checkpoint {
+                sequence: 0,
+                deletion: 0,
+                parent: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            wrong_trust.configuration().revision,
+            trust.configuration().revision
+        );
+        let other_root = temp.path().join("same-revision-other-writer");
+        std::fs::create_dir(&other_root).unwrap();
+        let mut wrong_owner = Restore::begin(
+            &other_root,
+            &forbidden,
+            CommandId::new(),
+            &wrong_trust,
+            ciphertext.sha256().into(),
+            ciphertext.bytes(),
+        )
+        .unwrap();
+        wrong_owner.acquire(&acquired_source, &|| false).unwrap();
+        // This ciphertext is valid under A, but this operation was pinned to B.
+        // Same workspace/revision must not authorize swapping its writer set.
+        assert!(matches!(
+            wrong_owner
+                .authenticate(&trust, &copy, Limits::default(), &|| false)
+                .await,
+            Err(vcp_store::Error::Conflict("restore trust or stage changed"))
+        ));
+        assert_eq!(wrong_owner.status().stage, Stage::Acquired);
         assert!(restore
             .authenticate(&trust, &wrong_copy, Limits::default(), &|| false)
+            .await
             .is_err());
         assert_eq!(restore.status().stage, Stage::Acquired);
         assert_eq!((&source.archive_state().await.unwrap()), &original);
         let proof = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
+            .await
             .unwrap();
+        let wrong_before = vcp_protocol::canonical_bytes(wrong_trust.configuration()).unwrap();
+        assert!(proof.advance_trust(&mut wrong_trust, 0).is_err());
+        assert_eq!(
+            vcp_protocol::canonical_bytes(wrong_trust.configuration()).unwrap(),
+            wrong_before
+        );
         let imported = restore
             .import(
                 &proof,
@@ -243,6 +288,7 @@ async fn authenticated_restore_preserves_history_and_sanitizes_before_cross_back
         let mut restore = Restore::open(&paths[2], &forbidden).unwrap();
         let proof = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
+            .await
             .unwrap();
         let imported = restore
             .import(
@@ -499,6 +545,7 @@ fn restore_process_child() {
         barrier("acquired");
         let proof = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
+            .await
             .unwrap();
         barrier("validated");
         let artifact = source

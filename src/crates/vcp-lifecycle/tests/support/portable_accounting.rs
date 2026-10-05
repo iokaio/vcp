@@ -574,6 +574,7 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
         restore.acquire(&object, &|| false).unwrap();
         let validated = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
+            .await
             .unwrap();
         let imported = restore
             .import(

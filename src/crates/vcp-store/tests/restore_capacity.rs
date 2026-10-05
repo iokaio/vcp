@@ -120,6 +120,7 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
             restore.acquire(&acquired, &|| false).unwrap();
             let validated = restore
                 .authenticate(&trust, &copy, Limits::default(), &|| false)
+                .await
                 .unwrap();
             let fault_path = if surface == "replay_base" {
                 target.join("replay-base.json")

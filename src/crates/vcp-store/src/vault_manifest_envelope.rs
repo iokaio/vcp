@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use vcp_domain::WorkspaceId;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum ManifestEnvelope {
+pub enum ManifestEnvelope {
     Stream(StreamManifest),
     Legacy(Manifest),
 }
@@ -31,43 +31,43 @@ impl ManifestEnvelope {
             }
         }
     }
-    pub(crate) fn workspace(&self) -> &WorkspaceId {
+    pub fn workspace(&self) -> &WorkspaceId {
         match self {
             Self::Legacy(v) => &v.workspace,
             Self::Stream(v) => &v.workspace,
         }
     }
-    pub(crate) fn lineage(&self) -> &str {
+    pub fn lineage(&self) -> &str {
         match self {
             Self::Legacy(v) => &v.lineage,
             Self::Stream(v) => &v.lineage,
         }
     }
-    pub(crate) fn sequence(&self) -> u64 {
+    pub fn sequence(&self) -> u64 {
         match self {
             Self::Legacy(v) => v.sequence,
             Self::Stream(v) => v.sequence,
         }
     }
-    pub(crate) fn deletion(&self) -> u64 {
+    pub fn deletion(&self) -> u64 {
         match self {
             Self::Legacy(v) => v.deletion,
             Self::Stream(v) => v.deletion,
         }
     }
-    pub(crate) fn parent(&self) -> &Option<String> {
+    pub fn parent(&self) -> &Option<String> {
         match self {
             Self::Legacy(v) => &v.parent,
             Self::Stream(v) => &v.parent,
         }
     }
-    pub(crate) fn format(&self) -> &'static str {
+    pub fn format(&self) -> &'static str {
         match self {
             Self::Legacy(_) => FORMAT,
             Self::Stream(_) => super::stream::FORMAT,
         }
     }
-    pub(crate) fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         match self {
             Self::Legacy(v) => {
                 if v.format != FORMAT || v.objects.len() > 4096 {

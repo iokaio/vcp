@@ -165,6 +165,7 @@ async fn encrypted_restore_rebuilds_compatible_retained_vectors_without_loading_
         restore.acquire(&object, &|| false).unwrap();
         let validated = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
+            .await
             .unwrap();
         let imported = restore
             .import(

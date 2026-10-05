@@ -62,24 +62,24 @@ impl From<Limits> for StreamLimits {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RootDescriptor {
-    pub(crate) format: String,
-    pub(crate) sha256: String,
+pub struct RootDescriptor {
+    pub format: String,
+    pub sha256: String,
     /// Length of the exact bounded root descriptor, never the total archive.
-    pub(crate) descriptor_bytes: u64,
+    pub descriptor_bytes: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct StreamManifest {
-    pub(crate) format: String,
-    pub(crate) workspace: WorkspaceId,
-    pub(crate) lineage: String,
-    pub(crate) sequence: u64,
-    pub(crate) deletion: u64,
-    pub(crate) parent: Option<String>,
-    pub(crate) archive_root: RootDescriptor,
+pub struct StreamManifest {
+    pub format: String,
+    pub workspace: WorkspaceId,
+    pub lineage: String,
+    pub sequence: u64,
+    pub deletion: u64,
+    pub parent: Option<String>,
+    pub archive_root: RootDescriptor,
     /// Commitment to the complete ordered neutral archive wire stream.
-    pub(crate) payload: Object,
+    pub payload: Object,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -476,6 +476,17 @@ pub(crate) fn decrypt_checked(
     limits: impl Into<StreamLimits>,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<Authenticated> {
+    decrypt_exact_checked(staging, path, identity, trust, limits, None, check)
+}
+pub(crate) fn decrypt_exact_checked(
+    staging: &PrivateStaging,
+    path: &Path,
+    identity: &Identity,
+    trust: &Trust,
+    limits: impl Into<StreamLimits>,
+    expected: Option<&Object>,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<Authenticated> {
     check()?;
     let limits = limits.into();
     limits.validate()?;
@@ -508,6 +519,9 @@ pub(crate) fn decrypt_checked(
     read_frames_checked(&mut input, &mut file, &parsed.manifest.payload, check)?;
     drop(input);
     ciphertext.finish()?;
+    if let Some(expected) = expected {
+        ciphertext.finish_identity(expected.bytes, &expected.sha256)?;
+    }
     file.sync_all()?;
     file.seek(SeekFrom::Start(0))?;
     check()?;

@@ -39,6 +39,29 @@ pub(crate) struct Restored {
     pub(crate) spool: Spool,
     pub(crate) inputs: Inputs,
     pub(crate) coverage: Coverage,
+    archive: Archive,
+}
+impl Restored {
+    pub(crate) async fn stage_artifacts(
+        &self,
+        source: &mut impl Pages,
+        root: &Path,
+        forbidden: &[PathBuf],
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Spool> {
+        self.archive
+            .artifacts
+            .stage(
+                self.owner.semantic().current().into(),
+                &self.archive.workspace,
+                source,
+                root,
+                forbidden,
+                crate::artifact::DEFAULT_ARTIFACT_LIMIT,
+                check,
+            )
+            .await
+    }
 }
 impl Archive {
     /// Caller must hold PinnedDurableSnapshot and its artifact pins for the
@@ -157,6 +180,7 @@ impl Archive {
             spool,
             inputs,
             coverage,
+            archive,
         })
     }
     fn validate(&self) -> Result<()> {

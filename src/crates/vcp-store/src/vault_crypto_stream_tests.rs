@@ -195,6 +195,53 @@ fn large_stream_has_bounded_frames_and_reopens_without_legacy_aggregate_cap() {
 }
 
 #[test]
+fn transport_authentication_binds_the_exact_held_acquired_ciphertext() {
+    let root = tempfile::tempdir().unwrap();
+    let identity = Identity::generate();
+    let writer = SigningKey::from_bytes(&[51; 32]);
+    let path = encrypted(root.path(), &identity, &writer, 1024);
+    let stage = staging(root.path());
+    let bytes = fs::read(&path).unwrap();
+    let exact = Object {
+        bytes: bytes.len() as u64,
+        sha256: digest_bytes(&bytes),
+    };
+    let authenticated = decrypt_exact_checked(
+        &stage,
+        &path,
+        &identity,
+        &trust(&writer),
+        limits(),
+        Some(&exact),
+        &|| Ok(()),
+    );
+    assert!(authenticated.is_ok());
+    for expected in [
+        Object {
+            bytes: exact.bytes + 1,
+            ..exact.clone()
+        },
+        Object {
+            sha256: "0".repeat(64),
+            ..exact.clone()
+        },
+    ] {
+        // Valid age authentication and a valid enrolled writer are insufficient
+        // if the bytes differ from the operation's acquired object identity.
+        assert!(decrypt_exact_checked(
+            &stage,
+            &path,
+            &identity,
+            &trust(&writer),
+            limits(),
+            Some(&expected),
+            &|| Ok(())
+        )
+        .is_err());
+    }
+}
+
+#[test]
 fn full_authentication_freshness_and_failure_leave_no_plaintext_capability() {
     let root = tempfile::tempdir().unwrap();
     let identity = Identity::generate();

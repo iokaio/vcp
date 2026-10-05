@@ -24,7 +24,8 @@ pub const FORMAT: &str = "vcp-signed-age/1";
 mod manifest_envelope;
 #[path = "vault_crypto_stream.rs"]
 pub(crate) mod stream;
-pub(crate) use manifest_envelope::ManifestEnvelope;
+pub use manifest_envelope::ManifestEnvelope;
+pub use stream::{RootDescriptor, StreamManifest};
 const DOMAIN: &[u8] = b"vcp-portable-manifest-signature-v1\0";
 #[derive(Clone, Copy)]
 pub struct Limits {
@@ -378,6 +379,15 @@ pub fn decrypt(
     trust: &Trust,
     limits: Limits,
 ) -> Result<Restored> {
+    decrypt_exact(path, identity, trust, limits, None)
+}
+pub(crate) fn decrypt_exact(
+    path: &Path,
+    identity: &Identity,
+    trust: &Trust,
+    limits: Limits,
+    expected: Option<&Object>,
+) -> Result<Restored> {
     limits.validate()?;
     if !hash(&trust.lineage)
         || trust.writers.is_empty()
@@ -387,6 +397,11 @@ pub fn decrypt(
         return Err(Error::Access);
     }
     let ciphertext = crate::private_paths::read_public_ciphertext(path, limits.ciphertext_bytes)?;
+    if expected.is_some_and(|expected| {
+        ciphertext.len() as u64 != expected.bytes || digest_bytes(&ciphertext) != expected.sha256
+    }) {
+        return Err(Error::Corruption("acquired ciphertext commitment differs"));
+    }
     let decryptor = age::Decryptor::new(ciphertext.as_slice())
         .map_err(|_| Error::Corruption("invalid age ciphertext"))?;
     let decoder = decryptor
@@ -442,6 +457,29 @@ pub fn decrypt(
         payloads: envelope.payloads,
         writer: envelope.writer,
     })
+}
+
+/// Hash selected ciphertext from one held reader with fixed memory use. This is
+/// an acquisition identity, not writer authentication or restore permission.
+pub fn inspect_ciphertext(path: &Path, check: &dyn Fn() -> Result<()>) -> Result<Object> {
+    let mut input = crate::private_paths::PublicCiphertext::open_stream(path, u64::MAX)?;
+    let mut digest = Sha256::new();
+    let mut bytes = 0u64;
+    let mut buffer = [0; 65536];
+    loop {
+        check()?;
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        bytes = bytes
+            .checked_add(count as u64)
+            .ok_or(Error::Limit("ciphertext length"))?;
+        digest.update(&buffer[..count]);
+    }
+    let sha256 = format!("{:x}", digest.finalize());
+    input.finish_identity(bytes, &sha256)?;
+    Ok(Object { bytes, sha256 })
 }
 
 /// Durable receipt of an already finalized encoder, retained only in canonical

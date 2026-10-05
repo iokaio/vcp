@@ -345,6 +345,7 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
                 vcp_store::vault_crypto::Limits::default(),
                 &|| false,
             )
+            .await
             .unwrap();
         let target_backend = if backend == BackendKind::Files {
             BackendKind::Sqlite
@@ -409,7 +410,10 @@ async fn paused_backup_captures_native_dirty_untracked_and_generation_lineage_wi
         );
         assert_eq!(descriptor.price.valid_until, vcp_domain::Timestamp::ZERO);
         assert!(descriptor.price.rates.is_empty());
-        assert_eq!(restored.archive_state().await.unwrap(), before_configuration);
+        assert_eq!(
+            restored.archive_state().await.unwrap(),
+            before_configuration
+        );
         let restored_workspace: vcp_domain::workspace::Workspace = restored
             .current()
             .record(
