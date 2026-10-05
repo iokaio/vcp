@@ -984,6 +984,27 @@
       "fixtures": [],
       "acceptance_policy": "ADR-069; scoped functional and package verification",
       "owner_task": "SP-10"
+    },
+    {
+      "id": "toolchain-installation",
+      "version": "1.0.0",
+      "guidance": {
+        "analyze": "provided",
+        "review": "provided",
+        "generate": "provided"
+      },
+      "test_execution": "see_scoped_tests_and_work_ledger",
+      "live_quality": "not_measured",
+      "validated_host_toolchains": [],
+      "conditional_execution_prerequisites": [
+        "Authorized process/network/install/write effects",
+        "Selected platform package manager or vendor installer",
+        "PowerShell 7.4+ for the optional verified ZIP helper"
+      ],
+      "selection": "description_discovery",
+      "fixtures": [],
+      "acceptance_policy": "ADR-069; scoped functional, integrity and native execution checks",
+      "owner_task": "TI-01 (P7-02)"
     }
   ],
   "limitations": [

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "toolchain-installation",
+  "version": "1.0.0",
+  "description": "Find, install and verify missing development runtimes, SDKs, compilers, build tools and infrastructure CLIs across common stacks. Use when preparing an environment or resolving a missing or incompatible tool such as Maven, a JDK, Node, Python, .NET, Rust, Go or CMake.",
+  "source": "vcp-original",
+  "license": "Apache-2.0",
+  "vcp_version": 1,
+  "cues": [],
+  "environments": [],
+  "required_tools": [
+    "vcp_list",
+    "vcp_read"
+  ],
+  "body": {
+    "path": "SKILL.md",
+    "sha256": "d5969a01dd716f566adac80eed145ea1c6479b4599e02319156a1d8a643441a9"
+  },
+  "resources": [
+    {
+      "path": "LICENSE.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "use": "file"
+    },
+    {
+      "path": "NOTICE.md",
+      "sha256": "6a5909a700484a53a9590bbb3d1e2cfe692c3491eddb143beb3afadbca5028f2",
+      "use": "file"
+    },
+    {
+      "path": "references/stacks.md",
+      "sha256": "17605c2394fa7fb509c834e722281f63e15fb582c2ae73931d30fb53647d5bdb",
+      "use": "reference"
+    },
+    {
+      "path": "references/platforms.md",
+      "sha256": "fde4baa822856cc0bb55d993c25f479e1b608ab09fbd15d6a2fd026223514ced",
+      "use": "reference"
+    },
+    {
+      "path": "scripts/install-verified-archive.ps1",
+      "sha256": "0a61d44bf32980703148ec59723cd1f02e5c038a828f602d3148efae2bb0181c",
+      "use": "file"
+    }
+  ]
+}
