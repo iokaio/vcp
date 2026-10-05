@@ -123,7 +123,10 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
                 .runtime
                 .block_on(context.engine.store_mut().transact(transaction))
                 .unwrap();
-            let mut current = context.runtime.block_on(context.engine.store().archive_state()).unwrap();
+            let mut current = context
+                .runtime
+                .block_on(context.engine.store().archive_state())
+                .unwrap();
             if redacted {
                 let record = current
                     .records
@@ -172,14 +175,15 @@ fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
             }
             if !redacted {
                 let mut bytes = Vec::new();
-                assert!(context.runtime
+                assert!(context
+                    .runtime
                     .block_on(vcp_audit::history::History::read_artifact(
                         context.engine.store(),
                         &context.history_access(),
                         &artifact.spec.id,
                         &mut bytes
                     ))
-                .is_err());
+                    .is_err());
                 assert!(
                     bytes.is_empty(),
                     "the retained reader must not recover purged payload bytes"
@@ -420,6 +424,94 @@ fn setup(temp: &tempfile::TempDir, backend: BackendKind) -> (Context, ThreadBind
         .command(Command::SetPolicy { policy }, None, Revision::ZERO)
         .unwrap();
     (context, binding)
+}
+
+#[test]
+fn canonical_worker_waits_for_slow_admitted_outcome_on_both_stores() {
+    std::thread::scope(|threads| {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            threads.spawn(move || {
+                let temp = tempfile::tempdir().unwrap();
+                let (context, _) = setup(&temp, backend);
+                let config = context.config.clone();
+                context.close().unwrap();
+                let worker = Worker::open(config, None).unwrap();
+                let before = worker
+                    .run(|context| Ok(context.engine.store().current().watermark))
+                    .unwrap();
+                let result = worker
+                    .run(|context| {
+                        // Cross the former production wait, not a reduced test timer.
+                        std::thread::sleep(Duration::from_millis(30_100));
+                        Ok(context.engine.store().current().watermark)
+                    })
+                    .unwrap();
+                assert_eq!(result, before);
+                assert!(!worker.fenced());
+                assert_eq!(worker.run(|_| Ok(17)).unwrap(), 17);
+                drop(worker); // joins and closes SQLite before TempDir cleanup
+            });
+        }
+    });
+}
+
+#[test]
+fn canonical_worker_explicit_fence_keeps_admitted_result_and_cleanup() {
+    let temp = tempfile::tempdir().unwrap();
+    let (context, _) = setup(&temp, BackendKind::Files);
+    let config = context.config.clone();
+    context.close().unwrap();
+    let worker = Worker::open(config, None).unwrap();
+    let (arrived, arrival) = std::sync::mpsc::sync_channel(1);
+    let (release, released) = std::sync::mpsc::sync_channel(1);
+    let pending = worker.clone();
+    let caller = std::thread::spawn(move || {
+        pending.run(move |_| {
+            arrived.send(()).unwrap();
+            released.recv().unwrap();
+            Ok(23)
+        })
+    });
+    arrival.recv_timeout(Duration::from_secs(5)).unwrap();
+    worker.fence();
+    assert!(worker.run(|_| Ok(())).unwrap_err().contains("fenced"));
+    release.send(()).unwrap();
+    assert_eq!(caller.join().unwrap().unwrap(), 23);
+    assert!(worker.fenced());
+    assert_eq!(worker.run_cleanup(|_| Ok(29)).unwrap(), 29);
+}
+
+#[test]
+fn canonical_worker_disconnect_and_self_reentry_remain_fenced() {
+    let temp = tempfile::tempdir().unwrap();
+    let (context, _) = setup(&temp, BackendKind::Files);
+    let config = context.config.clone();
+    context.close().unwrap();
+    let worker = Worker::open(config, None).unwrap();
+    let nested = worker.clone();
+    let error = worker
+        .run(move |_| Ok(nested.run(|_| Ok(())).unwrap_err()))
+        .unwrap();
+    assert!(error.contains("cannot synchronously reenter"));
+    assert!(worker.fenced());
+    drop(worker);
+
+    // Accept the queued job, then lose it before an outcome can be delivered.
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<Job>(32);
+    let thread = std::thread::spawn(move || {
+        drop(receiver.recv().unwrap());
+        Ok(())
+    });
+    let worker = Worker(Arc::new(Inner {
+        thread_id: thread.thread().id(),
+        sender: Mutex::new(Some(sender)),
+        thread: Mutex::new(Some(thread)),
+        fenced: AtomicBool::new(false),
+    }));
+    let error = worker.run(|_| Ok(())).unwrap_err();
+    assert!(error.contains("worker disconnected"));
+    assert!(error.contains("outcome unknown; reopen required"));
+    assert!(worker.fenced());
 }
 fn effect(context: &Context, id: &ToolRunId) -> Effect {
     context

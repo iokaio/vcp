@@ -23,10 +23,10 @@ mod conformance;
 #[cfg(windows)]
 mod console;
 mod control;
-mod diagnostic_history;
-mod diagnostic_turn;
 #[cfg(windows)]
 pub(super) mod decision;
+mod diagnostic_history;
+mod diagnostic_turn;
 #[cfg(windows)]
 mod escalation;
 #[cfg(windows)]
@@ -210,7 +210,12 @@ impl Worker {
             .ok_or("canonical owner closed")?
             .try_send(job)
             .map_err(|_| "canonical queue unavailable or full")?;
-        match rx.recv_timeout(Duration::from_secs(30)) {
+        // Once queued, the operation owns its canonical outcome. A caller-side
+        // elapsed-time limit cannot cancel it and must not abandon its result
+        // while it can still commit (including a provider send intent).
+        // Queue bounds, explicit fencing and operation-specific cancellation
+        // remain independent; loss of the worker still requires reopening.
+        match rx.recv() {
             Ok((result, fenced)) => {
                 if fenced {
                     self.fence();
@@ -219,7 +224,10 @@ impl Worker {
             }
             Err(_) => {
                 self.fence();
-                Err("canonical operation outcome unknown; reopen required".into())
+                Err(
+                    "canonical worker disconnected; operation outcome unknown; reopen required"
+                        .into(),
+                )
             }
         }
     }
@@ -1673,7 +1681,11 @@ impl Context {
             Timestamp::ZERO,
         )?;
         let Some(actual_micros) = actual.amount.micros.known() else {
-            return self.unknown(binding, attempt, "terminal usage includes unpriced charge categories");
+            return self.unknown(
+                binding,
+                attempt,
+                "terminal usage includes unpriced charge categories",
+            );
         };
         let observation = UsageObservation {
             id: ObservationId::new(),
@@ -1683,7 +1695,10 @@ impl Context {
             mode: UsageMode::Cumulative {
                 version: Units::new(1),
             },
-            amount: Money { currency: actual.amount.currency, micros: actual_micros },
+            amount: Money {
+                currency: actual.amount.currency,
+                micros: actual_micros,
+            },
             final_usage: true,
             raw: descriptor.spec.id,
             correction: None,
