@@ -2,9 +2,16 @@
 //! A canonical turn ID is a caller-selected identity, never a replay signal.
 //! Collision checks cover all scopes before capture creates durable artifacts.
 use vcp_domain::TurnId;
-use vcp_store::contract::{key, Collection, State};
+use vcp_store::{
+    contract::{key, Collection},
+    CurrentStateView,
+};
 
-pub(super) fn require_unused(state: &State, id: &TurnId) -> Result<(), &'static str> {
+pub(super) fn require_unused<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    id: &TurnId,
+) -> Result<(), &'static str> {
+    let state = state.into();
     if state
         .records
         .contains_key(&key(Collection::Turn, id.as_str()))
@@ -23,7 +30,7 @@ mod tests {
         task::{Turn, TurnState},
         workspace::Scope,
     };
-    use vcp_store::contract::Record;
+    use vcp_store::contract::{Record, State};
 
     #[test]
     fn existing_identity_is_rejected_for_same_or_different_scope_without_mutation() {

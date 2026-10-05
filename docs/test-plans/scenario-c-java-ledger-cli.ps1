@@ -40,6 +40,9 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 $ctx = Initialize-VcpScenario -Name 'c-java-ledger-cli' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
+# Finalize initialized runs even when toolchain discovery or fixture setup fails.
+$exitCode = 1
+try {
 $ws = $ctx.Workspace
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
@@ -825,8 +828,6 @@ function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
 
 $regressionNames = @('parenthesizedAmountsAreNegative', 'thousandsSeparatorsAreParsed', 'quotedDescriptionWithCommaIsCategorized', 'reimportReportsAllRowsAsDuplicates', 'emptyMonthReportsZeros')
 
-$exitCode = 1
-try {
     Invoke-CommonPreflight $ctx
 
     # --- B0 ---------------------------------------------------------------
@@ -860,6 +861,7 @@ try {
     $profileShort = New-ScenarioProfile -Ctx $ctx -Name 'profile-short' -AffectedPaths $affected -Processes $javaProcesses -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profileReview = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    [void](Test-ProcessEnvironment $ctx $stage $javaProcesses[0] 'java-tests' ($mavenViaJava + @('-B', '-ntp', 'test')))
 
     # --- G0: zero-spend guardrail: empty task file -------------------------
     $emptyPrompt = Join-Path $ctx.Logs 'G0-guardrail\empty-task.md'

@@ -5,6 +5,7 @@ use super::{memory_vectors, Config};
 #[path = "restore_search_vectors.rs"]
 mod retained_vectors;
 use std::result::Result;
+use vcp_store::contract::CanonicalStore;
 use std::{
     cell::RefCell,
     collections::BTreeSet,
@@ -109,7 +110,7 @@ async fn rebuild(
     cancelled: Arc<AtomicBool>,
 ) -> Result<Readiness, String> {
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             config.workspace.as_str(),
@@ -122,7 +123,7 @@ async fn rebuild(
         return Err("restore lexical workspace binding changed".into());
     }
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             config.root_task.as_str(),
@@ -149,8 +150,9 @@ async fn rebuild(
             Ok(())
         }
     };
-    let sources =
-        retrieval::source_bindings_with_check(store, &access, &check).map_err(|e| e.to_string())?;
+    let sources = retrieval::source_bindings_with_check(store, &access, &check)
+        .await
+        .map_err(|e| e.to_string())?;
     let inventory = search_record::inventory_with_check(
         store,
         &access,
@@ -159,6 +161,7 @@ async fn rebuild(
         search_record::Limits::default(),
         &check,
     )
+    .await
     .map_err(|e| e.to_string())?;
     let represented: BTreeSet<_> = sources
         .bindings
@@ -166,7 +169,7 @@ async fn rebuild(
         .map(|s| s.manifest.as_str())
         .collect();
     let stale_sources = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.collection == Collection::Artifact && r.workspace == config.workspace)

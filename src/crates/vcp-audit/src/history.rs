@@ -106,7 +106,11 @@ pub struct Access {
     pub read: bool,
     pub tasks: Option<BTreeSet<TaskId>>,
 }
-pub(crate) fn authorize(state: &State, access: &Access) -> Result<Workspace> {
+pub(crate) fn authorize<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    access: &Access,
+) -> Result<Workspace> {
+    let state = state.into();
     if !access.read {
         return Err(Error::Access);
     }
@@ -163,7 +167,11 @@ pub struct Page {
     pub at_end: bool,
 }
 pub use vcp_domain::retention::RetentionMask;
-pub(crate) fn masks(state: &State, workspace: &WorkspaceId) -> Result<Vec<RetentionMask>> {
+pub(crate) fn masks<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Result<Vec<RetentionMask>> {
+    let state = state.into();
     let mut result = Vec::new();
     for record in state
         .records
@@ -191,7 +199,7 @@ pub struct History {
     snapshots: BTreeMap<SnapshotId, Pinned>,
 }
 impl History {
-    pub fn start(
+    pub async fn start(
         &mut self,
         store: &Store,
         access: &Access,
@@ -199,7 +207,7 @@ impl History {
         limit: u32,
         now: Timestamp,
     ) -> Result<Cursor> {
-        let workspace = authorize(store.state(), access)?;
+        let workspace = authorize(store.current(), access)?;
         filter.validate()?;
         if limit == 0 || limit as usize > vcp_protocol::version::MAX_PAGE_EVENTS {
             return Err(Error::Limit);
@@ -223,9 +231,9 @@ impl History {
             workspace: access.workspace.clone(),
             query_digest: digest_bytes(&canonical_bytes(&filter)?),
             access_digest: access_digest(access)?,
-            watermark: snapshot.state().watermark,
+            watermark: snapshot.current().watermark,
             after: Units::ZERO,
-            end: Units::new(snapshot.state().events.len() as u64),
+            end: Units::new(snapshot.history_event_count().await?),
             limit,
             expires_at: Timestamp::new(now.get().checked_add(60_000).ok_or(Error::Limit)?),
             authority: workspace.authority,
@@ -241,7 +249,7 @@ impl History {
         );
         Ok(cursor)
     }
-    pub fn page(
+    pub async fn page(
         &self,
         store: &Store,
         access: &Access,
@@ -249,7 +257,7 @@ impl History {
         cursor: &Cursor,
         now: Timestamp,
     ) -> Result<Page> {
-        let workspace = authorize(store.state(), access)?;
+        let workspace = authorize(store.current(), access)?;
         if cursor.workspace != access.workspace {
             return Err(Error::Access);
         }
@@ -276,56 +284,70 @@ impl History {
         if cursor.deletion != workspace.deletion {
             return Err(Error::Restart("retention scope changed"));
         }
-        let masks = masks(store.state(), &access.workspace)?;
+        let masks = masks(store.current(), &access.workspace)?;
         if masks.iter().any(|mask| mask.deletion > workspace.deletion) {
             return Err(Error::Integrity("retention epoch"));
         }
         let mut events = Vec::new();
         let mut gaps = Vec::new();
         let mut next = cursor.clone();
-        for event in pinned
-            .snapshot
-            .state()
-            .events
-            .iter()
-            .skip(cursor.after.get() as usize)
-            .take(MAX_SCAN)
+        if pinned.snapshot.current().watermark != cursor.watermark
+            || pinned.snapshot.history_event_count().await? != cursor.end.get()
         {
-            next.after = next.after.next()?;
-            if event.event.workspace != access.workspace
-                || !allows(access, event.event.task.as_ref())
-            {
-                continue;
+            return Err(Error::Integrity("pinned history cut changed"));
+        }
+        let mut scanned = 0usize;
+        'scan: while next.after < next.end && scanned < MAX_SCAN {
+            let limit =
+                (next.end.get() - next.after.get()).min((MAX_SCAN - scanned) as u64) as usize;
+            let page = pinned
+                .snapshot
+                .history_events(next.after.get().checked_sub(1), limit)
+                .await?;
+            if page.is_empty() || page.len() > limit {
+                return Err(Error::Integrity("pinned history page length"));
             }
-            // Suppression happens before content-sensitive filtering, so old
-            // metadata cannot leak through a filter on removed event content.
-            let hidden = masks.iter().find(|mask| {
-                mask.session == event.event.session
-                    && event.sequence >= mask.first
-                    && event.sequence <= mask.last
-            });
-            if let Some(mask) = hidden {
-                if filter
-                    .session
-                    .as_ref()
-                    .is_none_or(|session| session == &mask.session)
-                {
-                    let gap = RetainedGap {
-                        session: mask.session.clone(),
-                        first: mask.first,
-                        last: mask.last,
-                        reason: mask.reason.clone(),
-                    };
-                    if !gaps.contains(&gap) {
-                        gaps.push(gap);
-                    }
+            for event in &page {
+                if event.watermark > cursor.watermark {
+                    return Err(Error::Integrity("pinned history event after cut"));
                 }
-                continue;
-            }
-            if filter.matches(event) {
-                events.push(public_event(event));
-                if events.len() == cursor.limit as usize {
-                    break;
+                next.after = next.after.next()?;
+                scanned += 1;
+                if event.event.workspace != access.workspace
+                    || !allows(access, event.event.task.as_ref())
+                {
+                    continue;
+                }
+                // Suppression happens before content-sensitive filtering, so old
+                // metadata cannot leak through a filter on removed event content.
+                let hidden = masks.iter().find(|mask| {
+                    mask.session == event.event.session
+                        && event.sequence >= mask.first
+                        && event.sequence <= mask.last
+                });
+                if let Some(mask) = hidden {
+                    if filter
+                        .session
+                        .as_ref()
+                        .is_none_or(|session| session == &mask.session)
+                    {
+                        let gap = RetainedGap {
+                            session: mask.session.clone(),
+                            first: mask.first,
+                            last: mask.last,
+                            reason: mask.reason.clone(),
+                        };
+                        if !gaps.contains(&gap) {
+                            gaps.push(gap);
+                        }
+                    }
+                    continue;
+                }
+                if filter.matches(event) {
+                    events.push(public_event(event));
+                    if events.len() == cursor.limit as usize {
+                        break 'scan;
+                    }
                 }
             }
         }
@@ -340,15 +362,15 @@ impl History {
     pub fn close(&mut self, snapshot: &SnapshotId) {
         self.snapshots.remove(snapshot);
     }
-    pub fn read_artifact(
+    pub async fn read_artifact(
         store: &Store,
         access: &Access,
         id: &ArtifactId,
         sink: impl std::io::Write,
     ) -> Result<ArtifactDescriptor> {
-        authorize(store.state(), access)?;
+        authorize(store.current(), access)?;
         let artifact: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &access.workspace)?
             .decode()?;
         if !allows(access, Some(&artifact.spec.scope.task)) {
@@ -360,13 +382,14 @@ impl History {
         if artifact.spec.schema == "vcp-optimization-forecast-v1" {
             return Err(Error::Access);
         }
-        vcp_store::export_contract::validate_read(
-            store.state(),
+        vcp_store::export_contract::validate_read_store(
+            store,
             access.authority,
             access.tasks.as_ref(),
             &artifact,
-        )?;
-        if masks(store.state(), &access.workspace)?
+        )
+        .await?;
+        if masks(store.current(), &access.workspace)?
             .iter()
             .any(|mask| mask.artifacts.contains(id))
         {

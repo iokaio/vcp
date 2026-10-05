@@ -1,5 +1,9 @@
 # P2-06 .NET verification
 
+Historical qualification record retained from VCP commits `2f77ebb4` and
+`874080f3`. The A/B repair branch restores that implementation; current-run
+evidence is recorded separately in the A/B campaign and native qualification receipts.
+
 The October 3, 2026 increment adds qualified .NET project/solution verification
 and required native checks to Scenario B. Its P2-04 prerequisite accepts three
 explicit absolute public SDK directory paths, with no ambient inheritance.

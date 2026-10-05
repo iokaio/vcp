@@ -22,6 +22,13 @@ pub fn reservation(
     snapshot: &vcp_models::catalog::Snapshot,
     output: Units,
 ) -> Result<Micros, String> {
+    reservation_estimate(snapshot, output)?.known()
+        .ok_or_else(|| "finite setup probe requires a priced estimate".into())
+}
+pub fn reservation_estimate(
+    snapshot: &vcp_models::catalog::Snapshot,
+    output: Units,
+) -> Result<vcp_domain::accounting::EstimatedMicros, String> {
     snapshot.current(now()).map_err(|e| e.to_string())?;
     if output == Units::ZERO || output > snapshot.max_output {
         return Err("connection output exceeds provider bounds".into());

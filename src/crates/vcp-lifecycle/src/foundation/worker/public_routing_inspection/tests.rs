@@ -124,7 +124,7 @@ async fn catalog_pages_bound_metadata_and_do_not_read_private_source_bytes() {
         .unwrap();
         access.write = false;
         access.bootstrap = false;
-        let before = engine.store().state().watermark;
+        let before = engine.store().current().watermark;
         let mut query = request(&access, &task);
         query.section = wire::Section::Catalog;
         let mut models = Vec::new();
@@ -132,6 +132,7 @@ async fn catalog_pages_bound_metadata_and_do_not_read_private_source_bytes() {
             let page = inspect(&engine, &access, &query, None, Timestamp::new(30), &|| {
                 Ok(())
             })
+            .await
             .unwrap();
             let encoded = serde_json::to_string(&page).unwrap();
             assert!(encoded.len() <= wire::MAX_PAGE_BYTES);
@@ -169,13 +170,13 @@ async fn catalog_pages_bound_metadata_and_do_not_read_private_source_bytes() {
             models,
             (0..40).map(|i| format!("model-{i:02}")).collect::<Vec<_>>()
         );
-        assert_eq!(engine.store().state().watermark, before);
+        assert_eq!(engine.store().current().watermark, before);
         let published = routing_state::current_registry(engine.store(), &global)
             .unwrap()
             .unwrap();
         let mut workspace: Workspace = engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -192,6 +193,7 @@ async fn catalog_pages_bound_metadata_and_do_not_read_private_source_bytes() {
             &published,
             &|| Ok(())
         )
+        .await
         .is_err());
         let mut foreign = access.clone();
         foreign.session = SessionId::new();
@@ -203,11 +205,13 @@ async fn catalog_pages_bound_metadata_and_do_not_read_private_source_bytes() {
             &published,
             &|| Ok(())
         )
+        .await
         .is_err());
         query.cursor = None;
         let first = inspect(&engine, &access, &query, None, Timestamp::new(31), &|| {
             Ok(())
         })
+        .await
         .unwrap();
         query.cursor = first.next_cursor;
         let previous = workspace.revision;
@@ -261,12 +265,14 @@ async fn catalog_pages_bound_metadata_and_do_not_read_private_source_bytes() {
             inspect(&engine, &access, &query, None, Timestamp::new(32), &|| Ok(
                 ()
             ))
+            .await
             .is_err()
         );
         query.cursor = None;
         let hidden = inspect(&engine, &access, &query, None, Timestamp::new(32), &|| {
             Ok(())
         })
+        .await
         .unwrap();
         assert!(hidden.rows.is_empty());
         assert!(matches!(
@@ -298,6 +304,7 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
         let empty = inspect(&engine, &access, &query, None, Timestamp::new(20), &|| {
             Ok(())
         })
+        .await
         .unwrap();
         assert!(matches!(
             empty.effective,
@@ -324,10 +331,11 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
         .unwrap();
         access.write = false;
         access.bootstrap = false;
-        let before = engine.store().state().watermark;
+        let before = engine.store().current().watermark;
         let first = inspect(&engine, &access, &query, None, Timestamp::new(30), &|| {
             Ok(())
         })
+        .await
         .unwrap();
         assert_eq!(first.rows.len(), 32);
         assert_eq!(
@@ -350,6 +358,7 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
         let second = inspect(&engine, &access, &query, None, Timestamp::new(31), &|| {
             Ok(())
         })
+        .await
         .unwrap();
         assert_eq!(second.rows.len(), 10);
         assert!(second.complete);
@@ -361,6 +370,7 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
             Timestamp::new(31),
             &|| Ok(())
         )
+        .await
         .is_err());
         let mut wrong = query.clone();
         wrong.scope.session = wid(SessionId::new().as_str());
@@ -368,6 +378,7 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
             inspect(&engine, &access, &wrong, None, Timestamp::new(31), &|| Ok(
                 ()
             ))
+            .await
             .is_err()
         );
         let mut denied = access.clone();
@@ -376,6 +387,7 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
             inspect(&engine, &denied, &query, None, Timestamp::new(31), &|| Ok(
                 ()
             ))
+            .await
             .is_err()
         );
         query.cursor = None;
@@ -387,16 +399,18 @@ async fn observer_policy_pages_are_readonly_and_fenced_by_host_scope_and_authori
             Timestamp::new(31),
             &|| Ok(()),
         )
+        .await
         .unwrap();
         assert!(matches!(
             effective.effective,
             wire::Effective::Observed { .. }
         ));
-        assert_eq!(engine.store().state().watermark, before);
+        assert_eq!(engine.store().current().watermark, before);
         assert!(
             inspect(&engine, &access, &query, None, Timestamp::new(31), &|| Err(
                 failure(Code::CursorGap)
             ))
+            .await
             .is_err()
         );
     }

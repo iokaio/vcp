@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Derived exports are usable only while every captured source remains visible.
 //! This is a read guard, not retention immunity or secret-content sanitization.
-use crate::{contract::*, Error, Result};
+use crate::{contract::*, CurrentStateView, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use vcp_domain::{artifact::ArtifactDescriptor, task::Task, workspace::*, *};
@@ -12,6 +12,9 @@ pub const MANIFEST_SCHEMA: &str = "vcp-session-export-visibility/1";
 pub const MAX_EVENTS: usize = 4096;
 pub const MAX_ARTIFACTS: usize = 128;
 pub const MAX_BYTES: usize = 4 * 1024 * 1024;
+
+mod history;
+pub use history::{retention_dependencies_store, validate_read_store};
 
 /// Host-rendered output, never deserialized from a public request.
 pub struct Rendered {
@@ -105,7 +108,7 @@ fn hash_sequence<'a, T: Serialize + 'a>(values: impl IntoIterator<Item = &'a T>)
     }
     hash(&digests)
 }
-fn policies(state: &State, workspace: &WorkspaceId) -> Result<String> {
+fn policies(state: CurrentStateView<'_>, workspace: &WorkspaceId) -> Result<String> {
     // Lease churn does not revoke content. Every other authority document and
     // retention marker does: no new grant/policy/tombstone can evade the guard.
     hash_sequence(state.records.values().filter(|row| {
@@ -118,6 +121,17 @@ fn policies(state: &State, workspace: &WorkspaceId) -> Result<String> {
 impl Sources {
     pub fn capture(
         state: &State,
+        scope: Scope,
+        task: Option<TaskId>,
+        authority: AuthorityRevision,
+    ) -> Result<Self> {
+        let mut source = Self::capture_records(state.into(), scope, task, authority)?;
+        source.events_digest = hash_sequence(source.events(state)?)?;
+        source.policy_digest = policies(state.into(), &source.scope.workspace)?;
+        Ok(source)
+    }
+    fn capture_records(
+        state: CurrentStateView<'_>,
         scope: Scope,
         task: Option<TaskId>,
         authority: AuthorityRevision,
@@ -211,7 +225,7 @@ impl Sources {
             }
         }
         let mut remaining = MAX_BYTES;
-        let mut source = Self {
+        let source = Self {
             scope,
             task,
             authority,
@@ -234,8 +248,6 @@ impl Sources {
             events_digest: String::new(),
             policy_digest: String::new(),
         };
-        source.events_digest = hash_sequence(source.events(state)?)?;
-        source.policy_digest = policies(state, &source.scope.workspace)?;
         Ok(source)
     }
     pub fn scope(&self) -> &Scope {
@@ -255,17 +267,7 @@ impl Sources {
         state: &'a State,
     ) -> Result<Vec<&'a vcp_protocol::event::EventEnvelope>> {
         let mut events = Vec::new();
-        for event in state.events.iter().filter(|e| {
-            e.watermark <= self.watermark
-                && e.event.workspace == self.scope.workspace
-                && e.event.session == self.scope.session
-                && (e
-                    .event
-                    .task
-                    .as_ref()
-                    .is_some_and(|id| self.tasks.contains(id))
-                    || (self.task.is_none() && e.event.task.is_none()))
-        }) {
+        for event in state.events.iter().filter(|e| self.includes_event(e)) {
             if events.len() == MAX_EVENTS {
                 return Err(Error::Limit("export events"));
             }
@@ -273,7 +275,11 @@ impl Sources {
         }
         Ok(events)
     }
-    pub fn artifacts(&self, state: &State) -> Result<Vec<ArtifactDescriptor>> {
+    pub fn artifacts<'a>(
+        &self,
+        state: impl Into<CurrentStateView<'a>>,
+    ) -> Result<Vec<ArtifactDescriptor>> {
+        let state = state.into();
         self.dependencies
             .iter()
             .filter(|d| d.collection == Collection::Artifact)
@@ -287,6 +293,20 @@ impl Sources {
     pub fn validate_current(
         &self,
         state: &State,
+        authority: AuthorityRevision,
+        allowed: Option<&BTreeSet<TaskId>>,
+    ) -> Result<()> {
+        self.validate_records(state.into(), authority, allowed)?;
+        if hash_sequence(self.events(state)?)? != self.events_digest
+            || policies(state.into(), &self.scope.workspace)? != self.policy_digest
+        {
+            return Err(Error::Access);
+        }
+        Ok(())
+    }
+    fn validate_records(
+        &self,
+        state: CurrentStateView<'_>,
         authority: AuthorityRevision,
         allowed: Option<&BTreeSet<TaskId>>,
     ) -> Result<()> {
@@ -384,11 +404,6 @@ impl Sources {
                 return Err(Error::Access);
             }
         }
-        if hash_sequence(self.events(state)?)? != self.events_digest
-            || policies(state, &self.scope.workspace)? != self.policy_digest
-        {
-            return Err(Error::Access);
-        }
         Ok(())
     }
 }
@@ -454,65 +469,83 @@ fn acceptance(state: &State, artifact: &ArtifactDescriptor) -> Result<Acceptance
                 &event.event.correlation,
             ))
             .ok_or(Error::Access)?;
-        if found.is_some()
-            || accepted.schema_version != 1
-            || accepted.sources.scope != artifact.spec.scope
-            || event.event.session != artifact.spec.scope.session
-            || event.event.task.as_ref() != Some(&artifact.spec.scope.task)
-            || receipt.watermark != event.watermark
-            || receipt.first_event != event.sequence
-            || receipt.last_event != event.sequence
-            || accepted.sources.watermark.next()? != event.watermark
-            || !matches!(
-                receipt.result,
-                vcp_protocol::command::CommandResult::Accepted { .. }
-            )
-            || (artifact != &accepted.artifact && artifact != &accepted.visibility_manifest)
-            || event.event.data["schema_version"] != 1
-            || accepted.artifact.spec.schema != PAYLOAD_SCHEMA
-            || accepted.visibility_manifest.spec.schema != MANIFEST_SCHEMA
-            || accepted.artifact.spec.id == accepted.visibility_manifest.spec.id
-            || event.event.artifacts
-                != [
-                    accepted.artifact.spec.id.clone(),
-                    accepted.visibility_manifest.spec.id.clone(),
-                ]
+        found = Some(acceptance_event(
+            state.into(),
+            artifact,
+            event,
+            accepted,
+            receipt,
+            found.is_some(),
+        )?);
+    }
+    found.ok_or(Error::Access)
+}
+
+fn acceptance_event(
+    state: CurrentStateView<'_>,
+    artifact: &ArtifactDescriptor,
+    event: &vcp_protocol::event::EventEnvelope,
+    accepted: Acceptance,
+    receipt: &vcp_protocol::command::CommandReceipt,
+    duplicate: bool,
+) -> Result<Acceptance> {
+    if duplicate
+        || accepted.schema_version != 1
+        || accepted.sources.scope != artifact.spec.scope
+        || event.event.session != artifact.spec.scope.session
+        || event.event.task.as_ref() != Some(&artifact.spec.scope.task)
+        || receipt.watermark != event.watermark
+        || receipt.first_event != event.sequence
+        || receipt.last_event != event.sequence
+        || accepted.sources.watermark.next()? != event.watermark
+        || !matches!(
+            receipt.result,
+            vcp_protocol::command::CommandResult::Accepted { .. }
+        )
+        || (artifact != &accepted.artifact && artifact != &accepted.visibility_manifest)
+        || event.event.data["schema_version"] != 1
+        || accepted.artifact.spec.schema != PAYLOAD_SCHEMA
+        || accepted.visibility_manifest.spec.schema != MANIFEST_SCHEMA
+        || accepted.artifact.spec.id == accepted.visibility_manifest.spec.id
+        || event.event.artifacts
+            != [
+                accepted.artifact.spec.id.clone(),
+                accepted.visibility_manifest.spec.id.clone(),
+            ]
+    {
+        return Err(Error::Access);
+    }
+    for descriptor in [&accepted.artifact, &accepted.visibility_manifest] {
+        if descriptor.spec.scope != artifact.spec.scope
+            || descriptor.state != vcp_domain::artifact::CaptureState::Complete
         {
             return Err(Error::Access);
         }
-        for descriptor in [&accepted.artifact, &accepted.visibility_manifest] {
-            if descriptor.spec.scope != artifact.spec.scope
-                || descriptor.state != vcp_domain::artifact::CaptureState::Complete
-            {
-                return Err(Error::Access);
-            }
-            let current: ArtifactDescriptor = state
-                .record(
-                    Collection::Artifact,
-                    descriptor.spec.id.as_str(),
-                    &artifact.spec.scope.workspace,
-                )?
-                .decode()?;
-            if current != *descriptor {
-                return Err(Error::Access);
-            }
-            let facts = event.event.data["facts"].as_array().ok_or(Error::Access)?;
-            let revision = serde_json::to_value(Revision::ZERO)?;
-            let value = serde_json::to_value(descriptor)?;
-            if facts.len() != 2
-                || !facts.iter().any(|fact| {
-                    fact["collection"] == "artifact"
-                        && fact["id"] == descriptor.spec.id.as_str()
-                        && fact["revision"] == revision
-                        && fact["value"] == value
-                })
-            {
-                return Err(Error::Access);
-            }
+        let current: ArtifactDescriptor = state
+            .record(
+                Collection::Artifact,
+                descriptor.spec.id.as_str(),
+                &artifact.spec.scope.workspace,
+            )?
+            .decode()?;
+        if current != *descriptor {
+            return Err(Error::Access);
         }
-        found = Some(accepted);
+        let facts = event.event.data["facts"].as_array().ok_or(Error::Access)?;
+        let revision = serde_json::to_value(Revision::ZERO)?;
+        let value = serde_json::to_value(descriptor)?;
+        if facts.len() != 2
+            || !facts.iter().any(|fact| {
+                fact["collection"] == "artifact"
+                    && fact["id"] == descriptor.spec.id.as_str()
+                    && fact["revision"] == revision
+                    && fact["value"] == value
+            })
+        {
+            return Err(Error::Access);
+        }
     }
-    found.ok_or(Error::Access)
+    Ok(accepted)
 }
 
 /// Trusted retention lineage only: this never authorizes reading source bytes.
@@ -557,47 +590,7 @@ pub fn retention_dependencies(
             return Err(Error::Limit("retained export lineage count"));
         }
         let sources = &accepted.sources;
-        if sources.scope.workspace != *workspace
-            || sources.tasks.is_empty()
-            || sources.tasks.len() > MAX_EVENTS
-            || !sources.tasks.contains(&sources.scope.task)
-            || sources.dependencies.len() > MAX_EVENTS + MAX_ARTIFACTS + 2
-            || sources
-                .task
-                .as_ref()
-                .is_some_and(|task| task != &sources.scope.task || sources.tasks.len() != 1)
-        {
-            return Err(Error::Access);
-        }
-        let mut records = BTreeSet::new();
-        let mut tasks = BTreeSet::new();
-        let mut artifacts = 0usize;
-        for dep in &sources.dependencies {
-            if !vcp_domain::accounting::valid_hash(&dep.digest)
-                || !records.insert(key(dep.collection, &dep.id))
-            {
-                return Err(Error::Access);
-            }
-            match dep.collection {
-                Collection::Workspace if dep.id == workspace.as_str() => (),
-                Collection::Session if dep.id == sources.scope.session.as_str() => (),
-                Collection::Task => {
-                    tasks.insert(TaskId::parse(&dep.id)?);
-                }
-                Collection::Artifact => {
-                    ArtifactId::parse(&dep.id)?;
-                    artifacts += 1;
-                }
-                _ => return Err(Error::Access),
-            }
-        }
-        if tasks != sources.tasks
-            || artifacts > MAX_ARTIFACTS
-            || !records.contains(&key(Collection::Workspace, workspace.as_str()))
-            || !records.contains(&key(Collection::Session, sources.scope.session.as_str()))
-        {
-            return Err(Error::Access);
-        }
+        let records = retention_records(sources, workspace)?;
         // Rewrites preserve event identity/scope. Current contents and hashes may
         // already be redacted; those changes must not erase the lineage edge.
         let events = sources
@@ -615,6 +608,51 @@ pub fn retention_dependencies(
         });
     }
     Ok(result)
+}
+
+fn retention_records(sources: &Sources, workspace: &WorkspaceId) -> Result<BTreeSet<String>> {
+    if sources.scope.workspace != *workspace
+        || sources.tasks.is_empty()
+        || sources.tasks.len() > MAX_EVENTS
+        || !sources.tasks.contains(&sources.scope.task)
+        || sources.dependencies.len() > MAX_EVENTS + MAX_ARTIFACTS + 2
+        || sources
+            .task
+            .as_ref()
+            .is_some_and(|task| task != &sources.scope.task || sources.tasks.len() != 1)
+    {
+        return Err(Error::Access);
+    }
+    let mut records = BTreeSet::new();
+    let mut tasks = BTreeSet::new();
+    let mut artifacts = 0usize;
+    for dep in &sources.dependencies {
+        if !vcp_domain::accounting::valid_hash(&dep.digest)
+            || !records.insert(key(dep.collection, &dep.id))
+        {
+            return Err(Error::Access);
+        }
+        match dep.collection {
+            Collection::Workspace if dep.id == workspace.as_str() => (),
+            Collection::Session if dep.id == sources.scope.session.as_str() => (),
+            Collection::Task => {
+                tasks.insert(TaskId::parse(&dep.id)?);
+            }
+            Collection::Artifact => {
+                ArtifactId::parse(&dep.id)?;
+                artifacts += 1;
+            }
+            _ => return Err(Error::Access),
+        }
+    }
+    if tasks != sources.tasks
+        || artifacts > MAX_ARTIFACTS
+        || !records.contains(&key(Collection::Workspace, workspace.as_str()))
+        || !records.contains(&key(Collection::Session, sources.scope.session.as_str()))
+    {
+        return Err(Error::Access);
+    }
+    Ok(records)
 }
 
 #[cfg(test)]

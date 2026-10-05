@@ -73,7 +73,7 @@ fn gap(
         snapshot_sequence: context
             .engine
             .store()
-            .state()
+            .current()
             .sequences
             .get(&access.session)
             .copied()
@@ -338,44 +338,47 @@ fn dispatch(
                 if expected != &requested {
                     return Err(RpcError::invalid_params());
                 }
-                let result =
-                    match context
-                        .engine
-                        .snapshot_page(access, request.limit, Some(native), now)
-                    {
-                        Ok(mut snapshot) => {
-                            bind_snapshot(&mut snapshot, subscription, owned)?;
-                            ResultValue::Snapshot(snapshot)
-                        }
-                        Err(SnapshotError::Restart { reason, .. }) => {
-                            let result = gap(
-                                context,
-                                access,
-                                subscription,
-                                match reason {
-                                    RestartReason::RetentionChanged => {
-                                        methods::GapReason::RetentionChanged
-                                    }
-                                    RestartReason::CursorExpired => {
-                                        methods::GapReason::CursorExpired
-                                    }
-                                    RestartReason::CursorChanged | RestartReason::SourceChanged => {
-                                        methods::GapReason::SequenceUnavailable
-                                    }
-                                },
-                            );
-                            subscriptions.remove(context, subscription);
-                            return result;
-                        }
-                        Err(error) => return Err(snapshot_error(error)),
-                    };
+                let result = match context.runtime.block_on(context.engine.snapshot_page(
+                    access,
+                    request.limit,
+                    Some(native),
+                    now,
+                )) {
+                    Ok(mut snapshot) => {
+                        bind_snapshot(&mut snapshot, subscription, owned)?;
+                        ResultValue::Snapshot(snapshot)
+                    }
+                    Err(SnapshotError::Restart { reason, .. }) => {
+                        let result = gap(
+                            context,
+                            access,
+                            subscription,
+                            match reason {
+                                RestartReason::RetentionChanged => {
+                                    methods::GapReason::RetentionChanged
+                                }
+                                RestartReason::CursorExpired => methods::GapReason::CursorExpired,
+                                RestartReason::CursorChanged | RestartReason::SourceChanged => {
+                                    methods::GapReason::SequenceUnavailable
+                                }
+                            },
+                        );
+                        subscriptions.remove(context, subscription);
+                        return result;
+                    }
+                    Err(error) => return Err(snapshot_error(error)),
+                };
                 owned.cached = Some((requested, result.clone()));
                 Ok(result)
             } else {
                 subscriptions.room()?;
                 let mut snapshot = context
-                    .engine
-                    .snapshot_page(access, request.limit, None, now)
+                    .runtime
+                    .block_on(
+                        context
+                            .engine
+                            .snapshot_page(access, request.limit, None, now),
+                    )
                     .map_err(snapshot_error)?;
                 let cursor: Cursor =
                     serde_json::from_str(&snapshot.event_cursor).map_err(|_| unavailable())?;
@@ -422,9 +425,9 @@ fn page(
     owned: &mut Subscription,
     now: Timestamp,
 ) -> std::result::Result<ResultValue, RpcError> {
-    match context
+    match context.runtime.block_on(context
         .engine
-        .projected_events(access, &owned.cursor, now, MAX_BYTES)
+        .projected_events(access, &owned.cursor, now, MAX_BYTES))
         .map_err(engine_error)?
     {
         ProjectedEvents::Gap(reason) => gap(context, access, subscription, public_gap(reason)),

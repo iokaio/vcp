@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+mod artifact_read;
 mod continuity;
 mod fork;
 mod handoff;
@@ -7,12 +8,12 @@ mod request_allowance;
 mod tool_ceiling;
 mod turns;
 use super::*;
-use crate::foundation::coding::CodingConfig;
+use crate::foundation::coding::{CodingConfig, CodingPathSelection};
 use codex_extension_api::{AllowedTools, ToolName};
 use std::collections::BTreeMap;
 use vcp_context::{
     manifest::{Content, Kind, Part, Revisions, Trust as ContextTrust},
-    selection::{assemble, Utf8ByteCeiling},
+    selection::{assemble_with_input_target, Utf8ByteCeiling},
 };
 use vcp_models::{
     request,
@@ -36,6 +37,14 @@ pub(super) struct Loop {
     final_response: Option<Vec<ArtifactId>>,
     continuity: Option<continuity::Continuity>,
     instruction_parents: Option<Vec<vcp_repository::Root>>,
+    allocation_history: vcp_models::allocation::History,
+    allocation_observations: u64,
+    allocation: Option<vcp_domain::request_allocation::Allocation>,
+    allocation_candidate: Option<vcp_models::allocation::Candidate>,
+    output_continuation: Option<crate::foundation::coding::OutputContinuation>,
+    continuation_feedback: Option<Part>,
+    last_continuation: Option<(u64, Units)>,
+    activity_override: Option<vcp_domain::request_allocation::Activity>,
 }
 #[derive(Clone)]
 struct HookGate {
@@ -59,7 +68,284 @@ struct Pair {
     sources: Vec<ArtifactId>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AllocationObservation {
+    version: u32,
+    sequence: u64,
+    completed_pairs: u64,
+    attempt: AttemptId,
+    history: vcp_models::allocation::History,
+}
+
 impl Context {
+    pub(super) fn retain_coding_repair_feedback(
+        &mut self,
+        binding: &ThreadBinding,
+        text: String,
+        sources: &[ArtifactId],
+    ) -> Result<()> {
+        self.can_start(binding)?;
+        for source in sources {
+            self.coding_artifact(source)?;
+        }
+        let mut part = self.coding_part(
+            &binding.scope,
+            Kind::Evidence,
+            ContextTrust::Untrusted,
+            Content::Text { text },
+        )?;
+        part.mandatory = true;
+        self.coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?
+            .continuation_feedback = Some(part);
+        Ok(())
+    }
+
+    pub(crate) fn set_next_coding_activity(
+        &mut self,
+        binding: &ThreadBinding,
+        activity: vcp_domain::request_allocation::Activity,
+    ) -> Result<()> {
+        self.can_start(binding)?;
+        self.coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?
+            .activity_override = Some(activity);
+        Ok(())
+    }
+    pub(crate) fn has_output_continuation(&self, binding: &ThreadBinding) -> bool {
+        self.coding
+            .get(&binding.scope.task)
+            .is_some_and(|state| state.output_continuation.is_some())
+    }
+
+    pub(super) fn queue_output_continuation(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        evidence: Vec<ArtifactId>,
+    ) -> Result<bool> {
+        self.can_start(binding)?;
+        let state = self
+            .coding
+            .get(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        let allocation = state
+            .allocation
+            .as_ref()
+            .ok_or("output continuation lacks request allocation")?;
+        if !state.calls.is_empty() || state.output_continuation.is_some() {
+            return Err("output continuation conflicts with pending work".into());
+        }
+        if state
+            .last_continuation
+            .is_some_and(|(pairs, limit)| pairs == state.pairs && allocation.output_limit <= limit)
+        {
+            // No larger allowance and no completed tool progress: preserve the
+            // evidence and let the ordinary declared pause path stop dispatch.
+            return Ok(false);
+        }
+        let limit = allocation.output_limit;
+        let pairs = state.pairs;
+        for source in &evidence {
+            self.coding_artifact(source)?;
+        }
+        let feedback = format!("The previous response reached its output limit ({}) before completion. No tool call from that response was executed. Replan the next operation as a smaller complete change; do not continue partial JSON or assume an edit happened. Inspect current source when needed. Preserved response evidence: {}.", limit.get(), evidence.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "));
+        self.capture(&binding.scope, Channel::Evidence, &canonical_bytes(&serde_json::json!({"version":1,"attempt":attempt,"reason":"max_output_tokens","evidence":evidence,"previous_output_limit":limit,"completed_pairs":pairs,"feedback":feedback}))?, "coding-output-continuation/1")?;
+        let feedback_part = self.coding_part(
+            &binding.scope,
+            Kind::TaskState,
+            ContextTrust::Observed,
+            Content::Text {
+                text: feedback.clone(),
+            },
+        )?;
+        self.coding_stage(
+            binding,
+            TurnState::Failed,
+            "provider output limit; partial calls retained as evidence only",
+        )?;
+        let state = self
+            .coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        state.final_response = None;
+        state.continuation_feedback = Some(feedback_part);
+        state.last_continuation = Some((pairs, limit));
+        state.output_continuation = Some(crate::foundation::coding::OutputContinuation {
+            attempt: attempt.clone(),
+            evidence,
+            feedback,
+        });
+        Ok(true)
+    }
+
+    pub(crate) fn take_output_continuation(
+        &mut self,
+        binding: &ThreadBinding,
+    ) -> Result<Option<crate::foundation::coding::OutputContinuation>> {
+        if !self.has_output_continuation(binding) {
+            return Ok(None);
+        }
+        self.can_start(binding)?;
+        if self.task_has_streams(binding)? {
+            return Err("output continuation requires closed provider stream".into());
+        }
+        let state = self
+            .coding
+            .get(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        if !state.calls.is_empty() {
+            return Err("output continuation requires no pending calls".into());
+        }
+        let evidence = state
+            .output_continuation
+            .as_ref()
+            .ok_or("continuation unavailable")?
+            .evidence
+            .clone();
+        for source in evidence {
+            self.coding_artifact(&source)?;
+        }
+        Ok(self
+            .coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?
+            .output_continuation
+            .take())
+    }
+
+    pub(crate) fn coding_request_allocation(
+        &self,
+        binding: &ThreadBinding,
+        snapshot: &vcp_models::catalog::Snapshot,
+    ) -> Result<vcp_domain::request_allocation::Allocation> {
+        use vcp_domain::request_allocation::Activity;
+        let state = self
+            .coding
+            .get(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        let activity = if let Some(activity) = state.activity_override {
+            activity
+        } else {
+            state
+                .history
+                .iter()
+                .rev()
+                .find_map(|part| match &part.content {
+                    Content::ToolCall { name, .. } => Some(match name.as_str() {
+                        "vcp_read" | "vcp_list" | "vcp_search" | "vcp_artifact_read" => {
+                            Activity::Discovery
+                        }
+                        "vcp_patch" => Activity::Editing,
+                        "vcp_verify" => Activity::Summary,
+                        "vcp_verify_focused" => Activity::Repair,
+                        _ => Activity::Unclassified,
+                    }),
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    if state.allocation.is_none()
+                        && state.allocation_history.previous_limit.is_some()
+                    {
+                        state.allocation_history.activity
+                    } else {
+                        Activity::Planning
+                    }
+                })
+        };
+        let candidate = vcp_models::allocation::Candidate {
+            model: snapshot.compatibility.model.clone(),
+            endpoint: snapshot.compatibility.endpoint.clone(),
+            reasoning: self.current_reasoning_effort()?,
+        };
+        let mut allocation = vcp_models::allocation::choose(
+            activity,
+            self.current_output_ceiling()?,
+            snapshot.max_output,
+            &state.allocation_history.for_candidate(&candidate),
+        )?;
+        let envelope =
+            request::envelope(snapshot, allocation.output_limit, Units::new(512), now())?;
+        allocation.input_target = vcp_models::allocation::input_target(
+            activity,
+            envelope
+                .input_capacity()?
+                .min(self.current_input_ceiling()?.get()),
+            allocation.output_limit,
+        );
+        Ok(allocation)
+    }
+
+    pub(super) fn coding_allocation_matches(
+        &self,
+        binding: &ThreadBinding,
+        allocation: &vcp_domain::request_allocation::Allocation,
+    ) -> bool {
+        self.coding
+            .get(&binding.scope.task)
+            .and_then(|state| state.allocation.as_ref())
+            == Some(allocation)
+    }
+
+    pub(super) fn observe_coding_allocation(
+        &mut self,
+        binding: &ThreadBinding,
+        attempt: &AttemptId,
+        response: &ResultBody,
+    ) -> Result<()> {
+        if let Some(state) = self.coding.get(&binding.scope.task) {
+            if let Some(allocation) = &state.allocation {
+                let actual = response
+                    .usage
+                    .as_ref()
+                    .and_then(|usage| usage.output_tokens);
+                let limited = matches!(
+                    response.terminal_diagnostic,
+                    Some(vcp_models::stream::TerminalDiagnostic::Incomplete {
+                        reason: Some(vcp_models::stream::IncompleteReason::MaxOutputTokens)
+                    })
+                );
+                let mut history = state.allocation_history.clone();
+                let candidate = state
+                    .allocation_candidate
+                    .clone()
+                    .ok_or("coding allocation lacks selected candidate")?;
+                history.observe_candidate(
+                    candidate,
+                    allocation.activity,
+                    allocation.output_limit,
+                    actual,
+                    limited,
+                );
+                let observation = AllocationObservation {
+                    version: 2,
+                    sequence: state.allocation_observations,
+                    completed_pairs: state.pairs,
+                    attempt: attempt.clone(),
+                    history,
+                };
+                self.capture(
+                    &binding.scope,
+                    Channel::Evidence,
+                    &canonical_bytes(&observation)?,
+                    "coding-allocation-observation/2",
+                )?;
+                let state = self
+                    .coding
+                    .get_mut(&binding.scope.task)
+                    .ok_or("coding setup missing")?;
+                state.allocation_history = observation.history;
+                state.allocation_observations = state
+                    .allocation_observations
+                    .checked_add(1)
+                    .ok_or("allocation observation sequence exhausted")?;
+            }
+        }
+        Ok(())
+    }
     pub fn require_coding_hook_gate(
         &mut self,
         binding: &ThreadBinding,
@@ -176,7 +462,7 @@ impl Context {
                 let turn: Turn = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Turn, id.as_str(), &binding.scope.workspace)?
                     .decode()?;
                 if turn.scope != binding.scope {
@@ -198,7 +484,7 @@ impl Context {
     pub(super) fn coding_remaining(&self) -> Option<Duration> {
         self.coding
             .values()
-            .map(|state| state.config.deadline)
+            .filter_map(|state| state.config.deadline.finite().copied())
             .min()
             .map(|deadline| Duration::from_millis(deadline.get().saturating_sub(now().get())))
     }
@@ -221,8 +507,8 @@ impl Context {
         }
         Ok(())
     }
-    /// Original accepted limits survive reconstruction, resume, and profile
-    /// replacement. Existing CLI tasks use their configured window unchanged.
+    /// Accepted facts remain available; a trusted owner may explicitly record a
+    /// new effective policy without rewriting those original facts.
     pub(super) fn check_public_start_window(
         &self,
     ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>> {
@@ -232,30 +518,65 @@ impl Context {
             task: self.config.root_task.clone(),
         };
         let Some(accepted) =
-            vcp_engine::public_start::retained_start_budget(self.engine.store().state(), &scope)?
+            self.runtime
+                .block_on(vcp_engine::public_start::retained_start_budget_store(
+                    self.engine.store(),
+                    &scope,
+                ))?
         else {
             return Ok(None);
         };
-        let deadline = accepted
-            .accepted_at
-            .get()
-            .checked_add(
-                u64::from(accepted.budget.deadline_seconds)
-                    .checked_mul(1000)
-                    .ok_or("deadline overflow")?,
-            )
-            .ok_or("deadline overflow")?;
-        let cap: u64 = accepted.budget.cap_micros.as_str().parse()?;
-        if now().get() >= deadline || self.config.cap.micros.get() > cap {
+        if let Some(vcp_domain::Limit::Finite(deadline)) = self.execution_deadline {
+            if now() >= deadline {
+                return Err("effective public run deadline elapsed".into());
+            }
+        }
+        if self.execution_deadline.is_none() {
+            if let vcp_domain::Limit::Finite(seconds) = accepted.budget.deadline_seconds {
+                let deadline = accepted
+                    .accepted_at
+                    .get()
+                    .checked_add(
+                        u64::from(seconds)
+                            .checked_mul(1000)
+                            .ok_or("deadline overflow")?,
+                    )
+                    .ok_or("deadline overflow")?;
+                if now().get() >= deadline {
+                    return Err("original public run budget expired or widened".into());
+                }
+            }
+        }
+        let cap = accepted
+            .budget
+            .cap_micros
+            .finite()
+            .map(|value| value.as_str().parse::<u64>())
+            .transpose()?;
+        let effective_cap = if self.execution_deadline.is_some() {
+            self.config.cap.micros.finite().map(|amount| amount.get())
+        } else {
+            cap
+        };
+        if effective_cap.is_some_and(|cap| {
+            self.config
+                .cap
+                .micros
+                .finite()
+                .is_none_or(|amount| amount.get() > cap)
+        }) {
             return Err("original public run budget expired or widened".into());
         }
         let ledger: Ledger = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Ledger, scope.task.as_str(), &scope.workspace)?
             .decode()?;
-        if ledger.scope != scope || ledger.cap.get() > cap {
+        if ledger.scope != scope
+            || effective_cap
+                .is_some_and(|cap| ledger.cap.finite().is_none_or(|amount| amount.get() > cap))
+        {
             return Err("public run ledger exceeds original cap".into());
         }
         Ok(Some(accepted))
@@ -269,7 +590,7 @@ impl Context {
         let attempts = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Attempt)
@@ -288,12 +609,13 @@ impl Context {
 
     fn coding_artifact(&self, id: &ArtifactId) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(bytes)
     }
     fn coding_part(
@@ -362,20 +684,14 @@ impl Context {
             task: self.config.root_task.clone(),
         };
         if let Some(accepted) =
-            vcp_engine::public_start::retained_start_budget(self.engine.store().state(), &scope)?
+            self.runtime
+                .block_on(vcp_engine::public_start::retained_start_budget_store(
+                    self.engine.store(),
+                    &scope,
+                ))?
         {
             self.check_public_start_budget()?;
-            let deadline = accepted
-                .accepted_at
-                .get()
-                .checked_add(
-                    u64::from(accepted.budget.deadline_seconds)
-                        .checked_mul(1000)
-                        .ok_or("deadline overflow")?,
-                )
-                .ok_or("deadline overflow")?;
             config.max_requests = config.max_requests.min(accepted.budget.max_requests);
-            config.deadline = Timestamp::new(config.deadline.get().min(deadline));
         }
         config
             .validate(now())
@@ -441,15 +757,32 @@ impl Context {
         let descriptors = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
             .map(Record::decode::<ArtifactDescriptor>)
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let mut pairs = Vec::new();
+        let mut allocation_observations = Vec::new();
         let mut history_sources = Vec::new();
         for descriptor in descriptors {
+            if descriptor.spec.scope == binding.scope
+                && matches!(
+                    descriptor.spec.schema.as_str(),
+                    "coding-allocation-observation/1" | "coding-allocation-observation/2"
+                )
+            {
+                let observation = serde_json::from_slice::<AllocationObservation>(
+                    &self.coding_artifact(&descriptor.spec.id)?,
+                )?;
+                if descriptor.spec.schema
+                    != format!("coding-allocation-observation/{}", observation.version)
+                {
+                    return Err("allocation observation schema/version mismatch".into());
+                }
+                allocation_observations.push(observation);
+            }
             if descriptor.spec.scope == binding.scope
                 && descriptor.spec.schema == "canonical-coding-pair/1"
             {
@@ -460,6 +793,24 @@ impl Context {
             }
         }
         pairs.sort_by_key(|p| p.sequence);
+        allocation_observations.sort_by_key(|observation| observation.sequence);
+        for (index, observation) in allocation_observations.iter().enumerate() {
+            if !matches!(observation.version, 1 | 2)
+                || (observation.version == 1 && observation.history.candidate.is_some())
+                || (observation.version == 2 && observation.history.candidate.is_none())
+                || observation.sequence != index as u64
+                || observation.history.previous_limit == Some(Units::ZERO)
+                || observation.completed_pairs > pairs.len() as u64
+            {
+                return Err("allocation observation history is incomplete or invalid".into());
+            }
+        }
+        let allocation_history = allocation_observations
+            .last()
+            // Usage is captured before this response's tool results are
+            // published. Later completed pairs do not invalidate that usage.
+            .map(|observation| observation.history.clone())
+            .unwrap_or_default();
         let mut history = Vec::new();
         if let Some(part) = inherited {
             history_sources.push(part.artifact.clone());
@@ -498,6 +849,14 @@ impl Context {
                 final_response: None,
                 continuity: None,
                 instruction_parents: None,
+                allocation_history,
+                allocation_observations: allocation_observations.len() as u64,
+                activity_override: None,
+                allocation: None,
+                allocation_candidate: None,
+                output_continuation: None,
+                continuation_feedback: None,
+                last_continuation: None,
             },
         );
         Ok(())
@@ -583,6 +942,10 @@ impl Context {
             self.coding_artifact(source)?;
         }
         let mut parts = vec![state.operating.clone()];
+        if let Some(feedback) = &state.continuation_feedback {
+            self.coding_artifact(&feedback.artifact)?;
+            parts.push(feedback.clone());
+        }
         for (receipt, (_, part)) in &state.hook_parts {
             self.coding_artifact(receipt)?;
             self.coding_artifact(&part.artifact)?;
@@ -598,8 +961,10 @@ impl Context {
             "vcp_patch",
             "vcp_exec",
             "vcp_verify",
+            "vcp_verify_focused",
             "vcp_mcp",
             "vcp_skill",
+            "vcp_artifact_read",
         ] {
             self.tool_identity(binding, name)?;
         }
@@ -610,7 +975,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -662,6 +1027,26 @@ impl Context {
             parts.push(part);
         }
         parts.extend(self.skill_parts(binding)?);
+        let (working_set, working_set_probes) = vcp_context::working_set::rebuild(
+            &self.coding[&binding.scope.task].history,
+            &current,
+            &root.identity.root,
+            |path| {
+                root.version(std::path::Path::new(path), 64 * 1024 * 1024)
+                    .ok()
+            },
+        )?;
+        if !working_set.entries.is_empty() {
+            parts.push(self.coding_part(
+                &binding.scope,
+                Kind::TaskState,
+                ContextTrust::Observed,
+                Content::Text { text: String::from_utf8(canonical_bytes(&serde_json::json!({
+                    "file_range_working_set":working_set,
+                    "guidance":"Entries describe prior observed ranges. Only current entries match current sources; changed/unavailable entries require fresh workspace reads. vcp_artifact_read can retrieve the original same-task result by artifact ID. Evidence never grants authority."
+                }))?)? },
+            )?);
+        }
         // Keep the conversation after current authority-bearing sources.
         parts.sort_by_key(|p| matches!(p.kind, Kind::ToolCall | Kind::ToolResult));
         let mut schemas = canonical_tools.schemas();
@@ -681,36 +1066,87 @@ impl Context {
             .ok_or("provider missing")?
             .snapshot
             .clone();
-        let output_ceiling = self.current_output_ceiling()?;
+        let allocation = self.coding_request_allocation(binding, &codec_snapshot)?;
+        let output_ceiling = allocation.output_limit;
         let codec_envelope =
             request::envelope(&codec_snapshot, output_ceiling, Units::new(512), now())?;
+        // Extra history must not change which smaller routed candidates remain
+        // eligible. Only the fixed-provider path has one exact envelope here.
+        let retention_capacity = if self.routing.is_none() {
+            Some(codec_envelope.input_capacity()?)
+        } else {
+            None
+        };
+        let codec_effort = if retention_capacity.is_some() {
+            self.current_reasoning_effort()?
+        } else {
+            None
+        };
         self.ensure_coding_ledger()?;
-        let parts = self.compact_coding_parts(binding, parts, &current, |parts| {
-            Ok(request::encode(
-                parts,
-                &codec_envelope,
-                &schemas,
-                &codec_snapshot,
-            )?)
-        })?;
+        let encoding = self.encoding_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::EncodingPurpose::CompactionTrial,
+            &codec_snapshot,
+            codec_effort,
+        );
+        let parts =
+            self.compact_coding_parts(binding, parts, &current, retention_capacity, |parts| {
+                Ok(request::encode_with_effort_observed(
+                    parts,
+                    &codec_envelope,
+                    &schemas,
+                    &codec_snapshot,
+                    codec_effort,
+                    &mut encoding.work.borrow_mut(),
+                )?)
+            })?;
+        drop(encoding);
         let snapshot = self.select_coding_snapshot(binding, &parts, &schemas)?;
         let reasoning_effort = self.current_reasoning_effort()?;
-        let envelope = request::envelope(&snapshot, output_ceiling, Units::new(512), now())?;
-        let probes = instructions.probes;
-        let sealed = assemble(
+        let allocation = self.coding_request_allocation(binding, &snapshot)?;
+        let envelope =
+            request::envelope(&snapshot, allocation.output_limit, Units::new(512), now())?;
+        let mut probes = instructions.probes;
+        probes.extend(working_set_probes);
+        let mut encoding = self.encoding_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::EncodingPurpose::FinalAssembly,
+            &snapshot,
+            reasoning_effort,
+        );
+        let sealed = assemble_with_input_target(
             parts,
             current.clone(),
             envelope,
             schemas.clone(),
             probes.clone(),
             &Utf8ByteCeiling,
+            Some(allocation.input_target),
             |parts, envelope, schemas| {
-                request::encode_with_effort(parts, envelope, schemas, &snapshot, reasoning_effort)
-                    .map_err(|_| {
-                        vcp_context::manifest::Error::Incompatible("canonical provider codec")
-                    })
+                request::encode_with_effort_observed(
+                    parts,
+                    envelope,
+                    schemas,
+                    &snapshot,
+                    reasoning_effort,
+                    &mut encoding.work.borrow_mut(),
+                )
+                .map_err(|_| vcp_context::manifest::Error::Incompatible("canonical provider codec"))
             },
-        )?;
+        )?
+        .with_allocation(allocation)?;
+        encoding.request(&sealed.manifest.request_sha256);
+        drop(encoding);
+        let state = self
+            .coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        state.allocation = sealed.manifest.allocation.clone();
+        state.allocation_candidate = Some(vcp_models::allocation::Candidate {
+            model: snapshot.compatibility.model.clone(),
+            endpoint: snapshot.compatibility.endpoint.clone(),
+            reasoning: reasoning_effort,
+        });
         let mut roots = parents;
         roots.push(root);
         self.capture_coding_handoff(binding, &sealed)?;
@@ -762,6 +1198,8 @@ impl Context {
             self.pause_root("coding response is incomplete or context authority changed")?;
             return Err("coding response cannot authorize tools".into());
         }
+        state.activity_override = None;
+        state.continuation_feedback = None;
         if !state.calls.is_empty() {
             return Err("coding calls would overwrite pending response".into());
         }
@@ -780,10 +1218,12 @@ impl Context {
             None
         };
         if response.calls.len() > 1
-            && response
-                .calls
-                .iter()
-                .any(|call| matches!(call.name.as_str(), "vcp_verify" | "vcp_mcp"))
+            && response.calls.iter().any(|call| {
+                matches!(
+                    call.name.as_str(),
+                    "vcp_verify" | "vcp_verify_focused" | "vcp_mcp"
+                )
+            })
         {
             // Retained async tasks need not acquire their execution lock in
             // response order. Never infer that a mixed check precedes/follows
@@ -829,11 +1269,61 @@ impl Context {
         for source in sources {
             self.coding_artifact(source)?;
         }
+        let instructions = self.task_root(&binding.scope.task)?.instructions(
+            &self.verification_paths(binding)?,
+            &self.instruction_parents(binding)?,
+            256 * 1024,
+        )?;
+        if !instructions
+            .probes
+            .iter()
+            .all(|probe| state.probes.contains(probe))
+        {
+            return Err(crate::foundation::verification::CompletionFailure::new(
+                crate::foundation::verification::CompletionRejection::InstructionScopeRefresh,
+                "completion verification selects newly observed instruction scope; build a fresh owner check plan",
+            ).into());
+        }
         let sources = sources.clone();
         match self.latest_verification(binding) {
             Ok(id) => Ok(id),
             Err(_) => self.verify_unchanged_analysis(binding, sources),
         }
+    }
+
+    /// A supervisor builds a fresh check plan rather than replaying a rejected
+    /// model tool call. Current instructions are captured by verification_observe.
+    pub fn prepare_completion_verification(
+        &mut self,
+        binding: &ThreadBinding,
+    ) -> Result<Vec<ArtifactId>> {
+        self.can_start(binding)?;
+        self.child_context_scope(binding)?;
+        let current = self.context_revisions(binding)?;
+        let paths = self.verification_paths(binding)?;
+        let state = self
+            .coding
+            .get_mut(&binding.scope.task)
+            .ok_or("coding setup missing")?;
+        if !state.calls.is_empty() || state.revisions.as_ref() != Some(&current) {
+            return Err("completion verification requires an accounted final response and current authority".into());
+        }
+        let sources = state
+            .final_response
+            .clone()
+            .ok_or("no accounted final coding response")?;
+        let mut affected = state.config.affected_paths.clone();
+        affected.extend(paths);
+        affected.sort();
+        affected.dedup();
+        if affected.len() > 256 {
+            return Err("coding instruction selection limit".into());
+        }
+        state.config.affected_paths = affected;
+        for source in &sources {
+            self.coding_artifact(source)?;
+        }
+        Ok(sources)
     }
     pub fn admit_coding_tool(
         &mut self,
@@ -990,8 +1480,10 @@ impl Context {
             "vcp_patch",
             "vcp_exec",
             "vcp_verify",
+            "vcp_verify_focused",
             "vcp_mcp",
             "vcp_skill",
+            "vcp_artifact_read",
         ] {
             self.tool_identity(binding, name)?;
         }
@@ -1029,10 +1521,14 @@ impl Context {
             call.sources,
         )
     }
-    pub fn select_coding_paths(&mut self, binding: &ThreadBinding, call: &Call) -> Result<bool> {
+    pub fn select_coding_paths(
+        &mut self,
+        binding: &ThreadBinding,
+        call: &Call,
+    ) -> Result<CodingPathSelection> {
         // vcp_skill read touches no workspace path; only materialize selects one.
         if call.name == "vcp_skill" && call.arguments["action"] == "read" {
-            return Ok(true);
+            return Ok(CodingPathSelection::Ready);
         }
         match call.name.as_str() {
             "vcp_read" => self.child_tool_request(
@@ -1056,7 +1552,15 @@ impl Context {
                         .into(),
                 },
             )?,
-            "vcp_list" | "vcp_search" | "vcp_verify" => self.child_context_scope(binding)?,
+            "vcp_list" => {
+                self.child_context_scope(binding)?;
+                vcp_tools::validate_directory_path(
+                    call.arguments["path"].as_str().ok_or("list path missing")?,
+                )?;
+            }
+            "vcp_search" | "vcp_verify" | "vcp_verify_focused" => {
+                self.child_context_scope(binding)?
+            }
             "vcp_exec" => self.child_process_scope(binding)?,
             // A materialization is an Add File at its destination.
             "vcp_skill" => {
@@ -1074,13 +1578,15 @@ impl Context {
             _ => {}
         }
         let paths = match call.name.as_str() {
-            "vcp_verify" => self.verification_paths(binding)?,
+            "vcp_verify" | "vcp_verify_focused" => {
+                self.verification_tool_paths(binding, &call.name)?
+            }
             "vcp_read" => vec![std::path::PathBuf::from(
                 call.arguments["path"].as_str().ok_or("read path missing")?,
             )],
             "vcp_patch" => {
                 let patch = call.arguments["patch"].as_str().ok_or("patch missing")?;
-                let parsed = codex_apply_patch::parse_patch(patch)?;
+                let parsed = vcp_tools::patch::parse(patch)?;
                 let mut paths = Vec::new();
                 for hunk in parsed.hunks {
                     match hunk {
@@ -1099,13 +1605,14 @@ impl Context {
             "vcp_skill" => vec![std::path::PathBuf::from(skill_destination(
                 &call.arguments,
             )?)],
-            "vcp_exec" => vec![std::path::PathBuf::from(
-                call.arguments["directory"]
+            "vcp_exec" => {
+                let directory = call.arguments["directory"]
                     .as_str()
-                    .ok_or("process directory missing")?,
-            )
-            .join(".vcp-context-scope")],
-            _ => return Ok(true),
+                    .ok_or("process directory missing")?;
+                vcp_tools::validate_directory_path(directory)?;
+                vec![std::path::PathBuf::from(directory).join(".vcp-context-scope")]
+            }
+            _ => return Ok(CodingPathSelection::Ready),
         };
         self.validate_coding_sources(binding)?;
         let instructions = self.task_root(&binding.scope.task)?.instructions(
@@ -1113,15 +1620,17 @@ impl Context {
             &self.instruction_parents(binding)?,
             256 * 1024,
         )?;
-        let remaining = self.coding_remaining().ok_or("coding deadline missing")?;
+        let remaining = self.coding_remaining();
         let state = self
             .coding
             .get_mut(&binding.scope.task)
             .ok_or("coding setup missing")?;
         if call.name == "vcp_exec"
-            && call.arguments["timeout_ms"]
-                .as_u64()
-                .is_none_or(|limit| u128::from(limit) > remaining.as_millis())
+            && remaining.is_some_and(|remaining| {
+                call.arguments["timeout_ms"]
+                    .as_u64()
+                    .is_none_or(|limit| u128::from(limit) > remaining.as_millis())
+            })
         {
             return Err("process deadline exceeds remaining coding time".into());
         }
@@ -1139,7 +1648,11 @@ impl Context {
         state.config.affected_paths = affected;
         // Newly discovered nested guidance must reach the model before a
         // reissued operation. The rejected call is still retained as history.
-        Ok(covered)
+        Ok(if covered {
+            CodingPathSelection::Ready
+        } else {
+            CodingPathSelection::InstructionScopeRefresh
+        })
     }
     pub fn record_coding_result(
         &mut self,

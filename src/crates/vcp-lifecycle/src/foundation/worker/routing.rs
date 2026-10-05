@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
+use std::collections::BTreeMap;
 use crate::foundation::routing::Configuration;
 use crate::foundation::routing_state;
 use vcp_models::{
@@ -11,6 +12,8 @@ use vcp_protocol::digest_bytes;
 pub(super) struct Runtime {
     pub configuration: Configuration,
     pub prepared: HashMap<TaskId, RoutingDecision>,
+    pub rotation_selected: HashMap<TaskId, routing::ModelEndpoint>,
+    pub rotation_preview: bool,
     #[cfg(windows)]
     pub pending: HashMap<TaskId, super::escalation::Pending>,
 }
@@ -22,7 +25,7 @@ impl Context {
         decision: &RoutingDecision,
         catalog: &routing::CatalogRevision,
         policy: &routing::Policy,
-        available: Money,
+        available: MonetaryLimit,
         protected: Micros,
     ) -> Result<()> {
         let owner = self
@@ -35,6 +38,32 @@ impl Context {
                 .map_err(|error| error.into());
         };
         decision.validate()?;
+        if let Some(rotation) = owner.configuration.rotation.as_ref().filter(|policy| {
+            !available.micros.is_unbounded() && !owner.rotation_preview && !policy.sets(decision.input.role).is_empty()
+        }) {
+            let selected = decision
+                .selected
+                .as_ref()
+                .ok_or("rotation selected identity missing")?;
+            let set = rotation
+                .sets(decision.input.role)
+                .iter()
+                .find(|set| set.members.contains(selected))
+                .ok_or("rotation selection outside captured role sets")?;
+            let snapshot = catalog
+                .snapshot(selected)
+                .ok_or("rotation selected snapshot missing")?;
+            let reference = vcp_models::rotation::reference_cost(
+                snapshot,
+                rotation.reference_input_tokens,
+                rotation.reference_output_tokens,
+            )?;
+            if reference.currency != set.max_reference_request_cost.currency
+                || set.max_reference_request_cost.micros.exceeds(&reference.micros)
+            {
+                return Err("rotation selected tariff exceeds captured choice-set ceiling".into());
+            }
+        }
         let ordered = owner
             .configuration
             .owner_assignments
@@ -113,6 +142,37 @@ impl Context {
         configuration
             .validate()
             .map_err(|e| -> Failure { e.into() })?;
+        // Reinterpret original endpoint metadata under this owner's explicit
+        // financial contract before publishing the effective routing revision.
+        let mut sources = BTreeMap::new();
+        let mut changed = false;
+        for candidate in &mut configuration.catalog.entries {
+            if let Some(snapshot) = &mut candidate.snapshot {
+                let raw = configuration.raw_catalogs.get(&snapshot.id)
+                    .ok_or("routing snapshot original metadata missing")?;
+                let effective = snapshot.for_execution(raw.as_bytes(), self.config.cap.micros)?;
+                changed |= *snapshot != effective;
+                sources.insert(effective.id.clone(), raw.clone());
+                *snapshot = effective;
+            }
+        }
+        if changed {
+            configuration.catalog = routing::CatalogRevision::create(
+                configuration.catalog.parent.clone(), configuration.catalog.observed_at,
+                configuration.catalog.effective_at, configuration.catalog.entries,
+            )?;
+        }
+        configuration.raw_catalogs = sources;
+        if self.config.cap.micros.is_unbounded() {
+            if let Some(rotation) = &mut configuration.rotation {
+                for role in &mut rotation.roles {
+                    for set in &mut role.sets {
+                        set.max_reference_request_cost.micros = vcp_domain::Limit::Unbounded;
+                    }
+                }
+            }
+        }
+        configuration.validate().map_err(|e| -> Failure { e.into() })?;
         if configuration
             .catalog
             .entries
@@ -184,6 +244,8 @@ impl Context {
         self.routing = Some(Runtime {
             configuration,
             prepared: HashMap::new(),
+            rotation_selected: HashMap::new(),
+            rotation_preview: false,
             #[cfg(windows)]
             pending: HashMap::new(),
         });
@@ -318,6 +380,15 @@ impl Context {
                 .clone());
         };
         let mut configuration = runtime.configuration.clone();
+        if configuration
+            .rotation
+            .as_ref()
+            .is_some_and(|policy| !policy.sets(binding.role).is_empty())
+            && !runtime.rotation_preview
+            && !runtime.rotation_selected.contains_key(&binding.scope.task)
+        {
+            return Err("rotation requires coordinated asynchronous route admission".into());
+        }
         self.routing
             .as_mut()
             .ok_or("routing configuration missing")?
@@ -327,17 +398,16 @@ impl Context {
             .current_routing_policy()?
             .ok_or("routing policy unavailable")?;
         configuration.escalation = self.current_escalation_policy()?;
-        let output_ceiling = self.current_output_ceiling()?;
         configuration.catalog = self
             .current_routing_catalog()?
             .ok_or("routing registry unavailable")?;
         self.can_start(binding)?;
         self.ensure_coding_ledger()?;
-        let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+        let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -366,45 +436,91 @@ impl Context {
             }
         }
         let context_bytes = canonical_bytes(&(parts, schemas))?;
-        // Compare actual provider serialization after portable compaction.
-        // Use the largest encoding as a conservative common bound; final
-        // assembly and atomic admission still check the selected exact bytes.
-        let estimated_input = configuration
+        let sizing_revisions = self.context_revisions(binding)?;
+        // Size each candidate with its own codec and output allowance before
+        // selection. Smaller qualified candidates do not inherit the primary's
+        // larger response ceiling or another candidate's encoding size.
+        let candidate_requests: Vec<routing::CandidateRequest> = configuration
             .catalog
             .entries
             .iter()
-            .filter_map(|candidate| candidate.snapshot.as_ref())
-            .filter_map(|snapshot| {
-                let envelope =
-                    vcp_models::request::envelope(snapshot, output_ceiling, Units::new(512), now())
-                        .ok()?;
-                vcp_models::request::encode_with_effort(
-                    parts,
-                    &envelope,
-                    schemas,
+            .filter_map(|candidate| {
+                let snapshot = candidate.snapshot.as_ref()?;
+                let allocation = self.coding_request_allocation(binding, snapshot).ok()?;
+                let envelope = vcp_models::request::envelope(
+                    snapshot,
+                    allocation.output_limit,
+                    Units::new(512),
+                    now(),
+                )
+                .ok()?;
+                let mut encoding = self.encoding_diagnostic(
+                    binding,
+                    crate::foundation::execution_diagnostics::EncodingPurpose::CandidateFit,
                     snapshot,
                     configuration.policy.reasoning_effort,
-                )
-                .ok()
-                .map(|body| body.len() as u64)
+                );
+                let result = vcp_context::selection::assemble_with_input_target(
+                    parts.to_vec(),
+                    sizing_revisions.clone(),
+                    envelope,
+                    schemas.clone(),
+                    Vec::new(),
+                    &vcp_context::selection::Utf8ByteCeiling,
+                    Some(allocation.input_target),
+                    |selected, envelope, schemas| {
+                        vcp_models::request::encode_with_effort_observed(
+                            selected,
+                            envelope,
+                            schemas,
+                            snapshot,
+                            configuration.policy.reasoning_effort,
+                            &mut encoding.work.borrow_mut(),
+                        )
+                        .map_err(|_| {
+                            vcp_context::manifest::Error::Incompatible("candidate provider codec")
+                        })
+                    },
+                );
+                if let Ok(sealed) = &result {
+                    encoding.request(&sealed.manifest.request_sha256);
+                }
+                result.ok().map(|sealed| routing::CandidateRequest {
+                    candidate: candidate.identity.clone(),
+                    input_tokens: sealed.manifest.input_estimate,
+                    output_tokens: allocation.output_limit,
+                })
             })
+            .collect();
+        let estimated_input = candidate_requests
+            .iter()
+            .map(|request| request.input_tokens.get())
             .max()
-            .unwrap_or(context_bytes.len() as u64);
-        let available = ledger
-            .cap
-            .get()
-            .checked_sub(ledger.settled.get())
-            .and_then(|v| v.checked_sub(ledger.active.get()))
-            .and_then(|v| v.checked_sub(ledger.unresolved.get()))
-            .unwrap_or(0);
+            .ok_or("no candidate request can be encoded")?;
+        let output_ceiling = candidate_requests
+            .iter()
+            .map(|request| request.output_tokens)
+            .max()
+            .ok_or("no candidate output allocation")?;
+        let available = ledger.remaining_before_protected()?;
         if !configuration.owner_assignments.is_empty() {
             for estimate in &mut configuration.estimates {
-                estimate.first_attempt.input = Units::new(estimated_input);
-                estimate.first_attempt.output = output_ceiling;
+                if let Some(request) = candidate_requests
+                    .iter()
+                    .find(|request| request.candidate == estimate.candidate)
+                {
+                    estimate.first_attempt.input = request.input_tokens;
+                    estimate.first_attempt.output = request.output_tokens;
+                }
             }
         }
+        let rotation_selected = self
+            .routing
+            .as_ref()
+            .and_then(|runtime| runtime.rotation_selected.get(&binding.scope.task))
+            .cloned();
         let input = RoutingInput {
-            retry_pin: self
+            retry_pin: rotation_selected.or(self
                 .provider
                 .as_ref()
                 .and_then(|provider| provider.retries.get(&binding.scope.task))
@@ -413,7 +529,7 @@ impl Context {
                     let attempt: Attempt = self
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Attempt,
                             retry.predecessor.as_str(),
@@ -425,7 +541,7 @@ impl Context {
                         endpoint: attempt.quote.price.provider,
                     })
                 })
-                .transpose()?,
+                .transpose()?),
             excluded: {
                 let mut excluded = escalation
                     .as_ref()
@@ -454,9 +570,10 @@ impl Context {
             required_capabilities,
             input_tokens: Units::new(estimated_input),
             output_tokens: output_ceiling,
-            available: Money {
+            candidate_requests,
+            available: MonetaryLimit {
                 currency: ledger.currency.clone(),
-                micros: Micros::new(available),
+                micros: available,
             },
             protected_verification: ledger.protected,
             estimates: configuration.estimates.clone(),

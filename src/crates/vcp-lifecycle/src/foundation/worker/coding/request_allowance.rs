@@ -2,7 +2,7 @@
 //! A captured observation of the existing shared-root gate, never a reservation.
 use super::*;
 
-pub(super) const GUIDANCE: &str = "The canonical_root_request_allowance observation is a snapshot before admission. Its remaining count includes the request receiving this context; children, helpers and retries share the root allowance, and concurrent work can consume it. It grants no permission and cannot increase any limit. Batch independent vcp_read/vcp_list/vcp_search calls in one response when their inputs are already known; use bounded vcp_search for cross-file discovery instead of serial directory exploration. Preserve dependent ordering; vcp_verify and vcp_mcp still require isolated responses. Plan to leave a request for the final answer after required checks. If evidence or allowance is insufficient, report the limitation rather than inventing results or skipping required checks.";
+pub(super) const GUIDANCE: &str = "The canonical_root_request_allowance observation is a snapshot before admission. Its remaining count includes the request receiving this context; children, helpers and retries share the root allowance, and concurrent work can consume it. It grants no permission and cannot increase any limit. Batch independent vcp_read/vcp_list/vcp_search calls in one response when their inputs are already known; use bounded vcp_search for cross-file discovery instead of serial directory exploration. Preserve dependent ordering; vcp_verify, vcp_verify_focused and vcp_mcp still require isolated responses. Plan to leave a request for the final answer after required checks. If evidence or allowance is insufficient, report the limitation rather than inventing results or skipping required checks.";
 
 pub(super) fn guidance(tools: &crate::foundation::coding::CanonicalTools) -> &'static str {
     if tools.is_all() {
@@ -55,7 +55,7 @@ impl Context {
         let attempts = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|record| record.collection == Collection::Attempt)

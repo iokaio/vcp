@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use vcp_cli::backup::{self, Backup, Keys};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 async fn driver(input: Value) -> Value {
@@ -116,6 +117,44 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
             &entry,
         )
         .unwrap();
+        let forbidden = backup::forbidden(&workspace, &entry.config.canonical_root, &[]).unwrap();
+        let recovery_directory = vcp_store::keys::RecoveryDirectory::open(
+            key.parent().unwrap(),
+            &[
+                workspace.clone(),
+                entry.config.canonical_root.clone(),
+                vault.clone(),
+                staging.clone(),
+            ],
+        )
+        .unwrap();
+        let copy = recovery_directory
+            .open_copy(key.file_stem().unwrap().to_str().unwrap())
+            .unwrap();
+        // Preserve the independently enrolled predecessor before the publisher
+        // advances its replay floor. Archive metadata never supplies trust.
+        let predecessor = {
+            let saved = vcp_store::trust_store::TrustStore::open(
+                &backup::trust_path(&fixture.data, &entry.config.workspace),
+                &forbidden,
+            )
+            .unwrap();
+            let configuration = saved.trust().configuration();
+            let verified = vcp_store::keys::LocalKeys::import(&copy)
+                .unwrap()
+                .verify_recovery(&copy)
+                .unwrap();
+            vcp_store::vault_publish::LocalTrust::enroll(
+                &verified,
+                configuration.workspace.clone(),
+                configuration.lineage.clone(),
+                configuration.checkpoint.clone(),
+            )
+            .unwrap()
+        };
+        // The actual native publisher must acquire the recovery file itself.
+        drop(copy);
+        drop(recovery_directory);
         let profile = fixture.data.join("native-publisher.json");
         std::fs::write(
             &profile,
@@ -128,7 +167,7 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
         let result = driver(input.clone()).await;
         let store = reopen(&entry.config.canonical_root, backend).await;
         let jobs: Vec<vcp_store::snapshot_jobs::Job> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -143,8 +182,7 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
         assert_eq!(job.stage, vcp_store::snapshot_jobs::Stage::Published);
         assert!(!job.active);
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|r| r.command == operation)
@@ -152,7 +190,7 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
             1
         );
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Attempt));
@@ -163,7 +201,6 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
         );
         let encrypted = std::fs::read(&object).unwrap();
         assert!(encrypted.starts_with(b"age-encryption.org/v1\n"));
-        let forbidden = backup::forbidden(&workspace, &entry.config.canonical_root, &[]).unwrap();
         let trust = vcp_store::trust_store::TrustStore::open(
             &backup::trust_path(&fixture.data, &entry.config.workspace),
             &forbidden,
@@ -184,25 +221,59 @@ async fn compiled_sdk_publishes_encrypted_local_backup_and_recovers_observer_rec
             .unwrap();
         // Publication advances the independent replay floor. The current head is
         // verified against its pinned digest, not admitted again as a descendant.
-        assert!(trust
-            .trust()
-            .verify_restore(&object, &copy, vcp_store::vault_crypto::Limits::default())
-            .is_err());
-        let manifest: vcp_store::vault_crypto::Manifest = serde_json::from_value(
+        let manifest: vcp_store::vault_crypto::ManifestEnvelope = serde_json::from_value(
             serde_json::to_value(job).unwrap()["finalization"]["manifest"].clone(),
         )
         .unwrap();
-        let verified = trust
-            .trust()
-            .verify_known_head(
-                &object,
-                &copy,
-                &manifest,
-                vcp_store::vault_crypto::Limits::default(),
+        let commitment = vcp_store::vault_crypto::inspect_ciphertext(&object, &|| Ok(())).unwrap();
+        let mut validated_head = None;
+        for (name, authority, accepted) in [
+            ("predecessor", &predecessor, true),
+            ("current", trust.trust(), false),
+        ] {
+            let scratch = staging.join(name);
+            std::fs::create_dir(&scratch).unwrap();
+            let mut restore = vcp_store::restore_stage::Restore::begin(
+                &scratch,
+                &forbidden,
+                vcp_domain::CommandId::new(),
+                authority,
+                commitment.sha256.clone(),
+                commitment.bytes,
             )
             .unwrap();
-        assert_eq!(manifest.workspace, entry.config.workspace);
-        assert_eq!(verified.manifest_digest().len(), 64);
+            restore.acquire(&object, &|| false).unwrap();
+            let validation = restore
+                .authenticate(
+                    authority,
+                    &copy,
+                    vcp_store::vault_crypto::Limits::default(),
+                    &|| false,
+                )
+                .await;
+            if accepted {
+                validated_head = Some(validation.unwrap());
+            } else {
+                assert!(
+                    validation.is_err(),
+                    "current floor must reject its own snapshot as replay"
+                );
+            }
+        }
+        let verified = validated_head.unwrap();
+        let manifest_bytes = vcp_protocol::canonical_bytes(&manifest).unwrap();
+        assert_eq!(
+            vcp_protocol::canonical_bytes(&verified.manifest()).unwrap(),
+            manifest_bytes
+        );
+        let checkpoint = &trust.trust().configuration().checkpoint;
+        assert_eq!(
+            checkpoint.parent.as_deref(),
+            Some(vcp_protocol::digest_bytes(&manifest_bytes).as_str())
+        );
+        assert_eq!(checkpoint.sequence, manifest.sequence());
+        assert_eq!(checkpoint.deletion, manifest.deletion());
+        assert_eq!(manifest.workspace(), &entry.config.workspace);
         assert!(
             vcp_lifecycle::foundation::backup::setup(&trust)
                 .unwrap()

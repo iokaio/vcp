@@ -13,6 +13,74 @@ use vcp_store::{
     BackendKind, Store,
 };
 
+/// Persist the historical Captured-job DTO, which predates archive_format.
+/// These fixtures qualify resumption/publication of existing v1 jobs while new
+/// jobs use the public streamed format. No production format override is added.
+async fn retain_legacy_capture(
+    store: &mut Store,
+    jobs_root: &std::path::Path,
+    id: &CommandId,
+    workspace: &vcp_domain::WorkspaceId,
+    trust: &LocalTrust,
+) {
+    let current = store.current_state();
+    let ws: vcp_domain::workspace::Workspace = current
+        .record(Collection::Workspace, workspace.as_str(), workspace)
+        .unwrap()
+        .decode()
+        .unwrap();
+    let pins: std::collections::BTreeSet<String> = current
+        .records
+        .values()
+        .filter(|row| {
+            matches!(
+                row.collection,
+                Collection::Artifact | Collection::Generation
+            )
+        })
+        .map(Record::key)
+        .collect();
+    let digest = store.snapshot().unwrap().logical_digest().await.unwrap();
+    let value = serde_json::json!({
+        "inputs": vcp_store::snapshot_inputs::Inputs::default(),
+        "schema_version": 1, "document_type": "vcp_snapshot_job_v1",
+        "id": id, "workspace": workspace, "revision": Revision::ZERO,
+        "watermark": current.watermark, "state_digest": digest,
+        "deletion": ws.deletion.get(), "authority": ws.authority.get(),
+        "source_root": store.root(), "staging_root": jobs_root.canonicalize().unwrap(),
+        "key_ref": trust.configuration().selected.key_ref,
+        "trust_revision": trust.configuration().revision,
+        "stage": "captured", "active": true, "inventory": null,
+        "archive_digest": null, "finalization": null, "publication": null,
+        "copy_identity": null, "pins": pins,
+    });
+    let historical: vcp_store::snapshot_jobs::Job = serde_json::from_value(value.clone()).unwrap();
+    assert!(serde_json::to_value(historical)
+        .unwrap()
+        .get("archive_format")
+        .is_none());
+    store
+        .transact(Transaction {
+            id: vcp_domain::TransactionId::new(),
+            expected_watermark: current.watermark,
+            mutations: vec![Mutation::Put {
+                expected: None,
+                record: Record {
+                    collection: Collection::SnapshotPin,
+                    id: id.to_string(),
+                    workspace: workspace.clone(),
+                    revision: Revision::ZERO,
+                    value,
+                    references: pins,
+                },
+            }],
+            events: vec![],
+            command: None,
+        })
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
@@ -60,11 +128,16 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
         let descriptor = writer.finalize().unwrap();
         drop(writer);
         store
-            .transact(attach(store.state(), descriptor.clone(), None))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                descriptor.clone(),
+                None,
+            ))
             .await
             .unwrap();
-        let original = store.state().clone();
+        let original = (&store.archive_state().await.unwrap()).clone();
         let id = CommandId::new();
+        retain_legacy_capture(&mut store, &paths[0], &id, &workspace, &trust).await;
         let capture = jobs
             .begin(&mut store, id.clone(), &workspace, &trust)
             .await
@@ -73,18 +146,18 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
         std::fs::create_dir(&wrong_path).unwrap();
         let wrong = Jobs::open(&wrong_path, &forbidden).unwrap();
         let captured_job = Jobs::inspect(&store, &id, &workspace).unwrap();
-        let before_wrong = store.state().clone();
-        assert!(wrong.resume_capture(&store, &captured_job).is_err());
+        let before_wrong = (&store.archive_state().await.unwrap()).clone();
+        assert!(wrong.resume_capture(&store, &captured_job).await.is_err());
         assert!(wrong
             .release(&mut store, &id, &workspace, true)
             .await
             .is_err());
-        assert_eq!(store.state(), &before_wrong);
+        assert_eq!((&store.archive_state().await.unwrap()), &before_wrong);
         let mut legacy = serde_json::to_value(&captured_job).unwrap();
         legacy.as_object_mut().unwrap().remove("staging_root");
         let old: vcp_store::snapshot_jobs::Job = serde_json::from_value(legacy.clone()).unwrap();
         assert!(old.staging_root.is_none());
-        assert!(jobs.resume_capture(&store, &old).is_err());
+        assert!(jobs.resume_capture(&store, &old).await.is_err());
         legacy["active"] = false.into();
         legacy["stage"] = "cancelled".into();
         legacy["pins"] = serde_json::json!([]);
@@ -98,15 +171,15 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
             .begin(&mut store, id.clone(), &workspace, &trust)
             .await
             .unwrap();
-        let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
+        let prepared = jobs.prepare(&store, capture, &|| false).await.unwrap();
         let archive_path = paths[0].join(format!("{id}.archive"));
         let retained_archive = std::fs::read(&archive_path).unwrap();
-        let before_wrong = store.state().clone();
+        let before_wrong = (&store.archive_state().await.unwrap()).clone();
         assert!(wrong
             .release(&mut store, &id, &workspace, true)
             .await
             .is_err());
-        assert_eq!(store.state(), &before_wrong);
+        assert_eq!((&store.archive_state().await.unwrap()), &before_wrong);
         assert_eq!(std::fs::read(&archive_path).unwrap(), retained_archive);
         let job = jobs
             .accept_prepared(&mut store, &workspace, prepared)
@@ -197,7 +270,7 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
                 Limits::default(),
             )
             .unwrap();
-        let before_release = store.state().clone();
+        let before_release = (&store.archive_state().await.unwrap()).clone();
         let encrypted_path = paths[0].join(format!("{id}.encrypted")).join("object.age");
         let retained_ciphertext = std::fs::read(&encrypted_path).unwrap();
         assert!(wrong
@@ -207,7 +280,7 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
             .release(&mut store, &id, &workspace, false)
             .await
             .is_err());
-        assert_eq!(store.state(), &before_release);
+        assert_eq!((&store.archive_state().await.unwrap()), &before_release);
         assert_eq!(std::fs::read(&encrypted_path).unwrap(), retained_ciphertext);
         let released = jobs
             .release(&mut store, &id, &workspace, false)
@@ -216,7 +289,7 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
         assert!(!released.active);
         assert!(released.pins.is_empty());
         assert!(!archive_path.exists() && !encrypted_path.exists());
-        let completed = store.state().clone();
+        let completed = (&store.archive_state().await.unwrap()).clone();
         assert!(
             !wrong
                 .release(&mut store, &id, &workspace, false)
@@ -224,9 +297,9 @@ async fn exact_snapshot_restarts_publishes_and_stages_history_on_both_backends()
                 .unwrap()
                 .active
         );
-        assert_eq!(store.state(), &completed);
+        assert_eq!((&store.archive_state().await.unwrap()), &completed);
         let row = store
-            .state()
+            .current()
             .record(Collection::Artifact, spec.id.as_str(), &workspace)
             .unwrap();
         assert_eq!(row.decode::<ArtifactDescriptor>().unwrap(), descriptor);
@@ -274,7 +347,7 @@ async fn stale_deletion_fence_and_foreign_workspace_fail_before_vault_copy() {
             .begin(&mut store, id.clone(), &ws.id, &trust)
             .await
             .unwrap();
-        let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
+        let prepared = jobs.prepare(&store, capture, &|| false).await.unwrap();
         let job = jobs
             .accept_prepared(&mut store, &ws.id, prepared)
             .await
@@ -291,7 +364,7 @@ async fn stale_deletion_fence_and_foreign_workspace_fail_before_vault_copy() {
         store
             .transact(Transaction {
                 id: vcp_domain::TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: Some(ws.revision),
                     record: Record::typed(
@@ -322,7 +395,7 @@ async fn stale_deletion_fence_and_foreign_workspace_fail_before_vault_copy() {
         store
             .transact(Transaction {
                 id: vcp_domain::TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record: Record::typed(
@@ -339,12 +412,12 @@ async fn stale_deletion_fence_and_foreign_workspace_fail_before_vault_copy() {
             })
             .await
             .unwrap();
-        let before = store.state().watermark;
+        let before = store.current().watermark;
         assert!(jobs
             .begin(&mut store, CommandId::new(), &ws.id, &trust)
             .await
             .is_err());
-        assert_eq!(store.state().watermark, before);
+        assert_eq!(store.current().watermark, before);
         store.close().await.unwrap();
     }
 }
@@ -429,7 +502,7 @@ fn process_kill_job_recovery_at_durable_boundaries() {
             assert_eq!(job.watermark.get(), 2);
             assert_eq!(
                 store
-                    .state()
+                    .current()
                     .record(Collection::Task, "task", &workspace().id)
                     .unwrap()
                     .revision,
@@ -491,7 +564,7 @@ fn snapshot_process_child() {
         let mut store = Store::open(&root.join("canonical"), backend, &forbidden)
             .await
             .unwrap();
-        if store.state().watermark.get() == 0 {
+        if store.current().watermark.get() == 0 {
             store.transact(initial()).await.unwrap();
             let spec = spec();
             let mut writer = store.spool().create(spec.clone()).unwrap();
@@ -504,7 +577,11 @@ fn snapshot_process_child() {
             if std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").is_some() {
                 let pending = store.spool().inspect(&spec.id).unwrap();
                 store
-                    .transact(attach(store.state(), pending, None))
+                    .transact(attach(
+                        (&store.archive_state().await.unwrap()),
+                        pending,
+                        None,
+                    ))
                     .await
                     .unwrap();
             }
@@ -515,7 +592,7 @@ fn snapshot_process_child() {
             }
             store
                 .transact(attach(
-                    store.state(),
+                    (&store.archive_state().await.unwrap()),
                     descriptor,
                     std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").map(|_| Revision::ZERO),
                 ))
@@ -524,7 +601,7 @@ fn snapshot_process_child() {
         }
         if std::env::var_os("VCP_SNAPSHOT_COMBINED_ARTIFACT").is_some() {
             let pending: Vec<(ArtifactDescriptor, Revision)> = store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Artifact)
@@ -537,7 +614,11 @@ fn snapshot_process_child() {
                 let sealed = store.spool().inspect(&descriptor.spec.id).unwrap();
                 assert_eq!(sealed.state, vcp_domain::artifact::CaptureState::Complete);
                 store
-                    .transact(attach(store.state(), sealed, Some(revision)))
+                    .transact(attach(
+                        (&store.archive_state().await.unwrap()),
+                        sealed,
+                        Some(revision),
+                    ))
                     .await
                     .unwrap();
             }
@@ -545,6 +626,7 @@ fn snapshot_process_child() {
         let job = if let Ok(job) = Jobs::inspect(&store, &id, &ws) {
             job
         } else {
+            retain_legacy_capture(&mut store, &root.join("jobs"), &id, &ws, &trust).await;
             let capture = jobs
                 .begin(&mut store, id.clone(), &ws, &trust)
                 .await
@@ -554,8 +636,8 @@ fn snapshot_process_child() {
         };
         barrier("captured");
         let job = if job.stage == Stage::Captured {
-            let capture = jobs.resume_capture(&store, &job).unwrap();
-            let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
+            let capture = jobs.resume_capture(&store, &job).await.unwrap();
+            let prepared = jobs.prepare(&store, capture, &|| false).await.unwrap();
             jobs.accept_prepared(&mut store, &ws, prepared)
                 .await
                 .unwrap()
@@ -745,7 +827,7 @@ fn artifact_owner_loss_then_interrupted_vault_copy_preserves_exact_history() {
                     .await
                     .unwrap();
                 let descriptor: ArtifactDescriptor = store
-                    .state()
+                    .current()
                     .records
                     .values()
                     .find(|r| r.collection == Collection::Artifact)
@@ -760,20 +842,27 @@ fn artifact_owner_loss_then_interrupted_vault_copy_preserves_exact_history() {
                         descriptor.state,
                         vcp_domain::artifact::CaptureState::Pending
                     );
-                    original = Some(store.state().clone());
+                    original = Some((&store.archive_state().await.unwrap()).clone());
                 } else {
                     assert_eq!(
                         descriptor.state,
                         vcp_domain::artifact::CaptureState::Complete
                     );
                     let baseline = original.as_ref().unwrap();
-                    assert!(store.state().events.starts_with(&baseline.events));
+                    assert!((&store.archive_state().await.unwrap())
+                        .events
+                        .starts_with(&baseline.events));
                     for (transaction, receipt) in &baseline.transactions {
-                        assert!(store.state().transactions.get(transaction) == Some(receipt));
+                        assert!(
+                            (&store.archive_state().await.unwrap())
+                                .transactions
+                                .get(transaction)
+                                == Some(receipt)
+                        );
                     }
                     for (key, record) in &baseline.records {
                         if record.collection != Collection::Artifact {
-                            assert!(store.state().records.get(key) == Some(record));
+                            assert!(store.current().records.get(key) == Some(record));
                         }
                     }
                     let job = Jobs::inspect(&store, &id, &workspace().id).unwrap();
@@ -844,7 +933,7 @@ async fn native_dirty_and_untracked_checkpoint_is_complete_or_backup_is_refused(
         writer.write_chunk(bytes).unwrap();
         let descriptor = writer.finalize().unwrap();
         drop(writer);
-        let mut transaction = attach(store.state(), descriptor, None);
+        let mut transaction = attach((&store.archive_state().await.unwrap()), descriptor, None);
         if schema == "vcp-workspace-checkpoint/1" {
             let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
             if let Mutation::Put { record, .. } = &mut transaction.mutations[0] {
@@ -993,8 +1082,9 @@ async fn native_dirty_and_untracked_checkpoint_is_complete_or_backup_is_refused(
             .await
             .is_err());
         let snap = store.snapshot().unwrap();
-        let archive =
-            Archive::capture_with_inputs(&store, &snap, &ws.id, &inputs, &|| false).unwrap();
+        let archive = Archive::capture_with_inputs(&store, &snap, &ws.id, &inputs, &|| false)
+            .await
+            .unwrap();
         assert!(archive.coverage().workspace_checkpoint);
         assert_eq!(
             archive.retained_artifact(&sources["tracked.txt"]).unwrap(),
@@ -1012,28 +1102,32 @@ async fn native_dirty_and_untracked_checkpoint_is_complete_or_backup_is_refused(
         assert_eq!(roundtrip.inputs(), &inputs);
         let id = CommandId::new();
         let cancelled = Jobs::capture_inputs(&store, &ws.id, inputs.clone()).unwrap();
-        assert!(Jobs::prepare_inputs(cancelled, &|| true).is_err());
+        assert!(Jobs::prepare_inputs(cancelled, &|| true).await.is_err());
         let stale = Jobs::prepare_inputs(
             Jobs::capture_inputs(&store, &ws.id, inputs.clone()).unwrap(),
             &|| false,
         )
+        .await
         .unwrap();
         let valid = Jobs::prepare_inputs(
             Jobs::capture_inputs(&store, &ws.id, inputs.clone()).unwrap(),
             &|| false,
         )
+        .await
         .unwrap();
         let prepared_capture = jobs
             .begin_prepared(&mut store, id, &ws.id, &trust, valid)
             .await
             .unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(jobs
             .begin_prepared(&mut store, CommandId::new(), &ws.id, &trust, stale)
             .await
             .is_err());
-        assert_eq!(store.state().watermark, watermark);
-        jobs.prepare(&store, prepared_capture, &|| false).unwrap();
+        assert_eq!(store.current().watermark, watermark);
+        jobs.prepare(&store, prepared_capture, &|| false)
+            .await
+            .unwrap();
         drop(snap);
         store.close().await.unwrap();
     }
@@ -1058,7 +1152,7 @@ async fn derivative_inventory_preserves_exact_bytes_but_never_claims_destination
         writer.write_chunk(bytes).unwrap();
         let d = writer.finalize().unwrap();
         drop(writer);
-        let mut transaction = attach(store.state(), d, None);
+        let mut transaction = attach((&store.archive_state().await.unwrap()), d, None);
         if let Some(origin) = origin {
             if let Mutation::Put { record, .. } = &mut transaction.mutations[0] {
                 record
@@ -1101,7 +1195,7 @@ async fn derivative_inventory_preserves_exact_bytes_but_never_claims_destination
             revision: Revision::ZERO,
             transaction: tx.clone(),
             previous: None,
-            canonical_watermark: store.state().watermark,
+            canonical_watermark: store.current().watermark,
             memory_seq: MemorySeq::ZERO,
             authority: AuthorityRevision::ZERO,
             deletion: DeletionEpoch::ZERO,
@@ -1128,7 +1222,7 @@ async fn derivative_inventory_preserves_exact_bytes_but_never_claims_destination
         store
             .transact(Transaction {
                 id: tx,
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: None,
@@ -1159,7 +1253,9 @@ async fn derivative_inventory_preserves_exact_bytes_but_never_claims_destination
             .await
             .unwrap();
         let snapshot = store.snapshot().unwrap();
-        let omitted = Archive::capture(&store, &snapshot, &workspace().id, &|| false).unwrap();
+        let omitted = Archive::capture(&store, &snapshot, &workspace().id, &|| false)
+            .await
+            .unwrap();
         assert_eq!(
             omitted.coverage().generations[0].compatibility,
             Compatibility::RebuildRequired
@@ -1176,6 +1272,7 @@ async fn derivative_inventory_preserves_exact_bytes_but_never_claims_destination
         };
         let archive =
             Archive::capture_with_inputs(&store, &snapshot, &workspace().id, &inputs, &|| false)
+                .await
                 .unwrap();
         assert_eq!(
             archive.coverage().generations[0].compatibility,
@@ -1201,11 +1298,13 @@ async fn derivative_inventory_preserves_exact_bytes_but_never_claims_destination
             &missing,
             &|| false
         )
+        .await
         .is_err());
         let mut wrong = inputs.clone();
         wrong.generations[0].vectors = Some(inputs.generations[0].inventory.clone());
         assert!(
             Archive::capture_with_inputs(&store, &snapshot, &workspace().id, &wrong, &|| false)
+                .await
                 .is_err()
         );
         drop(snapshot);

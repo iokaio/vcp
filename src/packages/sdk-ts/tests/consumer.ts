@@ -7,6 +7,13 @@ const request: Params<'task/read'> = { scope, task: 'task' };
 const task: Promise<Reply<'task/read'>> = client.call('task/read', request);
 void task;
 
+const unboundedStart: Params<'turn/start'> = {
+  scope, task:'task', turn:'turn', objective:'Complete the task', constraints:[], acceptance:[],
+  mutation:{command_id:newCommandId(),expected_revision:'0',steering_revision:'0'},
+  budget:{currency:'USD',cap_micros:{version:1,kind:'unbounded'},deadline_seconds:{version:1,kind:'unbounded'},max_requests:3},
+};
+void unboundedStart;
+
 async function snapshot() {
   const reply = await client.snapshot({ scope, limit: 16 });
   if (reply.kind === 'gap') return reply.value;

@@ -634,7 +634,7 @@ async fn canonical_mcp_cancel_after_marker_reopens_unknown_without_replay() {
         .await
         .unwrap();
         let effect: Effect = store
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Effect,
                 id.as_str(),

@@ -98,7 +98,7 @@ impl Context {
         &self,
         binding: &ThreadBinding,
     ) -> Result<(String, bool)> {
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let (digest, mut unverified) = service::buffer_status(state, &binding.scope)?;
         // Like unresolved effects, a sibling's uncertain edits cannot silently
         // disappear from the enclosing workspace's completion fence.
@@ -129,7 +129,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 scope.workspace.as_str(),
@@ -285,7 +285,7 @@ impl PublicConnection {
                     if let Call::EditorChangeRead(read) = &request {
                         let change = context.engine.editor_read(&access, read)?;
                         let (_, unverified) =
-                            service::buffer_status(context.engine.store().state(), &change.scope)?;
+                            service::buffer_status(context.engine.store().current(), &change.scope)?;
                         return Ok(ResultValue::EditorChange(service::change_view(
                             &change, unverified,
                         )?));
@@ -300,8 +300,13 @@ impl PublicConnection {
                         .to_owned();
                     let digest = vcp_protocol::digest_bytes(&canonical_bytes(&request)?);
                     if context
-                        .engine
-                        .editor_replay(&access, &connection, token, &request)?
+                        .runtime
+                        .block_on(context.engine.editor_replay(
+                            &access,
+                            &connection,
+                            token,
+                            &request,
+                        ))?
                         .is_some()
                     {
                         if let Some((original, reply)) = editor
@@ -342,7 +347,7 @@ impl PublicConnection {
                             };
                         let change = context.engine.editor_read(&access, &read)?;
                         let (_, unverified) =
-                            service::buffer_status(context.engine.store().state(), &change.scope)?;
+                            service::buffer_status(context.engine.store().current(), &change.scope)?;
                         let view = service::change_view(&change, unverified)?;
                         if let Call::EditorDispatch(p) = &request {
                             let execution = change
@@ -656,7 +661,7 @@ impl Context {
                     },
                 );
                 let (_, unverified) =
-                    service::buffer_status(self.engine.store().state(), &change.scope)?;
+                    service::buffer_status(self.engine.store().current(), &change.scope)?;
                 Ok(ResultValue::EditorChange(service::change_view(
                     &change, unverified,
                 )?))
@@ -712,7 +717,7 @@ impl Context {
                 let effect: Effect = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Effect,
                         selected.effect.as_str(),
@@ -744,7 +749,7 @@ impl Context {
                         .editor_dispatch(request, access, connection, token, &facts),
                 )?;
                 let (_, unverified) =
-                    service::buffer_status(self.engine.store().state(), &committed.change.scope)?;
+                    service::buffer_status(self.engine.store().current(), &committed.change.scope)?;
                 let execution = committed.change.files[request.file as usize]
                     .execution
                     .as_ref()
@@ -825,7 +830,7 @@ impl Context {
                         .insert(observed.view.id.as_str().to_owned(), observed);
                 }
                 let (_, unverified) =
-                    service::buffer_status(self.engine.store().state(), &committed.change.scope)?;
+                    service::buffer_status(self.engine.store().current(), &committed.change.scope)?;
                 Ok(ResultValue::EditorChange(service::change_view(
                     &committed.change,
                     unverified,

@@ -332,7 +332,11 @@ async fn both_backends_retain_release_generation_and_reject_invalid_replacement_
         store.transact(initial()).await.unwrap();
         let value = lease();
         store
-            .transact(change(store.state(), record(&value), None))
+            .transact(change(
+                (&store.archive_state().await.unwrap()),
+                record(&value),
+                None,
+            ))
             .await
             .unwrap();
         let mut released = value.clone();
@@ -341,7 +345,7 @@ async fn both_backends_retain_release_generation_and_reject_invalid_replacement_
         released.revision = Revision::new(1);
         store
             .transact(change(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 record(&released),
                 Some(Revision::ZERO),
             ))
@@ -350,7 +354,7 @@ async fn both_backends_retain_release_generation_and_reject_invalid_replacement_
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
         let retained: Lease = store
-            .state()
+            .current()
             .record(Collection::Access, &value.id, &value.workspace)
             .unwrap()
             .decode()
@@ -362,28 +366,28 @@ async fn both_backends_retain_release_generation_and_reject_invalid_replacement_
         next.holder.as_mut().unwrap().process_owner = ControllerId::new();
         store
             .transact(change(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 record(&next),
                 Some(released.revision),
             ))
             .await
             .unwrap();
-        let saved = store.state().clone();
+        let saved = (&store.archive_state().await.unwrap()).clone();
         let mut invalid = next.clone();
         invalid.revision = Revision::new(3);
         invalid.holder.as_mut().unwrap().connection = ControllerId::new();
         assert!(store
             .transact(change(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 unchecked_record(&invalid),
                 Some(next.revision)
             ))
             .await
             .is_err());
-        assert_eq!(store.state(), &saved);
+        assert_eq!((&store.archive_state().await.unwrap()), &saved);
         store.close().await.unwrap();
         let store = Store::open(&root, backend, &[]).await.unwrap();
-        assert_eq!(store.state(), &saved);
+        assert_eq!((&store.archive_state().await.unwrap()), &saved);
         store.close().await.unwrap();
     }
 }

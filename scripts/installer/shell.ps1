@@ -7,9 +7,26 @@ param(
     [string]$DataRoot,
     [ValidateSet('Private','User')][string]$DataScope = 'Private',
     [string]$ExpectedArchive,
-    [string]$CandidateId
+    [string]$CandidateId,
+    [ValidateSet('Release','UnsignedLocal')][string]$CandidateKind = 'Release'
 )
 $ErrorActionPreference = 'Stop'
+function Assert-CandidateIdentity($Manifest,[string]$Id,[string]$Kind) {
+    if ($Id -cnotmatch '^[a-f0-9]{64}$') { throw 'Exact candidate identity required' }
+    if ($Kind -ceq 'Release') {
+        if ($Manifest.local_candidate -or $Manifest.release.candidate_id -cne $Id) { throw 'Installed release candidate provenance differs' }
+    } elseif ($Kind -ceq 'UnsignedLocal') {
+        $local = $Manifest.local_candidate
+        if ($Manifest.release -or $Manifest.artifact -cne 'unsigned-local-candidate' -or
+            $Manifest.signing.status -cne 'unsigned' -or $local.schema -cne 'vcp-local-candidate/1' -or
+            $local.status -cne 'unsigned-local-candidate' -or $local.signing -cne 'unsigned' -or
+            $local.qualification -cne 'not-release-qualified' -or $local.candidate_id -cne $Id -or
+            $local.native_version -cnotmatch '^\d+\.\d+\.\d+$' -or
+            $local.sdk_version -cne $local.native_version -or $local.vsix_version -cne $local.native_version) {
+            throw 'Installed local candidate provenance differs'
+        }
+    } else { throw 'Unknown candidate kind' }
+}
 function Local-Root([string]$Value) {
     if ($Value -notmatch '^[a-zA-Z]:[\\/]' -or $Value -match '["\r\n]' -or $Value.Split([char[]]'\/') -contains '..') { throw 'Explicit local absolute path required' }
     $full = [IO.Path]::GetFullPath($Value).TrimEnd('\')
@@ -153,7 +170,7 @@ if ($Action -eq 'Verify') {
     }
     if (-not $scopeMatches -or $pointer.package_sha256 -cne $ExpectedArchive -or $pointer.release -cne $ExpectedArchive) { throw 'Active engine differs from selected setup candidate' }
     $manifest = Get-Content -LiteralPath (Join-Path $engine "releases\$ExpectedArchive\manifest.json") -Raw | ConvertFrom-Json
-    if ($manifest.release.candidate_id -cne $CandidateId) { throw 'Installed candidate provenance differs' }
+    Assert-CandidateIdentity $manifest $CandidateId $CandidateKind
     # The Rust launcher writes UTF-8 even when Inno starts PowerShell without a
     # console. Its inherited OEM decoder would corrupt non-ASCII selected paths.
     $previousOutputEncoding = [Console]::OutputEncoding

@@ -13,6 +13,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     event::EventKind,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::State, BackendKind, Store};
 
 async fn issue(engine: &mut Engine<Store>, scope: &Scope, payload: Command) {
@@ -103,9 +104,7 @@ async fn fixture(
         },
     )
     .await;
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| e.event.kind == EventKind::TaskCreated)
@@ -159,7 +158,7 @@ async fn ingestion_child() {
     let backend = backend(&std::env::var("VCP_INGESTION_CRASH_BACKEND").unwrap());
     let (engine, scope, access, origin) = fixture(&directory.join("store"), backend).await;
     let mut store = engine.into_store();
-    let through = store.state().watermark;
+    let through = store.current().watermark;
     ingest::enqueue(
         &mut store,
         &access,
@@ -186,8 +185,7 @@ async fn ingestion_child() {
         )
         .await
         .unwrap();
-        let event = store
-            .state()
+        let event = (&store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|event| event.event.id == origin)
@@ -218,7 +216,7 @@ async fn ingestion_child() {
         }
     }
     let marker = Barrier {
-        state: store.state().clone(),
+        state: store.archive_state().await.unwrap(),
         scope,
         origin,
     };
@@ -299,7 +297,7 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
             let mut store = Store::open(&directory.path().join("store"), backend(name), &[])
                 .await
                 .unwrap();
-            assert_eq!(store.state(),&barrier.state,"kill/reopen must preserve every committed record, cursor, origin event and watermark at {name}/{phase}");
+            assert_eq!(&store.archive_state().await.unwrap(),&barrier.state,"kill/reopen must preserve every committed record, cursor, origin event and watermark at {name}/{phase}");
             let initial_jobs = ingest::inspect(&store, &access).unwrap();
             let original = initial_jobs
                 .iter()
@@ -336,7 +334,7 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
             let jobs = ingest::inspect(&store, &access).unwrap();
             assert!(jobs.iter().all(|job| job.state == JobState::Completed));
             let selected = runner::specification().event_kinds;
-            for event in &store.state().events {
+            for event in &(&store.archive_state().await.unwrap()).events {
                 let kind = serde_json::to_value(&event.event.kind).unwrap();
                 if kind
                     .as_str()
@@ -373,8 +371,8 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
                 );
             }
             assert_eq!(
-                &store.state().events[..barrier.state.events.len()],
-                &barrier.state.events
+                &(&store.archive_state().await.unwrap()).events[..barrier.state.events.len()],
+                barrier.state.events.as_slice()
             );
             for tag in [
                 "vcp_memory_proposal_v1",
@@ -383,7 +381,7 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
                 "vcp_memory_index_intent_v1",
             ] {
                 let rows: Vec<_> = store
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| row.value["document_type"] == tag)
@@ -402,14 +400,14 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
                 }
             }
             let proposal: vcp_domain::memory::ProposalRecord = store
-                .state()
+                .current()
                 .records
                 .values()
                 .find(|row| row.value["document_type"] == "vcp_memory_proposal_v1")
                 .unwrap()
                 .decode()
                 .unwrap();
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             let replay = repository::propose(
                 &mut store,
                 &access,
@@ -420,7 +418,7 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
             .unwrap();
             assert_eq!(recovered.results, vec![replay.result.id.clone()]);
             assert_eq!(
-                store.state(),
+                &store.archive_state().await.unwrap(),
                 &before,
                 "same command retry must not allocate versions, sequences or index intents"
             );
@@ -438,7 +436,7 @@ async fn killed_process_recovers_cursor_proposal_and_completion_barriers_on_both
                 .await
                 .unwrap();
             assert_eq!(
-                store.state(),
+                &store.archive_state().await.unwrap(),
                 &before,
                 "drained maintenance must not advance cursor repeatedly"
             );

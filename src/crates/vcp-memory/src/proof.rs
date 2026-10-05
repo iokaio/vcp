@@ -8,7 +8,10 @@ use vcp_domain::{
     verification::CheckOutcome,
     ArtifactId,
 };
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 const MAX_PROOF_BYTES: u64 = 256 * 1024;
 
@@ -58,7 +61,7 @@ fn descriptor(
     id: &ArtifactId,
 ) -> Result<Option<ArtifactDescriptor>> {
     let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
     else {
@@ -118,13 +121,13 @@ fn matches(receipt: &CheckReceipt, proposal: &Proposal, configuration_sha256: &s
 /// Verification. Unrelated check success cannot establish an arbitrary argv,
 /// working directory, or configuration version. Native checks currently prove
 /// test commands only; build commands require a separately supported receipt.
-pub fn command_matches(
+pub async fn command_matches(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
     reference: &EvidenceRef,
 ) -> Result<bool> {
-    crate::access::authorize(store.state(), access, false)?;
+    crate::access::authorize(store.current(), access, false)?;
     let ClaimValue::Command {
         purpose: CommandPurpose::Test,
         configuration,
@@ -153,6 +156,7 @@ pub fn command_matches(
         &configuration.spec.id,
         std::io::sink(),
     )
+    .await
     .is_err()
     {
         return Ok(false);
@@ -164,6 +168,7 @@ pub fn command_matches(
         &reference.artifact,
         &mut bytes,
     )
+    .await
     .is_err()
     {
         return Ok(false);

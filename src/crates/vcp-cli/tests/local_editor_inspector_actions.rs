@@ -16,6 +16,7 @@ use std::{
     },
     time::Duration,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::BackendKind;
 fn native(path: &Path) -> String {
     path.to_str()
@@ -186,7 +187,7 @@ async fn installed_editor_optimizer_actions_and_cost_use_real_configured_engine_
         .await
         .unwrap();
         let workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Workspace,
                 entry.config.workspace.as_str(),
@@ -208,7 +209,7 @@ async fn installed_editor_optimizer_actions_and_cost_use_real_configured_engine_
             .unwrap();
         assert_eq!(policy.revision.get(), 3);
         assert!(store
-            .state()
+            .current()
             .records
             .values()
             .any(|row| row.collection == vcp_store::contract::Collection::Ledger));

@@ -40,7 +40,7 @@ impl Context {
             let artifact: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     source.artifact.as_str(),
@@ -63,7 +63,11 @@ impl Context {
         binding: &ThreadBinding,
         fence: &retrieval::Fence,
     ) -> Result<()> {
-        retrieval::revalidate_fence(self.engine.store(), &self.memory_access(), fence)?;
+        self.runtime.block_on(retrieval::revalidate_fence(
+            self.engine.store(),
+            &self.memory_access(),
+            fence,
+        ))?;
         self.validate_memory_bindings(binding, &fence.bindings)?;
         // Claims may carry an observed repository fingerprint without source
         // passages. A full observation fences those applicability assumptions.

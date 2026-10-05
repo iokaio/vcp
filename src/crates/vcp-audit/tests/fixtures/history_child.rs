@@ -46,7 +46,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         vcp_audit::projection::publish(&mut store, &workspace, 2).await?
     } else {
         let watermark = Watermark::new(args[4].parse()?);
-        let view = vcp_audit::projection::rebuild(store.state(), &workspace, 1, watermark)?;
+        let view = vcp_audit::projection::rebuild(
+            &store.archive_state().await?,
+            &workspace,
+            1,
+            watermark,
+        )?;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)

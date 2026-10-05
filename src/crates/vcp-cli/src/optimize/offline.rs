@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Local optimizer commands. No provider configuration or task submission path.
 use clap::{Subcommand, ValueEnum};
+use vcp_store::contract::CanonicalStore;
 use serde::{Deserialize, Serialize};
 use vcp_domain::Timestamp;
 use vcp_lifecycle::foundation::{
@@ -254,7 +255,7 @@ pub async fn execute(
         Ok(mut store) => {
             let result = async {
                 let workspace: vcp_domain::workspace::Workspace = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Workspace,
                         entry.config.workspace.as_str(),

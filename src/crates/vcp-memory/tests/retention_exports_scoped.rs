@@ -170,7 +170,7 @@ async fn fixture(
     let token = engine.controller_token(&access(), &connection).unwrap();
     (engine, root, other, connection, token)
 }
-fn prepare(
+async fn prepare(
     engine: &Engine<Store>,
     request: methods::SessionExport,
     root: &TaskId,
@@ -179,6 +179,7 @@ fn prepare(
 ) -> PreparedPublicExport {
     match engine
         .prepare_public_export(request, &access(), connection, token, &disclosure(), root)
+        .await
         .unwrap()
     {
         PublicExportAdmission::Ready(value) => value,
@@ -204,13 +205,15 @@ async fn scoped_source_purge_denies_foreign_task_export_copy_instead_of_dropping
             &other,
             &connection,
             &token,
-        );
+        )
+        .await;
         let rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         engine
             .commit_public_export(
@@ -236,7 +239,7 @@ async fn scoped_source_purge_denies_foreign_task_export_copy_instead_of_dropping
             .await;
         }
         let store = engine.into_store();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let auth = vcp_memory::access::Access {
             workspace: access().workspace,
             actor: access().actor,
@@ -263,12 +266,13 @@ async fn scoped_source_purge_denies_foreign_task_export_copy_instead_of_dropping
             selector,
             Action::Purge,
             Timestamp::new(10),
-        );
+        )
+        .await;
         assert!(
             matches!(result, Err(vcp_memory::Error::Access)),
             "foreign copy must not be silently filtered"
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         store.close().await.unwrap();
     }
 }

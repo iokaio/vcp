@@ -47,7 +47,7 @@ async fn command(
     ) {
         let task = engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 envelope.task.as_ref().unwrap().as_str(),
@@ -60,13 +60,13 @@ async fn command(
             // Explicit synthetic fixture resume only, before inserting liabilities.
             assert!(!engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .any(|r| matches!(r.collection, Collection::Attempt | Collection::Effect)));
             let workspace = engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     config.workspace.as_str(),
@@ -87,7 +87,7 @@ async fn command(
     }
 
     let mut caller = access(config);
-    if let Ok(row) = engine.store().state().record(
+    if let Ok(row) = engine.store().current().record(
         Collection::Workspace,
         config.workspace.as_str(),
         &config.workspace,
@@ -180,7 +180,7 @@ async fn captured(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -213,7 +213,7 @@ async fn attempt(
         b"{\"synthetic_request\":true}",
     )
     .await;
-    let ledger = vcp_budget::ledger(store.state(), scope).unwrap();
+    let ledger = vcp_budget::ledger(store.current(), scope).unwrap();
     let mut price = config.price.clone();
     for (category, rate) in &mut price.rates {
         rate.micros = Micros::new(if *category == ChargeCategory::Request {
@@ -300,7 +300,7 @@ pub(super) async fn enrich_native(config: &Config) -> TaskId {
     .unwrap();
     let root_task: Task = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Task,
             config.root_task.as_str(),
@@ -337,7 +337,7 @@ pub(super) async fn enrich_native(config: &Config) -> TaskId {
         currency: config.cap.currency.clone(),
         micros: Micros::new(1000),
     };
-    if vcp_budget::ledger(store.state(), &root).is_err() {
+    if vcp_budget::ledger(store.current(), &root).is_err() {
         vcp_budget::initialize(
             &mut store,
             root.clone(),
@@ -349,7 +349,7 @@ pub(super) async fn enrich_native(config: &Config) -> TaskId {
         .await
         .unwrap();
     }
-    let ledger = vcp_budget::ledger(store.state(), &root).unwrap();
+    let ledger = vcp_budget::ledger(store.current(), &root).unwrap();
     vcp_budget::configure(
         &mut store,
         &root,
@@ -381,7 +381,7 @@ pub(super) async fn enrich_native(config: &Config) -> TaskId {
     )
     .await
     .unwrap();
-    let ledger = vcp_budget::ledger(store.state(), &root).unwrap();
+    let ledger = vcp_budget::ledger(store.current(), &root).unwrap();
     assert_eq!(ledger.settled, Micros::new(50));
     assert_eq!(ledger.unresolved, Micros::new(67));
     store.close().await.unwrap();
@@ -481,7 +481,7 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
         )
         .await
         .unwrap();
-        let original = source.state().clone();
+        let original = source.archive_state().await.unwrap();
         let original_ledger = vcp_budget::ledger(&original, &root).unwrap();
         assert_eq!(original_ledger.settled, Micros::new(50));
         assert_eq!(original_ledger.unresolved, Micros::new(67));
@@ -523,6 +523,7 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
             &config.workspace,
             &|| false,
         )
+        .await
         .unwrap();
         let payloads = archive.payloads().unwrap();
         let manifest = Manifest {
@@ -573,6 +574,7 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
         restore.acquire(&object, &|| false).unwrap();
         let validated = restore
             .authenticate(&trust, &copy, Limits::default(), &|| false)
+            .await
             .unwrap();
         let imported = restore
             .import(
@@ -588,6 +590,7 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
             .await
             .unwrap();
         let mut restored = imported.reopen_verified().await.unwrap();
+        let restored_history = restored.archive_state().await.unwrap();
         for row in original.records.values().filter(|row| {
             matches!(
                 row.collection,
@@ -597,22 +600,22 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
                     | Collection::Settlement
             )
         }) {
-            assert_eq!(restored.state().records.get(&row.key()), Some(row));
+            assert_eq!(restored.current().records.get(&row.key()), Some(row));
         }
         assert_eq!(
-            vcp_budget::ledger(restored.state(), &root).unwrap(),
+            vcp_budget::ledger(restored.current(), &root).unwrap(),
             original_ledger
         );
         assert_eq!(
-            &restored.state().events[..original.events.len()],
+            &restored_history.events[..original.events.len()],
             original.events.as_slice()
         );
         for (id, receipt) in &original.transactions {
-            assert_eq!(restored.state().transactions.get(id), Some(receipt));
+            assert_eq!(restored_history.transactions.get(id), Some(receipt));
         }
         for scope in [&root, &child] {
             let task: Task = restored
-                .state()
+                .current()
                 .record(Collection::Task, scope.task.as_str(), &config.workspace)
                 .unwrap()
                 .decode()
@@ -630,7 +633,7 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
             );
         }
         let rebound: Workspace = restored
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -640,11 +643,11 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
             .decode()
             .unwrap();
         assert_eq!(rebound.trust, Trust::Untrusted);
-        let watermark = restored.state().watermark;
+        let watermark = restored.current().watermark;
         // Imported history cannot mint another send capability, and exact usage
         // retry remains idempotent without dropping the child's uncertainty.
         let pending_now: Attempt = restored
-            .state()
+            .current()
             .record(Collection::Attempt, pending.id.as_str(), &config.workspace)
             .unwrap()
             .decode()
@@ -665,12 +668,12 @@ async fn encrypted_cross_backend_restore_retains_exact_settlement_uncertain_chil
         vcp_budget::observe(&mut restored, partial, &actor(&config))
             .await
             .unwrap();
-        assert_eq!(restored.state().watermark, watermark);
+        assert_eq!(restored.current().watermark, watermark);
         assert_eq!(
-            vcp_budget::ledger(restored.state(), &root).unwrap(),
+            vcp_budget::ledger(restored.current(), &root).unwrap(),
             original_ledger
         );
-        assert_eq!(source.state(), &original);
+        assert_eq!(source.archive_state().await.unwrap(), original);
         restored.close().await.unwrap();
         source.close().await.unwrap();
     }

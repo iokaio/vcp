@@ -19,7 +19,10 @@ use vcp_domain::{
     workspace::Scope,
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 #[derive(Clone, Debug)]
 pub struct Limits {
@@ -195,7 +198,7 @@ impl Write for BoundedBytes {
 
 fn descriptor(store: &Store, access: &Access, id: &ArtifactId) -> Result<ArtifactDescriptor> {
     let artifact: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(Collection::Artifact, id.as_str(), &access.workspace)?
         .decode()?;
     if !access.allows_task(&artifact.spec.scope.task) {
@@ -210,14 +213,14 @@ fn descriptor(store: &Store, access: &Access, id: &ArtifactId) -> Result<Artifac
 /// Parse exactly the retained response associated with a settled memory attempt.
 /// Returned proposals still require repository::propose's current gates and
 /// atomic commit. This function performs no mutation and accepts no repair call.
-pub fn validate(
+pub async fn validate(
     store: &Store,
     access: &Access,
     context: &ExtractionContext,
 ) -> Result<Vec<Proposal>> {
     context.limits.validate()?;
     context.applicability.validate()?;
-    let workspace = access::authorize(store.state(), access, true)?;
+    let workspace = access::authorize(store.current(), access, true)?;
     if context.extractor.trim().is_empty()
         || context.extractor.len() > 256
         || context.extractor.contains('\0')
@@ -234,10 +237,8 @@ pub fn validate(
         return Err(Error::Access);
     }
     let origin = store
-        .state()
-        .events
-        .iter()
-        .find(|event| event.event.id == context.origin)
+        .history_event(&context.origin)
+        .await?
         .ok_or_else(|| invalid("extraction origin is not retained"))?;
     let task_id = origin
         .event
@@ -248,7 +249,7 @@ pub fn validate(
         return Err(Error::Access);
     }
     let source: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task_id.as_str(), &access.workspace)?
         .decode()?;
     let scope = Scope {
@@ -260,7 +261,7 @@ pub fn validate(
         return Err(Error::Access);
     }
     let attempt: Attempt = store
-        .state()
+        .current()
         .record(
             Collection::Attempt,
             context.attempt.as_str(),
@@ -281,7 +282,7 @@ pub fn validate(
         ));
     }
     let mut task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             attempt.scope.task.as_str(),
@@ -308,12 +309,12 @@ pub fn validate(
             break;
         };
         task = store
-            .state()
+            .current()
             .record(Collection::Task, parent.as_str(), &access.workspace)?
             .decode()?;
     }
     let reservation: Reservation = store
-        .state()
+        .current()
         .record(
             Collection::Reservation,
             attempt.reservation.as_str(),
@@ -321,7 +322,7 @@ pub fn validate(
         )?
         .decode()?;
     let ledger: Ledger = store
-        .state()
+        .current()
         .record(Collection::Ledger, attempt.root.as_str(), &access.workspace)?
         .decode()?;
     if reservation.attempt != attempt.id
@@ -334,7 +335,7 @@ pub fn validate(
     }
     let mut response_link = false;
     for row in
-        store.state().records.values().filter(|row| {
+        store.current().records.values().filter(|row| {
             row.collection == Collection::Settlement && row.workspace == access.workspace
         })
     {
@@ -367,6 +368,7 @@ pub fn validate(
         &context.output_artifact,
         &mut bytes,
     )
+    .await
     .map_err(|_| invalid("extraction response capture is unavailable, denied or corrupt"))?;
     let tools = vcp_models::request::Tools::parse(&serde_json::json!([]))
         .map_err(|_| invalid("empty extraction tool schema unavailable"))?;
@@ -428,6 +430,7 @@ pub fn validate(
             &reference.artifact,
             std::io::sink(),
         )
+        .await
         .map_err(|_| invalid("extraction source is unavailable, denied or corrupt"))?;
     }
     let mut proposals = Vec::new();
@@ -511,7 +514,7 @@ pub fn validate(
             epochs: Epochs {
                 authority: workspace.authority,
                 deletion: workspace.deletion,
-                policy: access::policy(store.state(), &access.workspace)?,
+                policy: access::policy(store.current(), &access.workspace)?,
             },
             registry_version: REGISTRY_VERSION,
             extractor: context.extractor.clone(),
@@ -528,8 +531,15 @@ pub fn validate(
             retention: context.retention.clone(),
         };
         proposal.validate()?;
-        access::proposal_scope(store.state(), access, &proposal)?;
-        if crate::history::proposal_removed(store.state(), &access.workspace, &proposal)? {
+        access::proposal_scope_store(store, access, &proposal, &|| Ok(())).await?;
+        if crate::history::proposal_removed_store_with_check(
+            store,
+            &access.workspace,
+            &proposal,
+            &|| Ok(()),
+        )
+        .await?
+        {
             return Err(Error::Access);
         }
         proposals.push(proposal);

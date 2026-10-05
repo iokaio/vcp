@@ -17,6 +17,7 @@ use std::{
 use vcp_domain::task::{Task, TaskState};
 use vcp_lifecycle::foundation::CanonicalHost;
 use vcp_protocol::command::Command as CanonicalCommand;
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind};
 use windows_sys::Win32::{
     Foundation::{FILETIME, WAIT_OBJECT_0},
@@ -296,8 +297,7 @@ async fn durable_acceptance_survives_crash_before_client_consumes_batch_response
         drop(observer);
         let store = fixture.reopen().await;
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|receipt| receipt.command.as_str() == "crash-create-once")
@@ -305,7 +305,7 @@ async fn durable_acceptance_survives_crash_before_client_consumes_batch_response
             1
         );
         assert!(store
-            .state()
+            .current()
             .record(
                 Collection::Session,
                 "crash-created-session",
@@ -338,8 +338,7 @@ async fn durable_acceptance_survives_crash_before_client_consumes_batch_response
         assert!(reconnected.finish().await.0.success());
         let store = fixture.reopen().await;
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|receipt| receipt.command.as_str() == "crash-create-once")
@@ -447,8 +446,7 @@ async fn abandoned_reader_releases_controller_without_blocking_observer_or_repla
         let store = fixture.reopen().await;
         for command in ["slow-reader-create", "after-slow-reader"] {
             assert_eq!(
-                store
-                    .state()
+                (&store.archive_state().await.unwrap())
                     .commands
                     .values()
                     .filter(|receipt| receipt.command.as_str() == command)

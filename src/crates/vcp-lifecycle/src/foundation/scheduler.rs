@@ -271,7 +271,7 @@ fn cancel_queued(
             let current: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),

@@ -258,6 +258,7 @@ async fn authorized_native_sources_have_stable_exact_chunks_and_visible_exclusio
             &spec,
             Limits::default(),
         )
+        .await
         .unwrap();
         assert!(first.records.len() > 1, "{:?}", first.exclusions);
         first.validate().unwrap();
@@ -276,6 +277,7 @@ async fn authorized_native_sources_have_stable_exact_chunks_and_visible_exclusio
             &spec,
             Limits::default(),
         )
+        .await
         .unwrap();
         assert_eq!(first, second);
         let mut corrupted = first.clone();
@@ -291,6 +293,7 @@ async fn authorized_native_sources_have_stable_exact_chunks_and_visible_exclusio
             &spec,
             Limits::default(),
         )
+        .await
         .unwrap();
         assert!(hidden.records.is_empty());
         assert!(hidden.exclusions.iter().all(|item| item.source.is_none()));
@@ -306,6 +309,7 @@ async fn authorized_native_sources_have_stable_exact_chunks_and_visible_exclusio
             &spec,
             Limits::default()
         )
+        .await
         .unwrap()
         .records
         .is_empty());
@@ -318,6 +322,7 @@ async fn authorized_native_sources_have_stable_exact_chunks_and_visible_exclusio
             &spec,
             Limits::default()
         )
+        .await
         .unwrap()
         .records
         .is_empty());
@@ -331,6 +336,7 @@ async fn authorized_native_sources_have_stable_exact_chunks_and_visible_exclusio
                 ..Limits::default()
             },
         )
+        .await
         .unwrap();
         assert!(limited.records.is_empty());
         assert_eq!(limited.exclusions[0].reason, "inventory_limit");
@@ -352,6 +358,7 @@ async fn invalid_encodings_and_binary_sources_are_explicitly_excluded() {
             &ChunkerSpec::default(),
             Limits::default(),
         )
+        .await
         .unwrap();
         assert!(result.records.is_empty());
         assert_eq!(result.exclusions[0].reason, reason);
@@ -365,9 +372,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let directory = tempfile::tempdir().unwrap();
         let (mut engine, binding) = fixture(directory.path(), backend, b"fn parse() {}\n").await;
-        let primary_origin = engine
-            .store()
-            .state()
+        let primary_origin = (&engine.store().archive_state().await.unwrap())
             .events
             .last()
             .unwrap()
@@ -398,9 +403,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             .handle(create, &owner(), &HostFacts::inspect(Timestamp::new(100)))
             .await
             .unwrap();
-        let other_origin = engine
-            .store()
-            .state()
+        let other_origin = (&engine.store().archive_state().await.unwrap())
             .events
             .last()
             .unwrap()
@@ -409,7 +412,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             .clone();
         let mut store = engine.into_store();
         let artifact: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 binding.artifact.as_str(),
@@ -481,6 +484,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             &ChunkerSpec::default(),
             Limits::default(),
         )
+        .await
         .unwrap();
         assert_eq!(before.records.len(), 1);
         assert_eq!(before.records[0].text, proposal.statement);
@@ -513,6 +517,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             &ChunkerSpec::default(),
             Limits::default(),
         )
+        .await
         .unwrap();
         assert_eq!(after.records.len(), 1);
         assert_eq!(after.records[0].text, correction.statement);
@@ -524,15 +529,14 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
 
         // A retention mask must not bypass the current origin-task access fence.
         use vcp_store::contract::{Mutation, Record, Transaction};
-        let origin = store
-            .state()
+        let origin = (&store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|event| event.event.id == correction.origins[0])
             .unwrap()
             .clone();
         let mut workspace: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 owner().workspace.as_str(),
@@ -573,6 +577,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             &ChunkerSpec::default(),
             Limits::default(),
         )
+        .await
         .unwrap();
         assert!(rebound.records.is_empty());
         assert!(rebound
@@ -597,7 +602,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(previous),
@@ -630,7 +635,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
         let mut restricted = access();
         restricted.tasks = Some([proposal.scope.task.clone()].into_iter().collect());
         assert!(matches!(
-            vcp_memory::history::query(&store, &restricted, &proposal.claim, None, None),
+            vcp_memory::history::query(&store, &restricted, &proposal.claim, None, None).await,
             Err(vcp_memory::Error::Access)
         ));
         let hidden = inventory(
@@ -640,6 +645,7 @@ async fn corrected_claim_inventory_excludes_old_version_and_preserves_statement_
             &ChunkerSpec::default(),
             Limits::default(),
         )
+        .await
         .unwrap();
         assert!(hidden.records.is_empty());
         assert!(hidden
@@ -664,7 +670,7 @@ async fn cooperative_inventory_cancellation_never_returns_a_partial_digest() {
                 Ok(())
             }
         };
-        let before = engine.store().state().watermark;
+        let before = engine.store().current().watermark;
         let result = inventory_with_check(
             engine.store(),
             &access(),
@@ -672,13 +678,14 @@ async fn cooperative_inventory_cancellation_never_returns_a_partial_digest() {
             &ChunkerSpec::default(),
             Limits::default(),
             &check,
-        );
+        )
+        .await;
         assert!(matches!(
             result,
             Err(vcp_memory::Error::Conflict("fixture scan interrupted"))
         ));
         assert_eq!(calls.get(), 8, "stop at the first failed checkpoint");
-        assert_eq!(engine.store().state().watermark, before);
+        assert_eq!(engine.store().current().watermark, before);
         let complete = inventory(
             engine.store(),
             &access(),
@@ -686,6 +693,7 @@ async fn cooperative_inventory_cancellation_never_returns_a_partial_digest() {
             &ChunkerSpec::default(),
             Limits::default(),
         )
+        .await
         .unwrap();
         assert!(!complete.records.is_empty());
         assert_eq!(complete.digest, complete.calculate_digest().unwrap());
@@ -700,12 +708,12 @@ async fn canonical_native_source_discovery_preserves_scope_and_cancellation() {
         let directory = tempfile::tempdir().unwrap();
         let (engine, binding) =
             fixture(directory.path(), backend, b"fn retained_source() {}\n").await;
-        let discovered = source_bindings(engine.store(), &access()).unwrap();
+        let discovered = source_bindings(engine.store(), &access()).await.unwrap();
         assert!(discovered.complete, "{:?}", discovered.degraded);
         assert_eq!(discovered.bindings, vec![binding]);
         let mut denied = access();
         denied.tasks = Some(BTreeSet::new());
-        let hidden = source_bindings(engine.store(), &denied).unwrap();
+        let hidden = source_bindings(engine.store(), &denied).await.unwrap();
         assert!(hidden.complete && hidden.bindings.is_empty());
         assert!(!serde_json::to_string(&hidden)
             .unwrap()
@@ -720,7 +728,7 @@ async fn canonical_native_source_discovery_preserves_scope_and_cancellation() {
             }
         };
         assert!(matches!(
-            source_bindings_with_check(engine.store(), &access(), &check),
+            source_bindings_with_check(engine.store(), &access(), &check).await,
             Err(vcp_memory::Error::Conflict("discovery interrupted"))
         ));
         assert_eq!(calls.get(), 5);

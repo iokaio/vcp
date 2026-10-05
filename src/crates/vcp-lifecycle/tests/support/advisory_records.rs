@@ -121,7 +121,7 @@ async fn set_task_state(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Task,
@@ -185,7 +185,7 @@ async fn reserve_advisory_with_price(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Artifact,
@@ -202,7 +202,7 @@ async fn reserve_advisory_with_price(
         })
         .await
         .unwrap();
-    let ledger = vcp_budget::ledger(store.state(), &task.scope).unwrap();
+    let ledger = vcp_budget::ledger(store.current(), &task.scope).unwrap();
     vcp_budget::reserve(
         store,
         vcp_budget::Admission {
@@ -259,7 +259,7 @@ async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
         .unwrap();
         assert_eq!(request.request_digest.len(), 64);
         assert_eq!(request.transport_commitment, prepared.digest());
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert_eq!(
             advisory::record_request(
                 &mut store,
@@ -274,7 +274,7 @@ async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
             .id,
             request.id
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
 
         let outcome = advice(&prepared, "retry");
         let result = advisory::record_result(
@@ -289,7 +289,7 @@ async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
         .await
         .unwrap();
         assert_eq!(result.disposition, Disposition::AcceptedCurrent);
-        let result_watermark = store.state().watermark;
+        let result_watermark = store.current().watermark;
         assert_eq!(
             advisory::record_result(
                 &mut store,
@@ -304,7 +304,7 @@ async fn canonical_advisory_records_deduplicate_revalidate_and_reopen() {
             .unwrap(),
             result
         );
-        assert_eq!(store.state().watermark, result_watermark);
+        assert_eq!(store.current().watermark, result_watermark);
         assert!(advisory::record_result(
             &mut store,
             &access,
@@ -421,7 +421,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
         .await
         .unwrap();
         assert_eq!(pending.state, ScheduleState::Pending);
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert_eq!(
             advisory::schedule(
                 &mut store,
@@ -435,7 +435,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             .unwrap(),
             pending
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         let interrupted_claimant = CommandId::new();
         let Claim::Updated(claimed) = advisory::claim(
             &mut store,
@@ -451,7 +451,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             panic!("pending schedule must admit exactly one claim")
         };
         assert!(matches!(claimed.state, ScheduleState::Claimed { .. }));
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(matches!(
             advisory::claim(
                 &mut store,
@@ -466,7 +466,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             .unwrap(),
             Claim::Existing(_)
         ));
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         store.close().await.unwrap();
 
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
@@ -476,7 +476,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
                 .state,
             ScheduleState::Claimed { .. }
         ));
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(matches!(
             advisory::claim(
                 &mut store,
@@ -491,7 +491,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             .unwrap(),
             Claim::Existing(_)
         ));
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         let interrupted = advisory::interrupt(
             &mut store,
             &access,
@@ -510,7 +510,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
                 cancelled_at: Timestamp::new(16),
             }
         );
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert_eq!(
             advisory::interrupt(
                 &mut store,
@@ -525,7 +525,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             .unwrap(),
             interrupted
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
 
         let paused_prepared = prepare(binding(&task, &access), "paused");
         let paused_current = paused_prepared.request().binding.clone();
@@ -655,7 +655,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
         .unwrap();
         assert!(matches!(completed.state, ScheduleState::Completed { .. }));
         assert_eq!(completed.revision, Revision::new(2));
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert_eq!(
             advisory::complete(
                 &mut store,
@@ -670,7 +670,7 @@ async fn caller_owned_schedule_closes_pause_interruption_and_reopen_without_repl
             .unwrap(),
             completed
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         store.close().await.unwrap();
     }
 }
@@ -777,7 +777,7 @@ async fn advisory_completion_rechecks_inputs_after_result_and_after_completion()
                     _ => unreachable!(),
                 };
                 let before = advisory::load_schedule(&store, &access, &request.id).unwrap();
-                let watermark = store.state().watermark;
+                let watermark = store.current().watermark;
                 assert!(
                     advisory::complete(
                         &mut store,
@@ -792,7 +792,7 @@ async fn advisory_completion_rechecks_inputs_after_result_and_after_completion()
                     .is_err(),
                     "{backend:?} {change} completed_first={completed_first}"
                 );
-                assert_eq!(store.state().watermark, watermark);
+                assert_eq!(store.current().watermark, watermark);
                 assert_eq!(
                     advisory::load_schedule(&store, &access, &request.id).unwrap(),
                     before
@@ -897,7 +897,7 @@ async fn advisory_accounting_rejects_other_request_and_evaluator_on_bind_and_rea
             } else {
                 "attempt is not the canonical advisory helper reservation"
             };
-            let watermark = store.state().watermark;
+            let watermark = store.current().watermark;
             assert_eq!(
                 advisory::bind_attempt(
                     &mut store,
@@ -913,7 +913,7 @@ async fn advisory_accounting_rejects_other_request_and_evaluator_on_bind_and_rea
                 expected_error,
                 "{mismatch}"
             );
-            assert_eq!(store.state().watermark, watermark);
+            assert_eq!(store.current().watermark, watermark);
 
             let attempt = reserve_advisory(&mut store, &access, &task, &request, 15).await;
             let accounting = advisory::bind_attempt(
@@ -935,7 +935,7 @@ async fn advisory_accounting_rejects_other_request_and_evaluator_on_bind_and_rea
             // Simulate an older persisted binding that points at a different
             // otherwise-valid helper. Reads must enforce the same identities.
             let mut stored =
-                store.state().records[&key(Collection::Projection, &accounting.id)].clone();
+                store.current().records[&key(Collection::Projection, &accounting.id)].clone();
             let revision = stored.revision;
             stored.revision = revision.next().unwrap();
             for (field, value) in [
@@ -959,7 +959,7 @@ async fn advisory_accounting_rejects_other_request_and_evaluator_on_bind_and_rea
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![Mutation::Put {
                         record: stored,
                         expected: Some(revision),
@@ -1031,6 +1031,7 @@ async fn advisory_reads_respect_logical_purge_before_cleanup_and_after_reopen() 
             Action::Purge,
             Timestamp::new(20),
         )
+        .await
         .unwrap();
         assert!(preview.protected.is_empty());
         retention::apply(&mut store, &access, &preview, Timestamp::new(21))
@@ -1038,7 +1039,7 @@ async fn advisory_reads_respect_logical_purge_before_cleanup_and_after_reopen() 
             .unwrap();
         // Prove the denial applies during logical purge, before physical rewrite.
         assert!(
-            store.state().records[&key(Collection::Projection, &request.id)]
+            store.current().records[&key(Collection::Projection, &request.id)]
                 .value
                 .to_string()
                 .contains("private-purged-advisory")
@@ -1127,7 +1128,7 @@ async fn advisory_claim_binds_existing_helper_accounting_and_tracks_uncertain_ch
         assert_eq!(accounting.attempt, attempt.id);
         assert_eq!(accounting.reservation, attempt.reservation);
         assert_eq!(accounting.quote, attempt.quote);
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert_eq!(
             advisory::bind_attempt(
                 &mut store,
@@ -1142,7 +1143,7 @@ async fn advisory_claim_binds_existing_helper_accounting_and_tracks_uncertain_ch
             .unwrap(),
             accounting
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
 
         vcp_budget::submit(
             &mut store,

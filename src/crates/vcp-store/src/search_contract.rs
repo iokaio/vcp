@@ -2,6 +2,10 @@
 //! Canonical publication invariants. Reopen/checksums of derivative files are
 //! validated by the publishing adapter; these checks protect the durable commit.
 use super::*;
+use crate::{
+    historical_facts::{RecordTransactionFacts, StateTransactionFacts, TransactionFacts},
+    CurrentStateView,
+};
 use vcp_domain::{
     memory::{IndexIntent, IndexStatus, ProposalResult},
     search::{Active, Generation, ACTIVE, GENERATION},
@@ -95,16 +99,33 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
     }
     Ok(())
 }
-fn generation(state: &State, workspace: &WorkspaceId, id: &GenerationId) -> Result<Generation> {
-    let record = state.record(Collection::Generation, id.as_str(), workspace)?;
+fn generation(
+    records: &BTreeMap<String, Record>,
+    workspace: &WorkspaceId,
+    id: &GenerationId,
+) -> Result<Generation> {
+    let record = record(records, Collection::Generation, id.as_str(), workspace)?;
     if kind(record)? != Some(GENERATION) {
         return Err(Error::Corruption("search generation reference type"));
     }
     record.decode()
 }
-fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<Active>> {
-    state
-        .records
+fn record<'a>(
+    records: &'a BTreeMap<String, Record>,
+    collection: Collection,
+    id: &str,
+    workspace: &WorkspaceId,
+) -> Result<&'a Record> {
+    let record = records
+        .get(&key(collection, id))
+        .ok_or(Error::Conflict("record not found"))?;
+    if &record.workspace != workspace {
+        return Err(Error::Access);
+    }
+    Ok(record)
+}
+fn active(records: &BTreeMap<String, Record>, workspace: &WorkspaceId) -> Result<Option<Active>> {
+    records
         .get(&key(Collection::Generation, workspace.as_str()))
         .map(|record| {
             if kind(record)? != Some(ACTIVE) || record.workspace != *workspace {
@@ -114,9 +135,12 @@ fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<Active>> {
         })
         .transpose()
 }
-fn intents(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
+fn intents(
+    records: &BTreeMap<String, Record>,
+    manifest: &Generation,
+) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
     let mut values = BTreeMap::new();
-    for record in state.records.values().filter(|record| {
+    for record in records.values().filter(|record| {
         record.workspace == manifest.scope.workspace
             && record.collection == Collection::IndexIntent
             && record.value["document_type"] == "vcp_memory_index_intent_v1"
@@ -128,9 +152,13 @@ fn intents(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntentI
     }
     Ok(values)
 }
-fn covered_sequence(state: &State, manifest: &Generation) -> Result<MemorySeq> {
+fn covered_sequence(
+    records: &BTreeMap<String, Record>,
+    manifest: &Generation,
+    history: &mut impl TransactionFacts,
+) -> Result<MemorySeq> {
     let mut sequence = MemorySeq::ZERO;
-    for row in state.records.values().filter(|row| {
+    for row in records.values().filter(|row| {
         row.workspace == manifest.scope.workspace
             && row.collection == Collection::Projection
             && matches!(
@@ -146,18 +174,20 @@ fn covered_sequence(state: &State, manifest: &Generation) -> Result<MemorySeq> {
                 let value: ProposalResult = row.decode()?;
                 (value.transaction, value.memory_seq)
             };
-        let watermark = state
-            .transactions
-            .get(&transaction)
-            .ok_or(Error::Corruption("memory result receipt missing"))?
-            .watermark;
+        let watermark = history
+            .watermark(&transaction)?
+            .ok_or(Error::Corruption("memory result receipt missing"))?;
         if watermark <= manifest.canonical_watermark {
             sequence = sequence.max(memory_seq);
         }
     }
     Ok(sequence)
 }
-fn coverage(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
+fn coverage(
+    records: &BTreeMap<String, Record>,
+    manifest: &Generation,
+    history: &mut impl TransactionFacts,
+) -> Result<BTreeMap<IndexIntentId, IndexIntent>> {
     if !manifest.empty_complete
         && (manifest.vector_checksum.is_none() || !manifest.vector_deficits.is_empty())
     {
@@ -168,10 +198,10 @@ fn coverage(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntent
         }
         return Ok(BTreeMap::new());
     }
-    let expected = intents(state, manifest)?;
+    let expected = intents(records, manifest)?;
     if expected.keys().collect::<BTreeSet<_>>()
         != manifest.covered_intents.iter().collect::<BTreeSet<_>>()
-        || manifest.memory_seq != covered_sequence(state, manifest)?
+        || manifest.memory_seq != covered_sequence(records, manifest, history)?
     {
         return Err(Error::Corruption(
             "search manifest has incomplete or inflated canonical coverage",
@@ -180,6 +210,12 @@ fn coverage(state: &State, manifest: &Generation) -> Result<BTreeMap<IndexIntent
     Ok(expected)
 }
 pub(super) fn validate(state: &State) -> Result<()> {
+    validate_with_history(state.into(), &mut StateTransactionFacts::new(state))
+}
+pub(super) fn validate_with_history(
+    state: CurrentStateView<'_>,
+    history: &mut impl TransactionFacts,
+) -> Result<()> {
     for row in state.records.values() {
         match kind(row)? {
             Some(GENERATION) => {
@@ -198,16 +234,15 @@ pub(super) fn validate(state: &State) -> Result<()> {
                 {
                     return Err(Error::Corruption("search publication root scope"));
                 }
-                let receipt = state
-                    .transactions
-                    .get(&value.transaction)
+                let watermark = history
+                    .watermark(&value.transaction)?
                     .ok_or(Error::Corruption("search publication receipt missing"))?;
-                if value.canonical_watermark >= receipt.watermark {
+                if value.canonical_watermark >= watermark {
                     return Err(Error::Corruption(
                         "search snapshot exceeds publication boundary",
                     ));
                 }
-                if coverage(state, &value)?
+                if coverage(state.records, &value, history)?
                     .values()
                     .any(|intent| intent.status != IndexStatus::Ready)
                 {
@@ -216,7 +251,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
                     ));
                 }
                 if let Some(previous) = &value.previous {
-                    let old = generation(state, &value.scope.workspace, previous)?;
+                    let old = generation(state.records, &value.scope.workspace, previous)?;
                     if old.canonical_watermark > value.canonical_watermark
                         || old.transaction == value.transaction
                     {
@@ -227,7 +262,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
             Some(ACTIVE) => {
                 shape(row)?;
                 let value: Active = row.decode()?;
-                let manifest = generation(state, &value.workspace, &value.generation)?;
+                let manifest = generation(state.records, &value.workspace, &value.generation)?;
                 if manifest.transaction != value.transaction {
                     return Err(Error::Corruption(
                         "search active publication receipt mismatch",
@@ -241,7 +276,40 @@ pub(super) fn validate(state: &State) -> Result<()> {
 }
 /// Call after mutations/receipt are assembled in State::prepare, before return.
 /// Replay follows the same hook, preventing generic Put from bypassing publish.
-pub(super) fn publication(before: &State, after: &State, transaction: &Transaction) -> Result<()> {
+pub(super) fn publication(
+    before: RecordView<'_>,
+    after: &State,
+    transaction: &Transaction,
+) -> Result<()> {
+    publication_records(
+        before.records,
+        before.watermark,
+        after.into(),
+        transaction,
+        &mut RecordTransactionFacts::new(before),
+    )
+}
+pub(super) fn publication_with_history(
+    before: CurrentStateView<'_>,
+    after: CurrentStateView<'_>,
+    transaction: &Transaction,
+    history: &mut impl TransactionFacts,
+) -> Result<()> {
+    publication_records(
+        before.records,
+        before.watermark,
+        after,
+        transaction,
+        history,
+    )
+}
+fn publication_records(
+    before: &BTreeMap<String, Record>,
+    before_watermark: Watermark,
+    after: CurrentStateView<'_>,
+    transaction: &Transaction,
+    history: &mut impl TransactionFacts,
+) -> Result<()> {
     let mut manifests = Vec::new();
     let mut pointers = Vec::new();
     let mut ready = BTreeSet::new();
@@ -249,7 +317,7 @@ pub(super) fn publication(before: &State, after: &State, transaction: &Transacti
         if let Mutation::Put { record, .. } = mutation {
             match kind(record)? {
                 Some(GENERATION) => {
-                    if before.records.contains_key(&record.key()) {
+                    if before.contains_key(&record.key()) {
                         return Err(Error::Conflict("immutable search generation"));
                     }
                     manifests.push(record.decode::<Generation>()?);
@@ -262,7 +330,6 @@ pub(super) fn publication(before: &State, after: &State, transaction: &Transacti
             {
                 let next: IndexIntent = record.decode()?;
                 let prior = before
-                    .records
                     .get(&record.key())
                     .map(Record::decode::<IndexIntent>)
                     .transpose()?;
@@ -288,13 +355,13 @@ pub(super) fn publication(before: &State, after: &State, transaction: &Transacti
     }
     let manifest = &manifests[0];
     let pointer = &pointers[0];
-    let workspace: Workspace = before
-        .record(
-            Collection::Workspace,
-            manifest.scope.workspace.as_str(),
-            &manifest.scope.workspace,
-        )?
-        .decode()?;
+    let workspace: Workspace = record(
+        before,
+        Collection::Workspace,
+        manifest.scope.workspace.as_str(),
+        &manifest.scope.workspace,
+    )?
+    .decode()?;
     let next_workspace: Workspace = after
         .record(Collection::Workspace, workspace.id.as_str(), &workspace.id)?
         .decode()?;
@@ -306,7 +373,7 @@ pub(super) fn publication(before: &State, after: &State, transaction: &Transacti
         || manifest.deletion != workspace.deletion
         || next_workspace.authority != workspace.authority
         || next_workspace.deletion != workspace.deletion
-        || manifest.canonical_watermark > before.watermark
+        || manifest.canonical_watermark > before_watermark
     {
         return Err(Error::Conflict(
             "search publication scope epochs or snapshot changed",
@@ -322,7 +389,7 @@ pub(super) fn publication(before: &State, after: &State, transaction: &Transacti
             return Err(Error::Conflict("search publication watermark regressed"));
         }
     }
-    let expected = coverage(before, manifest)?;
+    let expected = coverage(before, manifest, history)?;
     let required: BTreeSet<_> = expected
         .values()
         .filter(|intent| intent.status != IndexStatus::Ready)

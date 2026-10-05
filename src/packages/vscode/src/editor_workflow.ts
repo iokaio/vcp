@@ -7,13 +7,6 @@ import { EditorJournal } from './editor_journal.js';
 import { EditorChanges, EditorUserError } from './editor_changes.js';
 import type { TaskPanelState } from './task_view_model.js';
 
-export function dollarsToMicros(value: string): string | undefined {
-  if (!/^(0|[1-9][0-9]{0,12})(\.[0-9]{1,6})?$/.test(value)) return undefined;
-  const [whole, fraction = ''] = value.split('.');
-  const micros = BigInt(whole!) * 1_000_000n + BigInt(fraction.padEnd(6, '0'));
-  return micros > 0n && micros <= 18446744073709551615n ? micros.toString() : undefined;
-}
-
 /** Explicit native editor commands. Drafts and credentials stay in this activation. */
 export class EditorWorkflow implements vscode.Disposable {
   #journals = new Map<string, EditorJournal>();
@@ -74,14 +67,9 @@ export class EditorWorkflow implements vscode.Disposable {
     const objective = await vscode.window.showInputBox({ title: 'Task objective', prompt: 'The initial provider prompt uses disk context. Later editor observations do not change that prompt.', ignoreFocusOut: true,
       validateInput: text => !text.trim() || Buffer.byteLength(text, 'utf8') > 65536 ? 'Enter a nonempty objective up to 64 KiB.' : undefined });
     if (objective === undefined) return;
-    const cap = await vscode.window.showInputBox({ title: 'Configured task cost cap (USD)', prompt: 'Enter the cap already configured for this workspace; the engine verifies an exact match.', ignoreFocusOut: true, validateInput: text => dollarsToMicros(text) ? undefined : 'Enter a positive USD amount, with at most six decimal places.' });
-    if (cap === undefined) return;
-    const requests = await vscode.window.showInputBox({ title: 'Configured maximum requests', prompt: 'Use the limit from the selected execution profile.', ignoreFocusOut: true,
+    const requests = await vscode.window.showInputBox({ title: 'Configured maximum requests', prompt: 'Use the request limit from the selected execution profile. This run has no spending or elapsed-time cap.', ignoreFocusOut: true,
       validateInput: text => /^[1-9][0-9]{0,3}$/.test(text) && Number(text) <= 1024 ? undefined : 'Enter an integer from 1 through 1024.' });
     if (requests === undefined) return;
-    const deadline = await vscode.window.showInputBox({ title: 'Configured task deadline (seconds)', prompt: 'Use the deadline from the selected execution profile.', ignoreFocusOut: true,
-      validateInput: text => /^[1-9][0-9]{0,4}$/.test(text) && Number(text) <= 86400 ? undefined : 'Enter an integer from 1 through 86400.' });
-    if (deadline === undefined) return;
     const credential = await vscode.window.showInputBox({ title: 'Provider credential', prompt: 'Used only by this explicitly launched engine; never stored in workspace state.', password: true, ignoreFocusOut: true });
     if (credential === undefined) return;
     if (this.#disposed || !vscode.workspace.isTrusted || this.connection.state().generation !== generation
@@ -95,7 +83,7 @@ export class EditorWorkflow implements vscode.Disposable {
     try {
       if (this.#disposed || !vscode.workspace.isTrusted || this.connection.currentClient() !== client || this.connection.state().generation !== state.generation) throw new EditorUserError('Connection changed');
       const receipt = await client.call('turn/start', { scope: client.scope, mutation: { command_id: id, expected_revision: '0', steering_revision: '0' }, task, turn,
-        objective, constraints: [], acceptance: [], budget: { currency: 'USD', cap_micros: dollarsToMicros(cap)!, max_requests: Number(requests), deadline_seconds: Number(deadline) } });
+        objective, constraints: [], acceptance: [], budget: { currency: 'USD', cap_micros: { version: 1, kind: 'unbounded' }, max_requests: Number(requests), deadline_seconds: { version: 1, kind: 'unbounded' } } });
       if (receipt.value.command_id !== id || receipt.value.task !== task || receipt.value.outcome !== 'accepted'
         || receipt.value.scope.workspace !== client.scope.workspace || receipt.value.scope.session !== client.scope.session) throw new EditorUserError('Acceptance identity changed');
       await journal.settle(id, 'accepted');

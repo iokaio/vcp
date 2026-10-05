@@ -14,6 +14,16 @@ use vcp_domain::{
 };
 use vcp_store::contract::{Collection, State};
 
+mod bounded;
+#[cfg(test)]
+mod bounded_native_tests;
+#[cfg(test)]
+mod bounded_tests;
+pub use bounded::collect_store;
+mod constraints;
+mod diagnostics;
+mod lifecycle;
+
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PAGES: usize = 128;
 
@@ -36,6 +46,7 @@ impl Budget {
 }
 
 pub fn collect(state: &State, access: &Access, task: &TaskId) -> Result<Value, String> {
+    let collection_started = std::time::Instant::now();
     // Match the audit history boundary before exposing task/agent data. The
     // inspector and history queries independently recheck it for every page.
     let workspace: vcp_domain::workspace::Workspace = state
@@ -142,8 +153,17 @@ pub fn collect(state: &State, access: &Access, task: &TaskId) -> Result<Value, S
             break;
         }
     }
+    let diagnostic_index = diagnostics::index(&history)?;
+    let retained_diagnostics = lifecycle::retained(state, &history, &task_record.scope)?;
+    let effective_constraints = constraints::project(state, access, &task_record, &workspace)?;
     let value = json!({"schema_version":1,"kind":"inspection_bundle","source_watermark":state.watermark,
-        "task":task_record,"views":views,"history":history,"agents":agents});
+        "task":task_record,"views":views,"history":history,"agents":agents,
+        "diagnostics": diagnostic_index,
+        "retained_lifecycle_diagnostics": retained_diagnostics,
+        "effective_constraints": effective_constraints,
+        "collection": {"schema_version":1,"elapsed_micros":collection_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+            "timing_source":"monotonic_instant","pages":budget.pages,"projected_bytes":budget.bytes,
+            "observation_scope":"this_inspection_only","analysis_status":"required"}});
     if serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() > MAX_BYTES {
         return Err(
             "inspection bundle byte limit exceeded; use paged inspect/history commands".into(),
@@ -159,7 +179,7 @@ mod tests {
     use vcp_protocol::event::{EventEnvelope, EventInput, EventKind};
     use vcp_store::contract::Record;
 
-    fn fixture() -> (State, Access, TaskId) {
+    pub(super) fn fixture() -> (State, Access, TaskId) {
         let workspace = WorkspaceId::new();
         let session = SessionId::new();
         let task = TaskId::new();

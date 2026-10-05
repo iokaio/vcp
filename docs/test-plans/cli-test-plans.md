@@ -84,6 +84,8 @@ The launcher reads the installed CLI's effective model selection in the chosen p
 and reuses matching metadata from a registered project profile or completed account setup.
 It also recognizes existing provider generation directories. Fresh metadata is reused
 without qualification. The configured provider selection is preserved.
+Reuse requires a retained catalog SHA256 and exact, case-sensitive model and endpoint
+identities matching the captured catalog; incomplete or mismatched candidates are rejected.
 
 Both account metadata (`snapshot.json` plus `endpoints.json`) and qualified generations
 (`qualified\snapshot.json` plus `endpoints.json`) are supported. Metadata must still be
@@ -134,7 +136,9 @@ and is clamped to the endpoint's `max_output`.
 The launcher checks the installed credential selection and prompts with masked input
 only when its environment credential is absent. It restores the environment afterward.
 VCP's automated JSONL commands cannot use a stored Windows key; the launcher respects
-that boundary. Credentials are excluded from project build/test/server processes.
+that boundary. DryRun reads credential-selection metadata without retrieving a key,
+then strips custom aliases from subsequent metadata-only VCP commands and project
+build/test/server processes. DryRun never prompts for a credential.
 
 When invoking an individual scenario directly with the default credential selection:
 
@@ -159,6 +163,23 @@ its source and configuration and restores its dependencies. The default launcher
 is `<RunRoot>\projects\<scenario>`, stable across runs. Individual scenario scripts without
 `-ProjectPath` retain their per-run `workspace` default.
 
+Each scenario is independently runnable: A, B, C and D have separate project directories
+and VCP workspace identities; none requires another scenario's output or a prior run.
+The launcher starts the child PowerShell process in that scenario's project, and native
+VCP commands and generated profiles bind to the same workspace. The shared `RunRoot`
+groups separate projects, evidence and provider metadata; it is not a shared VCP project. The VCP source
+checkout, directories nested in another Git project, and project paths through junctions
+or symbolic links are rejected. Select the physical project directory instead.
+
+For example, these can be launched separately, in any order or in separate consoles:
+
+```powershell
+.\run-cli-scenarios.ps1 -Scenario A -ProjectPath D:\clitests\A
+.\run-cli-scenarios.ps1 -Scenario B -ProjectPath D:\clitests\B
+.\run-cli-scenarios.ps1 -Scenario C -ProjectPath D:\clitests\C
+.\run-cli-scenarios.ps1 -Scenario D -ProjectPath D:\clitests\D
+```
+
 Existing projects must match the selected scenario's structure. Incompatible projects or
 conflicting deterministic fixtures are rejected rather than overwritten. Agent tasks still
 intentionally edit the selected project. Harness git initialization, staging and checkpoint
@@ -173,7 +194,9 @@ Scenario B's optional `-SqlConnectionString` must use integrated authentication 
 embedded password. The script creates a distinct database name for the run; connection
 settings are written into newly generated projects. Reused project configuration is preserved;
 the per-run database override is passed to both harness and agent processes.
-Password-bearing connection strings are rejected before seeding.
+Password-bearing connection strings and attached database-file options (including SQL
+aliases) are rejected before seeding, so a generated database name cannot attach and
+modify an existing MDF file.
 
 ---
 
@@ -200,7 +223,7 @@ Password-bearing connection strings are rejected before seeding.
     <stage>\vcp\NN-<label>.stderr.txt
     <stage>\tasks-status.json, tasks-agents.json, history.json
     <stage>\inspect-{costs,verification,tools,routing,policy,outputs}.json
-    <stage>\final-message.md                final assistant text (best effort, see 3.5)
+    <stage>\final-message.md                final assistant text (on demand, see 3.5)
     <stage>\workspace-diff.json             files added/modified/removed by the stage
     <stage>\tools\NN-<label>.{out,err}.log   build/test/CLI output used by the gates
     <stage>\servers\*.log                   logs of the app servers started by gates
@@ -221,10 +244,10 @@ to `<run>\artifacts` and D writes final deliverables to `<run>\deliverables`.
 |---|---|---|
 | P0-preflight | none | `--version`, `doctor`, `setup credential status`, `setup profile` (real CLI path for this workspace), `skills list`, `models` |
 | B0-baseline | none (VCP) | Seed a realistic starting scaffold, restore dependencies and prove it builds and tests before any spend. A failure here stops the run. |
-| P1-profiles | none | Compose the scenario profiles (3.3) and validate each with `vcp setup check` |
+| P1-profiles | none | Compose profiles, validate each with `vcp setup check`, then run toolchain probes with the exact cleared process environment before inference |
 | G0-guardrail | none | A `vcp run` that must be rejected before execution with exit 2 and no accepted task |
 | T1-T5 | paid | Feature turns, each followed by the evidence sweep (3.4), deterministic gates (3.6) and at most `-MaxRepairTurns` repair turns |
-| T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. |
+| T5 continuation | paid | T5 runs under a short-deadline profile (`-ShortDeadlineSeconds`, default 150 s). On exit 8 the scenario-specific continuation command resumes it with the full profile. A/B also support a transient billing-only exit 7 after the mandatory reconciliation proof described below. |
 | T6-review | paid, small (cap 2.00 USD) | A review in `--autonomy plan` with a read-only profile. The workspace must stay byte-identical, and the answer ends with a JSON findings block. |
 | T7-fork (D only) | paid | `sessions fork` of the review session, which tests consistency and immutability |
 | FINAL | none (VCP) | Independent build and functional regression gates for the final project, packaging of compiled assets; lifecycle actions are not repeated |
@@ -291,12 +314,17 @@ Design notes, each based on the current source:
 - **Process profiles** are `.exe` only, in `Direct` mode with no shell, and use a filtered
   public environment. `npm`, `mvn` and the `dotnet-ef` tool are reached through `node.exe`,
   `java.exe` and `dotnet.exe`; each task prompt gives the exact argument forms. The
-  environment allowlist (`SYSTEMROOT`, `PATH`, `TEMP`, ...) excludes `USERPROFILE`
-  and `JAVA_HOME`. B also explicitly supplies `ProgramFiles(x86)` from the Windows
-  known-folder API, plus `APPDATA` and `LOCALAPPDATA` pointing to fresh directories
-  owned by this run. These paths let NuGet initialize without copying ambient
-  configuration or credential variables. Other user folders resolve through
-  Windows APIs where supported.
+  environment excludes ambient user configuration and credentials. B explicitly supplies
+  public Windows installation paths (`ProgramFiles` and `ProgramFiles(x86)` from the
+  Windows known-folder API) and fresh run-owned `APPDATA`, `LOCALAPPDATA` and
+  `DOTNET_CLI_HOME` directories: NuGet cannot bootstrap with only `SYSTEMROOT` and `PATH`.
+  These locations provide SDK initialization without copying ambient configuration
+  or credential variables. Each scenario runs a toolchain probe with its exact cleared
+  profile environment before inference. These probes check bootstrap compatibility;
+  native broker tests check execution authority and isolation. See the
+  [A/B runtime investigation](run-review-20261003-130226.md).
+  The allowlist excludes `USERPROFILE` and `JAVA_HOME`; other user folders resolve
+  through Windows APIs where supported.
 - **`reduced_isolation: true` with no required isolation** mirrors the repository's own
   execution fixtures. Toolchains need to read SDK, cache and package locations outside the
   workspace. This is an explicit owner choice for a test machine; review it before reusing
@@ -331,7 +359,7 @@ vcp $G inspect <task> --view tools        --limit 128 [--cursor ...]
 vcp $G inspect <task> --view routing      --limit 128 [--cursor ...]
 vcp $G inspect <task> --view policy       --limit 128 [--cursor ...]
 vcp $G inspect <task> --view outputs      --limit 128 [--cursor ...]
-vcp $G inspect <last-response-artifact> --view outputs --offset <n> --length 65536   (repeated to the artifact length)
+vcp $G inspect <last-response-artifact> --view outputs --offset <n> --length 65536   (on demand, repeated to the artifact length)
 vcp $G history list --task <task> --limit 128
 ```
 
@@ -351,6 +379,22 @@ Its prompt lists the failed gate IDs with their exact failure details, followed 
   short-deadline turns accept 0, 3 or 8, and plan reviews/forks accept 0, 3 or 4. These
   allowances never substitute for the stage's functional gates. JSONL acceptance and final
   result framing are required independently of the process exit code.
+- **A/B T5 unresolved billing:** the short-deadline stage may finish with exit 7 while
+  provider receipt accounting is pending. This is an explicit conditional T5 contract,
+  not a general accepted exit or an exit-8 conversion. The original failed exit, JSONL
+  and inspection remain retained; the stop is recorded as diagnostic evidence. A new
+  required `deadline-cost-reconciliation` gate requires the same paused task, complete
+  scoped inspection, no active agents or unknown tool effects, and billing-only pending
+  reservations. The harness polls `tasks reconcile-cost <task>` at most three times,
+  with 10-second waits and 1,800-second command timeouts. Only this metadata command
+  receives the existing credential for authenticated receipt GETs; it cannot infer or
+  resume. A successful scoped receipt must agree with a fresh credential-denied
+  `inspect-bundle`, including zero active/unresolved liability and no overrun, before
+  the existing same-task resume command can run. Its framing, identity, functional and
+  final accounting gates remain required. Unsupported commands, malformed/unknown
+  receipts (including unavailable receipts), incomplete evidence or exhausted polling
+  stop the scenario and preserve its full possible-spend hold. Original artifact hashes
+  and a separate reconciliation receipt are recorded; cumulative cost is counted once.
 - **Cost** comes from `settled` micros in the canonical task `ledger` records in
   `inspect --view costs`, counting a resumed task's cumulative total only once. If cost evidence is incomplete, the budget guard assumes the full
   per-turn cap was spent and the scorecard sets `spend_evidence_complete: false`.
@@ -359,7 +403,13 @@ Its prompt lists the failed gate IDs with their exact failure details, followed 
   `inspect --view outputs` byte ranges and extracts `output_text` from its
   `response.completed` SSE event. Inspection page order is canonical key order, not
   response chronology. Missing ordering or capture evidence leaves the message unavailable;
-  this is best effort and is used only by advisory gates.
+  this is best effort and is used only by advisory gates. Ordinary coding, repair and
+  resume stages retain the canonical response artifacts and output descriptors without
+  reading every response byte again. The review findings gate and D's fork-consistency
+  gate request extraction with `Get-VcpStageFinalMessage -Ctx $ctx -StageRecord $stage`;
+  a successful extraction is saved and reused. This avoids reopening all retained
+  history for optional text after every coding stage. Missing text still fails the
+  same advisory gate, and accounting/evidence completeness checks are unchanged.
 - **Completed turn IDs** for `sessions fork` come from `event.event.data.facts[]` entries with
   `collection == "turn"` and `value.state == "completed"`.
 
@@ -497,8 +547,8 @@ vcp $G --config <profiles>\profile-T5-short-<run>.json run --file <logs>\T5-prod
 [if exit 8] vcp $G --config <profiles>\profile-T5-<run>.json resume --last
 [repair]    vcp $G --config <profiles>\profile-T5-<run>.json run --file <logs>\T5-production-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
-# T6 - plan-mode review
-vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 2.00 --autonomy plan
+# T6 - plan-mode review (uses the configured per-turn budget)
+vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 3.00 --autonomy plan
 
 # P9 - read-only evidence sweep
 vcp $G sessions list
@@ -540,6 +590,9 @@ release of the installed SDK's major version, queried from NuGet's flat-containe
 The pinned versions are recorded in the scorecard notes. The harness also writes
 `appsettings.Development.json` with a per-run database
 `VcpInventory_<run>` on `(localdb)\MSSQLLocalDB`, then builds and tests the baseline.
+Reusing a project accepts either `dotnet-tools.json` at the workspace root or
+`.config/dotnet-tools.json`, preserving the manifest and its pinned versions. Tool
+restore and EF commands use the SDK's normal manifest discovery.
 
 **Ports.** `-AppPort` (default 41750) is used for `dotnet run` gates and `-PublishedPort`
 (41751) for the published executable.
@@ -587,8 +640,8 @@ vcp $G --config <profiles>\profile-short-<run>.json run --file <logs>\T5-concurr
 [if exit 8] vcp $G --config <profiles>\profile-main-<run>.json resume <T5 task id>
 [repair]    vcp $G --config <profiles>\profile-main-<run>.json run --file <logs>\T5-concurrency-repair1\prompt.md --budget-usd 3.00 --autonomy autonomous
 
-# T6 - plan-mode review
-vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 2.00 --autonomy plan
+# T6 - plan-mode review (uses the configured per-turn budget)
+vcp $G --config <profiles>\profile-review-<run>.json run --file <logs>\T6-review\prompt.md --budget-usd 3.00 --autonomy plan
 
 # P9 - read-only evidence sweep
 vcp $G sessions list
@@ -804,11 +857,13 @@ The holdout and edge-case files stay in `hidden\`.
 
 These limitations need evidence from actual scenario runs:
 
-1. **Environment filtering in process profiles.** Profiles allow only `SYSTEMROOT`, `WINDIR`,
-   `PATH`, `PATHEXT`, `TEMP`, `TMP`, `LANG`, `LC_ALL`, `TERM`, `CI` and a few build variables.
-   npm, NuGet, Maven and pip normally find the user profile through Windows APIs, but a
-   failure inside `vcp_exec` is a real finding: the turn shows it in `inspect-tools.json`
-   and the harness gates will still judge the produced code.
+1. **Environment filtering in process profiles.** Only explicitly allowed public variables
+   reach `vcp_exec`. The B bootstrap fix adds public installation paths and isolated .NET
+   user directories; it requires a native build containing the P2-04 runtime fix (the
+   installed 0.2.5 executable rejects these new keys). A's typecheck, B's local-tool restore
+   and build, C's Maven tests and D's pytest now run with the exact profile environment
+   before paid stages. A failed probe blocks inference and retains its command output.
+   This does not prove every later tool invocation will succeed.
 2. **Maven invocation (C).** Both the harness and VCP use `java.exe` with the classworlds
    launcher rather than executing `mvn.cmd` as a native binary. Preflight requires Maven
    3.9+ with the distribution's launcher jar and `bin/m2.conf`; a shim or unsupported layout
@@ -820,7 +875,8 @@ These limitations need evidence from actual scenario runs:
    own EF and HTTP commands set `ASPNETCORE_ENVIRONMENT` and `ConnectionStrings__Inventory`.
 4. **Guardrails exit before acceptance.** The autonomy ceiling, trust, bounds and empty-file
    checks are expected to fail in `profile.prepare` or argument validation, with exit 2 and
-   no `accepted` frame. A different outcome is reported as a failed gate.
+   one complete unscoped `invalid_configuration` result, no `accepted` frame and no malformed
+   JSONL. Missing, scoped or interrupted evidence fails the gate even if the process exits 2.
 5. **Short-deadline pause.** If T5 finishes inside `-ShortDeadlineSeconds`, the continuation
    gate is recorded as `skip`, not `fail`. A scenario can therefore pass functional gates
    without covering resume; report that coverage gap explicitly. Lower the value in a
@@ -860,11 +916,14 @@ These limitations need evidence from actual scenario runs:
 | `scenario-d-python-textlab.ps1` | Dataset generator, hidden holdout, seed, prompts and gates for scenario D |
 | `tests/Harness.Tests.ps1` | Offline regressions for process handling, cost accounting, manifests and scorecards |
 | `tests/ScenarioGates.Tests.ps1` | Offline regressions for scenario fixtures and acceptance gates |
+| `tests/ScenarioInitialization.Tests.ps1` | Toolchain/setup failures retain zero-spend fatal scorecards and summaries and close transcripts for all four scenarios |
 | `tests/Accounting.Tests.ps1` | Offline regressions for resume/fork admission and final accounting reconciliation |
 | `tests/Launcher.Tests.ps1` | Offline regressions for launcher selection and child-process handoff |
 | `tests/ProfileDeadlines.Tests.ps1` | Actual Scenario A profile composition with default and custom deadlines; verification timeouts fit task and process ceilings |
 | `tests/BlockedExecution.Tests.ps1` | Stops further paid admission after approval/recovery blockers; preserves same-task deadline resumes and original repair instructions |
 | `tests/ProcessAuthorization.Tests.ps1` | Explicit process consent, default refusal, DryRun behavior and unchanged review/guardrail permissions |
+| `tests/ProcessEnvironment.Tests.ps1` | Actual cleared-environment subprocess probes, failure/timeout evidence and no ambient environment changes |
+| `tests/InventoryProfiles.Tests.ps1` | Inventory profile allowlist, isolated .NET bootstrap directories and literal EF connection arguments |
 | `tests/ProviderReuse.Tests.ps1` | Offline configured-provider discovery and metadata reuse |
 | `tests/ProviderRefresh.Tests.ps1` | Metadata-only refresh, unchanged budget, immutable old metadata and failure evidence |
 | `tests/StagePreparation.Tests.ps1` | Per-task profile renewal and complete, consistent bundled inspection |
@@ -882,11 +941,14 @@ Before running a scenario, run the offline checks from the repository workspace 
 ```powershell
 pwsh -NoProfile -File docs/test-plans/tests/Harness.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ScenarioGates.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ScenarioInitialization.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Accounting.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/Launcher.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProfileDeadlines.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/BlockedExecution.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProcessAuthorization.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/ProcessEnvironment.Tests.ps1
+pwsh -NoProfile -File docs/test-plans/tests/InventoryProfiles.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/CommandLog.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderReuse.Tests.ps1
 pwsh -NoProfile -File docs/test-plans/tests/ProviderRefresh.Tests.ps1
@@ -993,6 +1055,12 @@ starting another run. An interrupted script may not write its final scorecard.
    The harness refuses new paid tasks after such a block; an ordinary deadline pause
    permits only a continuation of the same recorded task. Repair prompts retain the
    original task's environment and protected-file instructions.
+   Fatal admission messages and the final execution gate include the captured VCP task
+   reason. A failed provider terminal with missing observed cost still blocks execution;
+   the reservation is not proof of actual spend, and missing cost is not zero cost.
+   The console and Markdown summary label incomplete accounting as a budget reservation
+   with actual spend unresolved. In the JSON scorecard, `spend_usd` remains the conservative
+   amount used for budget admission when `spend_evidence_complete` is false.
 2. For a failing gate, read its detail in `scorecard.json`, the tool log it names under
    `logs\<stage>\tools\`, and the stage's `prompt.md`, `final-message.md` and
    `workspace-diff.json`.
@@ -1004,6 +1072,19 @@ starting another run. An interrupted script may not write its final scorecard.
    `workspace-diff.json` files and inspect the actual project path from the scorecard.
 5. To compare runs or models, put several `scorecard.json` files side by side; they share
    the schema `vcp-practical-scenario/1`.
+
+A reused TaskBoard workspace can retain unfinished source from an earlier stopped turn.
+Its baseline includes strict server/test typechecking, tests and the UI build. For example,
+`TS18046` on fetched JSON requires typed parsing or narrowing before field access, and
+`await` inside synchronous `createApp` initialization is invalid. Repair the retained
+project before rerunning, or choose a new empty project directory for a fresh scenario;
+the harness preserves the existing files and rejects a broken baseline before paid turns.
+
+In Scenario B, failed initial migrations can leave the generated database absent. The seed
+probe is skipped until migrations apply successfully; an absent database can produce a SQL
+login error even when integrated authentication works. If T1 stopped before making edits,
+the template's single test and missing `DbContext` are consequences of the unfinished task.
+Inspect the captured provider/task stopping reason before diagnosing them as toolchain faults.
 
 ### 9.5 Expected duration and spend
 

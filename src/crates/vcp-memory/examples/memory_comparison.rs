@@ -17,7 +17,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     digest_bytes,
 };
-use vcp_store::{BackendKind, Store};
+use vcp_store::{contract::CanonicalStore, BackendKind, Store};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const HISTORY: &[u8] = include_bytes!("../../../evals/memory/history.json");
 const QUESTIONS: &[u8] = include_bytes!("../../../evals/memory/questions.json");
@@ -126,7 +126,8 @@ async fn publish(
         &[],
         &ChunkerSpec::default(),
         search_record::Limits::default(),
-    )?;
+    )
+    .await?;
     let prepared = publisher.prepare(
         publication::capture(engine.store(), access, scope, inventory)?,
         None,
@@ -205,13 +206,17 @@ async fn run() -> Result<Value> {
             let start = Instant::now();
             scope.task = TaskId::parse(&observation.id)?;
             issue(&mut engine,&scope,Command::CreateTask {root:scope.task.clone(),parent:None,fork_origin:None,objective:Objective {text:json!({"memory_preference":{"key":observation.key,"value":observation.value}}).to_string(),constraints:vec![],acceptance:vec!["retain explicit input".into()],source:EventId::new(),steering:SteeringRevision::ZERO},fingerprint:Fingerprint {repository:"a".repeat(64),buffers:"b".repeat(64),environment:"c".repeat(64)},editing:false,required_checks:vec![]}).await?;
+            let last = engine
+                .store()
+                .history_event_count()
+                .await?
+                .checked_sub(1)
+                .ok_or("missing canonical event")?;
             let event = engine
                 .store()
-                .state()
-                .events
-                .last()
-                .ok_or("missing canonical event")?
-                .clone();
+                .history_event_at(last)
+                .await?
+                .ok_or("missing canonical event")?;
             let mut proposal =
                 vcp_memory::preferences::materialize(engine.store_mut(), &access, &event)
                     .await?
@@ -344,7 +349,9 @@ async fn run() -> Result<Value> {
                             &ChunkerSpec::default(),
                             None,
                             &|| false,
-                        ) {
+                        )
+                        .await
+                        {
                             Ok(response) => {
                                 detail = json!({"route":"production_lexical_retrieval","degraded":response.degraded,"indexed_sequence":response.indexed_sequence,"canonical_watermark":response.canonical_watermark,"generation_watermark":response.generation_watermark,"token_upper_bound":response.token_upper_bound});
                                 for passage in &response.passages {
@@ -367,6 +374,7 @@ async fn run() -> Result<Value> {
                                 if let Some(fence) = response.fence {
                                     if let Err(problem) =
                                         retrieval::revalidate_fence(engine.store(), &scoped, &fence)
+                                            .await
                                     {
                                         error = Some(problem.to_string());
                                     }

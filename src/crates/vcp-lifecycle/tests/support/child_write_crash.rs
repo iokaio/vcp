@@ -259,8 +259,8 @@ async fn child_native_write_process_kill_retains_unknown_effect_without_replay()
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get()
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get()
             ),
             (100, 0, 0)
         );

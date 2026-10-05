@@ -135,7 +135,7 @@ impl Fixture {
         )
         .unwrap();
         let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-        config.cap.micros = Micros::new(cap);
+        config.cap.micros = Micros::new(cap).into();
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
         let binding = task(&host, &config, config.root_task.clone(), None);
         host.command(
@@ -249,7 +249,7 @@ impl Fixture {
                 operating: "Report the observed fixture only.".into(),
                 affected_paths: vec!["file.txt".into()],
                 max_requests: if escalation { 2 } else { 1 },
-                deadline: Timestamp::new(now().get() + 300_000),
+                deadline: Timestamp::new(now().get() + 300_000).into(),
             },
         )
         .unwrap();

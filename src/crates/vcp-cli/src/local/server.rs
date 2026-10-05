@@ -71,7 +71,7 @@ fn selection(
 }
 
 fn selected_root(host: &CanonicalHost, config: &Config) -> Result<(), String> {
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let Some(row) = state.records.get(&vcp_store::contract::key(
         Collection::Task,
         config.root_task.as_str(),
@@ -94,7 +94,7 @@ fn selected_root(host: &CanonicalHost, config: &Config) -> Result<(), String> {
 
 fn access(host: &CanonicalHost, config: &Config, role: Role) -> Result<Access, String> {
     let workspace: Workspace = host
-        .snapshot()?
+        .current_state()?
         .record(
             Collection::Workspace,
             config.workspace.as_str(),
@@ -122,7 +122,12 @@ pub(super) async fn run(mut io: Framed) -> Result<(), String> {
     if let Some(publisher) = &boot.request.publisher {
         publisher.validate(boot.request.role)?;
     }
-    let (_selection, config, data) = selection(&boot.request)?;
+    let (_selection, mut config, data) = selection(&boot.request)?;
+    // Only an explicitly selected execution owner adopts this branch policy.
+    // Read-only attachment retains the stored configuration without mutation.
+    if boot.request.execution.is_some() {
+        config.cap.micros = vcp_domain::Limit::Unbounded;
+    }
     // This acquires the real canonical writer and performs crash recovery. No
     // provider request, root thread or task is created by attachment.
     let (host, owner) = CanonicalHost::open(config.clone())?;

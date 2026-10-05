@@ -69,7 +69,7 @@ async fn driver(input: Value) {
 async fn seed(fixture: &Fixture) -> ArtifactDescriptor {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -97,7 +97,7 @@ async fn seed(fixture: &Fixture) -> ArtifactDescriptor {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -172,15 +172,15 @@ async fn compiled_sdk_attachments_preserve_authority_replay_events_and_artifacts
             let store = fixture.reopen_within(Duration::from_secs(45)).await;
             assert_offline_paused(&store, &fixture.config);
             assert!(store
-                .state()
+                .current()
                 .record(
                     Collection::Session,
                     "sdk-created-session",
                     &fixture.config.workspace
                 )
                 .is_ok());
-            let receipt = store
-                .state()
+            let archive = store.archive_state().await.unwrap();
+            let receipt = archive
                 .commands
                 .get(&vcp_store::contract::command_key(
                     &fixture.config.workspace,
@@ -188,8 +188,7 @@ async fn compiled_sdk_attachments_preserve_authority_replay_events_and_artifacts
                 ))
                 .unwrap();
             assert_eq!(
-                store
-                    .state()
+                archive
                     .events
                     .iter()
                     .filter(|event| event.event.correlation == receipt.command)
@@ -210,7 +209,7 @@ async fn compiled_sdk_abort_after_genuine_acceptance_reconciles_without_duplicat
         let store = fixture.reopen().await;
         assert_offline_paused(&store, &fixture.config);
         assert!(store
-            .state()
+            .current()
             .record(
                 Collection::Session,
                 "sdk-delivery-session",
@@ -218,8 +217,7 @@ async fn compiled_sdk_abort_after_genuine_acceptance_reconciles_without_duplicat
             )
             .is_ok());
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .events
                 .iter()
                 .filter(|event| event.event.correlation.as_str() == "sdk-delivery-once")
@@ -227,8 +225,7 @@ async fn compiled_sdk_abort_after_genuine_acceptance_reconciles_without_duplicat
             1
         );
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|receipt| receipt.command.as_str() == "sdk-delivery-once")
@@ -285,7 +282,7 @@ async fn compiled_sdk_pending_input_reconnect_keeps_original_command_and_never_a
             }
         };
         let task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, "sdk-public-root", &entry.config.workspace)
             .unwrap()
             .decode()
@@ -293,8 +290,7 @@ async fn compiled_sdk_pending_input_reconnect_keeps_original_command_and_never_a
         assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
         for command in ["sdk-start-once", "sdk-deny-once"] {
             assert_eq!(
-                store
-                    .state()
+                (&store.archive_state().await.unwrap())
                     .commands
                     .values()
                     .filter(|receipt| receipt.command.as_str() == command)
@@ -348,7 +344,7 @@ async fn compiled_sdk_explicit_resume_connected_pause_and_retry_do_not_repeat_re
             .await
             .unwrap();
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 entry.config.root_task.as_str(),
@@ -360,8 +356,7 @@ async fn compiled_sdk_explicit_resume_connected_pause_and_retry_do_not_repeat_re
         assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
         for command in ["sdk-resume-once", "sdk-connected-pause"] {
             assert_eq!(
-                store
-                    .state()
+                (&store.archive_state().await.unwrap())
                     .commands
                     .values()
                     .filter(|receipt| receipt.command.as_str() == command)
@@ -370,7 +365,7 @@ async fn compiled_sdk_explicit_resume_connected_pause_and_retry_do_not_repeat_re
             );
         }
         let effects: Vec<vcp_domain::effect::Effect> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Effect)
@@ -382,8 +377,7 @@ async fn compiled_sdk_explicit_resume_connected_pause_and_retry_do_not_repeat_re
             "one actual patch execution, no replayed tool effect"
         );
         assert_eq!(effects[0].state, vcp_domain::effect::EffectState::Succeeded);
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|receipt| receipt.command.as_str() == "sdk-unsent-cancel"));

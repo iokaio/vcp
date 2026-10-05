@@ -1,5 +1,10 @@
 # BETA-06 registered Windows setup
 
+For the unsigned developer install/test loop from a current, possibly dirty
+checkout, use [the local installer workflow](../usage/local-installer.md).
+`scripts/build-local-setup.ps1` records a distinct local candidate identity and
+does not claim the reviewed release qualification described below.
+
 The installer product name is **VCP Coding Agent Engine**. Its wizard and
 Windows installed-app entry show that name followed by the exact product
 version being installed, without channel or signing-status suffixes. The name

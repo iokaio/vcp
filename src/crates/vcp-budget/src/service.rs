@@ -12,6 +12,7 @@ use vcp_domain::{
 };
 use vcp_protocol::{canonical_bytes, digest_bytes, event::*};
 use vcp_store::contract::*;
+use vcp_store::CurrentStateView;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,7 +55,7 @@ impl SendPermit {
         &self.receipt
     }
 }
-fn task(state: &State, scope: &Scope) -> Result<Task> {
+fn task(state: CurrentStateView<'_>, scope: &Scope) -> Result<Task> {
     let value: Task = state
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
         .decode()?;
@@ -63,18 +64,24 @@ fn task(state: &State, scope: &Scope) -> Result<Task> {
     }
     Ok(value)
 }
-pub fn ledger(state: &State, scope: &Scope) -> Result<Ledger> {
+pub fn ledger<'a>(state: impl Into<CurrentStateView<'a>>, scope: &Scope) -> Result<Ledger> {
+    let state = state.into();
     let task = task(state, scope)?;
     Ok(state
         .record(Collection::Ledger, task.root.as_str(), &scope.workspace)?
         .decode()?)
 }
-pub fn attempt(state: &State, id: &AttemptId, workspace: &WorkspaceId) -> Result<Attempt> {
+pub fn attempt<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    id: &AttemptId,
+    workspace: &WorkspaceId,
+) -> Result<Attempt> {
+    let state = state.into();
     Ok(state
         .record(Collection::Attempt, id.as_str(), workspace)?
         .decode()?)
 }
-fn reservation(state: &State, attempt: &Attempt) -> Result<Reservation> {
+fn reservation(state: CurrentStateView<'_>, attempt: &Attempt) -> Result<Reservation> {
     Ok(state
         .record(
             Collection::Reservation,
@@ -128,7 +135,7 @@ fn event(
     }
 }
 fn transaction(
-    state: &State,
+    state: CurrentStateView<'_>,
     id: TransactionId,
     mutations: Vec<Mutation>,
     event: EventInput,
@@ -141,7 +148,7 @@ fn transaction(
         command: None,
     }
 }
-fn running(state: &State, task: &Task) -> Result<()> {
+fn running(state: CurrentStateView<'_>, task: &Task) -> Result<()> {
     if task.state != TaskState::Running {
         return Err(Error::Denied("task is not running"));
     }
@@ -158,7 +165,7 @@ fn running(state: &State, task: &Task) -> Result<()> {
     Ok(())
 }
 fn descends(
-    state: &State,
+    state: CurrentStateView<'_>,
     task_id: &TaskId,
     ancestor: &TaskId,
     workspace: &WorkspaceId,
@@ -175,7 +182,11 @@ fn descends(
     }
     Ok(false)
 }
-fn refresh(state: &State, ledger: &mut Ledger, changed: Option<&Reservation>) -> Result<()> {
+fn refresh(
+    state: CurrentStateView<'_>,
+    ledger: &mut Ledger,
+    changed: Option<&Reservation>,
+) -> Result<()> {
     let mut settled = Vec::new();
     let mut active = Vec::new();
     let mut unresolved = Vec::new();
@@ -213,26 +224,32 @@ fn refresh(state: &State, ledger: &mut Ledger, changed: Option<&Reservation>) ->
         }
     }
     ledger.settled = sum(settled)?;
-    ledger.active = sum(active)?;
-    ledger.unresolved = sum(unresolved)?;
-    ledger.overrun = sum([
-        ledger.settled,
+    ledger.active = estimated_sum(active)?;
+    ledger.unresolved = estimated_sum(unresolved)?;
+    let total = estimated_sum([
+        ledger.settled.into(),
         ledger.active,
         ledger.unresolved,
-        ledger.protected,
-    ])? > ledger.cap;
+        ledger.protected.into(),
+    ])?;
+    ledger.overrun = if let Some(cap) = ledger.cap.finite() {
+        known(total)? > *cap
+    } else {
+        false
+    };
     Ok(())
 }
 pub async fn initialize<S: CanonicalStore>(
     store: &mut S,
     scope: Scope,
-    cap: Money,
+    cap: impl Into<MonetaryLimit>,
     protected: Micros,
     daily: Option<DailyPolicy>,
     actor: &Actor,
 ) -> Result<Ledger> {
-    let root = task(store.state(), &scope)?;
-    if root.parent.is_some() || protected > cap.micros {
+    let cap = cap.into();
+    let root = task(store.current(), &scope)?;
+    if root.parent.is_some() || cap.micros.exceeds(&protected) {
         return Err(Error::Denied("invalid root or protected amount"));
     }
     let ledger = Ledger {
@@ -244,8 +261,8 @@ pub async fn initialize<S: CanonicalStore>(
         cap: cap.micros,
         protected,
         settled: Micros::ZERO,
-        active: Micros::ZERO,
-        unresolved: Micros::ZERO,
+        active: EstimatedMicros::ZERO,
+        unresolved: EstimatedMicros::ZERO,
         allocations: BTreeMap::new(),
         daily,
         overrun: false,
@@ -268,7 +285,7 @@ pub async fn initialize<S: CanonicalStore>(
     );
     store
         .transact(transaction(
-            store.state(),
+            store.current(),
             TransactionId::new(),
             vec![mutation],
             event,
@@ -280,13 +297,14 @@ pub async fn configure<S: CanonicalStore>(
     store: &mut S,
     scope: &Scope,
     expected: Revision,
-    cap: Money,
+    cap: impl Into<MonetaryLimit>,
     protected: Micros,
     allocations: BTreeMap<TaskId, Micros>,
     actor: &Actor,
     reason: &str,
 ) -> Result<Ledger> {
-    let mut next = ledger(store.state(), scope)?;
+    let cap = cap.into();
+    let mut next = ledger(store.current(), scope)?;
     if scope != &next.scope || next.revision != expected || reason.trim().is_empty() {
         return Err(Error::Conflict("budget policy revision or actor scope"));
     }
@@ -298,7 +316,7 @@ pub async fn configure<S: CanonicalStore>(
     next.cap = cap.micros;
     next.protected = protected;
     next.allocations = allocations;
-    refresh(store.state(), &mut next, None)?;
+    refresh(store.current(), &mut next, None)?;
     let mutation = put(
         Collection::Ledger,
         next.scope.task.to_string(),
@@ -316,7 +334,7 @@ pub async fn configure<S: CanonicalStore>(
     );
     store
         .transact(transaction(
-            store.state(),
+            store.current(),
             TransactionId::new(),
             vec![mutation],
             event,
@@ -325,13 +343,42 @@ pub async fn configure<S: CanonicalStore>(
     Ok(next)
 }
 
+/// Record the current execution policy without altering the original acceptance
+/// or past attempt evidence. Repeated activation is metadata-idempotent.
+pub async fn suspend_constraints<S: CanonicalStore>(
+    store: &mut S,
+    scope: &Scope,
+    actor: &Actor,
+) -> Result<Ledger> {
+    let current = ledger(store.current(), scope)?;
+    if current.cap.is_unbounded() {
+        return Ok(current);
+    }
+    let cap = MonetaryLimit {
+        currency: current.currency.clone(),
+        micros: vcp_domain::Limit::Unbounded,
+    };
+    configure(
+        store,
+        scope,
+        current.revision,
+        cap,
+        current.protected,
+        current.allocations,
+        actor,
+        "EE-01 execution constraints suspended; original acceptance and financial observations retained",
+    )
+    .await
+}
+
 /// Calculate against one snapshot. The returned transaction still contains all
 /// expected revisions; a losing race must recalculate, never reuse its allow.
-pub fn prepare_admission(
-    state: &State,
+pub fn prepare_admission<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     input: &Admission,
     actor: &Actor,
 ) -> Result<(Transaction, Attempt)> {
+    let state = state.into();
     let task = task(state, &input.scope)?;
     running(state, &task)?;
     if task.steering != input.steering {
@@ -380,7 +427,8 @@ pub fn prepare_admission(
         }
     }
     let amount = input.quote.amount.micros;
-    let draw = if input.draw_protected {
+    let draw = if input.draw_protected && !root.cap.is_unbounded() {
+        let amount = known(amount)?;
         if input.role != RequestRole::Verification || root.protected < amount {
             return Err(Error::Exhausted("protected verification reserve"));
         }
@@ -389,17 +437,22 @@ pub fn prepare_admission(
         Micros::ZERO
     };
     let protected = Micros::new(root.protected.get() - draw.get());
-    if sum([
-        root.settled,
-        root.active,
-        root.unresolved,
-        protected,
-        amount,
-    ])? > root.cap
-    {
-        return Err(Error::Exhausted("root cap"));
+    if let Some(cap) = root.cap.finite() {
+        if sum([
+            root.settled,
+            known(root.active)?,
+            known(root.unresolved)?,
+            protected,
+            known(amount)?,
+        ])? > *cap
+        {
+            return Err(Error::Exhausted("root cap"));
+        }
     }
     for (child, cap) in &root.allocations {
+        if root.cap.is_unbounded() {
+            continue;
+        }
         if !descends(state, &input.scope.task, child, &input.scope.workspace)? {
             continue;
         }
@@ -411,10 +464,10 @@ pub fn prepare_admission(
             if row.root == task.root
                 && descends(state, &row.scope.task, child, &input.scope.workspace)?
             {
-                committed.push(sum([row.charged, row.liability])?);
+                committed.push(sum([row.charged, known(row.liability)?])?);
             }
         }
-        if add(sum(committed)?, amount)? > *cap {
+        if add(sum(committed)?, known(amount)?)? > *cap {
             return Err(Error::Exhausted("child allocation"));
         }
     }
@@ -422,7 +475,7 @@ pub fn prepare_admission(
         input.now,
         root.daily.as_ref().map_or(0, |d| d.utc_offset_minutes),
     )?;
-    if let Some(daily) = &root.daily {
+    if let Some(daily) = root.daily.as_ref().filter(|_| !root.cap.is_unbounded()) {
         let mut today = Vec::new();
         for record in state.records.values().filter(|r| {
             r.collection == Collection::Reservation && r.workspace == input.scope.workspace
@@ -430,13 +483,13 @@ pub fn prepare_admission(
             let row: Reservation = record.decode()?;
             if row.root == task.root {
                 today.push(if row.day == day {
-                    sum([row.charged, row.liability])?
+                    sum([row.charged, known(row.liability)?])?
                 } else {
-                    row.liability
+                    known(row.liability)?
                 });
             }
         }
-        if sum([sum(today)?, amount, protected])? > daily.cap {
+        if sum([sum(today)?, known(amount)?, protected])? > daily.cap {
             return Err(Error::Exhausted("local root daily cap"));
         }
     }
@@ -530,7 +583,7 @@ pub async fn reserve<S: CanonicalStore>(
     actor: &Actor,
 ) -> Result<Attempt> {
     if let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Attempt, input.attempt.as_str()))
     {
@@ -542,16 +595,17 @@ pub async fn reserve<S: CanonicalStore>(
         }
         return Ok(existing);
     }
-    let (transaction, attempt) = prepare_admission(store.state(), &input, actor)?;
+    let (transaction, attempt) = prepare_admission(store.current(), &input, actor)?;
     store.transact(transaction).await?;
     Ok(attempt)
 }
-pub fn prepare_captured_admission(
-    state: &State,
+pub fn prepare_captured_admission<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     input: &Admission,
     captured: &ArtifactDescriptor,
     actor: &Actor,
 ) -> Result<(Transaction, Attempt)> {
+    let state = state.into();
     if captured.spec.scope != input.scope
         || captured.spec.id != input.request
         || captured.sha256 != input.request_digest
@@ -560,7 +614,7 @@ pub fn prepare_captured_admission(
         return Err(Error::Conflict("request capture scope or digest"));
     }
     let key = key(Collection::Artifact, captured.spec.id.as_str());
-    let mut staged = state.clone();
+    let mut records = std::borrow::Cow::Borrowed(state.records);
     let existing = state.records.get(&key);
     if let Some(record) = existing {
         if record.decode::<ArtifactDescriptor>()? != *captured {
@@ -575,9 +629,13 @@ pub fn prepare_captured_admission(
         captured,
     )?;
     if existing.is_none() {
-        staged.records.insert(key, record.clone());
+        records.to_mut().insert(key, record.clone());
     }
-    let (mut transaction, attempt) = prepare_admission(&staged, input, actor)?;
+    let staged = CurrentStateView {
+        records: &records,
+        ..state
+    };
+    let (mut transaction, attempt) = prepare_admission(staged, input, actor)?;
     if existing.is_none() {
         transaction.mutations.insert(
             0,
@@ -596,14 +654,14 @@ pub async fn reserve_captured<S: CanonicalStore>(
     actor: &Actor,
 ) -> Result<Attempt> {
     if store
-        .state()
+        .current()
         .records
         .contains_key(&key(Collection::Attempt, input.attempt.as_str()))
     {
         return reserve(store, input, actor).await;
     }
     let (transaction, attempt) =
-        prepare_captured_admission(store.state(), &input, &captured, actor)?;
+        prepare_captured_admission(store.current(), &input, &captured, actor)?;
     store.transact(transaction).await?;
     Ok(attempt)
 }
@@ -613,7 +671,7 @@ pub async fn record_local_resources<S: CanonicalStore>(
     actor: &Actor,
 ) -> Result<()> {
     if let Some(existing) = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::LocalResources, resources.id.as_str()))
     {
@@ -622,7 +680,7 @@ pub async fn record_local_resources<S: CanonicalStore>(
         }
         return Ok(());
     }
-    task(store.state(), &resources.scope)?;
+    task(store.current(), &resources.scope)?;
     let mutation = put(
         Collection::LocalResources,
         resources.id.to_string(),
@@ -640,7 +698,7 @@ pub async fn record_local_resources<S: CanonicalStore>(
     );
     store
         .transact(transaction(
-            store.state(),
+            store.current(),
             TransactionId::new(),
             vec![mutation],
             event,
@@ -660,7 +718,7 @@ async fn persist<S: CanonicalStore>(
     artifacts: Vec<ArtifactId>,
     send_event: Option<EventId>,
 ) -> Result<Receipt> {
-    let mut root = ledger(store.state(), &old.scope)?;
+    let mut root = ledger(store.current(), &old.scope)?;
     let expected = root.revision;
     root.revision = root.revision.next()?;
     let reservation_revision = reservation.revision;
@@ -674,21 +732,15 @@ async fn persist<S: CanonicalStore>(
             | ReservationState::Submitted
             | ReservationState::ReconciliationPending
     ) {
-        Micros::new(
-            reservation
-                .amount
-                .micros
-                .get()
-                .saturating_sub(next.charged.get()),
-        )
+        reservation.amount.micros.remaining_after(next.charged)
     } else {
-        Micros::ZERO
+        EstimatedMicros::ZERO
     };
     if next.phase == ReservationState::Released && reservation.protected_returned == Micros::ZERO {
         root.protected = add(root.protected, reservation.protected_draw)?;
         reservation.protected_returned = reservation.protected_draw;
     }
-    refresh(store.state(), &mut root, Some(&reservation))?;
+    refresh(store.current(), &mut root, Some(&reservation))?;
     let mut mutations = vec![
         put(
             Collection::Ledger,
@@ -726,7 +778,7 @@ async fn persist<S: CanonicalStore>(
     }
     Ok(store
         .transact(transaction(
-            store.state(),
+            store.current(),
             TransactionId::new(),
             mutations,
             event,
@@ -740,13 +792,13 @@ pub async fn submit<S: CanonicalStore>(
     expected: Revision,
     actor: &Actor,
 ) -> Result<SendPermit> {
-    let old = attempt(store.state(), id, &scope.workspace)?;
+    let old = attempt(store.current(), id, &scope.workspace)?;
     if &old.scope != scope || old.revision != expected || old.phase != ReservationState::Created {
         return Err(Error::Conflict("attempt already submitted or changed"));
     }
-    let task = task(store.state(), scope)?;
-    running(store.state(), &task)?;
-    let root = ledger(store.state(), scope)?;
+    let task = task(store.current(), scope)?;
+    running(store.current(), &task)?;
+    let root = ledger(store.current(), scope)?;
     if old.steering != task.steering || old.admitted_policy != root.policy || root.overrun {
         return Err(Error::Denied("authority or budget changed before send"));
     }
@@ -755,7 +807,7 @@ pub async fn submit<S: CanonicalStore>(
     next.phase = ReservationState::Submitted;
     let send = EventId::new();
     next.send_intent = Some(send.clone());
-    let reserved = reservation(store.state(), &old)?;
+    let reserved = reservation(store.current(), &old)?;
     let receipt = persist(
         store,
         &old,
@@ -782,7 +834,7 @@ pub async fn hold_uncertain<S: CanonicalStore>(
     actor: &Actor,
     reason: &str,
 ) -> Result<()> {
-    let old = attempt(store.state(), id, &scope.workspace)?;
+    let old = attempt(store.current(), id, &scope.workspace)?;
     if &old.scope != scope || reason.trim().is_empty() {
         return Err(Error::Conflict("uncertain outcome scope/reason"));
     }
@@ -795,7 +847,7 @@ pub async fn hold_uncertain<S: CanonicalStore>(
     let mut next = old.clone();
     next.phase = ReservationState::ReconciliationPending;
     next.uncertain = Some(reason.into());
-    let reserved = reservation(store.state(), &old)?;
+    let reserved = reservation(store.current(), &old)?;
     persist(
         store,
         &old,
@@ -817,7 +869,7 @@ pub async fn release_before_send<S: CanonicalStore>(
     scope: &Scope,
     actor: &Actor,
 ) -> Result<()> {
-    let old = attempt(store.state(), id, &scope.workspace)?;
+    let old = attempt(store.current(), id, &scope.workspace)?;
     if &old.scope != scope {
         return Err(Error::Conflict("release scope"));
     }
@@ -829,7 +881,7 @@ pub async fn release_before_send<S: CanonicalStore>(
     }
     let mut next = old.clone();
     next.phase = ReservationState::Released;
-    let reserved = reservation(store.state(), &old)?;
+    let reserved = reservation(store.current(), &old)?;
     persist(
         store,
         &old,
@@ -851,7 +903,7 @@ pub async fn observe<S: CanonicalStore>(
     actor: &Actor,
 ) -> Result<Settlement> {
     if let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Settlement, observation.id.as_str()))
     {
@@ -870,7 +922,7 @@ pub async fn observe<S: CanonicalStore>(
         return Ok(existing);
     }
     let old = attempt(
-        store.state(),
+        store.current(),
         &observation.attempt,
         &observation.scope.workspace,
     )?;
@@ -931,7 +983,7 @@ pub async fn observe<S: CanonicalStore>(
         ));
     }
     if let Some(resolution) = &observation.correction {
-        let root = ledger(store.state(), &old.scope)?;
+        let root = ledger(store.current(), &old.scope)?;
         if resolution.actor != actor.id
             || resolution.policy != root.policy
             || resolution.reason.trim().is_empty()
@@ -997,7 +1049,7 @@ pub async fn observe<S: CanonicalStore>(
         None,
         &settlement,
     )?;
-    let reserved = reservation(store.state(), &old)?;
+    let reserved = reservation(store.current(), &old)?;
     persist(
         store,
         &old,

@@ -5,6 +5,7 @@ use crate::{
     settings::{self, WorkspaceEntry},
 };
 use serde_json::{json, Value};
+use vcp_store::contract::CanonicalStore;
 use std::path::{Path, PathBuf};
 use vcp_domain::{ids::*, revision::*, workspace::Workspace};
 use vcp_engine::{Access, Engine, HostFacts};
@@ -137,7 +138,7 @@ pub async fn rebind(
     let mut engine = Engine::new(store).map_err(|e| e.to_string())?;
     let current: Workspace = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Workspace, workspace_id.as_str(), workspace_id)
         .and_then(|row| row.decode())
         .map_err(|e| e.to_string())?;
@@ -187,7 +188,7 @@ pub async fn rebind(
     }
     let bound: Workspace = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Workspace, workspace_id.as_str(), workspace_id)
         .and_then(|row| row.decode())
         .map_err(|e| e.to_string())?;
@@ -243,7 +244,8 @@ mod tests {
             cap: Money {
                 currency: currency.clone(),
                 micros: Micros::new(1000),
-            },
+            }
+            .into(),
             protected: Micros::ZERO,
             price: PriceSnapshot {
                 id: "a".repeat(64),
@@ -320,7 +322,7 @@ mod tests {
                 .await
                 .unwrap();
             let bound: Workspace = store
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     config.workspace.as_str(),
@@ -332,14 +334,14 @@ mod tests {
             assert_eq!(bound.trust, Trust::Untrusted);
             assert!(bound.authority > AuthorityRevision::ZERO);
             assert!(store
-                .state()
+                .current()
                 .record(
                     Collection::Session,
                     config.session.as_str(),
                     &config.workspace
                 )
                 .is_ok());
-            let watermark = store.state().watermark;
+            let watermark = store.current().watermark;
             store.close().await.unwrap();
             // Simulate a crash after canonical commit but before descriptor save.
             std::fs::write(&entry_path, before).unwrap();
@@ -348,7 +350,7 @@ mod tests {
             let store = Store::open(&config.canonical_root, backend, &[])
                 .await
                 .unwrap();
-            assert_eq!(store.state().watermark, watermark);
+            assert_eq!(store.current().watermark, watermark);
             store.close().await.unwrap();
             let entry: WorkspaceEntry =
                 serde_json::from_slice(&settings::read_bounded(&entry_path, 256 * 1024).unwrap())

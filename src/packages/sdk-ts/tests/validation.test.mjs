@@ -18,6 +18,40 @@ test('Counter is an exact canonical u64 string and request IDs are safe', () => 
   for (const id of [Number.MAX_SAFE_INTEGER + 1, 1.5, true]) assert.throws(() => validateWire('RequestId', id));
 });
 
+test('execution limits accept explicit unbounded and legacy finite values without ambiguous versions', () => {
+  const base = {currency:'USD', max_requests:3};
+  validateWire('Budget', {...base, cap_micros:'100', deadline_seconds:30});
+  const unbounded = {version:1, kind:'unbounded'};
+  validateWire('Budget', {...base, cap_micros:unbounded, deadline_seconds:unbounded});
+  validateWire('Budget', {...base, cap_micros:{version:1,kind:'finite',value:'100'}, deadline_seconds:{version:1,kind:'finite',value:30}});
+  for (const cap_micros of [null, {version:2,kind:'unbounded'}, {version:1,kind:'unbounded',value:'0'}, {version:1,kind:'finite'}, {version:1,kind:'finite',value:100}]) {
+    assert.throws(() => validateWire('Budget', {...base,cap_micros,deadline_seconds:unbounded}));
+  }
+});
+
+test('unknown reservation estimates preserve exact components without becoming settled money', () => {
+  for (const value of ['0', '9007199254740993', '18446744073709551615']) validateWire('EstimatedCounter', value);
+  const unknown = {kind:'unknown',version:1,known_component:'9007199254740993',unknown_components:'2'};
+  validateWire('EstimatedCounter', unknown);
+  for (const changed of [{version:2}, {known_component:'01'}, {known_component:'18446744073709551616'}, {unknown_components:'0'}, {unknown_components:2}, {total:'0'}]) {
+    assert.throws(() => validateWire('EstimatedCounter', {...unknown,...changed}));
+  }
+  const usage = {scope:{workspace:'ws',session:'s'}, task:'task', root:'task', currency:'USD',cap_micros:{kind:'unbounded',version:1},settled_micros:'3',reserved_micros:unknown,unresolved_micros:'0',overrun:false};
+  validateWire('UsageView', usage);
+  assert.throws(() => validateWire('UsageView', {...usage,settled_micros:unknown}));
+});
+
+test('paused tasks preserve legacy reasons and expose versioned diagnostic evidence', () => {
+  const task = {scope:{workspace:'ws',session:'s'},task:'t',root:'t',revision:'2',steering_revision:'0',
+    state:'paused',reason:'Paused by owner',pending_inputs:[],effects:'known'};
+  validateWire('TaskView', task);
+  const diagnostic = {schema_version:1,code:'execution.no_progress',message:'Repeated failed checks',evidence:'artifact',repeats:3,threshold:3};
+  validateWire('TaskView', {...task,diagnostic});
+  for (const invalid of [{schema_version:2},{code:'stalled'},{evidence:'../foreign'},{threshold:0},{message:'x'.repeat(1025)}]) {
+    assert.throws(() => validateWire('TaskView', {...task,diagnostic:{...diagnostic,...invalid}}));
+  }
+});
+
 test('routing quality observations preserve the canonical unsigned 16-bit range', () => {
   const policy = {
     id: 'policy', parent_id: null, profile: 'low', quality_floor_bps: 7000,

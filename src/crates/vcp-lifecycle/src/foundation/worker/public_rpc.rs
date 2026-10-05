@@ -92,7 +92,7 @@ fn facts(context: &Context) -> Result<HostFacts> {
     Ok(HostFacts {
         now: now(),
         policy: vcp_engine::policy::optional(
-            context.engine.store().state(),
+            context.engine.store().current(),
             &context.config.workspace,
         )?
         .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -302,7 +302,7 @@ impl PublicConnection {
                                     .map_or(0, |lease| lease.generation.get())
                                     .into(),
                                 ownership,
-                                watermark: context.engine.store().state().watermark.get().into(),
+                                watermark: context.engine.store().current().watermark.get().into(),
                             }))
                         })())
                     })
@@ -342,13 +342,15 @@ impl PublicConnection {
                         if !access.write {
                             return Ok(Err(ControllerError::Access));
                         }
-                        match context.engine.controller_recover_receipt(
-                            &access,
-                            &connection,
-                            &command,
-                            expected,
-                            generation,
-                        ) {
+                        match context
+                            .runtime
+                            .block_on(context.engine.controller_recover_receipt(
+                                &access,
+                                &connection,
+                                &command,
+                                expected,
+                                generation,
+                            )) {
                             Ok(Some(receipt)) => return Ok(Ok(receipt)),
                             Err(error) => return Ok(Err(error)),
                             Ok(None) => (),
@@ -376,7 +378,11 @@ impl PublicConnection {
         let access = current.clone();
         self.host
             .worker
-            .run_cleanup(move |context| Ok(acceptance(&context.engine, &access, &receipt)))
+            .run_cleanup(move |context| {
+                Ok(context
+                    .runtime
+                    .block_on(acceptance(&context.engine, &access, &receipt)))
+            })
             .map_err(|_| controller_error(ControllerError::OutcomeUnknown, &call))?
     }
 }
@@ -506,15 +512,19 @@ impl RpcHost for PublicConnection {
                 .run_cleanup(move |context| {
                     if let Call::DiffRead(request) = &request {
                         return Ok(context
-                            .engine
-                            .public_diff(&access, request)
+                            .runtime
+                            .block_on(context.engine.public_diff(&access, request))
                             .map(ResultValue::Artifact)
                             .map_err(vcp_engine::rpc::query_error));
                     }
                     if let Call::TaskPresentation(request) = &request {
                         return Ok(context
-                            .engine
-                            .public_presentation_with_content(&access, request, now())
+                            .runtime
+                            .block_on(context.engine.public_presentation_with_content(
+                                &access,
+                                request,
+                                now(),
+                            ))
                             .and_then(|mut page| {
                                 super::public_presentation::model(
                                     context, &access, request, &mut page,
@@ -532,8 +542,8 @@ impl RpcHost for PublicConnection {
                     }
                     if let Call::ArtifactRead(request) = &request {
                         return Ok(context
-                            .engine
-                            .public_artifact(&access, request)
+                            .runtime
+                            .block_on(context.engine.public_artifact(&access, request))
                             .map(ResultValue::Artifact)
                             .map_err(vcp_engine::rpc::query_error));
                     }
@@ -617,18 +627,20 @@ impl RpcHost for PublicConnection {
                     )
                 })?;
                 let prepared = match context
-                    .engine
-                    .prepare_controlled_public(
+                    .runtime
+                    .block_on(context.engine.prepare_controlled_public(
                         request.clone(),
                         &admitted_access,
                         &facts,
                         &admitted_connection,
                         &admitted_token,
-                    )
+                    ))
                     .map_err(|error| public_error(error, operation.clone(), approval))?
                 {
                     PublicAdmission::Replay(receipt) => {
-                        return acceptance(&context.engine, &admitted_access, &receipt)
+                        return context
+                            .runtime
+                            .block_on(acceptance(&context.engine, &admitted_access, &receipt))
                             .map(Admission::Reply);
                     }
                     PublicAdmission::Ready(prepared) => prepared,
@@ -650,7 +662,7 @@ impl RpcHost for PublicConnection {
                     let selected: Task = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(Collection::Task, task.as_str(), &admitted_access.workspace)
                         .and_then(Record::decode)
                         .map_err(|_| RpcError::internal_error())?;
@@ -726,7 +738,9 @@ impl RpcHost for PublicConnection {
                                 )
                             })?;
                     }
-                    return acceptance(&context.engine, &admitted_access, &receipt)
+                    return context
+                        .runtime
+                        .block_on(acceptance(&context.engine, &admitted_access, &receipt))
                         .map(Admission::Reply);
                 }
                 let task_id = prepared
@@ -736,7 +750,7 @@ impl RpcHost for PublicConnection {
                 let selected: Option<Task> = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .get(&key(Collection::Task, task_id.as_str()))
                     .map(|record| authority_task(record, &admitted_access, &task_id))
@@ -811,7 +825,7 @@ impl RpcHost for PublicConnection {
                 let tasks = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| {
@@ -964,7 +978,7 @@ impl RpcHost for PublicConnection {
                         let workspace: Workspace = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Workspace,
                                 access.workspace.as_str(),
@@ -977,7 +991,9 @@ impl RpcHost for PublicConnection {
                         // credentials remain stale until explicit refresh.
                         context.access.authority = workspace.authority;
                     }
-                    acceptance(&context.engine, &result_access, &receipt)
+                    context
+                        .runtime
+                        .block_on(acceptance(&context.engine, &result_access, &receipt))
                 })();
                 context.clear_authority_pending();
                 Ok(result)

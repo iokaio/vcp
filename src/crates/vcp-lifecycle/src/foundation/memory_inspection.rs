@@ -118,16 +118,21 @@ impl CanonicalHost {
                 }
                 Ok(())
             };
-            let bindings =
-                retrieval::source_bindings_with_check(context.engine.store(), &access, &check)?;
-            let captured = retrieval::capture(
+            let bindings = context
+                .runtime
+                .block_on(retrieval::source_bindings_with_check(
+                    context.engine.store(),
+                    &access,
+                    &check,
+                ))?;
+            let captured = context.runtime.block_on(retrieval::capture(
                 context.engine.store(),
                 &access,
                 &request,
                 &bindings.bindings,
                 &ChunkerSpec::default(),
                 &|| check().is_err(),
-            )?;
+            ))?;
             Ok((
                 captured,
                 access,
@@ -150,8 +155,12 @@ impl CanonicalHost {
             let stopped = || control.stopped() || finish_worker.fenced();
             let mut access = context.memory_access();
             access.write = false;
-            let mut response =
-                retrieval::finish(context.engine.store(), &access, selected, &stopped)?;
+            let mut response = context.runtime.block_on(retrieval::finish(
+                context.engine.store(),
+                &access,
+                selected,
+                &stopped,
+            ))?;
             response.rebuild_required |= !sources.complete;
             response.degraded.extend(sources.degraded);
             Ok(response)
@@ -162,7 +171,7 @@ impl CanonicalHost {
 /// Offline CLI inspection uses the same retained-source derivation, noncreating
 /// component open and lexical-only query. Its caller already owns the Store.
 /// No inference or write is hidden behind a missing generation/assets condition.
-pub fn inspect_store(
+pub async fn inspect_store(
     store: &vcp_store::Store,
     access: &vcp_memory::access::Access,
     canonical_root: &std::path::Path,
@@ -170,8 +179,9 @@ pub fn inspect_store(
 ) -> Result<retrieval::Response, String> {
     let control = InspectionControl::new(request)?;
     let check = || control.check();
-    let sources =
-        retrieval::source_bindings_with_check(store, access, &check).map_err(|e| e.to_string())?;
+    let sources = retrieval::source_bindings_with_check(store, access, &check)
+        .await
+        .map_err(|e| e.to_string())?;
     let directory = canonical_root.join("search-generations");
     let _permit =
         super::memory_vectors::admission()?.acquire(vcp_memory::local_resources::Workload {
@@ -200,6 +210,7 @@ pub fn inspect_store(
         None,
         &|| control.stopped(),
     )
+    .await
     .map_err(|e| e.to_string())?;
     response.rebuild_required |= !sources.complete;
     response.degraded.extend(sources.degraded);

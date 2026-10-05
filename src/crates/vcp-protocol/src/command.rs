@@ -36,6 +36,16 @@ impl CommandEnvelope {
         Ok(())
     }
     pub fn digest(&self) -> Result<String, serde_json::Error> {
+        // Existing finite child commands keep their original meaning digest.
+        // Only this typed execution limit is normalized; persisted bytes and
+        // unrelated payloads are never rewritten.
+        if let Command::CreateChild { spec, .. } = &self.payload {
+            if let vcp_domain::Limit::Finite(deadline) = spec.deadline {
+                let mut value = serde_json::to_value(self)?;
+                value["payload"]["spec"]["deadline"] = serde_json::to_value(deadline)?;
+                return Ok(crate::digest_bytes(&crate::canonical_bytes(&value)?));
+            }
+        }
         Ok(crate::digest_bytes(&crate::canonical_bytes(self)?))
     }
 }

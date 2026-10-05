@@ -82,7 +82,11 @@ async fn fixture(path: &std::path::Path, backend: BackendKind) -> (Store, Scope,
         write: true,
         tasks: None,
     };
-    let event = engine.store().state().events.last().unwrap().clone();
+    let event = (&engine.store().archive_state().await.unwrap())
+        .events
+        .last()
+        .unwrap()
+        .clone();
     let proposal = vcp_memory::preferences::materialize(engine.store_mut(), &access, &event)
         .await
         .unwrap()
@@ -125,6 +129,7 @@ async fn publish(
         &ChunkerSpec::default(),
         search_record::Limits::default(),
     )
+    .await
     .unwrap();
     let prepared = publisher
         .prepare(
@@ -174,6 +179,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert_eq!(before.passages.len(), 1);
             let evidence = before.passages[0].evidence.clone();
@@ -189,12 +195,17 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                     Action::Exclude,
                     Timestamp::new(400),
                 )
+                .await
                 .unwrap();
                 assert!(!preview.selected.is_empty());
                 retention::apply(&mut store, &access, &preview, Timestamp::new(401))
                     .await
                     .unwrap();
-                assert!(revalidate_fence(&store, &access, before.fence.as_ref().unwrap()).is_err());
+                assert!(
+                    revalidate_fence(&store, &access, before.fence.as_ref().unwrap())
+                        .await
+                        .is_err()
+                );
                 let denied = query(
                     &store,
                     &access,
@@ -205,6 +216,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                     None,
                     &|| false,
                 )
+                .await
                 .unwrap();
                 assert!(
                     denied.passages.is_empty(),
@@ -215,13 +227,14 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             drop(publisher);
             store.close().await.unwrap();
             let source = Store::open(&root, from, &[]).await.unwrap();
-            let original = source.state().clone();
+            let original = source.archive_state().await.unwrap();
             let archive = Archive::capture(
                 &source,
                 &source.snapshot().unwrap(),
                 &scope.workspace,
                 &|| false,
             )
+            .await
             .unwrap();
             let retained: Vec<_> = evidence
                 .iter()
@@ -240,7 +253,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 .unwrap();
             let keys = keys.verify_recovery(&copy).unwrap();
             let ws: Workspace = source
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     scope.workspace.as_str(),
@@ -316,6 +329,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             let mut restore = Restore::open(&restore_root, &forbidden).unwrap();
             let proof = restore
                 .authenticate(&trust, &copy, Limits::default(), &|| false)
+                .await
                 .unwrap();
             let imported = restore
                 .import(
@@ -333,7 +347,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
             assert!(!restore.status().search_ready);
             let mut restored = imported.reopen_verified().await.unwrap();
             let target_ws: Workspace = restored
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     scope.workspace.as_str(),
@@ -351,6 +365,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 &chunker,
                 search_record::Limits::default()
             )
+            .await
             .is_err());
             let target_access = Access {
                 workspace: scope.workspace.clone(),
@@ -367,14 +382,20 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                     &scope.workspace,
                     &|| false,
                 )
+                .await
                 .unwrap();
                 assert_eq!(&target_archive.retained_artifact(id).unwrap(), bytes);
             }
             for (id, receipt) in &original.transactions {
-                assert_eq!(restored.state().transactions.get(id), Some(receipt));
+                assert_eq!(
+                    (&restored.archive_state().await.unwrap())
+                        .transactions
+                        .get(id),
+                    Some(receipt)
+                );
             }
             assert_eq!(
-                &restored.state().events[..original.events.len()],
+                &(&restored.archive_state().await.unwrap()).events[..original.events.len()],
                 original.events.as_slice()
             );
             let unavailable = query(
@@ -387,6 +408,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             assert!(unavailable.rebuild_required && unavailable.passages.is_empty());
             let rebuilt = publish(
@@ -411,6 +433,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false,
             )
+            .await
             .unwrap();
             if excluded {
                 assert!(
@@ -422,6 +445,7 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 assert_eq!(recalled.passages[0].text, before.passages[0].text);
                 assert_eq!(recalled.passages[0].evidence, evidence);
                 revalidate_fence(&restored, &target_access, recalled.fence.as_ref().unwrap())
+                    .await
                     .unwrap();
             }
             let narrow = Access {
@@ -438,11 +462,12 @@ async fn sourced_recall_exclusion_and_authority_survive_encrypted_cross_backend_
                 None,
                 &|| false
             )
+            .await
             .unwrap()
             .passages
             .is_empty());
             assert_eq!(
-                source.state(),
+                &source.archive_state().await.unwrap(),
                 &original,
                 "restore must preserve the original root"
             );

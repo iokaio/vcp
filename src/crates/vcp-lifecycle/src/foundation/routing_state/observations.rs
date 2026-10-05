@@ -24,7 +24,7 @@ use vcp_protocol::{
     event::{EventKind, EventMetadata},
 };
 use vcp_store::{
-    contract::{key, Collection, Record},
+    contract::{key, CanonicalStore, Collection, Record},
     Store,
 };
 
@@ -307,10 +307,10 @@ impl Build {
 
 /// Build one read-only retained view. Independent turns and attempts remain
 /// separate traces; callers may feed each uninterrupted trace to pure kernels.
-pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
-    observe_with_check(store, access, window, &|| Ok(()))
+pub async fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Evidence> {
+    observe_with_check(store, access, window, &|| Ok(())).await
 }
-pub fn observe_with_check(
+pub async fn observe_with_check(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -318,8 +318,9 @@ pub fn observe_with_check(
 ) -> Result<Evidence> {
     cooperate()?;
     authorize(store, access, false)?;
-    let state = store.state();
-    if state.events.len() > MAX_SCAN || state.records.len() > MAX_SCAN {
+    let state = store.current();
+    let count = store.history_event_count().await.map_err(err)?;
+    if count > MAX_SCAN as u64 || state.records.len() > MAX_SCAN {
         return Err("action evidence exceeds 100000 canonical rows/events".into());
     }
     if window.from.is_some_and(|from| from >= window.until) {
@@ -336,99 +337,116 @@ pub fn observe_with_check(
         .map_err(err)?;
     let mut build = Build::new();
     let mut seen_events = BTreeSet::new();
-    for envelope in &state.events {
+    let mut at = 0u64;
+    while at < count {
         cooperate()?;
-        let event = &envelope.event;
-        if event.workspace != access.workspace
-            || event.timestamp >= window.until
-            || window.from.is_some_and(|from| event.timestamp < from)
-            || !event
-                .task
-                .as_ref()
-                .is_some_and(|task| access.allows_task(task))
-        {
-            continue;
+        let limit = (count - at).min(256) as usize;
+        let page = store
+            .history_events(at.checked_sub(1), limit)
+            .await
+            .map_err(err)?;
+        if page.is_empty() || page.len() > limit || store.current().watermark != state.watermark {
+            return Err("action history cut changed or incomplete".into());
         }
-        let Some(task) = event.task.as_ref() else {
-            continue;
-        };
-        if !eligible_task(store, access, task, &mut build.excluded)? {
-            continue;
-        }
-        if !seen_events.insert(event.id.clone()) {
-            return Err("duplicate canonical event identity".into());
-        }
-        let unavailable = envelope.redaction.is_some()
-            || purged(state, &access.workspace, &Target::Event(event.id.clone())).map_err(err)?;
-        if unavailable {
-            if relevant(&event.kind) {
-                build.gap(task, &event.id, GapReason::RedactedEvent)?;
+        for envelope in &page {
+            if envelope.watermark > state.watermark {
+                return Err("action event exceeds source cut".into());
             }
-            continue;
-        }
-        if matches!(
-            event.kind,
-            EventKind::ReservationCreated
-                | EventKind::AttemptSubmitted
-                | EventKind::UsageReconciled
-                | EventKind::ReservationReleased
-                | EventKind::LiabilityRetained
-        ) {
-            if envelope.version != 1 || event.data["schema_version"] != 1 {
-                build.gap(task, &event.id, GapReason::MissingFacts)?;
+            at += 1;
+            cooperate()?;
+            let event = &envelope.event;
+            if event.workspace != access.workspace
+                || event.timestamp >= window.until
+                || window.from.is_some_and(|from| event.timestamp < from)
+                || !event
+                    .task
+                    .as_ref()
+                    .is_some_and(|task| access.allows_task(task))
+            {
                 continue;
             }
-            observe_attempt(store, access, envelope, task, &window, &mut build)?;
-        }
-        if matches!(
-            event.kind,
-            EventKind::TurnTransition
-                | EventKind::EffectTransition
-                | EventKind::TaskTransition
-                | EventKind::VerificationRecorded
-        ) {
-            let facts = (envelope.version == 1 && event.data["schema_version"] == 1)
-                .then(|| event.data["facts"].as_array())
-                .flatten();
-            let Some(facts) = facts else {
-                build.gap(task, &event.id, GapReason::MissingFacts)?;
+            let Some(task) = event.task.as_ref() else {
                 continue;
             };
-            build.facts = build
-                .facts
-                .checked_add(facts.len())
-                .ok_or("action fact count overflow")?;
-            if build.facts > MAX_SCAN {
-                return Err("action evidence exceeds 100000 facts".into());
+            if !eligible_task(store, access, task, &mut build.excluded)? {
+                continue;
             }
-            let mut found = false;
-            for fact in facts {
-                cooperate()?;
-                match fact["collection"].as_str() {
-                    Some("turn") => {
-                        found = true;
-                        observe_turn(store, access, envelope, task, fact, &mut build)?;
-                    }
-                    Some("effect") => {
-                        found = true;
-                        observe_effect(store, access, envelope, task, fact, &mut build)?;
-                    }
-                    Some("verification") => {
-                        found = true;
-                        observe_verification(store, access, envelope, task, fact, &mut build)?;
-                    }
-                    _ => {}
+            if !seen_events.insert(event.id.clone()) {
+                return Err("duplicate canonical event identity".into());
+            }
+            let unavailable = envelope.redaction.is_some()
+                || purged(state, &access.workspace, &Target::Event(event.id.clone()))
+                    .map_err(err)?;
+            if unavailable {
+                if relevant(&event.kind) {
+                    build.gap(task, &event.id, GapReason::RedactedEvent)?;
                 }
+                continue;
             }
-            if !found
-                && matches!(
-                    event.kind,
-                    EventKind::TurnTransition
-                        | EventKind::EffectTransition
-                        | EventKind::VerificationRecorded
-                )
-            {
-                build.gap(task, &event.id, GapReason::InvalidFact)?;
+            if matches!(
+                event.kind,
+                EventKind::ReservationCreated
+                    | EventKind::AttemptSubmitted
+                    | EventKind::UsageReconciled
+                    | EventKind::ReservationReleased
+                    | EventKind::LiabilityRetained
+            ) {
+                if envelope.version != 1 || event.data["schema_version"] != 1 {
+                    build.gap(task, &event.id, GapReason::MissingFacts)?;
+                    continue;
+                }
+                observe_attempt(store, access, envelope, task, &window, &mut build)?;
+            }
+            if matches!(
+                event.kind,
+                EventKind::TurnTransition
+                    | EventKind::EffectTransition
+                    | EventKind::TaskTransition
+                    | EventKind::VerificationRecorded
+            ) {
+                let facts = (envelope.version == 1 && event.data["schema_version"] == 1)
+                    .then(|| event.data["facts"].as_array())
+                    .flatten();
+                let Some(facts) = facts else {
+                    build.gap(task, &event.id, GapReason::MissingFacts)?;
+                    continue;
+                };
+                build.facts = build
+                    .facts
+                    .checked_add(facts.len())
+                    .ok_or("action fact count overflow")?;
+                if build.facts > MAX_SCAN {
+                    return Err("action evidence exceeds 100000 facts".into());
+                }
+                let mut found = false;
+                for fact in facts {
+                    cooperate()?;
+                    match fact["collection"].as_str() {
+                        Some("turn") => {
+                            found = true;
+                            observe_turn(store, access, envelope, task, fact, &mut build)?;
+                        }
+                        Some("effect") => {
+                            found = true;
+                            observe_effect(store, access, envelope, task, fact, &mut build)?;
+                        }
+                        Some("verification") => {
+                            found = true;
+                            observe_verification(store, access, envelope, task, fact, &mut build)?;
+                        }
+                        _ => {}
+                    }
+                }
+                if !found
+                    && matches!(
+                        event.kind,
+                        EventKind::TurnTransition
+                            | EventKind::EffectTransition
+                            | EventKind::VerificationRecorded
+                    )
+                {
+                    build.gap(task, &event.id, GapReason::InvalidFact)?;
+                }
             }
         }
     }
@@ -484,7 +502,7 @@ fn eligible_task(
         return Ok(false);
     }
     let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Task, id.as_str()))
         .filter(|record| record.workspace == access.workspace)
@@ -492,7 +510,7 @@ fn eligible_task(
         return Ok(false);
     };
     if purged(
-        store.state(),
+        store.current(),
         &access.workspace,
         &Target::Record(record.key()),
     )
@@ -517,7 +535,7 @@ fn eligible_record(
     excluded: &mut BTreeSet<String>,
 ) -> Result<Option<Record>> {
     let Some(record) = store
-        .state()
+        .current()
         .records
         .get(&key(collection, id))
         .filter(|record| record.workspace == access.workspace)
@@ -526,7 +544,7 @@ fn eligible_record(
         return Ok(None);
     };
     if purged(
-        store.state(),
+        store.current(),
         &access.workspace,
         &Target::Record(record.key()),
     )
@@ -1083,7 +1101,9 @@ fn accounting_snapshot(
                 complete = false;
                 return Ok(Some(AccountingSnapshot {
                     charged_micros: None,
-                    liability_micros: reservation_available.then_some(reservation.liability.get()),
+                    liability_micros: reservation_available
+                        .then(|| reservation.liability.known().map(Micros::get))
+                        .flatten(),
                     unknown_remainder: true,
                     complete,
                     settlement: None,
@@ -1097,7 +1117,9 @@ fn accounting_snapshot(
                 complete = false;
                 return Ok(Some(AccountingSnapshot {
                     charged_micros: None,
-                    liability_micros: reservation_available.then_some(reservation.liability.get()),
+                    liability_micros: reservation_available
+                        .then(|| reservation.liability.known().map(Micros::get))
+                        .flatten(),
                     unknown_remainder: true,
                     complete,
                     settlement: None,
@@ -1180,10 +1202,12 @@ fn accounting_snapshot(
             attempt.phase,
             ReservationState::Settled | ReservationState::Released
         )
-        || reservation.liability != Micros::ZERO;
+        || !reservation.liability.is_zero();
     Ok(Some(AccountingSnapshot {
         charged_micros: reservation_available.then_some(attempt.charged.get()),
-        liability_micros: reservation_available.then_some(reservation.liability.get()),
+        liability_micros: reservation_available
+            .then(|| reservation.liability.known().map(Micros::get))
+            .flatten(),
         unknown_remainder,
         complete,
         settlement: charge,
@@ -1295,7 +1319,7 @@ fn observe_verification(
     };
     if observed_task_revision.is_some_and(|revision| {
         store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Task, task_id.as_str()))
             .and_then(|record| record.decode::<Task>().ok())
@@ -1316,11 +1340,16 @@ fn observe_verification(
             CheckOutcome::Failed { reason } => {
                 let failures = build.failures_seen.entry(task_id.clone()).or_default();
                 *failures = failures.saturating_add(1);
-                let signature = observed_task_revision.and_then(|revision| normalize(reason).and_then(|diagnostic| {
-                    canonical_bytes(&serde_json::json!({"check":identity,"task_revision":revision,"steering":verification.steering,
-                        "fingerprint":input_fingerprint,"exit_code":check.exit_code,"diagnostic":digest_bytes(diagnostic.as_bytes())}))
-                        .ok().map(|bytes| digest_bytes(&bytes))
-                }));
+                let signature = observed_task_revision.and_then(|revision| {
+                    check_failure_signature(
+                        &check.specification,
+                        revision,
+                        verification.steering,
+                        &input_fingerprint,
+                        check.exit_code,
+                        reason,
+                    )
+                });
                 (CheckResult::Failed, signature)
             }
         };
@@ -1355,6 +1384,23 @@ fn observe_verification(
         cost_known: matches!(verification.cost, CostCertainty::Known),
     });
     Ok(())
+}
+
+/// Shared exact failure identity. A scheduling consumer still needs its own
+/// qualified progress/pause policy; this digest grants no action authority.
+pub(crate) fn check_failure_signature(
+    specification: &str,
+    revision: Revision,
+    steering: SteeringRevision,
+    input_fingerprint: &str,
+    exit_code: Option<i32>,
+    reason: &str,
+) -> Option<String> {
+    let identity = digest_bytes(normalize(specification)?.as_bytes());
+    let diagnostic = normalize(reason)?;
+    canonical_bytes(&serde_json::json!({"check":identity,"task_revision":revision,"steering":steering,
+        "fingerprint":input_fingerprint,"exit_code":exit_code,"diagnostic":digest_bytes(diagnostic.as_bytes())}))
+        .ok().map(|bytes| digest_bytes(&bytes))
 }
 
 fn normalize(value: &str) -> Option<String> {
@@ -1409,13 +1455,13 @@ fn finalize_attempts(store: &Store, access: &Access, build: &mut Build) -> Resul
             &mut build.excluded,
         )?;
         let decision = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &decision_name(&id)))
             .filter(|record| record.workspace == access.workspace);
         if let Some(record) = decision {
             if !purged(
-                store.state(),
+                store.current(),
                 &access.workspace,
                 &Target::Record(record.key()),
             )

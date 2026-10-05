@@ -57,16 +57,16 @@ impl Policy {
 fn id(kind: &str, workspace: &WorkspaceId) -> String {
     format!("{kind}-{workspace}")
 }
-fn authorize(store: &Store, access: &Access, write: bool) -> Result<()> {
-    access::authorize(store.state(), access, write)?;
+fn authorize<S: CanonicalStore>(store: &S, access: &Access, write: bool) -> Result<()> {
+    access::authorize(store.current(), access, write)?;
     if access.tasks.is_some() {
         return Err(Error::Access);
     }
     Ok(())
 }
-pub fn show(store: &Store, access: &Access) -> Result<Policy> {
+pub fn show<S: CanonicalStore>(store: &S, access: &Access) -> Result<Policy> {
     authorize(store, access, false)?;
-    let value = match store.state().records.get(&key(
+    let value = match store.current().records.get(&key(
         Collection::Projection,
         &id("retention-policy", &access.workspace),
     )) {
@@ -101,7 +101,7 @@ async fn put<T: Serialize>(
 ) -> Result<()> {
     authorize(store, access, true)?;
     let session = store
-        .state()
+        .current()
         .records
         .values()
         .find(|r| r.workspace == access.workspace && r.collection == Collection::Session)
@@ -133,7 +133,7 @@ async fn put<T: Serialize>(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put { record, expected }],
             events: vec![event],
             command: None,
@@ -154,7 +154,7 @@ pub async fn set(
     authorize(store, access, true)?;
     let name = id("retention-policy", &access.workspace);
     let current = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
         .map(|r| r.revision);
@@ -202,24 +202,40 @@ pub struct Aging {
 }
 /// Excluded recall still counts as retained history. Maintenance events do not
 /// create their own notice loop. Purged event payloads no longer count as history.
-pub fn aging(store: &Store, access: &Access, now: Timestamp) -> Result<Aging> {
+pub async fn aging<S: CanonicalStore>(store: &S, access: &Access, now: Timestamp) -> Result<Aging> {
     let policy = show(store, access)?;
-    let events: Vec<_> = store
-        .state()
-        .events
-        .iter()
-        .filter(|e| {
-            e.event.workspace == access.workspace
-                && e.redaction.is_none()
-                && e.event.kind != EventKind::RetentionChanged
-        })
-        .collect();
-    let oldest = events.iter().map(|e| e.event.timestamp).min();
-    let mut bytes = events.iter().try_fold(0u64, |sum, event| -> Result<u64> {
-        Ok(sum.saturating_add(serde_json::to_vec(event)?.len() as u64))
-    })?;
+    let watermark = store.current().watermark;
+    let end = store.history_event_count().await?;
+    let mut offset = 0u64;
+    let mut oldest: Option<Timestamp> = None;
+    let mut bytes = 0u64;
+    while offset < end {
+        let count = (end - offset).min(64) as usize;
+        let events = store.history_events(offset.checked_sub(1), count).await?;
+        if events.is_empty() || events.len() > count {
+            return Err(Error::Conflict("aging history page incomplete"));
+        }
+        for event in &events {
+            if event.watermark > watermark {
+                return Err(Error::Conflict("aging history exceeds owner cut"));
+            }
+            if event.event.workspace == access.workspace
+                && event.redaction.is_none()
+                && event.event.kind != EventKind::RetentionChanged
+            {
+                oldest = Some(oldest.map_or(event.event.timestamp, |prior| {
+                    prior.min(event.event.timestamp)
+                }));
+                bytes = bytes.saturating_add(serde_json::to_vec(event)?.len() as u64);
+            }
+        }
+        offset += events.len() as u64;
+    }
+    if store.current().watermark != watermark {
+        return Err(Error::Conflict("aging source changed"));
+    }
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Artifact)
@@ -230,7 +246,7 @@ pub fn aging(store: &Store, access: &Access, now: Timestamp) -> Result<Aging> {
         }
     }
     let last = store
-        .state()
+        .current()
         .records
         .get(&key(
             Collection::Projection,
@@ -265,12 +281,12 @@ pub fn aging(store: &Store, access: &Access, now: Timestamp) -> Result<Aging> {
 /// state is independent of content events and survives restart.
 pub async fn acknowledge_notice(store: &mut Store, access: &Access, now: Timestamp) -> Result<()> {
     authorize(store, access, true)?;
-    if !aging(store, access, now)?.due {
+    if !aging(store, access, now).await?.due {
         return Ok(());
     }
     let name = id("retention-notice", &access.workspace);
     let expected = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
         .map(|r| r.revision);
@@ -298,7 +314,7 @@ pub struct Queued {
     pub policy: Policy,
     pub preview: PrunePreview,
 }
-pub fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Queued>> {
+pub async fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Queued>> {
     let policy = show(store, access)?;
     let Some(mode) = &policy.automatic else {
         return Ok(None);
@@ -307,7 +323,7 @@ pub fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Qu
         return Err(Error::Access);
     }
     let latest = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| {
@@ -325,7 +341,8 @@ pub fn queue(store: &Store, access: &Access, now: Timestamp) -> Result<Option<Qu
     {
         return Ok(None);
     }
-    let preview = retention::preview(store, access, mode.selector.clone(), mode.action, now)?;
+    let preview =
+        retention::preview(store, access, mode.selector.clone(), mode.action, now).await?;
     Ok(Some(Queued { policy, preview }))
 }
 /// Recheck enabled policy and its granting authority immediately before applying
@@ -355,7 +372,7 @@ pub async fn apply_queued(
     let receipt = retention::apply(store, access, &queued.preview, now).await?;
     let name = format!("policy-run-{}", receipt.id);
     if !store
-        .state()
+        .current()
         .records
         .contains_key(&key(Collection::Projection, &name))
     {
@@ -385,7 +402,7 @@ fn applied_status() -> String {
 pub fn latest_run(store: &Store, access: &Access) -> Result<Option<PolicyRun>> {
     authorize(store, access, false)?;
     let mut latest: Option<PolicyRun> = None;
-    for row in store.state().records.values().filter(|r| {
+    for row in store.current().records.values().filter(|r| {
         r.workspace == access.workspace
             && r.collection == Collection::Projection
             && r.value["document_type"] == "vcp_retention_policy_run_v1"
@@ -433,7 +450,7 @@ pub async fn run_due(
         local_cleanup_complete: None,
     };
     let mut name = format!("policy-blocked-{}", CommandId::new());
-    let queued = match queue(store, access, now) {
+    let queued = match queue(store, access, now).await {
         Ok(None) => return Ok(None),
         Ok(Some(queued)) => Some(queued),
         Err(Error::Access) => {
@@ -483,7 +500,7 @@ pub async fn run_due(
     // An indeterminate canonical failure must still prevent opening an owner.
     // Successful logical apply is discoverable by its original receipt on retry.
     let expected = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, &name))
         .map(|r| r.revision);
@@ -497,7 +514,7 @@ pub async fn run_due(
 pub async fn resume_cleanup(store: &mut Store, access: &Access, now: Timestamp) -> Result<()> {
     authorize(store, access, true)?;
     let mut pending = Vec::new();
-    for row in store.state().records.values().filter(|r| {
+    for row in store.current().records.values().filter(|r| {
         r.workspace == access.workspace
             && r.collection == Collection::Projection
             && r.value["document_type"] == "vcp_retention_job_v1"

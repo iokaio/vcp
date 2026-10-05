@@ -24,7 +24,7 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
         let fixture = Fixture::new(backend).await;
         let mut store = fixture.reopen().await;
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -38,7 +38,7 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
         other.root = other.scope.task.clone();
         other.revision = Revision::ZERO;
         let ledger_expected = store
-            .state()
+            .current()
             .record(
                 Collection::Ledger,
                 task.scope.task.as_str(),
@@ -55,12 +55,12 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
             revision,
             policy: PolicyRevision::ZERO,
             currency: "USD".to_owned().try_into().unwrap(),
-            cap: Micros::new(u64::MAX),
+            cap: Micros::new(u64::MAX).into(),
             protected: Micros::ZERO,
             // No provider/reservation evidence exists in this offline fixture.
             settled: Micros::ZERO,
-            active: Micros::ZERO,
-            unresolved: Micros::ZERO,
+            active: Micros::ZERO.into(),
+            unresolved: Micros::ZERO.into(),
             allocations: Default::default(),
             daily: None,
             overrun: false,
@@ -84,7 +84,7 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: None,
@@ -144,7 +144,10 @@ async fn compiled_observer_reads_exact_accounting_and_binary_ranges_with_scope_d
         assert_eq!(usage["result"]["kind"], "usage");
         let totals = &usage["result"]["value"];
         assert_eq!(totals["currency"], "USD");
-        assert_eq!(totals["cap_micros"], "18446744073709551615");
+        assert_eq!(
+            totals["cap_micros"],
+            json!({"version":1,"kind":"finite","value":"18446744073709551615"})
+        );
         assert_eq!(totals["settled_micros"], "0");
         assert_eq!(totals["reserved_micros"], "0");
         assert_eq!(totals["unresolved_micros"], "0");

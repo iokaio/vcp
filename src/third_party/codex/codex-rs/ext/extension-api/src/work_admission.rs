@@ -77,6 +77,10 @@ pub trait HostWorkPermit: Send {
     fn response_error_capture(&self) -> Option<HostResponseCapture> {
         self.response_capture()
     }
+    /// VCP: allowlisted generation identity only; authentication headers remain private.
+    fn response_generation_identity(&mut self, _identity: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn complete(&mut self) -> Result<(), String>;
     /// VCP: retain provider usage with the same durable dispatch receipt.
     fn complete_model(

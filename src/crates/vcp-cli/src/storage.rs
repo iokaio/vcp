@@ -5,7 +5,7 @@ use crate::{selection::Lease, settings::WorkspaceEntry};
 use clap::{Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use vcp_store::{BackendKind, Store};
+use vcp_store::{contract::CanonicalStore, BackendKind, Store};
 type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone, Copy, Debug, ValueEnum, Serialize, Deserialize)]
@@ -187,7 +187,7 @@ pub async fn execute(
                     let reopened = Store::open(&target, backend.kind(), &[workspace.to_owned()])
                         .await
                         .map_err(|e| e.to_string())?;
-                    let watermark = reopened.state().watermark;
+                    let watermark = reopened.current().watermark;
                     reopened.close().await.map_err(|e| e.to_string())?;
                     return Ok(
                         serde_json::json!({"activated":true,"reconciled":true,"operation":id,"canonical_root":target,"backend":backend,"retained_recovery_root":prior.source.config.canonical_root,"canonical_watermark":watermark,"tasks_resumed":false}),
@@ -207,12 +207,13 @@ pub async fn execute(
             )
             .await
             .map_err(|e| e.to_string())?;
-            let bytes = vcp_protocol::canonical_bytes(source.state())
-                .map_err(|e| e.to_string())?
-                .len();
+            let bytes = source
+                .archive_size(usize::MAX)
+                .await
+                .map_err(|e| e.to_string())?;
             if *preview {
                 let retained_bytes = source
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| row.collection == vcp_store::contract::Collection::Artifact)
@@ -236,15 +237,18 @@ pub async fn execute(
                         .ok_or("migration estimate overflow")?,
                 )?;
                 let value = serde_json::json!({"preview":true,"operation":id,"expected_descriptor":digest,"source_root":entry.config.canonical_root,"target_root":target,"backend":backend,
-                    "canonical_watermark":source.state().watermark,"canonical_serialized_bytes":bytes,"staging_space":capacity,
+                    "canonical_watermark":source.current().watermark,"canonical_serialized_bytes":bytes,"staging_space":capacity,
                     "index_compatibility":"rebuild from retained canonical sources; derived files are not silently trusted","retained_recovery_root":entry.config.canonical_root,"workspace_collision":false,"missing_secrets":[]});
                 source.close().await.map_err(|e| e.to_string())?;
                 return Ok(value);
             }
             let target = lease.target(&id)?;
-            let state_digest = vcp_protocol::digest_bytes(
-                &vcp_protocol::canonical_bytes(source.state()).map_err(|e| e.to_string())?,
-            );
+            let state_digest = source
+                .snapshot()
+                .map_err(|e| e.to_string())?
+                .logical_digest()
+                .await
+                .map_err(|e| e.to_string())?;
             if journal.exists() {
                 let bytes = crate::settings::registry_root(directory)?
                     .read(Path::new(&journal_name), 256 * 1024)
@@ -298,7 +302,19 @@ pub async fn execute(
             let converted = Store::open(&target, backend.kind(), &[workspace.to_owned()])
                 .await
                 .map_err(|e| e.to_string())?;
-            if converted.state() != source.state() {
+            if converted
+                .snapshot()
+                .map_err(|e| e.to_string())?
+                .logical_digest()
+                .await
+                .map_err(|e| e.to_string())?
+                != source
+                    .snapshot()
+                    .map_err(|e| e.to_string())?
+                    .logical_digest()
+                    .await
+                    .map_err(|e| e.to_string())?
+            {
                 return Err("converted state failed independent reopen comparison".into());
             }
             let mut config = entry.config.clone();
@@ -311,7 +327,7 @@ pub async fn execute(
                 identity: entry.identity,
             };
             lease.publish(Some(&digest), &next)?;
-            let result = serde_json::json!({"activated":true,"operation":id,"canonical_root":target,"backend":backend,"retained_recovery_root":entry.config.canonical_root,"canonical_watermark":converted.state().watermark,"search":"rebuild_required","tasks_resumed":false});
+            let result = serde_json::json!({"activated":true,"operation":id,"canonical_root":target,"backend":backend,"retained_recovery_root":entry.config.canonical_root,"canonical_watermark":converted.current().watermark,"search":"rebuild_required","tasks_resumed":false});
             converted.close().await.map_err(|e| e.to_string())?;
             source.close().await.map_err(|e| e.to_string())?;
             Ok(result)

@@ -92,7 +92,7 @@ fn scoped_access(
         return Err(failure(Code::PolicyDenied, call));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)
         .map_err(|_| unavailable(call))?
         .decode()
@@ -102,7 +102,7 @@ fn scoped_access(
     }
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)
@@ -202,12 +202,12 @@ impl PublicConnection {
                         .map_err(|_| unavailable(&call))?;
                     let committed = match &call {
                         Call::MemoryReview(p) => {
-                            let state = review::read(
+                            let state = context.runtime.block_on(review::read(
                                 context.engine.store(),
                                 &memory_access,
                                 &own,
                                 &convert(&p.submission)?,
-                            )
+                            ))
                             .map_err(|e| memory_error(e, &call))?;
                             let result =
                                 bounded(ResultValue::MemoryReview(project(&state)?), &call)?;
@@ -292,9 +292,14 @@ impl PublicConnection {
                         .command
                         .as_ref()
                         .ok_or_else(|| unknown(&call))?;
-                    let ResultValue::Acceptance(acceptance) =
-                        vcp_engine::rpc::acceptance(&context.engine, &access, receipt)
-                            .map_err(|_| unknown(&call))?
+                    let ResultValue::Acceptance(acceptance) = context
+                        .runtime
+                        .block_on(vcp_engine::rpc::acceptance(
+                            &context.engine,
+                            &access,
+                            receipt,
+                        ))
+                        .map_err(|_| unknown(&call))?
                     else {
                         return Err(unknown(&call));
                     };

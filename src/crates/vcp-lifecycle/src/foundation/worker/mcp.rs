@@ -29,7 +29,7 @@ impl Context {
             return Err("MCP resume owner is fenced".into());
         }
         self.validate_binding(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let task: Task = state
             .record(
                 Collection::Task,
@@ -296,7 +296,7 @@ impl Context {
     fn validate_mcp_sources(&self, binding: &ThreadBinding, provenance: &Provenance) -> Result<()> {
         self.validate_skills(binding)?;
         self.tool_read_access(&RootId::parse(self.config.workspace.as_str())?, "vcp_mcp")?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -342,7 +342,7 @@ impl Context {
                 let descriptor: ArtifactDescriptor = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         part.artifact.as_str(),
@@ -355,12 +355,13 @@ impl Context {
                 {
                     return Err("MCP context source identity changed".into());
                 }
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &part.artifact,
-                    &mut std::io::sink(),
-                )?;
+                self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &part.artifact,
+                        &mut std::io::sink(),
+                    ))?;
                 if let Some(file) = &part.file {
                     provenance
                         .roots
@@ -480,7 +481,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -566,7 +567,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 artifact.as_str(),
@@ -594,12 +595,13 @@ impl Context {
             }
         }
         let mut bytes = BoundedBytes(Vec::new());
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                artifact,
+                &mut bytes,
+            ))?;
         let receipt: serde_json::Value = serde_json::from_slice(&bytes.0)?;
         Ok(crate::foundation::mcp::ControlOutcome {
             value: serde_json::json!({"artifact":artifact,"prior_observation":true,"external_content":true,"grants_authority":false,"receipt":receipt,"result":receipt["result"]}),

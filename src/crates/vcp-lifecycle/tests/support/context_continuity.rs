@@ -18,6 +18,23 @@ use wiremock::{
     Mock, ResponseTemplate,
 };
 
+fn fixture_prompt_limit() -> usize {
+    // Commit 74da9bb2 calibrated 26,677 bytes with 6,171 schema bytes.
+    // Keep that source/history allowance while using the actual current schemas.
+    // Later mandatory context added 767 encoded bytes of request guidance,
+    // 541 bytes for its quoted allowance record (after the first request), and
+    // 39 bytes for empty before_hooks/after_hooks on the retained read result.
+    // These include JSON quoting and separators; the 64-byte historical preview
+    // has unchanged encoded length. The initial allowance record is one byte
+    // larger, before any historical context can approach this ceiling.
+    let schema_bytes = vcp_protocol::canonical_bytes(
+        &vcp_lifecycle::foundation::coding::CanonicalTools::default().schemas(),
+    )
+    .unwrap()
+    .len();
+    26_677 - 6_171 + schema_bytes + 767 + 541 + 39
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retained_compaction_preserves_current_facts_originals_and_unknown_cost_on_reopen() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
@@ -104,15 +121,10 @@ async fn run(backend: BackendKind, oversized: bool) {
             .unwrap();
         }
         let (snapshot, raw) = provider_snapshot();
-        // P7-02 added 891 schema bytes and 38 quoted bytes per nullable read.
-        // Completion guidance adds 372 read/patch, 305 citation and 465 process
-        // discovery/verification schema bytes.
-        // P7-05 numeric/null descriptions add 198 serialized read bytes and
-        // 337 search bytes, preserving the same source/history budget below.
-        // Offset exactly that later growth to preserve this fixture's effective
-        // source/history budget without changing the shared provider fixture.
+        // Offset measured mandatory overhead, not the retained history budget.
         let mut endpoint: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        endpoint["data"]["endpoints"][0]["max_prompt_tokens"] = serde_json::json!(26_677);
+        endpoint["data"]["endpoints"][0]["max_prompt_tokens"] =
+            serde_json::json!(fixture_prompt_limit());
         let raw = serde_json::to_vec(&endpoint).unwrap();
         let snapshot = vcp_models::catalog::Snapshot::from_endpoints(
             &raw,
@@ -188,7 +200,7 @@ async fn run(backend: BackendKind, oversized: bool) {
                 operating: "Use observed sources and preserve uncertainty".into(),
                 affected_paths: vec!["evidence.txt".into()],
                 max_requests: 10,
-                deadline: Timestamp::new(now + 600_000),
+                deadline: Timestamp::new(now + 600_000).into(),
             },
         )
         .unwrap();
@@ -196,9 +208,9 @@ async fn run(backend: BackendKind, oversized: bool) {
             thread,
             vcp_context::compaction::Config {
                 keep_recent_pairs: 1,
-                // The 26,677 prompt ceiling minus the 512 safety reserve leaves
-                // 26,165 input bytes. A larger historical preview must still fail
-                // closed when current facts and the recent pair cannot fit.
+                // The calibrated prompt ceiling keeps the same history budget
+                // after mandatory overhead and the 512-byte safety reserve.
+                // The larger preview must still fail before another HTTP call.
                 preview_bytes: if oversized && phase == 2 { 1024 } else { 64 },
                 minimum_gain_bytes: 256,
             },
@@ -331,11 +343,11 @@ async fn run(backend: BackendKind, oversized: bool) {
             assert!(packet.current_state["task"]["objectives"].is_array());
             assert!(packet.current_state["continuity"]["original_base"].is_object());
             assert_eq!(
-                packet.remaining.get(),
-                packet.ledger.cap.get().saturating_sub(
+                packet.remaining.finite().expect("finite historical fixture").get(),
+                packet.ledger.cap.finite().expect("finite historical fixture").get().saturating_sub(
                     packet.ledger.settled.get()
-                        + packet.ledger.active.get()
-                        + packet.ledger.unresolved.get()
+                        + packet.ledger.active.known().unwrap().get()
+                        + packet.ledger.unresolved.known().unwrap().get()
                         + packet.ledger.protected.get()
                 )
             );
@@ -464,7 +476,7 @@ async fn run(backend: BackendKind, oversized: bool) {
             .await
             .unwrap();
         let retained_workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -481,7 +493,7 @@ async fn run(backend: BackendKind, oversized: bool) {
             write: false,
             tasks: Some(BTreeSet::from([config.root_task.clone()])),
         };
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let diagnostics =
             vcp_lifecycle::foundation::routing_state::compaction_diagnostics::observe(
                 &store,
@@ -490,7 +502,7 @@ async fn run(backend: BackendKind, oversized: bool) {
                     from: None,
                     until: Timestamp::new(u64::MAX),
                 },
-            )
+            ).await
             .unwrap();
         assert!(!diagnostics.entries.is_empty());
         assert!(
@@ -509,7 +521,7 @@ async fn run(backend: BackendKind, oversized: bool) {
         assert!(!rendered.contains("synthetic historical evidence"));
         assert!(!rendered.contains("Obsolete assumption"));
         assert!(!diagnostics.serving_qualified);
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         drop(store);
         if phase == 0 {
             fs::write(

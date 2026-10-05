@@ -13,7 +13,7 @@ impl worker::Context {
             let attempt: vcp_domain::accounting::Attempt = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Attempt, id.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if attempt.scope == binding.scope {
@@ -32,7 +32,7 @@ impl worker::Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -88,7 +88,7 @@ impl CanonicalHost {
             let task: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),
@@ -137,6 +137,11 @@ impl CanonicalHost {
             }
             if !context.coding.contains_key(&binding.scope.task) {
                 context.configure_coding_setup(&binding, coding, held)?;
+            }
+            if context.continuity_configuration(&binding).is_none() {
+                if let Some(continuity) = context.continuity_configuration(&parent) {
+                    context.configure_continuity_setup(&binding, continuity, held)?;
+                }
             }
             Ok(())
         })

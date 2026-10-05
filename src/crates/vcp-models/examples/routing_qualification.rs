@@ -334,7 +334,8 @@ fn routing_input(
         excluded: BTreeSet::new(),
         input_tokens: Units::new(criteria.input_tokens),
         output_tokens: Units::new(criteria.output_tokens),
-        available: money(case.budget_micros)?,
+        available: money(case.budget_micros)?.into(),
+        candidate_requests: vec![],
         protected_verification: Micros::new(case.protected_micros),
         estimates,
     })

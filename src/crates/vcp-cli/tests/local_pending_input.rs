@@ -22,6 +22,7 @@ use vcp_domain::{
     Timestamp,
 };
 use vcp_models::catalog::{Compatibility, Snapshot};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 use wiremock::{
     matchers::{method, path},
@@ -298,28 +299,26 @@ async fn real_pending_approval_survives_connection_loss_and_requires_current_con
             }
         };
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|r| r.command.as_str() == "question-denied-once")
                 .count(),
             1
         );
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|r| r.command.as_str() == "question-stale-source"));
         let canonical: Task = store
-            .state()
+            .current()
             .record(Collection::Task, ROOT, &entry.config.workspace)
             .unwrap()
             .decode()
             .unwrap();
         assert_eq!(canonical.state, TaskState::Paused);
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Approval && r.value["state"] == "pending"));

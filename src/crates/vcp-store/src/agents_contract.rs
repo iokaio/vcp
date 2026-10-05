@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
+use crate::CurrentStateView;
 use vcp_domain::agents::*;
 pub(super) fn kind(record: &Record) -> Result<bool> {
     if record.value["document_type"] == GRAPH {
@@ -51,6 +52,9 @@ pub(super) fn references(record: &Record) -> Result<BTreeSet<String>> {
             refs.insert(key(Collection::Effect, effect.as_str()));
         }
     }
+    for revision in graph.execution_time.values() {
+        refs.insert(key(Collection::Artifact, revision.evidence.as_str()));
+    }
     for cleanup in graph.cleanup.values() {
         for diagnostic in &cleanup.diagnostics {
             refs.insert(key(Collection::Artifact, diagnostic.artifact.as_str()));
@@ -88,6 +92,18 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
             return Err(Error::Conflict("immutable child assignment"));
         }
     }
+    for (id, prior) in &before.execution_time {
+        if after.execution_time.get(id) != Some(prior) {
+            return Err(Error::Conflict("immutable child execution time revision"));
+        }
+    }
+    for (id, revision) in &after.execution_time {
+        if !before.execution_time.contains_key(id)
+            && (!before.children.contains_key(id) || revision.graph_revision != after.revision)
+        {
+            return Err(Error::Conflict("child execution time revision cut"));
+        }
+    }
     for (id, ready) in &before.ready {
         if after.ready.get(id) != Some(ready) {
             return Err(Error::Conflict("immutable workspace receipt"));
@@ -122,6 +138,9 @@ pub(super) fn transition(previous: &Record, next: &Record) -> Result<()> {
     Ok(())
 }
 pub(super) fn validate(state: &State) -> Result<()> {
+    validate_current(state.into())
+}
+pub(super) fn validate_current(state: CurrentStateView<'_>) -> Result<()> {
     for record in state.records.values() {
         if !kind(record)? {
             continue;
@@ -165,6 +184,22 @@ pub(super) fn validate(state: &State) -> Result<()> {
         if root.scope != graph.scope || root.parent.is_some() {
             return Err(Error::Corruption("graph root"));
         }
+        for revision in graph.execution_time.values() {
+            let evidence: ArtifactDescriptor = state
+                .record(
+                    Collection::Artifact,
+                    revision.evidence.as_str(),
+                    &graph.scope.workspace,
+                )?
+                .decode()?;
+            if evidence.state != vcp_domain::artifact::CaptureState::Complete
+                || evidence.spec.scope != graph.scope
+                || evidence.spec.channel != vcp_domain::artifact::Channel::Evidence
+                || evidence.spec.schema != "child-execution-time/1"
+            {
+                return Err(Error::Corruption("child execution time evidence binding"));
+            }
+        }
         let ledger: Ledger = state
             .record(
                 Collection::Ledger,
@@ -172,6 +207,19 @@ pub(super) fn validate(state: &State) -> Result<()> {
                 &graph.scope.workspace,
             )?
             .decode()?;
+        // Preserve the historical structural allocation ceiling on finite
+        // roots, including loaded/replay-base state. Later actual charges may
+        // overrun; this check concerns only declared parent/child allocations.
+        if !ledger.cap.is_unbounded()
+            && graph.children.values().any(|child| {
+                graph
+                    .children
+                    .get(&child.parent)
+                    .is_some_and(|parent| child.allocation > parent.allocation)
+            })
+        {
+            return Err(Error::Corruption("child allocation exceeds finite parent"));
+        }
         for row in state
             .records
             .values()
@@ -260,7 +308,7 @@ pub(super) fn validate(state: &State) -> Result<()> {
     }
     Ok(())
 }
-fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
+fn capacity(state: CurrentStateView<'_>, graph: &TaskGraph) -> Result<()> {
     let ledger: Ledger = state
         .record(
             Collection::Ledger,
@@ -274,14 +322,19 @@ fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
     // Count a parent's own spend once, plus direct-child allocations. Nested
     // allocations are already contained in their ancestor's allocation.
     for parent in std::iter::once(&graph.scope.task).chain(graph.children.keys()) {
-        let cap = if parent == &graph.scope.task {
+        let cap = if ledger.cap.is_unbounded() {
+            vcp_domain::Limit::Unbounded
+        } else if parent == &graph.scope.task {
             ledger
                 .cap
-                .get()
-                .checked_sub(ledger.protected.get())
-                .ok_or(Error::Conflict("protected root allocation"))?
+                .map(|cap| {
+                    cap.get()
+                        .checked_sub(ledger.protected.get())
+                        .ok_or(Error::Conflict("protected root allocation"))
+                })
+                .transpose()?
         } else {
-            graph.children[parent].allocation.get()
+            vcp_domain::Limit::Finite(graph.children[parent].allocation.get())
         };
         let mut used = 0u64;
         for (id, allocation) in &ledger.allocations {
@@ -298,30 +351,91 @@ fn capacity(state: &State, graph: &TaskGraph) -> Result<()> {
             r.collection == Collection::Reservation && r.workspace == graph.scope.workspace
         }) {
             let reservation: Reservation = row.decode()?;
-            if &reservation.scope.task == parent {
+            if &reservation.scope.task == parent && !cap.is_unbounded() {
+                let liability = reservation
+                    .liability
+                    .known()
+                    .ok_or(Error::Corruption("unpriced finite allocation exposure"))?;
                 used = used
                     .checked_add(reservation.charged.get())
-                    .and_then(|v| v.checked_add(reservation.liability.get()))
+                    .and_then(|v| v.checked_add(liability.get()))
                     .ok_or(Error::Corruption("allocation exposure overflow"))?;
             }
         }
-        if used > cap {
+        if cap.exceeds(&used) {
             return Err(Error::Conflict("child allocations exceed parent capacity"));
         }
     }
     Ok(())
 }
-pub(super) fn publication(before: &State, after: &State) -> Result<()> {
+pub(super) fn publication(before: RecordView<'_>, after: &State) -> Result<()> {
+    publication_records(before.records, after.into())
+}
+pub(super) fn publication_current(
+    before: CurrentStateView<'_>,
+    after: CurrentStateView<'_>,
+) -> Result<()> {
+    publication_records(before.records, after)
+}
+fn publication_records(
+    before: &BTreeMap<String, Record>,
+    after: CurrentStateView<'_>,
+) -> Result<()> {
     for record in after.records.values() {
         if !kind(record)? {
             continue;
         }
         let graph: TaskGraph = record.decode()?;
         let previous = before
-            .records
             .get(&key(Collection::Projection, &record.id))
             .map(Record::decode::<TaskGraph>)
             .transpose()?;
+        for (id, revision) in &graph.execution_time {
+            if previous
+                .as_ref()
+                .is_some_and(|prior| prior.execution_time.contains_key(id))
+            {
+                continue;
+            }
+            let prior = previous.as_ref().ok_or(Error::Conflict(
+                "child execution revision requires existing graph",
+            ))?;
+            let assignment = prior.children.get(id).ok_or(Error::Conflict(
+                "child execution revision requires existing assignment",
+            ))?;
+            let child: Task = after
+                .record(Collection::Task, id.as_str(), &graph.scope.workspace)?
+                .decode()?;
+            let workspace: vcp_domain::workspace::Workspace = after
+                .record(
+                    Collection::Workspace,
+                    graph.scope.workspace.as_str(),
+                    &graph.scope.workspace,
+                )?
+                .decode()?;
+            let authority: vcp_domain::policy::AuthorityDocument = after
+                .record(
+                    Collection::Access,
+                    graph.scope.workspace.as_str(),
+                    &graph.scope.workspace,
+                )?
+                .decode()?;
+            let vcp_domain::policy::AuthorityData::Policy { policy } = authority.data else {
+                return Err(Error::Conflict("child execution revision policy"));
+            };
+            if assignment.actor != revision.actor
+                || workspace.authority != revision.authority
+                || workspace.binding.revision != revision.binding
+                || policy.revision != revision.policy
+                || matches!(child.state, vcp_domain::task::TaskState::Running)
+                || child.state.terminal()
+                || graph.cleanup.contains_key(id)
+            {
+                return Err(Error::Conflict(
+                    "child execution revision requires current quiescent assignment",
+                ));
+            }
+        }
         if graph.children.keys().any(|id| {
             previous
                 .as_ref()
@@ -335,16 +449,14 @@ pub(super) fn publication(before: &State, after: &State) -> Result<()> {
                 .decode()?;
             let prior = previous.as_ref().and_then(|g| g.children.get(id));
             if prior.is_none() {
-                let parent: Task = before
-                    .record(
-                        Collection::Task,
-                        spec.parent.as_str(),
-                        &graph.scope.workspace,
-                    )?
-                    .decode()?;
-                if before
-                    .records
-                    .contains_key(&key(Collection::Task, id.as_str()))
+                let parent = before
+                    .get(&key(Collection::Task, spec.parent.as_str()))
+                    .ok_or(Error::Conflict("record not found"))?;
+                if parent.workspace != graph.scope.workspace {
+                    return Err(Error::Access);
+                }
+                let parent: Task = parent.decode()?;
+                if before.contains_key(&key(Collection::Task, id.as_str()))
                     || child.state != vcp_domain::task::TaskState::Pending
                     || parent.state != vcp_domain::task::TaskState::Running
                     || (!parent.editing && spec.mode == ChildMode::IsolatedWrite)
@@ -368,3 +480,7 @@ pub(super) fn publication(before: &State, after: &State) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "agents_contract_current_tests.rs"]
+mod current_tests;

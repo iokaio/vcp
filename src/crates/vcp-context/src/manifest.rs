@@ -252,6 +252,8 @@ pub struct Manifest {
     pub input_estimate: Units,
     pub estimate_method: String,
     pub estimated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<vcp_domain::request_allocation::Allocation>,
 }
 pub struct Sealed {
     pub manifest: Manifest,
@@ -293,6 +295,22 @@ impl Sealed {
     }
     pub fn manifest_digest(&self) -> &str {
         &self.digest
+    }
+    /// Bind an allocation to the exact encoded request, retaining compatibility
+    /// with manifests produced before adaptive allocation was introduced.
+    pub fn with_allocation(
+        mut self,
+        mut allocation: vcp_domain::request_allocation::Allocation,
+    ) -> Result<Self> {
+        let capacity = self.manifest.envelope.input_capacity()?;
+        allocation.input_target_exceeded_by_required_context =
+            self.manifest.input_estimate > allocation.input_target;
+        allocation
+            .validate(capacity, self.manifest.envelope.output)
+            .map_err(|_| Error::Invalid("request allocation differs from sealed envelope"))?;
+        self.manifest.allocation = Some(allocation);
+        self.digest = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(&self.manifest)?);
+        Ok(self)
     }
     /// The host resolver enforces current artifact access and the supplied
     /// length bound. Aggregate source verification is limited to 64 MiB.

@@ -421,7 +421,7 @@ async fn final_installed_launcher_console_cancellation_preserves_both_stores() {
         let sentinel_hash = hash(&sentinel);
         let store = fixture.reopen_within(Duration::from_secs(45)).await;
         local_fixture::assert_offline_paused(&store, &fixture.config);
-        let before = serde_json::to_value(store.state()).unwrap();
+        let before = serde_json::to_value(&store.archive_state().await.unwrap()).unwrap();
         store.close().await.unwrap();
         let state_path = output.join(format!("{backend:?}-state-before.json"));
         save(&state_path, &before);
@@ -453,7 +453,7 @@ async fn final_installed_launcher_console_cancellation_preserves_both_stores() {
                 save(&result, &report);
                 let after = fixture.reopen_within(Duration::from_secs(45)).await;
                 local_fixture::assert_offline_paused(&after, &fixture.config);
-                let state = serde_json::to_value(after.state()).unwrap();
+                let state = serde_json::to_value(&after.archive_state().await.unwrap()).unwrap();
                 after.close().await.unwrap();
                 let after_path = output.join(format!("{name}-state-after.json"));
                 save(&after_path, &state);

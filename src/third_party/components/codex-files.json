@@ -2,8 +2,8 @@
   "schema_version": 1,
   "component": "codex",
   "commit": "8b78600dc85cc265d7e7e827f6aa903875405287",
-  "selection_sha256": "8f7cd063e09d46eaa3ea1da69985cbbd509c920205f326331b9e08f9418ecdbf",
-  "files_sha256": "4b010355465e67e73825d49b91b5e8c6e8728e35cca14994732adca763695660",
+  "selection_sha256": "ed33c11f367caf8614293612e52c4489f60b28c96c923a64a906712ecfd16433",
+  "files_sha256": "b3dab932016d03b6b51b35e7cbc9357d4e070e994ec82a98c76ba1ee4c73ad49",
   "files": [
     {
       "path": ".bazelignore",
@@ -545,8 +545,8 @@
         "sha256": "582bb7fb0b7d4c7cab24b4e3b8cc28344ddfe146ffbf2297448a3e995eead2b7"
       },
       "result": {
-        "bytes": 435893,
-        "sha256": "7d931a96419fe85c720376ff747835d467ff53c50546084fbce89947cf554540",
+        "bytes": 435913,
+        "sha256": "fc3202aca767d7a6b532669c6b76c1b9d165aea2de8f88294c7e85b287310f76",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -33655,8 +33655,8 @@
         "sha256": "7013ea18e7c40db547d9677d06ca8d5abd7ac6aec15f2202ac08c0a55ebd28c4"
       },
       "result": {
-        "bytes": 121560,
-        "sha256": "8508d01a05b56d34b77acb778a8e52f3036d1025c5c427b0b973539eb730d337",
+        "bytes": 122217,
+        "sha256": "80ea5f3225580a11813a3635931234961b25feb535f24f5f48ddf5fe74f70929",
         "mode": "100644"
       },
       "transformation": "patch-series"
@@ -47735,8 +47735,8 @@
       "path": "codex-rs/ext/extension-api/src/work_admission.rs",
       "original": null,
       "result": {
-        "bytes": 5422,
-        "sha256": "9df1cfa8c80721c625289e63a26211795f017a0d6c9d18fe77e11242b565d8d5",
+        "bytes": 5621,
+        "sha256": "e8d793454d72214f8323175230b82f5bf4dbd089c27a3def327547e4752c0ad6",
         "mode": "100644"
       },
       "transformation": "patch-series"

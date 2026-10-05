@@ -75,6 +75,16 @@ test('strict receipt refuses dirty, stale, unverified, wrong-version and qualifi
     assert.throws(() => p.validateReceipt(changed, selected, source, hash));
   }
 });
+
+test('qualified release receipts retain their 16-job limit when local parallelism increases', () => {
+  const { selected, source, receipt } = fixture();
+  receipt.command[18] = '16';
+  assert.doesNotThrow(() => p.validateReceipt(receipt, selected, source, hash));
+  for (const jobs of ['17', '23', '32', '256']) {
+    receipt.command[18] = jobs;
+    assert.throws(() => p.validateReceipt(receipt, selected, source, hash), /Unqualified build command/);
+  }
+});
 test('current timing recipe binds diagnostics and phase durations while legacy receipts remain valid', () => {
   const { selected, source, receipt } = fixture();
   receipt.command.push('--timings');

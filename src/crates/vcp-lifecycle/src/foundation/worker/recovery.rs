@@ -15,7 +15,7 @@ impl super::super::CanonicalHost {
             let tasks: Vec<Task> = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Task)
@@ -81,7 +81,7 @@ impl Context {
                 let workspace: Workspace = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Workspace,
                         self.config.workspace.as_str(),
@@ -127,19 +127,20 @@ impl Context {
     }
     fn recovery_artifact(&self, artifact: &ArtifactDescriptor) -> Result<Value> {
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &artifact.spec.id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &artifact.spec.id,
+                &mut bytes,
+            ))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
     pub fn reconcile_effects(&mut self) -> Result<Vec<ArtifactDescriptor>> {
         let effects: Vec<Effect> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Effect)
@@ -148,7 +149,7 @@ impl Context {
         let artifacts: Vec<ArtifactDescriptor> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
@@ -315,7 +316,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -343,7 +344,7 @@ impl Context {
             let workspace: Workspace = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     self.config.workspace.as_str(),
@@ -368,12 +369,36 @@ impl Context {
             let mut files = vec![];
             let mut applied = 0;
             let mut unmodified = 0;
+            let mut seen_directories = std::collections::BTreeSet::new();
             for change in changes {
                 let path = change["path"].as_str().ok_or("missing prepared path")?;
                 let destination = change["rename_to"].as_str();
                 let after: Option<Vec<u8>> = serde_json::from_value(change["after"].clone())?;
                 let before: Option<vcp_repository::FileVersion> =
                     serde_json::from_value(change["before"].clone())?;
+                // Directory creation is a retained partial effect even if its
+                // file was never written. Query only; never remove or recreate.
+                if let Some(parents) = change["parents"].as_array() {
+                    for parent in parents.iter().filter(|p| p["native_identity"].is_null()) {
+                        let path = parent["path"].as_str().ok_or("missing directory path")?;
+                        if !seen_directories.insert(path.to_owned()) {
+                            continue;
+                        }
+                        let observed = match root.hold(Some(std::path::Path::new(path)), true) {
+                            Ok(held) => Some(held.native_identity),
+                            Err(vcp_repository::Error::Io(error))
+                                if error.kind() == std::io::ErrorKind::NotFound =>
+                            {
+                                None
+                            }
+                            Err(error) => return Err(error.into()),
+                        };
+                        files.push(json!({"class":"directory","path":path,
+                            "certainty":if observed.is_some(){"present"}else{"absent"},
+                            "observed_native_identity":observed,
+                            "interpretation":"current observed state; directory presence does not prove causal authorship"}));
+                    }
+                }
                 let observe = |path: &str| -> Result<Option<vcp_repository::Source>> {
                     match root.read(std::path::Path::new(path), 1024 * 1024) {
                         Ok(source) => Ok(Some(source)),

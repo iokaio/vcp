@@ -46,7 +46,7 @@ fn receipt_id(workspace: &WorkspaceId, command: &CommandId) -> String {
 }
 pub(super) fn read(store: &Store, access: &Access, operation: &CommandId) -> RpcResult<Intent> {
     let row = store
-        .state()
+        .current()
         .record(
             Collection::Projection,
             &intent_id(&access.workspace, operation),
@@ -65,7 +65,7 @@ pub(super) fn read(store: &Store, access: &Access, operation: &CommandId) -> Rpc
     }
     Ok(value)
 }
-pub(super) fn replay(
+pub(super) async fn replay(
     store: &Store,
     access: &Access,
     call: &Call,
@@ -75,14 +75,13 @@ pub(super) fn replay(
         .digest(access.actor.as_str())
         .map_err(|_| RpcError::invalid_params())?;
     let Some(receipt) = store
-        .state()
-        .command(&access.workspace, &command, &digest)
+        .command_receipt(&access.workspace, &command, &digest).await
         .map_err(|_| failure(Code::CommandConflict))?
     else {
         return Ok(None);
     };
     let row = store
-        .state()
+        .current()
         .record(
             Collection::Projection,
             &receipt_id(&access.workspace, &command),
@@ -101,20 +100,17 @@ pub(super) fn replay(
         != (CommandResult::Accepted {
             revision: binding.revision,
         })
-        || !store.state().events.iter().any(|event| {
-            event.watermark == receipt.watermark
-                && event.event.workspace == access.workspace
-                && event.event.session == access.session
-                && event.event.actor == access.actor
-                && event.event.correlation == command
-        })
+        || !store
+            .receipt_events(&access.workspace, &access.session, &receipt)
+            .await
+            .map_err(|_| failure(Code::StoreUnavailable))?
+            .any(|event| event.event.actor == access.actor && event.event.correlation == command)
     {
         return Err(failure(Code::StoreUnavailable));
     }
     let transaction = store
-        .state()
-        .transactions
-        .get(&receipt.transaction)
+        .transaction_receipt(&receipt.transaction).await
+        .map_err(|_| failure(Code::StoreUnavailable))?
         .ok_or_else(|| failure(Code::StoreUnavailable))?;
     if transaction.command.as_ref() != Some(&receipt) {
         return Err(failure(Code::StoreUnavailable));
@@ -172,7 +168,7 @@ pub(super) async fn commit(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![EventInput {
                 id: EventId::new(),
@@ -201,6 +197,7 @@ pub(super) async fn commit(
         .await
         .map_err(|_| unknown(call))?;
     replay(store, access, call)
+        .await
         .map_err(|_| unknown(call))?
         .ok_or_else(|| unknown(call))
 }

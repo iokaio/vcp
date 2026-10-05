@@ -33,7 +33,7 @@ pub async fn materialize(
     access: &Access,
     event: &EventEnvelope,
 ) -> Result<Option<Proposal>> {
-    let workspace = access::authorize(store.state(), access, true)?;
+    let workspace = access::authorize(store.current(), access, true)?;
     if event.event.workspace != workspace.id
         || event
             .event
@@ -43,7 +43,7 @@ pub async fn materialize(
     {
         return Err(Error::Access);
     }
-    if !store.state().events.iter().any(|saved| saved == event) {
+    if store.history_event(&event.event.id).await?.as_ref() != Some(event) {
         return Err(Error::Invalid(
             "preference requires canonical origin".into(),
         ));
@@ -55,7 +55,7 @@ pub async fn materialize(
         return Ok(None);
     }
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == workspace.id && r.collection == Collection::Tombstone)
@@ -77,7 +77,7 @@ pub async fn materialize(
         task: task_id.clone(),
     };
     let current: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task_id.as_str(), &workspace.id)?
         .decode()?;
     if current.scope != scope {
@@ -115,10 +115,10 @@ pub async fn materialize(
     let Ok(input) = serde_json::from_str::<Input>(&objective.text) else {
         return Ok(None);
     };
-    if !crate::repository::preference_matches(
-        store.state(),
+    if !crate::repository::preference_matches_event(
+        store.current(),
         access,
-        &event.event.id,
+        Some(event),
         &input.memory_preference.key,
         &input.memory_preference.value,
     )? {
@@ -151,7 +151,7 @@ pub async fn materialize(
         epochs: Epochs {
             authority: workspace.authority,
             deletion: workspace.deletion,
-            policy: access::policy(store.state(), &workspace.id)?,
+            policy: access::policy(store.current(), &workspace.id)?,
         },
         registry_version: REGISTRY_VERSION,
         extractor: extractors::SPEC.into(),
@@ -194,7 +194,7 @@ pub async fn materialize(
     };
     proposal.validate()?;
     let existing = store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Artifact, id.as_str()));
     let descriptor = if let Some(record) = existing {
@@ -209,6 +209,7 @@ pub async fn materialize(
             return Err(Error::Conflict("preference artifact identity differs"));
         }
         vcp_audit::history::History::read_artifact(store, &access.history(), &id, std::io::sink())
+            .await
             .map_err(|_| Error::Access)?;
         return Ok(Some(proposal));
     } else {
@@ -243,7 +244,7 @@ pub async fn materialize(
             "preference-capture",
             &identity,
         ))?))?,
-        expected_watermark: store.state().watermark,
+        expected_watermark: store.current().watermark,
         mutations: vec![Mutation::Put {
             expected: None,
             record: record.clone(),

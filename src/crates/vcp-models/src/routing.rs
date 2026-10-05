@@ -5,7 +5,7 @@ use crate::{catalog::Snapshot, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
-    accounting::{ChargeCategory, Money, RequestRole, Usage},
+    accounting::{ChargeCategory, EstimatedMicros, EstimatedMoney, Money, RequestRole, Usage},
     Micros, Revision, SteeringRevision, TaskId, Timestamp, Units, WorkspaceId,
 };
 
@@ -204,10 +204,34 @@ pub struct RoutingInput {
     pub retry_pin: Option<ModelEndpoint>,
     pub input_tokens: Units,
     pub output_tokens: Units,
+    /// Exact candidate-codec estimates and candidate-specific output allowances.
+    /// Empty preserves historical fixed allocation records.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidate_requests: Vec<CandidateRequest>,
     /// Current ledger view supplied by the host; selection does not consume it.
-    pub available: Money,
+    pub available: vcp_domain::accounting::MonetaryLimit,
     pub protected_verification: Micros,
     pub estimates: Vec<CostEstimate>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateRequest {
+    pub candidate: ModelEndpoint,
+    pub input_tokens: Units,
+    pub output_tokens: Units,
+}
+
+impl RoutingInput {
+    pub fn request_for(&self, candidate: &ModelEndpoint) -> Option<(Units, Units)> {
+        if self.candidate_requests.is_empty() {
+            Some((self.input_tokens, self.output_tokens))
+        } else {
+            self.candidate_requests
+                .iter()
+                .find(|row| &row.candidate == candidate)
+                .map(|row| (row.input_tokens, row.output_tokens))
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -246,13 +270,13 @@ pub enum Exclusion {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CostBreakdown {
-    pub first_attempt: Micros,
-    pub retries: Micros,
-    pub handoff: Micros,
-    pub support: Micros,
-    pub children: Micros,
-    pub verification: Micros,
-    pub total: Money,
+    pub first_attempt: EstimatedMicros,
+    pub retries: EstimatedMicros,
+    pub handoff: EstimatedMicros,
+    pub support: EstimatedMicros,
+    pub children: EstimatedMicros,
+    pub verification: EstimatedMicros,
+    pub total: EstimatedMoney,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

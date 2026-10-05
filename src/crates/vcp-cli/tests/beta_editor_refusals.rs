@@ -24,6 +24,7 @@ use vcp_domain::{
 };
 use vcp_lifecycle::foundation::Config;
 use vcp_protocol::{command::CommandResult, event::EventKind};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{
     contract::{self, Collection, State},
     BackendKind,
@@ -244,7 +245,7 @@ async fn editor_refusal_state_guard_limits_intentional_authority_changes() {
     // Start from real canonical history and a real governed trust transition.
     let fixture = local_fixture::Fixture::new(BackendKind::Files).await;
     let store = fixture.reopen().await;
-    let before = store.state().clone();
+    let before = store.archive_state().await.unwrap();
     store.close().await.unwrap();
     let (host, owner) =
         vcp_lifecycle::foundation::CanonicalHost::open(fixture.config.clone()).unwrap();
@@ -261,7 +262,7 @@ async fn editor_refusal_state_guard_limits_intentional_authority_changes() {
     let mut engine = vcp_engine::Engine::new(fixture.reopen().await).unwrap();
     let workspace: Workspace = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             fixture.config.workspace.as_str(),
@@ -303,7 +304,7 @@ async fn editor_refusal_state_guard_limits_intentional_authority_changes() {
         )
         .await
         .unwrap();
-    let after = engine.store().state().clone();
+    let after = engine.store().archive_state().await.unwrap();
     engine.into_store().close().await.unwrap();
     let id =
         contract::controller_lease_id(&fixture.config.workspace, &fixture.config.session).unwrap();
@@ -423,7 +424,7 @@ async fn final_installed_candidate_editor_refusals_preserve_both_stores() {
         let key = private.join("independent-key-sentinel");
         fs::write(&key, b"synthetic independent key; no credential").unwrap();
         let store = fixture.reopen().await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         save(&private.join("state-before.json"), &before);
         let mut observations = Vec::new();
@@ -459,10 +460,13 @@ async fn final_installed_candidate_editor_refusals_preserve_both_stores() {
             assert_eq!(report["mode"], mode);
             let store = fixture.reopen_within(Duration::from_secs(45)).await;
             local_fixture::assert_offline_paused(&store, &fixture.config);
-            save(&private.join(format!("state-{mode}.json")), store.state());
+            save(
+                &private.join(format!("state-{mode}.json")),
+                &store.archive_state().await.unwrap(),
+            );
             report["canonical_preservation"] = preserved(
                 &before,
-                store.state(),
+                &store.archive_state().await.unwrap(),
                 &fixture.config,
                 mode != "restricted",
             )

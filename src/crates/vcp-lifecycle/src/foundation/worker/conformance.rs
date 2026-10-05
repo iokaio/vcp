@@ -23,7 +23,7 @@ impl Context {
             || self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .any(|r| r.collection == Collection::Attempt)
@@ -69,7 +69,7 @@ impl Context {
             || self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .any(|r| r.collection == Collection::Attempt)
@@ -157,7 +157,7 @@ impl Context {
         let attempts: Vec<Attempt> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Attempt)
@@ -175,7 +175,7 @@ impl Context {
             let captures: Vec<ArtifactDescriptor> = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Artifact)

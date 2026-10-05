@@ -2,8 +2,8 @@
 //! Fixed destination sanitization. This is a new canonical fact following the
 //! immutable imported history, never a rewrite of historical grants or receipts.
 use crate::{
-    contract::{Collection, Mutation, Record, State, Transaction},
-    Error, Result,
+    contract::{Collection, Mutation, Record, Transaction},
+    CurrentStateView, Error, Result,
 };
 use vcp_domain::{
     policy::{AuthorityData, AuthorityDocument, Autonomy},
@@ -16,13 +16,14 @@ use vcp_protocol::{
     event::{EventInput, EventKind},
 };
 
-pub(crate) fn transaction(
-    state: &State,
+pub(crate) fn transaction<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     workspace: &WorkspaceId,
     operation: &CommandId,
     actor: &ActorId,
     timestamp: Timestamp,
 ) -> Result<Transaction> {
+    let state = state.into();
     let workspace_row = state.record(Collection::Workspace, workspace.as_str(), workspace)?;
     let old: Workspace = workspace_row.decode()?;
     // The old path is retained solely for reconciliation. Advancing both

@@ -2,6 +2,7 @@
 use super::*;
 use vcp_context::manifest::{Revisions, Sealed, VerifiedContext};
 use vcp_models::{catalog::Snapshot, request, stream};
+use vcp_protocol::digest_bytes;
 use vcp_repository::Root;
 
 pub(super) struct Provider {
@@ -11,11 +12,14 @@ pub(super) struct Provider {
     pub timeout: Duration,
     active: HashMap<TaskId, Ready>,
     pub(super) retries: HashMap<TaskId, PendingRetry>,
+    pub(super) error_sources: HashMap<AttemptId, vcp_models::retry::LimitSource>,
+    pub(super) failures: HashMap<AttemptId, vcp_models::retry::ProviderFailure>,
+    queued_deadlines: HashMap<TaskId, std::time::Instant>,
 }
 pub(super) struct PendingRetry {
     pub predecessor: AttemptId,
     pub count: u32,
-    pub deadline: std::time::Instant,
+    pub deadline: Option<std::time::Instant>,
     not_before: std::time::Instant,
     /// Owner-approved failover is distinct from an ordinary pinned retry.
     pub switch_owner_model: bool,
@@ -44,6 +48,217 @@ pub(super) struct Prepared {
 }
 
 impl Context {
+    pub(super) fn provider_queue_deadline(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Option<std::time::Instant> {
+        self.provider
+            .as_ref()
+            .and_then(|provider| provider.queued_deadlines.get(&binding.scope.task).copied())
+    }
+    pub(super) fn provider_queue_current(&self, binding: &ThreadBinding) -> Result<()> {
+        if self
+            .provider_queue_deadline(binding)
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
+            return Err("provider admission deadline expired before submission".into());
+        }
+        Ok(())
+    }
+    pub(in crate::foundation) fn set_provider_queue_deadline(
+        &mut self,
+        binding: &ThreadBinding,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<()> {
+        if let Some(provider) = self.provider.as_mut() {
+            if let Some(deadline) = deadline {
+                // Admission runs serially on this worker. Completed admissions
+                // retain their original deadline in the transport permit; only
+                // this binding needs its worker fence through final submission.
+                let now = std::time::Instant::now();
+                provider
+                    .queued_deadlines
+                    .retain(|task, existing| task == &binding.scope.task || *existing > now);
+                if provider.queued_deadlines.len() >= 256
+                    && !provider.queued_deadlines.contains_key(&binding.scope.task)
+                {
+                    return Err("provider admission deadline queue full".into());
+                }
+                provider
+                    .queued_deadlines
+                    .insert(binding.scope.task.clone(), deadline);
+            } else {
+                provider.queued_deadlines.remove(&binding.scope.task);
+            }
+        }
+        self.provider_queue_current(binding)
+    }
+    #[cfg(windows)]
+    pub(in crate::foundation) fn provider_queue_remaining(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Result<Option<Duration>> {
+        self.can_start(binding)?;
+        let timeout = self
+            .provider
+            .as_ref()
+            .ok_or("provider queue configuration missing")?
+            .timeout;
+        if self.execution_deadline == Some(vcp_domain::Limit::Unbounded) {
+            return Ok(self.coding_remaining());
+        }
+        Ok(Some(
+            self.coding_remaining()
+                .map_or(timeout, |remaining| remaining.min(timeout)),
+        ))
+    }
+    #[cfg(windows)]
+    pub(in crate::foundation) fn prepare_rotation_routes(
+        &mut self,
+        binding: &ThreadBinding,
+    ) -> Result<Option<crate::foundation::provider_pacing::Routes>> {
+        let Some(policy) = self
+            .routing
+            .as_ref()
+            .and_then(|runtime| runtime.configuration.rotation.clone())
+        else {
+            return Ok(None);
+        };
+        if policy.sets(binding.role).is_empty() {
+            return Ok(None);
+        }
+        if !self.coding.contains_key(&binding.scope.task) {
+            return Err("rotation requires the canonical portable coding context".into());
+        }
+        self.routing
+            .as_mut()
+            .ok_or("rotation configuration missing")?
+            .rotation_selected
+            .remove(&binding.scope.task);
+        // Assemble once without a billable attempt to obtain the complete
+        // context/capability/budget exclusions; final admission reassembles.
+        self.routing
+            .as_mut()
+            .ok_or("rotation configuration missing")?
+            .rotation_preview = true;
+        let assembled = self.assemble_coding_context(binding);
+        self.routing
+            .as_mut()
+            .ok_or("rotation configuration missing")?
+            .rotation_preview = false;
+        assembled?;
+        let ready = self
+            .provider
+            .as_mut()
+            .ok_or("rotation provider missing")?
+            .prepared
+            .remove(&binding.scope.task)
+            .ok_or("rotation preview context missing")?;
+        let decision = ready.routing.ok_or("rotation preview decision missing")?;
+        let catalog = self
+            .current_routing_catalog()?
+            .ok_or("rotation catalog missing")?;
+        let sets = policy
+            .sets(binding.role)
+            .iter()
+            .map(|set| {
+                set.members
+                    .iter()
+                    .filter(|member| {
+                        decision.candidates.iter().any(|candidate| {
+                            &candidate.identity == *member && candidate.exclusions.is_empty()
+                        }) && catalog.snapshot(member).is_some_and(|snapshot| {
+                            self.config.cap.micros.is_unbounded() || vcp_models::rotation::reference_cost(
+                                snapshot,
+                                policy.reference_input_tokens,
+                                policy.reference_output_tokens,
+                            )
+                            .is_ok_and(|cost| {
+                                cost.currency == set.max_reference_request_cost.currency
+                                    && !set.max_reference_request_cost.micros.exceeds(&cost.micros)
+                            })
+                        })
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        if sets.iter().all(Vec::is_empty) {
+            return Err("no approved rotation member satisfies context, privacy, price and remaining budget".into());
+        }
+        let key = digest_bytes(&canonical_bytes(&(policy, binding.role))?);
+        Ok(Some(crate::foundation::provider_pacing::Routes {
+            policy_key: key,
+            sets,
+            estimated_tokens: decision
+                .input
+                .input_tokens
+                .get()
+                .saturating_add(decision.input.output_tokens.get()),
+            waiter_id: WorkspaceId::new().to_string(),
+            queued_at_ms: now().get(),
+            deadline: None,
+        }))
+    }
+    #[cfg(windows)]
+    pub(in crate::foundation) fn select_rotation_route(
+        &mut self,
+        binding: &ThreadBinding,
+        selection: crate::foundation::provider_pacing::Selection,
+    ) -> Result<()> {
+        self.can_start(binding)?;
+        let route = selection.selected.clone();
+        let runtime = self.routing.as_mut().ok_or("rotation runtime missing")?;
+        let policy = runtime
+            .configuration
+            .rotation
+            .as_ref()
+            .ok_or("rotation policy missing")?;
+        if !policy
+            .sets(binding.role)
+            .iter()
+            .any(|set| set.members.contains(&route))
+        {
+            return Err("rotation selection outside captured role sets".into());
+        }
+        runtime
+            .rotation_selected
+            .insert(binding.scope.task.clone(), route);
+        self.capture(
+            &binding.scope,
+            Channel::Evidence,
+            &canonical_bytes(&selection)?,
+            "provider-rotation/1",
+        )?;
+        Ok(())
+    }
+    pub(in crate::foundation) fn provider_limit_source(
+        &self,
+        attempt: &AttemptId,
+    ) -> Option<vcp_models::retry::LimitSource> {
+        self.provider
+            .as_ref()
+            .and_then(|provider| provider.error_sources.get(attempt).copied())
+    }
+    pub(in crate::foundation) fn provider_attempt_endpoint(
+        &self,
+        binding: &ThreadBinding,
+        id: &AttemptId,
+    ) -> Result<vcp_models::routing::ModelEndpoint> {
+        let attempt: Attempt = self
+            .engine
+            .store()
+            .current()
+            .record(Collection::Attempt, id.as_str(), &binding.scope.workspace)?
+            .decode()?;
+        if attempt.scope != binding.scope {
+            return Err("provider failure attempt scope differs".into());
+        }
+        Ok(vcp_models::routing::ModelEndpoint {
+            model: attempt.quote.price.model,
+            endpoint: attempt.quote.price.provider,
+        })
+    }
     #[cfg(windows)]
     pub(super) fn decision_source(
         &self,
@@ -86,13 +301,7 @@ impl Context {
             return Err("provider deadline must be within 360 seconds".into());
         }
         snapshot.current(now())?;
-        if snapshot
-            != Snapshot::from_endpoints(
-                &raw,
-                snapshot.observed_at,
-                snapshot.valid_until,
-                snapshot.compatibility.clone(),
-            )?
+        if snapshot != snapshot.rebuild_captured(&raw)?
         {
             return Err("provider snapshot differs from captured endpoint catalog".into());
         }
@@ -104,11 +313,10 @@ impl Context {
         {
             return Err("provider refresh waits for active attempts".into());
         }
-        if snapshot.price.currency != self.config.cap.currency
-            || self.config.output_ceiling > snapshot.max_output
-        {
-            return Err("provider currency/output differs from host ceiling".into());
+        if snapshot.price.currency != self.config.cap.currency {
+            return Err("provider currency differs from host ledger".into());
         }
+        let snapshot = snapshot.for_execution(&raw, self.config.cap.micros)?;
         let scope = Scope {
             workspace: self.config.workspace.clone(),
             session: self.config.session.clone(),
@@ -126,13 +334,16 @@ impl Context {
             timeout,
             active: HashMap::new(),
             retries: HashMap::new(),
+            error_sources: HashMap::new(),
+            failures: HashMap::new(),
+            queued_deadlines: HashMap::new(),
         });
         self.provider_required = true;
         Ok(())
     }
     pub fn context_revisions(&self, binding: &ThreadBinding) -> Result<Revisions> {
         self.can_start(binding)?;
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -189,19 +400,20 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &scope.workspace)?
                 .decode()?;
             if descriptor.length.get() != limit || &descriptor.spec.scope != scope {
                 return Err("captured source scope/size differs".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    &mut bytes,
+                ))?;
             Ok((descriptor, bytes))
         };
         read().map_err(|_| vcp_context::manifest::Error::Stale)
@@ -230,6 +442,19 @@ impl Context {
         #[cfg(windows)]
         self.validate_skills(binding)?;
         if let Some(decision) = &ready.routing {
+            let selected = decision
+                .selected
+                .as_ref()
+                .ok_or("routing selected candidate missing")?;
+            if !decision.input.candidate_requests.is_empty()
+                && decision.input.request_for(selected)
+                    != Some((
+                        ready.context.sealed().manifest.input_estimate,
+                        ready.context.sealed().manifest.envelope.output,
+                    ))
+            {
+                return Err("sealed request differs from selected candidate allocation".into());
+            }
             let current_catalog = self.current_routing_catalog()?;
             if self
                 .current_routing_policy()?
@@ -249,7 +474,7 @@ impl Context {
             let policy = self
                 .current_routing_policy()?
                 .ok_or("routing policy unavailable")?;
-            let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+            let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
             let replay_owner_choice = !admitting
                 && self
                     .routing
@@ -262,16 +487,9 @@ impl Context {
                 // selection and admission still check the current balance.
                 decision.input.available.clone()
             } else {
-                Money {
+                MonetaryLimit {
                     currency: ledger.currency.clone(),
-                    micros: Micros::new(
-                        ledger
-                            .cap
-                            .get()
-                            .saturating_sub(ledger.settled.get())
-                            .saturating_sub(ledger.active.get())
-                            .saturating_sub(ledger.unresolved.get()),
-                    ),
+                    micros: ledger.remaining_before_protected()?,
                 }
             };
             self.revalidate_routing_selection(
@@ -322,19 +540,43 @@ impl Context {
         } else {
             None
         };
-        request::validate_sealed_with_effort(
+        let validation_now = now();
+        let mut encoding = self.encoding_diagnostic(
+            binding,
+            crate::foundation::execution_diagnostics::EncodingPurpose::SealedValidation,
+            &ready.snapshot,
+            reasoning_effort,
+        );
+        encoding.request(&ready.context.sealed().manifest.request_sha256);
+        request::validate_sealed_with_effort_observed(
             &ready.context,
             &ready.snapshot,
             &ready.schemas,
-            now(),
+            validation_now,
             reasoning_effort,
+            &mut encoding.work.borrow_mut(),
         )?;
+        drop(encoding);
         let output_ceiling = if ready.routing.is_some() {
             self.current_output_ceiling()?
         } else {
             self.config.output_ceiling
         };
-        if sealed.manifest.envelope.output != output_ceiling
+        if let Some(allocation) = &sealed.manifest.allocation {
+            allocation.validate(
+                sealed.manifest.envelope.input_capacity()?,
+                sealed.manifest.envelope.output,
+            )?;
+            if allocation.host_output_ceiling != output_ceiling
+                || allocation.output_limit > output_ceiling
+            {
+                return Err("sealed allocation exceeds current host ceiling".into());
+            }
+            #[cfg(windows)]
+            if !self.coding_allocation_matches(binding, allocation) {
+                return Err("sealed allocation differs from current controller decision".into());
+            }
+        } else if sealed.manifest.envelope.output != output_ceiling
             || sealed.manifest.envelope.output > self.config.output_ceiling
         {
             return Err("sealed output differs from effective host ceiling".into());
@@ -400,7 +642,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     part.artifact.as_str(),
@@ -496,6 +738,12 @@ impl Context {
         binding: &ThreadBinding,
         retained: &serde_json::Value,
     ) -> Result<Prepared> {
+        let span = self.begin_diagnostic(binding, crate::foundation::execution_diagnostics::Phase::PolicyAdmission, None);
+        let result = self.admit_context_inner(binding, retained);
+        span.finish(&result);
+        result
+    }
+    fn admit_context_inner(&mut self, binding: &ThreadBinding, retained: &serde_json::Value) -> Result<Prepared> {
         #[cfg(windows)]
         if let Err(error) = self.check_coding_bounds() {
             self.pause_root("canonical root coding limit requires attention")?;
@@ -503,7 +751,10 @@ impl Context {
         }
         #[cfg(windows)]
         if self.coding.contains_key(&binding.scope.task) {
-            if let Err(error) = self.assemble_coding_context(binding) {
+            let span = self.begin_diagnostic(binding, crate::foundation::execution_diagnostics::Phase::ContextAssembly, None);
+            let assembled = self.assemble_coding_context(binding);
+            span.finish(&assembled);
+            if let Err(error) = assembled {
                 self.pause_root("canonical coding context or request limit requires attention")?;
                 return Err(error);
             }
@@ -518,7 +769,7 @@ impl Context {
         let reassembled = false;
         let ready = if let Some(retry) = provider.retries.get(&binding.scope.task) {
             let now = std::time::Instant::now();
-            if now < retry.not_before || now >= retry.deadline {
+            if now < retry.not_before || retry.deadline.is_some_and(|deadline| now >= deadline) {
                 return Err("retry timer is not eligible".into());
             }
             if reassembled {
@@ -630,14 +881,47 @@ impl Context {
         binding: &ThreadBinding,
         attempt: AttemptId,
         count: u32,
-        deadline: std::time::Instant,
+        deadline: Option<std::time::Instant>,
         failure: vcp_models::retry::Failure,
+        http_status: Option<u16>,
         retry_after_ms: Option<u64>,
     ) -> Result<Option<Duration>> {
+        // Retain the failure even when no retry is allowed. The final permit
+        // drop must explain why the task paused, not just report unknown cost.
+        if let Some(provider) = self.provider.as_mut() {
+            let limit_source = provider.error_sources.remove(&attempt);
+            provider.failures.insert(
+                attempt.clone(),
+                vcp_models::retry::ProviderFailure {
+                    failure,
+                    http_status,
+                    limit_source,
+                    retry_after_ms,
+                },
+            );
+        }
         self.can_start(binding)?;
         let Some(provider) = self.provider.as_ref() else {
             return Ok(None);
         };
+        let limit_source = provider
+            .failures
+            .get(&attempt)
+            .and_then(|value| value.limit_source);
+        if matches!(
+            limit_source,
+            Some(
+                vcp_models::retry::LimitSource::OpenrouterKeyLimit
+                    | vcp_models::retry::LimitSource::OpenrouterCredits
+            )
+        ) {
+            return Ok(None);
+        }
+        let rotation = self
+            .routing
+            .as_ref()
+            .and_then(|runtime| runtime.configuration.rotation.as_ref())
+            .is_some_and(|policy| !policy.sets(binding.role).is_empty());
         if provider.retries.contains_key(&binding.scope.task) {
             return Err("retry already scheduled".into());
         }
@@ -658,7 +942,7 @@ impl Context {
             let attempts: Vec<Attempt> = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)
@@ -688,23 +972,50 @@ impl Context {
                 .get(&binding.scope.task)
                 .ok_or("retry source context missing")?,
         )?;
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+        let now_instant = std::time::Instant::now();
+        if deadline.is_some_and(|deadline| now_instant >= deadline) {
             return Ok(None);
-        };
+        }
         let now = now();
-        let policy = vcp_models::retry::Policy {
-            max_retries: self.config.max_transport_retries,
-            base_delay_ms: 100,
-            max_delay_ms: 5_000,
-            deadline: Timestamp::new(now.get().saturating_add(remaining.as_millis() as u64)),
-        };
+        let effective_deadline = deadline.map_or(vcp_domain::Limit::Unbounded, |deadline| {
+            vcp_domain::Limit::Finite(Timestamp::new(
+                now.get().saturating_add(
+                    deadline
+                        .saturating_duration_since(now_instant)
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64,
+                ),
+            ))
+        });
+        let mut policy = vcp_models::retry::Policy::for_failure(
+            self.config.max_transport_retries,
+            effective_deadline,
+            failure,
+        );
+        let independent_failover = rotation
+            && matches!(
+                failure,
+                vcp_models::retry::Failure::RateLimit | vcp_models::retry::Failure::Transient
+            )
+            && !matches!(
+                limit_source,
+                Some(vcp_models::retry::LimitSource::OpenrouterInFlightBudget)
+            );
+        if independent_failover {
+            policy.base_delay_ms = 1;
+            policy.max_delay_ms = 1;
+        }
         let Some(retry) = policy.next(
             attempt.clone(),
             count,
             now,
             failure,
             true,
-            retry_after_ms,
+            if independent_failover {
+                None
+            } else {
+                retry_after_ms
+            },
             true,
         )?
         else {
@@ -734,7 +1045,7 @@ impl Context {
                 failure,
                 vcp_models::retry::Failure::RateLimit | vcp_models::retry::Failure::Transient
             );
-        if switch_owner_model {
+        if switch_owner_model && !rotation {
             let decision = ready
                 .routing
                 .as_ref()
@@ -756,7 +1067,7 @@ impl Context {
             let policy = self
                 .current_routing_policy()?
                 .ok_or("owner fallback policy missing")?;
-            let ledger = vcp_budget::ledger(self.engine.store().state(), &binding.scope)?;
+            let ledger = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?;
             let mut input = decision.input.clone();
             input.now = now;
             input.retry_pin = None;
@@ -765,16 +1076,9 @@ impl Context {
             input.policy = policy.id.clone();
             // A failed submitted request is never treated as free. Moving its
             // active reservation to unknown liability preserves this balance.
-            input.available = Money {
+            input.available = MonetaryLimit {
                 currency: ledger.currency.clone(),
-                micros: Micros::new(
-                    ledger
-                        .cap
-                        .get()
-                        .saturating_sub(ledger.settled.get())
-                        .saturating_sub(ledger.active.get())
-                        .saturating_sub(ledger.unresolved.get()),
-                ),
+                micros: ledger.remaining_before_protected()?,
             };
             input.protected_verification = ledger.protected;
             if vcp_models::routing::select_owner_set(&catalog, &policy, &input, assigned)?
@@ -784,7 +1088,22 @@ impl Context {
                 return Ok(None);
             }
         }
-        let delay = Duration::from_millis(retry.not_before.get() - now.get());
+        if rotation {
+            owner_excluded.clear();
+        }
+        let delay = if rotation
+            && matches!(
+                failure,
+                vcp_models::retry::Failure::RateLimit | vcp_models::retry::Failure::Transient
+            )
+            && !matches!(
+                limit_source,
+                Some(vcp_models::retry::LimitSource::OpenrouterInFlightBudget)
+            ) {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(retry.not_before.get() - now.get())
+        };
         self.retain_unknown(
             binding,
             &attempt,
@@ -830,7 +1149,11 @@ impl Context {
             .retries
             .get(&binding.scope.task)
             .ok_or("retry cancelled")?;
-        if &retry.predecessor != attempt || std::time::Instant::now() >= retry.deadline {
+        if &retry.predecessor != attempt
+            || retry
+                .deadline
+                .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
             return Err("retry predecessor/deadline changed".into());
         }
         self.validate_retry_sources(
@@ -951,6 +1274,7 @@ impl Context {
             .streams
             .remove(attempt)
             .ok_or("provider response missing")?;
+        let generation = parser.observed_generation().cloned();
         let normalized = parser.finish_observed_terminal()?;
         if normalized.response_id != response_id {
             return Err("retained/normalized response identity differs".into());
@@ -974,38 +1298,66 @@ impl Context {
             &canonical_bytes(&normalized)?,
             "openrouter-normalized-response/1",
         )?;
-        let Some(amount) = normalized
+        #[cfg(windows)]
+        self.observe_coding_allocation(binding, attempt, &normalized)?;
+        if let Some(amount) = normalized
             .usage
             .as_ref()
             .and_then(|usage| usage.cost.clone())
-        else {
-            return self.unknown(binding, attempt, "provider response omitted observed cost");
-        };
-        let actor = self.actor();
-        #[cfg(feature = "qualification")]
-        self.qualification_model_dispatch_point(
-            crate::foundation::model_dispatch_qualification::Point::BeforeSettlement,
-            attempt,
-        )?;
-        self.runtime.block_on(vcp_budget::observe(
-            self.engine.store_mut(),
-            UsageObservation {
-                id: ObservationId::new(),
-                scope: binding.scope.clone(),
-                attempt: attempt.clone(),
-                provider_request: response_id.into(),
-                mode: UsageMode::Cumulative {
-                    version: Units::new(1),
+        {
+            let actor = self.actor();
+            #[cfg(feature = "qualification")]
+            self.qualification_model_dispatch_point(
+                crate::foundation::model_dispatch_qualification::Point::BeforeSettlement,
+                attempt,
+            )?;
+            self.runtime.block_on(vcp_budget::observe(
+                self.engine.store_mut(),
+                UsageObservation {
+                    id: ObservationId::new(),
+                    scope: binding.scope.clone(),
+                    attempt: attempt.clone(),
+                    provider_request: response_id.into(),
+                    mode: UsageMode::Cumulative {
+                        version: Units::new(1),
+                    },
+                    amount,
+                    final_usage: true,
+                    raw: descriptor.spec.id.clone(),
+                    correction: None,
                 },
-                amount,
-                final_usage: true,
-                raw: descriptor.spec.id.clone(),
-                correction: None,
-            },
-            &actor,
-        ))?;
+                &actor,
+            ))?;
+        } else {
+            // The response writer is already finalized and removed. Persist the
+            // receipt lookup identity before retain_unknown, whose interrupted
+            // capture path otherwise has no writer from which to create it.
+            self.record_failed_charge(attempt, &descriptor, None, generation.as_ref())?;
+            let reason = normalized.terminal_diagnostic.as_ref().map_or_else(
+                || "provider response omitted observed cost; submitted charge remains unresolved and requires accounting reconciliation".to_owned(),
+                |diagnostic| format!("{}; provider response omitted observed cost; submitted charge remains unresolved and requires accounting reconciliation", diagnostic.summary()),
+            );
+            // A validated terminal is stronger evidence than the retained
+            // client's generic error classification for that terminal.
+            if let Some(provider) = self.provider.as_mut() {
+                provider.failures.remove(attempt);
+                provider.error_sources.remove(attempt);
+            }
+            self.retain_unknown(binding, attempt, &reason, false)?;
+            // Only a fully observed, validated complete response can proceed
+            // with financial-only uncertainty. Unknown send/outcome, incomplete
+            // output and availability-liability fences retain their behavior.
+            let complete = normalized.status == stream::Status::Completed
+                && normalized.terminal_diagnostic.is_none();
+            let unbounded = vcp_budget::ledger(self.engine.store().current(), &binding.scope)?
+                .cap
+                .is_unbounded();
+            if !complete || !unbounded {
+                return self.pause_root(&reason);
+            }
+        }
         let admitted = vcp_budget::attempt(
-            self.engine.store().state(),
+            self.engine.store().current(),
             attempt,
             &binding.scope.workspace,
         )?;
@@ -1016,15 +1368,61 @@ impl Context {
         {
             self.pause_root("observed served model differs from admitted model pin")?;
         }
+        if let Some(diagnostic) = &normalized.terminal_diagnostic {
+            #[cfg(windows)]
+            if matches!(
+                diagnostic,
+                stream::TerminalDiagnostic::Incomplete {
+                    reason: Some(stream::IncompleteReason::MaxOutputTokens)
+                }
+            ) && self.coding.contains_key(&binding.scope.task)
+                && self.queue_output_continuation(
+                    binding,
+                    attempt,
+                    vec![
+                        descriptor.spec.id.clone(),
+                        normalized_capture.spec.id.clone(),
+                    ],
+                )?
+            {
+                return Ok(());
+            }
+            self.pause_root(&format!(
+                "{}; final observed cost retained",
+                diagnostic.summary()
+            ))?;
+            return Ok(());
+        }
         #[cfg(windows)]
         if self.coding.contains_key(&binding.scope.task) {
+            let financial_proof = normalized
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.cost.as_ref())
+                .is_none()
+                && admitted.phase == ReservationState::ReconciliationPending
+                && normalized
+                    .served_model
+                    .as_ref()
+                    .is_none_or(|model| model == &admitted.quote.price.model);
             self.complete_coding_response(
                 binding,
                 attempt,
                 normalized,
-                vec![descriptor.spec.id, normalized_capture.spec.id],
+                vec![
+                    descriptor.spec.id.clone(),
+                    normalized_capture.spec.id.clone(),
+                ],
                 mcp_provenance,
             )?;
+            if financial_proof {
+                self.record_completed_financial_uncertainty(
+                    &admitted,
+                    response_id,
+                    descriptor,
+                    normalized_capture,
+                )?;
+            }
         }
         Ok(())
     }

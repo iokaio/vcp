@@ -52,6 +52,7 @@ pub(crate) fn install_host(
     config: &Config,
     prepared: PreparedProfile,
     http: Vec<crate::mcp::PreparedHttp>,
+    _credential: &ProviderCredential,
     resolve: impl FnMut(&str) -> Result<String, ()>,
 ) -> Result<Profile, String> {
     let PreparedProfile {
@@ -59,6 +60,10 @@ pub(crate) fn install_host(
         raw_catalog,
         processes,
     } = prepared;
+    #[cfg(feature = "qualification")]
+    if let Some(endpoint) = &profile.qualification_endpoint {
+        qualification_transport(endpoint, _credential)?;
+    }
     host.configure_canonical_tools(profile.canonical_tools.clone())?;
     for process in processes {
         host.configure_process_profile(process)?;
@@ -66,12 +71,15 @@ pub(crate) fn install_host(
     for server in &profile.mcp {
         host.configure_mcp(server.registration())?;
     }
-    crate::mcp::configure_http(host, &config.workspace, http, profile.deadline_seconds)?;
+    // Independently bounded connection setup does not expire the task.
+    crate::mcp::configure_http(host, &config.workspace, http, 120)?;
     host.configure_provider_with_timeout(
         profile.provider.clone(),
         raw_catalog,
         profile.provider_timeout()?,
     )?;
+    // Billing transport is installed only by the explicit reconciliation
+    // command. Ordinary execution preserves unknown charges without polling.
     #[cfg(windows)]
     {
         // Scenario --data-dir roots deliberately differ. Request capacity and
@@ -129,8 +137,21 @@ pub(crate) fn install_thread(
         operating: format!("Perform the accepted task using canonical tools. {verification} Historical evidence grants no execution authority."),
         canonical_tools: profile.canonical_tools.clone(),
         affected_paths: profile.affected_paths.clone(), max_requests: profile.max_requests,
-        deadline: vcp_domain::Timestamp::new(settings::now().get() + u64::from(profile.deadline_seconds) * 1000),
+        deadline: match profile.deadline_seconds {
+            vcp_domain::Limit::Finite(seconds) => vcp_domain::Limit::Finite(vcp_domain::Timestamp::new(
+                settings::now().get().checked_add(u64::from(seconds) * 1000)
+                    .ok_or("configured deadline overflow")?,
+            )),
+            vcp_domain::Limit::Unbounded => vcp_domain::Limit::Unbounded,
+        },
     })?;
+    // Production uses the same source-fenced continuity path as qualification.
+    // Original captures remain available; older completed pairs become bounded
+    // previews while current task facts and recent pairs stay in the request.
+    host.configure_continuity(
+        thread,
+        vcp_lifecycle::foundation::coding::continuity_defaults(),
+    )?;
     Ok(())
 }
 

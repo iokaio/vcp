@@ -41,13 +41,13 @@ try{
     $env:VCP_TEST_DOTNET=[IO.Path]::GetFullPath($Dotnet)
     $env:VCP_TEST_NUGET_PACKAGES=[IO.Path]::GetFullPath($NuGetPackages)
     $env:RUST_MIN_STACK='16777216';$env:CODEX_TEST_ENVIRONMENT='local';$env:CARGO_TARGET_DIR=$paths.target
-    $record.rustc=& rustc '+1.98.0' --version
-    if($LASTEXITCODE -ne 0){$record.status='not_run';throw 'Native Rust 1.98.0 unavailable'}
+    $record.rustc=& rustc '+1.95.0' --version
+    if($LASTEXITCODE -ne 0){$record.status='not_run';throw 'Native Rust 1.95.0 unavailable'}
     $inputs=@(Get-ChildItem -LiteralPath (Join-Path $repository 'src/crates') -Recurse -File|Where-Object {$_.Extension -eq '.rs' -or $_.Name -eq 'Cargo.toml'}|ForEach-Object FullName)
     $inputs+=@($PSCommandPath,(Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.lock'),(Join-Path $repository 'src/third_party/components/codex-files.json'))
     $record.inputs=@($inputs|Sort-Object|ForEach-Object {@{path=[IO.Path]::GetRelativePath($repository,$_).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}})
     $record.status='running';Save-Record
-    $arguments=@('+1.98.0','test','--manifest-path',(Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.toml'),'--locked','--offline','--target','x86_64-pc-windows-msvc','-j',"$Jobs",'-p','vcp-lifecycle','--features','dotnet-qualification','--test','canonical_host','actual_dotnet_checks_preserve_failed_evidence_before_completion','--','--test-threads=1','--nocapture')
+    $arguments=@('+1.95.0','test','--manifest-path',(Join-Path $repository 'src/third_party/codex/codex-rs/Cargo.toml'),'--locked','--offline','--target','x86_64-pc-windows-msvc','-j',"$Jobs",'-p','vcp-lifecycle','--features','dotnet-qualification','--test','canonical_host','actual_dotnet_checks_preserve_failed_evidence_before_completion','--','--test-threads=1','--nocapture')
     $log=Join-Path $directory 'native-dotnet.log'
     & cargo @arguments *> $log;$code=$LASTEXITCODE
     $record.stages+=@{name='native-dotnet';command=@('cargo')+$arguments;exit_code=$code;log='native-dotnet.log';sha256=(Get-FileHash -LiteralPath $log).Hash.ToLowerInvariant()};Save-Record

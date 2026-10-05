@@ -216,7 +216,7 @@ impl Supervisor {
         if loaded.selection != self.profile_selection {
             return Err("execution profile or import selection changed; relaunch required".into());
         }
-        let state = self.host.snapshot()?;
+        let state = self.host.current_state()?;
         let selected: Workspace = state
             .record(
                 Collection::Workspace,
@@ -228,7 +228,7 @@ impl Supervisor {
         if selected.trust != Trust::Trusted || selected.binding != self.config.binding {
             return Err("execution workspace trust or binding changed".into());
         }
-        let policy = vcp_engine::policy::optional(&state, &self.config.workspace)
+        let policy = vcp_engine::policy::optional(state.as_ref(), &self.config.workspace)
             .map_err(|_| "execution policy unavailable")?
             .ok_or("execution requires an existing canonical policy")?;
         let pin = vcp_protocol::digest_bytes(
@@ -239,11 +239,8 @@ impl Supervisor {
         }
         let prepared = loaded.profile.prepare(policy.mode)?;
         let profile = &prepared.profile;
-        if let Some(accepted) = self.retained_budget(&state)? {
-            if accepted.budget.max_requests != profile.max_requests
-                || accepted.budget.deadline_seconds != profile.deadline_seconds
-                || accepted.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
-            {
+        if let Some(accepted) = self.retained_budget()? {
+            if accepted.budget.max_requests != profile.max_requests {
                 return Err("execution profile differs from original public run limits".into());
             }
         }
@@ -280,42 +277,38 @@ impl Supervisor {
 
     fn retained_budget(
         &self,
-        state: &vcp_store::contract::State,
     ) -> Result<Option<vcp_engine::public_start::RetainedStartBudget>, String> {
-        if !state.records.contains_key(&vcp_store::contract::key(
-            Collection::Task,
-            self.config.root_task.as_str(),
-        )) {
-            return Ok(None);
-        }
-        vcp_engine::public_start::retained_start_budget(
-            state,
-            &Scope {
-                workspace: self.config.workspace.clone(),
-                session: self.config.session.clone(),
-                task: self.config.root_task.clone(),
-            },
-        )
-        .map_err(|_| "original run budget evidence unavailable".into())
+        self.host.retained_start_budget(Scope {
+            workspace: self.config.workspace.clone(),
+            session: self.config.session.clone(),
+            task: self.config.root_task.clone(),
+        })
     }
 
     fn execution_expiry(
         &self,
         profile: &crate::settings::Profile,
-    ) -> Result<tokio::time::Instant, String> {
-        let mut remaining = u64::from(profile.deadline_seconds) * 1000;
-        if let Some(accepted) = self.retained_budget(&self.host.snapshot()?)? {
-            let expires = accepted
-                .accepted_at
-                .get()
-                .checked_add(u64::from(accepted.budget.deadline_seconds) * 1000)
-                .ok_or("original run deadline overflow")?;
-            remaining = remaining.min(expires.saturating_sub(crate::settings::now().get()));
+    ) -> Result<Option<tokio::time::Instant>, String> {
+        let Some(seconds) = profile.deadline_seconds.finite() else {
+            return Ok(None);
+        };
+        let mut remaining = u64::from(*seconds) * 1000;
+        if let Some(accepted) = self.retained_budget()? {
+            if let Some(seconds) = accepted.budget.deadline_seconds.finite() {
+                let expires = accepted
+                    .accepted_at
+                    .get()
+                    .checked_add(u64::from(*seconds) * 1000)
+                    .ok_or("original run deadline overflow")?;
+                remaining = remaining.min(expires.saturating_sub(crate::settings::now().get()));
+            }
         }
         if remaining == 0 {
             return Err("original run deadline elapsed".into());
         }
-        Ok(tokio::time::Instant::now() + std::time::Duration::from_millis(remaining))
+        Ok(Some(
+            tokio::time::Instant::now() + std::time::Duration::from_millis(remaining),
+        ))
     }
 
     async fn resume(
@@ -362,6 +355,8 @@ impl Supervisor {
             let _ = pump.await;
         }
         let (prepared, policy) = self.prepare_profile(state.policy.as_deref())?;
+        self.host
+            .configure_execution_constraints(vcp_domain::Limit::Unbounded)?;
         let profile = if state.session.is_none() {
             let http = crate::mcp::prepare_http_with(&prepared.profile.mcp_http, |name| {
                 self.configuration.credentials.get(name).cloned().ok_or(())
@@ -381,6 +376,7 @@ impl Supervisor {
                 &self.config,
                 prepared,
                 http,
+                &credential,
                 |name| self.configuration.credentials.get(name).cloned().ok_or(()),
             )?;
             let startup = connection.authorize_resume_startup(&mut ticket, current)?;
@@ -427,11 +423,11 @@ impl Supervisor {
                 return Ok(receipt);
             }
             state.configured = true;
-            state.deadline = Some(expires);
+            state.deadline = expires;
         }
         // Only a new durable acceptance can submit work. Canonical admission
         // independently rechecks controller loss between commit and submission.
-        let expires = state.deadline.ok_or("execution deadline unavailable")?;
+        let expires = state.deadline;
         state.pump = Some(pump(self.host.clone(), scope, execution, None, expires));
         Ok(receipt)
     }
@@ -482,10 +478,10 @@ fn pump(
     scope: Scope,
     mut execution: crate::execution::RetainedExecution,
     accepted: Option<TurnId>,
-    expires: tokio::time::Instant,
+    expires: Option<tokio::time::Instant>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let deadline = tokio::time::sleep_until(expires);
+        let deadline = crate::execution::wait_deadline(expires);
         tokio::pin!(deadline);
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
         let mut pending = Some(execution.start_submission(accepted));
@@ -498,6 +494,8 @@ fn pump(
                         match result {
                             Ok(crate::execution::LifecycleResult::Submitted(id)) => turn=Some(id),
                             Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(_))) | Err(_) => {
+                                #[cfg(feature = "qualification")]
+                                if let Err(error) = &result { eprintln!("qualification lifecycle error: {error}"); }
                                 if selected(&host,&scope).is_ok_and(|task|task.state==TaskState::Running) {pause(&host,&scope);}
                                 break;
                             },
@@ -516,6 +514,7 @@ fn pump(
                         codex_protocol::protocol::EventMsg::TurnComplete(_) => {
                             pending=Some(execution.start_completion());
                         }
+                        codex_protocol::protocol::EventMsg::Error(_) if execution.has_output_continuation().unwrap_or(false) => {},
                         codex_protocol::protocol::EventMsg::TurnAborted(_) | codex_protocol::protocol::EventMsg::Error(_) => { pause(&host, &scope); break; }
                         _ => {}
                     },
@@ -535,7 +534,7 @@ fn pump(
 
 fn selected(host: &CanonicalHost, scope: &Scope) -> Result<Task, String> {
     let task: Task = host
-        .snapshot()?
+        .current_state()?
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|row| row.decode())
         .map_err(|_| "execution task unavailable")?;

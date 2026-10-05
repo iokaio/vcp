@@ -62,7 +62,7 @@ export type BackupPublisherStatusView = { "active_operation"?: (Id | null); "bus
 
 export type Bound = { "inclusive": boolean; "instant": InstantSpec; };
 
-export type Budget = { "cap_micros": Counter; "currency": Currency; "deadline_seconds": number; "max_requests": number; };
+export type Budget = { "cap_micros": Limit_Counter; "currency": Currency; "deadline_seconds": Limit_uint32; "max_requests": number; };
 
 export type Call = ({ "method": ("controller/read" & string); "params": ControllerRead; } | { "method": ("controller/acquire" & string); "params": ControllerAcquire; } | { "method": ("controller/release" & string); "params": ControllerRelease; } | { "method": ("controller/recover" & string); "params": ControllerRecover; } | { "method": ("workspace/open" & string); "params": WorkspaceOpen; } | { "method": ("workspace/setTrust" & string); "params": WorkspaceSetTrust; } | { "method": ("session/create" & string); "params": SessionCreate; } | { "method": ("session/read" & string); "params": SessionRead; } | { "method": ("session/snapshot" & string); "params": SessionSnapshotRead; } | { "method": ("session/list" & string); "params": SessionList; } | { "method": ("session/resume" & string); "params": SessionResume; } | { "method": ("session/fork" & string); "params": SessionFork; } | { "method": ("task/read" & string); "params": TaskRead; } | { "method": ("task/presentation" & string); "params": Inspect; } | { "method": ("task/cancel" & string); "params": TaskCancel; } | { "method": ("turn/start" & string); "params": TurnStart; } | { "method": ("turn/steer" & string); "params": TurnSteer; } | { "method": ("turn/pause" & string); "params": TurnControl; } | { "method": ("turn/cancel" & string); "params": TurnControl; } | { "method": ("approval/respond" & string); "params": ApprovalRespond; } | { "method": ("events/subscribe" & string); "params": EventsSubscribe; } | { "method": ("events/next" & string); "params": EventsNext; } | { "method": ("events/unsubscribe" & string); "params": EventsUnsubscribe; } | { "method": ("artifact/read" & string); "params": ArtifactRead; } | { "method": ("diff/read" & string); "params": DiffRead; } | { "method": ("context/inspect" & string); "params": Inspect; } | { "method": ("backup/status" & string); "params": BackupPublisherStatusRequest; } | { "method": ("backup/create" & string); "params": BackupPublisherCreate; } | { "method": ("backup/read" & string); "params": BackupPublisherRead; } | { "method": ("backup/retry" & string); "params": BackupPublisherRetry; } | { "method": ("backup/cancel" & string); "params": BackupPublisherCancel; } | { "method": ("routing/explain" & string); "params": Inspect; } | { "method": ("policy/read" & string); "params": PolicyRead; } | { "method": ("routing/status" & string); "params": RoutingStatusRequest; } | { "method": ("routing/reportCapture" & string); "params": RoutingOptimizerReportCapture; } | { "method": ("routing/reportRead" & string); "params": RoutingOptimizerReportRead; } | { "method": ("routing/preview" & string); "params": RoutingOptimizerPreviewRequest; } | { "method": ("routing/apply" & string); "params": RoutingOptimizerApply; } | { "method": ("routing/rollback" & string); "params": RoutingOptimizerRollback; } | { "method": ("usage/read" & string); "params": Inspect; } | { "method": ("history/query" & string); "params": HistoryQuery; } | { "method": ("memory/history" & string); "params": MemoryHistoryRequest; } | { "method": ("memory/query" & string); "params": MemoryQuery; } | { "method": ("memory/inspect" & string); "params": MemoryInspect; } | { "method": ("memory/propose" & string); "params": ProposeParams; } | { "method": ("memory/resolve" & string); "params": ResolveParams; } | { "method": ("memory/review" & string); "params": ReviewRead; } | { "method": ("memory/forget" & string); "params": MemoryForget; } | { "method": ("memory/forgetPreview" & string); "params": PreviewRequest; } | { "method": ("memory/forgetPreviewRead" & string); "params": PreviewPageRequest; } | { "method": ("memory/forgetRead" & string); "params": JobRead; } | { "method": ("editor/context" & string); "params": EditorContext; } | { "method": ("editor/prepare" & string); "params": EditorPrepare; } | { "method": ("editor/changeRead" & string); "params": EditorChangeRead; } | { "method": ("editor/dispatch" & string); "params": EditorDispatch; } | { "method": ("editor/changeResult" & string); "params": EditorChangeResult; } | { "method": ("session/export" & string); "params": SessionExport; } | { "method": ("command/read" & string); "params": CommandRead; });
 
@@ -138,6 +138,8 @@ export type ErrorData = { "details": unknown; "kind": string; };
 
 export type ErrorEnvelope = { "error": RpcError; "id": RequestId; "jsonrpc": JsonRpcVersion; };
 
+export type EstimatedCounter = (Counter | UnknownEstimate);
+
 export type Event = { "command_id"?: (Id | null); "evidence": Array<EvidenceReference>; "evidence_complete": boolean; "id": Id; "kind": string; "outcome"?: (OperationOutcome | null); "redacted": boolean; "schema_version": string; "scope": Scope; "sequence": Counter; "task"?: (Id | null); "timestamp_ms": Counter; };
 
 export type EventBatch = { "at_end": boolean; "cursor": string; "events": Array<Event>; "snapshot_sequence": Counter; "subscription": Id; };
@@ -167,6 +169,10 @@ export type EvidenceState = { "artifact": Id; "availability": EvidenceAvailabili
 export type EvidenceStatus = (("verified" | "observed" | "inferred" | "unverified") & string);
 
 export type ExecutionHost = { "id": string; "platform": string; };
+
+export type ExecutionPauseReason = { "code": ExecutionReasonCode; "evidence": Id; "message": string; "repeats": number; "schema_version": number; "threshold": number; };
+
+export type ExecutionReasonCode = ("execution.no_progress" & string);
 
 export type ExportView = { "artifact": Id; "complete": boolean; "scope": Scope; "visibility_manifest": Id; };
 
@@ -225,6 +231,10 @@ export type JsonRpcVersion = ("2.0" & string);
 export type LegacyPropose = { "content": string; "evidence": Array<Id>; "mutation": Mutation; "scope": Scope; "task": Id; };
 
 export type LegacyResolve = { "decision": MemoryDecision; "mutation": Mutation; "proposal": Id; "scope": Scope; "task": Id; };
+
+export type Limit_Counter = (Versioned_for_Counter | Counter);
+
+export type Limit_uint32 = (Versioned_for_uint32 | number);
 
 export type MemoryDecision = (("accept" | "reject") & string);
 
@@ -344,13 +354,15 @@ export type RoutingOptimizerAssessment = ("not_dispatch_authority" & string);
 
 export type RoutingOptimizerCohort = { "authority_policy": Counter; "catalog": RoutingStatusText; "count": Counter; "model": RoutingStatusText; "provider": RoutingStatusText; "role": RoutingStatusText; "routing_policy": RoutingStatusText; "size": RoutingStatusText; "task_class": RoutingStatusText; };
 
-export type RoutingOptimizerCounts = { "abandoned"?: (Counter | null); "attempts": Counter; "cancelled": Counter; "child_tasks": Counter; "completed": Counter; "failed": Counter; "known_spend": Array<RoutingOptimizerMoney>; "pruned_tasks": Counter; "reserved_liability": Array<RoutingOptimizerMoney>; "retries": Counter; "supporting_attempts": Counter; "tasks": Counter; "uncertain_attempts": Counter; "unfinished": Counter; };
+export type RoutingOptimizerCounts = { "abandoned"?: (Counter | null); "attempts": Counter; "cancelled": Counter; "child_tasks": Counter; "completed": Counter; "failed": Counter; "known_spend": Array<RoutingOptimizerMoney>; "pruned_tasks": Counter; "reserved_liability": Array<RoutingOptimizerLiabilityMoney>; "retries": Counter; "supporting_attempts": Counter; "tasks": Counter; "uncertain_attempts": Counter; "unfinished": Counter; };
 
 export type RoutingOptimizerCoverage = (("session" | "workspace") & string);
 
 export type RoutingOptimizerEdit = ({ "field": ("retrieval_limits" & string); "value": (RoutingStatusRetrievalLimits | null); } | { "field": ("input_tokens" & string); "value": (Counter | null); } | { "field": ("escalation_max_transport_retries" & string); "value": (number | null); } | { "field": ("escalation_max_quality_switches" & string); "value": (number | null); } | { "field": ("escalation_max_total_attempts" & string); "value": (number | null); } | { "field": ("escalation_minimum_repeated_failures" & string); "value": (number | null); } | { "field": ("reasoning_effort" & string); "value": (RoutingStatusEffort | null); } | { "field": ("output_tokens" & string); "value": (Counter | null); } | { "field": ("profile" & string); "value": RoutingStatusProfile; } | { "field": ("ordering" & string); "value": Array<RoutingStatusPreference>; } | { "field": ("quality_floor_bps" & string); "value": number; } | { "field": ("minimum_samples" & string); "value": number; } | { "field": ("maximum_evidence_age_ms" & string); "value": Counter; } | { "field": ("allowed_models" & string); "value": Array<string>; } | { "field": ("allowed_endpoints" & string); "value": Array<string>; } | { "field": ("allowed_groups" & string); "value": Array<RoutingStatusGroup>; } | { "field": ("pin" & string); "value": (RoutingOptimizerPin | null); });
 
 export type RoutingOptimizerField = (("retrieval_limits" | "input_tokens" | "escalation_max_transport_retries" | "escalation_max_quality_switches" | "escalation_max_total_attempts" | "escalation_minimum_repeated_failures" | "reasoning_effort" | "output_tokens" | "profile" | "ordering" | "quality_floor_bps" | "minimum_samples" | "maximum_evidence_age_ms" | "allowed_models" | "allowed_endpoints" | "allowed_groups" | "pin" | "deny_data_collection" | "require_zdr" | "broader_task_class") & string);
+
+export type RoutingOptimizerLiabilityMoney = { "currency": string; "micros"?: (Counter | null); };
 
 export type RoutingOptimizerMoney = { "currency": string; "micros": Counter; };
 
@@ -484,7 +496,7 @@ export type TaskRead = { "scope": Scope; "task": Id; };
 
 export type TaskStatus = (("pending" | "running" | "waiting_for_input" | "blocked" | "paused" | "completed" | "failed" | "cancelled") & string);
 
-export type TaskView = { "effects": EffectStatus; "parent"?: (Id | null); "pending_inputs": Array<PendingInput>; "reason": string; "revision": Counter; "root": Id; "scope": Scope; "state": TaskStatus; "steering_revision": Counter; "task": Id; "turn"?: (Id | null); };
+export type TaskView = { "diagnostic"?: (ExecutionPauseReason | null); "effects": EffectStatus; "parent"?: (Id | null); "pending_inputs": Array<PendingInput>; "reason": string; "revision": Counter; "root": Id; "scope": Scope; "state": TaskStatus; "steering_revision": Counter; "task": Id; "turn"?: (Id | null); };
 
 export type TextEdit = { "range": Range2; "text": string; };
 
@@ -504,7 +516,13 @@ export type TypedPropose = { "candidate": Candidate; "guards": Guards; "mutation
 
 export type TypedResolve = { "decision": MemoryDecision; "guards": Guards; "mutation": Mutation; "reason": string; "scope": Scope; "submission": Id; "submission_digest": string; "submission_revision": Counter; "task": Id; };
 
-export type UsageView = { "cap_micros": Counter; "currency": Currency; "overrun": boolean; "reserved_micros": Counter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": Counter; };
+export type UnknownEstimate = { "kind": ("unknown" & string); "known_component": Counter; "unknown_components": Counter; "version": number; };
+
+export type UsageView = { "cap_micros": Limit_Counter; "currency": Currency; "overrun": boolean; "reserved_micros": EstimatedCounter; "root": Id; "scope": Scope; "settled_micros": Counter; "task": Id; "unresolved_micros": EstimatedCounter; };
+
+export type Versioned_for_Counter = ({ "kind": ("finite" & string); "value": Counter; "version": number; } | { "kind": ("unbounded" & string); "version": number; });
+
+export type Versioned_for_uint32 = ({ "kind": ("finite" & string); "value": number; "version": number; } | { "kind": ("unbounded" & string); "version": number; });
 
 export type Visibility = (("retained" | "pruned" | "purged") & string);
 

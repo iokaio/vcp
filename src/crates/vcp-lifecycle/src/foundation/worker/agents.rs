@@ -54,7 +54,7 @@ impl Context {
         if task == &self.config.root_task {
             return Ok(None);
         }
-        let Some(row) = self.engine.store().state().records.get(&key(
+        let Some(row) = self.engine.store().current().records.get(&key(
             Collection::Projection,
             &graph_id(&self.config.root_task),
         )) else {
@@ -78,16 +78,19 @@ impl Context {
         Ok(Some((graph, spec)))
     }
     pub(super) fn child_assignment(&self, task: &TaskId) -> Result<Option<(TaskGraph, ChildSpec)>> {
-        let Some((graph, spec)) = self.child_assignment_record(task)? else {
+        let Some((graph, _)) = self.child_assignment_record(task)? else {
             return Ok(None);
         };
+        let spec = graph
+            .effective_child(task)
+            .ok_or("child has no effective assignment")?;
         if graph.cleanup.contains_key(task) {
             return Err("child workspace is leased for cleanup; only cleanup reconciliation and retained history are available".into());
         }
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -97,7 +100,7 @@ impl Context {
         let parent: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 spec.parent.as_str(),
@@ -105,17 +108,21 @@ impl Context {
             )?
             .decode()?;
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &self.config.workspace)?;
         if spec.actor != self.config.actor
             || spec.authority != workspace.authority
             || spec.policy != policy.revision
             || spec.binding != workspace.binding.revision
             || spec.parent_steering != parent.steering
-            || spec.deadline <= now()
+            || spec
+                .deadline
+                .finite()
+                .is_some_and(|deadline| *deadline <= now())
         {
             return Err("child assignment requires current parent, authority and deadline".into());
         }
-        if !vcp_engine::agents::current_scope(self.engine.store().state(), &parent, &spec, now())? {
+        if !vcp_engine::agents::current_scope(self.engine.store().current(), &parent, &spec, now())?
+        {
             return Err("child grant ceiling is no longer current".into());
         }
         Ok(Some((graph, spec)))
@@ -137,7 +144,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &self.config.workspace)?
             .decode()?;
         if descriptor.state != CaptureState::Complete
@@ -149,12 +156,13 @@ impl Context {
             return Err("child workspace registration evidence changed".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         let registration: WorkspaceRegistration = serde_json::from_slice(&bytes)?;
         if registration.owner != *task
             || registration.child.workspace != self.config.workspace
@@ -197,7 +205,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -257,7 +265,7 @@ impl Context {
                 if patch.len() > 256 * 1024 {
                     return Err("child patch exceeds input ceiling".into());
                 }
-                for hunk in codex_apply_patch::parse_patch(patch)?.hunks {
+                for hunk in vcp_tools::patch::parse(patch)?.hunks {
                     match hunk {
                         codex_apply_patch::Hunk::AddFile { path, .. }
                         | codex_apply_patch::Hunk::DeleteFile { path } => {
@@ -341,7 +349,7 @@ impl Context {
         let source = RootId::parse(self.config.workspace.as_str())?;
         let isolated = spec.isolated_root.as_ref().ok_or("child root missing")?;
         let mut policy =
-            vcp_engine::policy::current(self.engine.store().state(), &self.config.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &self.config.workspace)?;
         if policy.workspace_roots.contains(&source) {
             policy.workspace_roots.insert(isolated.clone());
         }
@@ -361,7 +369,7 @@ impl Context {
         let parent: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 spec.parent.as_str(),
@@ -369,13 +377,13 @@ impl Context {
             )?
             .decode()?;
         for mut grant in
-            vcp_engine::policy::grants(self.engine.store().state(), &self.config.workspace)?
+            vcp_engine::policy::grants(self.engine.store().current(), &self.config.workspace)?
         {
             if spec.grants.get(&grant.id) != Some(&grant.revision) {
                 continue;
             }
             if !vcp_engine::agents::inherited_grant(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &parent,
                 &grant,
                 now(),

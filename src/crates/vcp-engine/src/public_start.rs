@@ -24,6 +24,7 @@ use vcp_protocol::{
 use vcp_store::contract::{
     key, CanonicalStore, Collection, Mutation, ReceiptInput, Record, State, Transaction,
 };
+use vcp_store::CurrentStateView;
 
 /// Trusted native observations/configuration, never deserialized from the wire.
 pub struct StartFacts {
@@ -89,30 +90,33 @@ pub fn retained_start_budget(
     state: &State,
     scope: &Scope,
 ) -> Result<Option<RetainedStartBudget>, PublicError> {
+    let Some(evidence) = start_evidence(state.into(), scope, state.events.iter())? else {
+        return Ok(None);
+    };
+    let receipt = state
+        .command(&scope.workspace, &evidence.command, &evidence.digest)
+        .map_err(|_| PublicError::Unavailable)?;
+    evidence.finish(receipt)
+}
+
+struct StartEvidence {
+    request: TurnStart,
+    command: CommandId,
+    digest: String,
+    watermark: Watermark,
+    sequence: SessionSeq,
+    accepted_at: Timestamp,
+}
+
+fn start_evidence<'a>(
+    state: CurrentStateView<'_>,
+    scope: &Scope,
+    events: impl Iterator<Item = &'a vcp_protocol::event::EventEnvelope>,
+) -> Result<Option<StartEvidence>, PublicError> {
     let unavailable = || PublicError::Unavailable;
-    let current: Task = state
-        .record(Collection::Task, scope.task.as_str(), &scope.workspace)
-        .map_err(|_| unavailable())?
-        .decode()
-        .map_err(|_| unavailable())?;
-    if current.scope != *scope
-        || current.root != scope.task
-        || current.parent.is_some()
-        || current.redaction.is_some()
-    {
-        return Err(unavailable());
-    }
-    let workspace: Workspace = state
-        .record(
-            Collection::Workspace,
-            scope.workspace.as_str(),
-            &scope.workspace,
-        )
-        .map_err(|_| unavailable())?
-        .decode()
-        .map_err(|_| unavailable())?;
+    let workspace = validate_start_root(state, scope)?;
     let mut genesis = None;
-    for event in state.events.iter().filter(|event| {
+    for event in events.filter(|event| {
         event.event.workspace == scope.workspace
             && event.event.session == scope.session
             && event.event.task.as_ref() == Some(&scope.task)
@@ -215,24 +219,98 @@ pub fn retained_start_budget(
     let digest = call
         .digest(event.event.actor.as_str())
         .map_err(|_| unavailable())?;
-    let receipt = state
-        .command(&scope.workspace, &event.event.correlation, &digest)
-        .map_err(|_| unavailable())?
-        .ok_or_else(unavailable)?;
-    if receipt.watermark != event.watermark
-        || receipt.first_event > event.sequence
-        || receipt.last_event < event.sequence
-        || receipt.result
-            != (CommandResult::Accepted {
-                revision: Revision::ZERO,
-            })
-    {
-        return Err(unavailable());
-    }
-    Ok(Some(RetainedStartBudget {
-        budget: request.budget,
+    Ok(Some(StartEvidence {
+        request,
+        command: event.event.correlation.clone(),
+        digest,
+        watermark: event.watermark,
+        sequence: event.sequence,
         accepted_at: event.event.timestamp,
     }))
+}
+
+fn validate_start_root(
+    state: CurrentStateView<'_>,
+    scope: &Scope,
+) -> Result<Workspace, PublicError> {
+    let current: Task = state
+        .record(Collection::Task, scope.task.as_str(), &scope.workspace)
+        .map_err(|_| PublicError::Unavailable)?
+        .decode()
+        .map_err(|_| PublicError::Unavailable)?;
+    if current.scope != *scope
+        || current.root != scope.task
+        || current.parent.is_some()
+        || current.redaction.is_some()
+    {
+        return Err(PublicError::Unavailable);
+    }
+    state
+        .record(
+            Collection::Workspace,
+            scope.workspace.as_str(),
+            &scope.workspace,
+        )
+        .map_err(|_| PublicError::Unavailable)?
+        .decode()
+        .map_err(|_| PublicError::Unavailable)
+}
+
+/// The same genesis and receipt proof through bounded owner-pinned reads.
+pub async fn retained_start_budget_store<S: vcp_store::CanonicalHistory>(
+    store: &S,
+    scope: &Scope,
+) -> Result<Option<RetainedStartBudget>, PublicError> {
+    validate_start_root(store.current(), scope)?;
+    // Exactly one bounded genesis envelope may be retained. A later matching
+    // row is an error, so the scan must finish even after the first match.
+    let mut genesis = None;
+    crate::public::visit_history(store, |event| {
+        if event.event.workspace == scope.workspace
+            && event.event.session == scope.session
+            && event.event.task.as_ref() == Some(&scope.task)
+            && event.event.kind == EventKind::TaskCreated
+        {
+            if genesis.is_some() {
+                return Err(PublicError::Unavailable);
+            }
+            genesis = Some(event.clone());
+        }
+        Ok(())
+    })
+    .await?;
+    let Some(evidence) = start_evidence(store.current(), scope, genesis.iter())? else {
+        return Ok(None);
+    };
+    let receipt = store
+        .command_receipt(&scope.workspace, &evidence.command, &evidence.digest)
+        .await
+        .map_err(|_| PublicError::Unavailable)?;
+    evidence.finish(receipt)
+}
+
+impl StartEvidence {
+    fn finish(
+        self,
+        receipt: Option<CommandReceipt>,
+    ) -> Result<Option<RetainedStartBudget>, PublicError> {
+        let unavailable = || PublicError::Unavailable;
+        let receipt = receipt.ok_or_else(unavailable)?;
+        if receipt.watermark != self.watermark
+            || receipt.first_event > self.sequence
+            || receipt.last_event < self.sequence
+            || receipt.result
+                != (CommandResult::Accepted {
+                    revision: Revision::ZERO,
+                })
+        {
+            return Err(unavailable());
+        }
+        Ok(Some(RetainedStartBudget {
+            budget: self.request.budget,
+            accepted_at: self.accepted_at,
+        }))
+    }
 }
 
 fn invalid<T>(_: T) -> PublicError {
@@ -245,7 +323,7 @@ fn scope(request: &TurnStart) -> Result<Scope, PublicError> {
         task: TaskId::parse(request.task.as_str()).map_err(invalid)?,
     })
 }
-fn available(state: &State, request: &TurnStart) -> Result<(), PublicError> {
+fn available(state: CurrentStateView<'_>, request: &TurnStart) -> Result<(), PublicError> {
     for (collection, id) in [
         (Collection::Task, request.task.as_str()),
         (Collection::Ledger, request.task.as_str()),
@@ -262,7 +340,7 @@ impl<S: CanonicalStore> Engine<S> {
     /// Revalidate an already accepted, still-pristine run. A lifecycle ticket
     /// must additionally prove that this process owns the fresh acceptance;
     /// calling this on a replay must never mint a constructor capability.
-    pub fn check_accepted_public_start(
+    pub async fn check_accepted_public_start(
         &self,
         request: &TurnStart,
         receipt: &CommandReceipt,
@@ -283,9 +361,11 @@ impl<S: CanonicalStore> Engine<S> {
         let digest = Call::TurnStart(request.clone())
             .digest(access.actor.as_str())
             .map_err(invalid)?;
-        let state = self.store().state();
-        if state
-            .command(&access.workspace, &command, &digest)
+        let state = self.store().current();
+        if self
+            .store()
+            .command_receipt(&access.workspace, &command, &digest)
+            .await
             .map_err(|_| PublicError::CommandConflict)?
             .as_ref()
             != Some(receipt)
@@ -309,11 +389,12 @@ impl<S: CanonicalStore> Engine<S> {
         task.validate().map_err(|_| PublicError::Unavailable)?;
         ledger.validate().map_err(|_| PublicError::Unavailable)?;
         trigger.validate().map_err(|_| PublicError::Unavailable)?;
-        let cap: u64 = request
+        let cap = request
             .budget
             .cap_micros
-            .as_str()
-            .parse()
+            .clone()
+            .map(|value| value.as_str().parse::<u64>().map(Micros::new))
+            .transpose()
             .map_err(invalid)?;
         if task.scope != selected
             || task.root != selected.task
@@ -338,11 +419,11 @@ impl<S: CanonicalStore> Engine<S> {
             || ledger.revision != Revision::ZERO
             || ledger.policy != PolicyRevision::ZERO
             || ledger.currency.code() != "USD"
-            || ledger.cap.get() != cap
-            || ledger.protected.get() > cap
+            || ledger.cap != cap
+            || cap.exceeds(&ledger.protected)
             || ledger.settled != Micros::ZERO
-            || ledger.active != Micros::ZERO
-            || ledger.unresolved != Micros::ZERO
+            || !ledger.active.is_zero()
+            || !ledger.unresolved.is_zero()
             || !ledger.allocations.is_empty()
             || ledger.daily.is_some()
             || ledger.overrun
@@ -362,40 +443,52 @@ impl<S: CanonicalStore> Engine<S> {
         {
             return Err(PublicError::StaleState);
         }
-        for (row, kind, cause) in [
+        let expected = [
             (task_row, EventKind::TaskCreated, Some(&task.cause)),
             (turn_row, EventKind::TurnTransition, Some(&turn.cause)),
             (ledger_row, EventKind::AccountingResolved, None),
             (trigger_row, EventKind::ArtifactAttached, None),
-        ] {
+        ];
+        for (row, _, _) in &expected {
             if row.revision != Revision::ZERO {
                 return Err(PublicError::StaleState);
             }
-            let collection = serde_json::to_value(row.collection).map_err(invalid)?;
-            let revision = serde_json::to_value(Revision::ZERO).map_err(invalid)?;
-            if !state.events.iter().any(|event| {
-                event.redaction.is_none()
+        }
+        let mut found = [false; 4];
+        let collections = expected
+            .iter()
+            .map(|(row, _, _)| serde_json::to_value(row.collection).map_err(invalid))
+            .collect::<Result<Vec<_>, _>>()?;
+        let revision = serde_json::to_value(Revision::ZERO).map_err(invalid)?;
+        let mut chronology = crate::public::Chronology::new(state, &selected)?;
+        crate::public::visit_history(self.store(), |event| {
+            chronology.observe(event)?;
+            for (index, (row, kind, cause)) in expected.iter().enumerate() {
+                found[index] |= event.redaction.is_none()
                     && event.watermark == receipt.watermark
                     && event.event.workspace == selected.workspace
                     && event.event.session == selected.session
                     && event.event.task.as_ref() == Some(&selected.task)
                     && event.event.correlation == command
-                    && event.event.kind == kind
+                    && event.event.kind == *kind
                     && cause.is_none_or(|cause| event.event.id == *cause)
                     && event.event.data["schema_version"] == 1
                     && event.event.data["facts"].as_array().is_some_and(|facts| {
                         facts.iter().any(|fact| {
-                            fact["collection"] == collection
+                            fact["collection"] == collections[index]
                                 && fact["id"] == row.id
                                 && fact["value"] == row.value
                                 && fact["revision"] == revision
                         })
-                    })
-            }) {
-                return Err(PublicError::Unavailable);
+                    });
             }
+            Ok(())
+        })
+        .await?;
+        if found.contains(&false) {
+            return Err(PublicError::Unavailable);
         }
-        if crate::public::current_public_turn(state, &selected)?.as_ref() != Some(&turn) {
+        if chronology.finish()?.as_ref() != Some(&turn) {
             return Err(PublicError::StaleState);
         }
         Ok(AcceptedPublicStart {
@@ -408,7 +501,7 @@ impl<S: CanonicalStore> Engine<S> {
 
     /// Current control and scope precede receipt lookup. A duplicate cannot
     /// create a task, capture another trigger or re-enter retained construction.
-    pub fn prepare_public_start(
+    pub async fn prepare_public_start(
         &self,
         request: TurnStart,
         access: &Access,
@@ -432,8 +525,8 @@ impl<S: CanonicalStore> Engine<S> {
         let digest = call.digest(access.actor.as_str()).map_err(invalid)?;
         if let Some(receipt) = self
             .store()
-            .state()
-            .command(&access.workspace, &id, &digest)
+            .command_receipt(&access.workspace, &id, &digest)
+            .await
             .map_err(|_| PublicError::CommandConflict)?
         {
             return Ok(PublicStartAdmission::Replay(receipt));
@@ -443,7 +536,7 @@ impl<S: CanonicalStore> Engine<S> {
         {
             return Err(PublicError::StaleState);
         }
-        available(self.store().state(), &request)?;
+        available(self.store().current(), &request)?;
         Ok(PublicStartAdmission::Ready(PreparedPublicStart {
             request,
             actor: access.actor.clone(),
@@ -468,24 +561,34 @@ impl<S: CanonicalStore> Engine<S> {
         if prepared.actor != access.actor || prepared.authority != access.authority {
             return Err(PublicError::Access);
         }
-        let request = match self.prepare_public_start(
-            prepared.request,
-            access,
-            &prepared.connection,
-            &prepared.token,
-        )? {
+        let request = match self
+            .prepare_public_start(
+                prepared.request,
+                access,
+                &prepared.connection,
+                &prepared.token,
+            )
+            .await?
+        {
             PublicStartAdmission::Replay(receipt) => {
                 return Ok(PublicStartOutcome::Replay(receipt))
             }
             PublicStartAdmission::Ready(current) => current.request,
         };
-        let policy = crate::policy::optional(self.store().state(), &access.workspace)
+        let policy = crate::policy::optional(self.store().current(), &access.workspace)
             .map_err(|_| PublicError::Unavailable)?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision);
         if policy != facts.policy {
             return Err(PublicError::StaleState);
         }
-        let transaction = transaction(self.store().state(), &request, access, facts, trigger, now)?;
+        let transaction = transaction(
+            self.store().current(),
+            &request,
+            access,
+            facts,
+            trigger,
+            now,
+        )?;
         let receipt = self
             .store_mut()
             .transact(transaction)
@@ -500,27 +603,29 @@ impl<S: CanonicalStore> Engine<S> {
     }
 }
 
-fn transaction(
-    state: &State,
+fn transaction<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     request: &TurnStart,
     access: &Access,
     facts: &StartFacts,
     trigger: &ArtifactDescriptor,
     now: Timestamp,
 ) -> Result<Transaction, PublicError> {
+    let state = state.into();
     available(state, request)?;
     let selected = scope(request)?;
     let command = CommandId::parse(request.mutation.command_id.as_str()).map_err(invalid)?;
     let turn_id = TurnId::parse(request.turn.as_str()).map_err(invalid)?;
-    let cap: u64 = request
+    let cap = request
         .budget
         .cap_micros
-        .as_str()
-        .parse()
+        .clone()
+        .map(|value| value.as_str().parse::<u64>().map(Micros::new))
+        .transpose()
         .map_err(invalid)?;
     facts.fingerprint.validate().map_err(invalid)?;
     trigger.validate().map_err(invalid)?;
-    if facts.protected.get() > cap
+    if cap.exceeds(&facts.protected)
         || request.budget.currency != Currency::Usd
         || trigger.spec.scope != selected
         || trigger.state != CaptureState::Complete
@@ -584,11 +689,11 @@ fn transaction(
         revision: Revision::ZERO,
         policy: PolicyRevision::ZERO,
         currency: "USD".to_owned().try_into().map_err(invalid)?,
-        cap: Micros::new(cap),
+        cap,
         protected: facts.protected,
         settled: Micros::ZERO,
-        active: Micros::ZERO,
-        unresolved: Micros::ZERO,
+        active: Micros::ZERO.into(),
+        unresolved: Micros::ZERO.into(),
         allocations: Default::default(),
         daily: None,
         overrun: false,

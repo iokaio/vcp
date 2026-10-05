@@ -3,6 +3,7 @@
 use super::*;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
+use vcp_store::contract::CanonicalStore;
 
 fn bounded(mut command: Command) -> Output {
     use std::os::windows::process::CommandExt;
@@ -73,7 +74,7 @@ async fn state(config: &Config) -> State {
     let store = Store::open(&config.canonical_root, config.backend, &[])
         .await
         .unwrap();
-    let snapshot = store.state().clone();
+    let snapshot = store.archive_state().await.unwrap();
     store.close().await.unwrap();
     snapshot
 }
@@ -85,9 +86,9 @@ async fn seed_plan_policy(config: &Config) {
         .await
         .unwrap();
     let mut engine = vcp_engine::Engine::new(store).unwrap();
-    let workspace = world(engine.store().state());
+    let workspace = world(&engine.store().archive_state().await.unwrap());
     assert!(
-        vcp_engine::policy::optional(engine.store().state(), &config.workspace)
+        vcp_engine::policy::optional(engine.store().current(), &config.workspace)
             .unwrap()
             .is_none()
     );
@@ -138,7 +139,7 @@ async fn seed_plan_policy(config: &Config) {
         .unwrap();
     assert_eq!(
         serde_json::to_value(
-            vcp_engine::policy::current(engine.store().state(), &config.workspace).unwrap()
+            vcp_engine::policy::current(engine.store().current(), &config.workspace).unwrap()
         )
         .unwrap(),
         serde_json::to_value(policy).unwrap()
@@ -621,6 +622,7 @@ async fn production_memory_optimizer_exclusion_survive_encrypted_cross_backend_r
             &vcp_memory::search_record::ChunkerSpec::default(),
             vcp_memory::search_record::Limits::default()
         )
+        .await
         .is_err());
         store.close().await.unwrap();
         let target_cli = |args: &[&str]| success(call(&destination, &data, args));

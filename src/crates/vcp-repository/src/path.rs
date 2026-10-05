@@ -49,6 +49,109 @@ pub struct HeldPath {
     pub native_identity: String,
 }
 
+#[cfg(all(test, windows))]
+mod directory_create_tests {
+    use super::*;
+
+    #[test]
+    fn directory_creation_returns_an_already_pinned_handle() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = native::open(temp.path(), true).unwrap();
+        let child = native::create_directory(&parent, "new").unwrap();
+        assert!(std::fs::rename(temp.path().join("new"), temp.path().join("moved")).is_err());
+        assert!(native::create_directory(&parent, "NEW").is_err());
+        assert!(native::create_directory(&parent, "../escape").is_err());
+        let grandchild = native::create_directory(&child, "nested").unwrap();
+        assert!(
+            std::fs::rename(temp.path().join("new/nested"), temp.path().join("replaced")).is_err()
+        );
+        drop(grandchild);
+        drop(child);
+        std::fs::rename(temp.path().join("new"), temp.path().join("moved")).unwrap();
+    }
+}
+
+/// Side-effect-free directory dependencies for a file destination. Missing
+/// components are explicit mutations, never created while preparing a patch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParentDirectory {
+    pub path: String,
+    pub native_identity: Option<String>,
+}
+
+impl Root {
+    pub fn prepare_parents(&self, file: &str) -> Result<Vec<ParentDirectory>> {
+        let normalized = relative(Path::new(file))?;
+        let mut plan = vec![];
+        let mut guards = vec![self.hold(None, true)?];
+        let mut path = String::new();
+        let parts: Vec<_> = normalized.split('/').collect();
+        let mut missing = false;
+        for part in &parts[..parts.len() - 1] {
+            if !path.is_empty() {
+                path.push('/');
+            }
+            path.push_str(part);
+            let native_identity = if missing {
+                None
+            } else {
+                match self.hold(Some(Path::new(&path)), true) {
+                    Ok(held) => {
+                        let identity = held.native_identity.clone();
+                        guards.push(held);
+                        Some(identity)
+                    }
+                    Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                        missing = true;
+                        None
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+            plan.push(ParentDirectory {
+                path: path.clone(),
+                native_identity,
+            });
+        }
+        Ok(plan)
+    }
+
+    /// Keep each existing ancestor pinned while checking the complete plan.
+    /// `created` contains only identities observed by this same broker dispatch.
+    pub fn hold_planned_parents(
+        &self,
+        file: &str,
+        plan: &[ParentDirectory],
+        created: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Vec<HeldPath>> {
+        let observed = self.prepare_parents(file)?;
+        if observed.len() != plan.len() {
+            return Err(Error::Stale);
+        }
+        let mut held = vec![self.hold(None, true)?];
+        for (actual, expected) in observed.iter().zip(plan) {
+            if actual.path != expected.path {
+                return Err(Error::Stale);
+            }
+            let identity = expected
+                .native_identity
+                .as_ref()
+                .or_else(|| created.get(&expected.path.to_lowercase()));
+            if actual.native_identity.as_ref() != identity {
+                return Err(Error::Stale);
+            }
+            if let Some(identity) = identity {
+                let guard = self.hold(Some(Path::new(&expected.path)), true)?;
+                if &guard.native_identity != identity {
+                    return Err(Error::Stale);
+                }
+                held.push(guard);
+            }
+        }
+        Ok(held)
+    }
+}
+
 #[cfg(windows)]
 pub(crate) mod native {
     use super::*;
@@ -90,6 +193,71 @@ pub(crate) mod native {
             return Err(Error::Scope("unexpected file/directory kind".into()));
         }
         Ok(file)
+    }
+
+    /// FILE_CREATE atomically returns the new directory with delete sharing
+    /// denied. No create-then-open interval permits substituting another object.
+    pub fn create_directory(parent: &File, name: &str) -> Result<File> {
+        use std::os::windows::io::FromRawHandle;
+        use windows_sys::{
+            Wdk::{
+                Foundation::OBJECT_ATTRIBUTES,
+                Storage::FileSystem::{
+                    NtCreateFile, FILE_CREATE, FILE_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+                    FILE_SYNCHRONOUS_IO_NONALERT,
+                },
+            },
+            Win32::{
+                Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
+                System::IO::IO_STATUS_BLOCK,
+            },
+        };
+        if relative(Path::new(name))? != name || name.contains('/') {
+            return Err(Error::Scope("single directory component required".into()));
+        }
+        let mut name: Vec<u16> = name.encode_utf16().collect();
+        let length =
+            u16::try_from(name.len() * 2).map_err(|_| Error::Limit("directory component"))?;
+        let mut string = UNICODE_STRING {
+            Length: length,
+            MaximumLength: length,
+            Buffer: name.as_mut_ptr(),
+        };
+        let attributes = OBJECT_ATTRIBUTES {
+            Length: std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: parent.as_raw_handle().cast(),
+            ObjectName: &mut string,
+            Attributes: OBJ_CASE_INSENSITIVE,
+            SecurityDescriptor: std::ptr::null_mut(),
+            SecurityQualityOfService: std::ptr::null_mut(),
+        };
+        let mut handle = std::ptr::null_mut();
+        let mut status_block: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+        // All pointers live through this synchronous call. FILE_CREATE cannot
+        // open an existing entry, and the one-component name is parent-relative.
+        let status = unsafe {
+            NtCreateFile(
+                &mut handle,
+                FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                &attributes,
+                &mut status_block,
+                std::ptr::null(),
+                FILE_ATTRIBUTE_NORMAL,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_CREATE,
+                FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+                std::ptr::null(),
+                0,
+            )
+        };
+        if status < 0 {
+            return Err(std::io::Error::from_raw_os_error(
+                unsafe { RtlNtStatusToDosError(status) } as i32,
+            )
+            .into());
+        }
+        // A successful synchronous create transfers this unique owned handle.
+        Ok(unsafe { File::from_raw_handle(handle.cast()) })
     }
     pub(crate) fn info(file: &File) -> Result<BY_HANDLE_FILE_INFORMATION> {
         let mut value = std::mem::MaybeUninit::zeroed();

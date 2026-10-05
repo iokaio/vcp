@@ -171,7 +171,8 @@ fn input(catalog: &CatalogRevision, policy: &Policy) -> RoutingInput {
         required_capabilities: BTreeSet::from(["tools".into()]),
         input_tokens: Units::new(100),
         output_tokens: Units::new(50),
-        available: money(10_000),
+        available: money(10_000).into(),
+        candidate_requests: vec![],
         protected_verification: Micros::new(100),
         estimates: catalog.entries.iter().map(estimate).collect(),
     }
@@ -226,11 +227,11 @@ impl Fixture {
             revision: Revision::ZERO,
             policy: revisions.policy,
             currency: money(0).currency,
-            cap: Micros::new(10_000),
+            cap: vcp_domain::Limit::Finite(Micros::new(10_000)),
             protected: Micros::new(100),
             settled: Micros::new(500),
-            active: Micros::new(200),
-            unresolved: Micros::new(300),
+            active: Micros::new(200).into(),
+            unresolved: Micros::new(300).into(),
             allocations: BTreeMap::new(),
             daily: None,
             overrun: false,
@@ -562,7 +563,7 @@ fn counters_survive_serialization_and_stop_without_resetting_prior_liability() {
     assert_eq!(plan.after.quality_switches, 1);
     assert_eq!(plan.after.transport_retries, 0);
     assert_eq!(plan.unresolved, Micros::new(300));
-    assert_eq!(plan.remaining, Micros::new(8900));
+    assert_eq!(plan.remaining, vcp_domain::Limit::Finite(Micros::new(8900)));
     assert_eq!(plan.estimated_handoff, Micros::new(40));
     let persisted = serde_json::to_vec(&plan).unwrap();
     let recovered: escalation::Plan = serde_json::from_slice(&persisted).unwrap();
@@ -652,7 +653,7 @@ fn combined_root_limit_and_unresolved_spend_cannot_be_bypassed() {
     fixture.policy.max_total_attempts = 1;
     fixture.blocked(escalation::Blocked::Limit);
     let mut fixture = Fixture::new();
-    fixture.ledger.unresolved = Micros::new(8900);
+    fixture.ledger.unresolved = Micros::new(8900).into();
     fixture.blocked(escalation::Blocked::Budget);
     let mut fixture = Fixture::new();
     fixture.counters.total_attempts = 0;

@@ -364,7 +364,8 @@ async fn qualify(bundle: Bundle, report: &mut Value) -> Result<()> {
                 &bindings,
                 &chunker,
                 search_record::Limits::default(),
-            )?;
+            )
+            .await?;
             if !inventory.exclusions.is_empty() {
                 return Err("fixture unexpectedly excluded source bytes".into());
             }
@@ -477,14 +478,16 @@ async fn qualify(bundle: Bundle, report: &mut Value) -> Result<()> {
                                 values: &vector,
                             }),
                             &|| false,
-                        )?;
+                        )
+                        .await?;
                         let elapsed = start.elapsed().as_micros() as u64;
                         warm.push(elapsed);
                         retrieval::revalidate_fence(
                             &store,
                             &access,
                             response.fence.as_ref().ok_or("missing source fence")?,
-                        )?;
+                        )
+                        .await?;
                         let fused: Vec<_> = response
                             .passages
                             .iter()
@@ -530,7 +533,8 @@ async fn qualify(bundle: Bundle, report: &mut Value) -> Result<()> {
                             values: &vector,
                         }),
                         &|| false,
-                    )?;
+                    )
+                    .await?;
                     let narrow_ok = !response.passages.is_empty()
                         && response
                             .passages
@@ -547,7 +551,8 @@ async fn qualify(bundle: Bundle, report: &mut Value) -> Result<()> {
                             &chunker,
                             None,
                             &|| false
-                        ),
+                        )
+                        .await,
                         Err(vcp_memory::Error::Access)
                     );
                     foreign.workspace = access.workspace.clone();
@@ -564,7 +569,8 @@ async fn qualify(bundle: Bundle, report: &mut Value) -> Result<()> {
                             values: &vector,
                         }),
                         &|| false,
-                    )?
+                    )
+                    .await?
                     .passages
                     .is_empty();
                     report["scope_checks"].as_array_mut().unwrap().push(json!({"backend":backend_name,"query":case.id,"reader_repetition":repetition,"narrow_nonempty_exact_task":narrow_ok,"foreign_workspace_denied":foreign_denied,"empty_scope_no_passages":empty}));

@@ -101,6 +101,60 @@ try {
         Assert-Rejected { New-InventoryConnection "Server=fixture;Integrated Security=True;$key=fixture-secret" 'VcpInventory_fixture' } "$key was accepted"
     }
     Assert-Rejected { New-InventoryConnection 'Server=fixture;User ID=someone' 'VcpInventory_fixture' } 'SQL authentication without integrated security was accepted'
+    foreach ($key in 'AttachDBFilename', 'Initial File Name', 'Extended Properties') {
+        Assert-Rejected { New-InventoryConnection "Server=fixture;Integrated Security=True;$key=C:\existing\user-data.mdf" 'VcpInventory_fixture' } "$key can redirect migrations to an existing database file"
+    }
+
+    Import-ScenarioFunction 'scenario-b-aspnet-inventory.ps1' 'Test-Migrations'
+    $sqlcmd = 'fixture-sqlcmd.exe'; $useLocalDb = $true; $database = 'VcpInventory_fixture'
+    $seededSkus = @('fixture-sku')
+    $script:migrationCase = 'pass'; $script:seedCount = '10'
+    $script:migrationCalls = [Collections.Generic.List[string]]::new()
+    $script:seedCalls = 0
+    function Invoke-Dotnet {
+        param($Stage, $Label, $Arguments)
+        $script:migrationCalls.Add($Label)
+        if ($Label -eq 'ef-migrations-list') {
+            if ($script:migrationCase -eq 'no-context') { return @{ ExitCode = 1; Output = ''; Errors = 'No DbContext was found' } }
+            $output = if ($script:migrationCase -eq 'missing-migration') { 'No migrations were found' } else { '20261003000000_InitialCreate' }
+            return @{ ExitCode = 0; Output = $output; Errors = '' }
+        }
+        $exitCode = if ($script:migrationCase -eq 'update-failed') { 1 } else { 0 }
+        @{ ExitCode = $exitCode; Output = ''; Errors = 'fixture update result' }
+    }
+    function Invoke-Tool {
+        param($Ctx, $Stage, $Label, $FilePath, $ArgumentList)
+        $script:seedCalls++
+        @{ ExitCode = 0; Output = $script:seedCount; Errors = '' }
+    }
+    foreach ($case in 'no-context', 'missing-migration', 'update-failed') {
+        $script:migrationCase = $case
+        $script:migrationCalls.Clear()
+        Test-Migrations "migration-$case" @('InitialCreate')
+        Assert-Gate "migration-$case" 'migrations' 'fail'
+        Assert-Gate "migration-$case" 'db.seed' 'skip'
+        $migrationGate = @($ctx.Gates | Where-Object { $_.stage -eq "migration-$case" -and $_.id -eq 'migrations' })[-1]
+        $seedGate = @($ctx.Gates | Where-Object { $_.stage -eq "migration-$case" -and $_.id -eq 'db.seed' })[-1]
+        Assert-That ($migrationGate.required -and -not $seedGate.required -and $seedGate.detail -match 'failed migrations') 'Migration failure or seed dependency lost its meaning'
+        Assert-That ($script:seedCalls -eq 0) 'Failed migrations still queried an unverified database'
+        if ($case -ne 'update-failed') {
+            Assert-That ('ef-database-update' -notin $script:migrationCalls) 'Missing migrations still attempted database update'
+        }
+    }
+    $script:migrationCase = 'pass'
+    Test-Migrations 'migration-pass' @('InitialCreate')
+    Assert-Gate 'migration-pass' 'migrations' 'pass'
+    Assert-Gate 'migration-pass' 'db.seed' 'pass'
+    Assert-That ($script:seedCalls -eq 1) 'Successful migrations did not verify seed data'
+    $script:seedCount = '9'
+    Test-Migrations 'migration-bad-seed' @('InitialCreate')
+    Assert-Gate 'migration-bad-seed' 'migrations' 'pass'
+    Assert-Gate 'migration-bad-seed' 'db.seed' 'fail'
+    $sqlcmd = $null
+    Test-Migrations 'migration-no-sqlcmd' @('InitialCreate')
+    Assert-Gate 'migration-no-sqlcmd' 'migrations' 'pass'
+    Assert-Gate 'migration-no-sqlcmd' 'db.seed' 'skip'
+    Assert-That ($script:seedCalls -eq 2) 'Unavailable SQL tool still queried the database'
 
     Import-ScenarioFunction 'scenario-a-vue-taskboard.ps1' 'Test-UnitAndBuild'
     New-Item -ItemType Directory -Path (Join-Path $ws 'dist/client/assets') -Force | Out-Null
@@ -132,6 +186,7 @@ try {
 
     Import-ScenarioFunction 'scenario-b-aspnet-inventory.ps1' 'Test-Tests'
     $script:trxOutcome = 'Passed'
+    $script:trxTestName = 'Suite.Required'
     $script:trxPaths = [System.Collections.Generic.List[string]]::new()
     function Invoke-Dotnet {
         param($Stage, $Label, $Arguments)
@@ -139,15 +194,23 @@ try {
         $script:trxPaths.Add($path)
         New-Item -ItemType Directory -Path $path -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $path 'first.trx') -Value '<TestRun><Results><UnitTestResult testName="Suite.First" outcome="Passed"/></Results></TestRun>'
-        Set-Content -LiteralPath (Join-Path $path 'second.trx') -Value "<TestRun><Results><UnitTestResult testName=`"Suite.Required`" outcome=`"$script:trxOutcome`"/></Results></TestRun>"
+        Set-Content -LiteralPath (Join-Path $path 'second.trx') -Value "<TestRun><Results><UnitTestResult testName=`"$script:trxTestName`" outcome=`"$script:trxOutcome`"/></Results></TestRun>"
         @{ ExitCode = 0; Output = ''; Errors = '' }
     }
+    # TRX parsing fixtures represent assessments whose current build passed.
+    # Failed/missing build admission is exercised in Campaign.Tests.ps1.
+    [void](Add-GateResult $ctx 'dotnet' 'build' 'current build fixture' 'pass' '' $true)
+    [void](Add-GateResult $ctx 'dotnet-suffix' 'build' 'current build fixture' 'pass' '' $true)
     Test-Tests 'dotnet' 2 @('Required')
     Assert-Gate 'dotnet' 'dotnet-test' 'pass'
+    $script:trxTestName = 'Suite.NotRequired'
+    Test-Tests 'dotnet-suffix' 2 @('Required')
+    Assert-Gate 'dotnet-suffix' 'dotnet-test' 'fail'
+    $script:trxTestName = 'Suite.Required'
     $script:trxOutcome = 'NotExecuted'
     Test-Tests 'dotnet' 2 @('Required')
     Assert-Gate 'dotnet' 'dotnet-test' 'fail'
-    Assert-That (@($script:trxPaths | Select-Object -Unique).Count -eq 2) 'TRX reused a stale report directory'
+    Assert-That (@($script:trxPaths | Select-Object -Unique).Count -eq 3) 'TRX reused a stale report directory'
 
     foreach ($name in 'Assert-Probability', 'Get-PredictionMetrics', 'Assert-ReportedMetrics', 'Test-Pytest') {
         Import-ScenarioFunction 'scenario-d-python-textlab.ps1' $name
@@ -175,6 +238,38 @@ try {
     Assert-Rejected { Get-PredictionMetrics $predictions $expected @('a', 'b') 'category' } 'Invalid label was accepted'
     $predictions[0].category = 'a'; $predictions[0].category_confidence = $null
     Assert-Rejected { Get-PredictionMetrics $predictions $expected @('a', 'b') 'category' } 'Missing confidence was accepted'
+
+    Import-ScenarioFunction 'scenario-d-python-textlab.ps1' 'Test-Robustness'
+    $holdoutRows = $expected; $labels = @('a', 'b'); $holdoutPath = 'fixture.csv'; $edgePath = 'fixture-edge.csv'
+    $script:confidenceFixture = 'valid'
+    function Invoke-Python {
+        param($Stage, $Label, $Arguments)
+        if ($Label -eq 'predict-edge') { return @{ ExitCode = 4; Output = ''; Errors = 'unrelated edge gate fixture' } }
+        $out = $Arguments[[array]::IndexOf($Arguments, '--output') + 1]
+        $rows = @($holdoutRows | ForEach-Object { [pscustomobject]@{ id = $_.id; category = 'a'; category_confidence = '0.8' } })
+        $rows[1].category_confidence = '0.999'
+        if ($Label -eq 'predict-strict') {
+            foreach ($row in $rows) { $row.category = 'needs_review' }
+            $rows[1].category = 'a'
+        }
+        if ($script:confidenceFixture -eq 'truncated') { $rows = @($rows[0]) }
+        if ($script:confidenceFixture -eq 'reordered') { [array]::Reverse($rows) }
+        if ($script:confidenceFixture -eq 'invalid') { $rows[0].category_confidence = 'NaN' }
+        if ($script:confidenceFixture -eq 'wrong-threshold' -and $Label -eq 'predict-strict') { $rows[0].category = 'a' }
+        if ($script:confidenceFixture -eq 'wrong-boundary' -and $Label -eq 'predict-strict') { $rows[1].category = 'needs_review' }
+        if ($script:confidenceFixture -eq 'changed-confidence' -and $Label -eq 'predict-strict') { $rows[0].category_confidence = '0.7' }
+        if ($script:confidenceFixture -eq 'wrong-open-label' -and $Label -eq 'predict-open') { $rows[0].category = 'invalid' }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $out) -Force | Out-Null
+        $rows | Export-Csv -LiteralPath $out -NoTypeInformation
+        @{ ExitCode = 0; Output = ''; Errors = '' }
+    }
+    Test-Robustness 'confidence-valid' 'fixture-models'
+    Assert-Gate 'confidence-valid' 'min-confidence' 'pass'
+    foreach ($case in 'truncated', 'reordered', 'invalid', 'wrong-threshold', 'wrong-boundary', 'changed-confidence', 'wrong-open-label') {
+        $script:confidenceFixture = $case
+        Test-Robustness "confidence-$case" 'fixture-models'
+        Assert-Gate "confidence-$case" 'min-confidence' 'fail'
+    }
 
     $script:pytestSkipped = $false
     function Invoke-Python {

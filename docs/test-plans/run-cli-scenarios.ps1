@@ -63,11 +63,17 @@ function Assert-LauncherProvider([string]$Generation, [switch]$AllowExpired) {
         }
     }
     $snapshot = Get-Content -LiteralPath (Join-Path $full $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
-    [void](Get-Content -LiteralPath (Join-Path $full 'endpoints.json') -Raw | ConvertFrom-Json -Depth 100)
+    $catalog = Get-Content -LiteralPath (Join-Path $full 'endpoints.json') -Raw | ConvertFrom-Json -Depth 100
     if (-not $snapshot.valid_until) { throw 'The provider snapshot has no valid_until timestamp.' }
     $expires = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until)
-    if ($snapshot.raw_sha256 -and (Get-FileHash -LiteralPath (Join-Path $full 'endpoints.json') -Algorithm SHA256).Hash -ine $snapshot.raw_sha256) {
+    if ($snapshot.raw_sha256 -notmatch '^[0-9a-fA-F]{64}$' -or (Get-FileHash -LiteralPath (Join-Path $full 'endpoints.json') -Algorithm SHA256).Hash -ine $snapshot.raw_sha256) {
         throw 'The provider catalog does not match its retained snapshot hash.'
+    }
+    foreach ($value in [string]$snapshot.compatibility.model, [string]$snapshot.compatibility.endpoint) {
+        if ($value.Length -gt 256 -or $value -notmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or @($value.Split('/') | Where-Object { $_ -in '.', '..' }).Count) { throw 'Provider metadata requires exact model and endpoint identifiers.' }
+    }
+    if ($catalog.data.id -cne $snapshot.compatibility.model -or @($catalog.data.endpoints | Where-Object { $_.tag -ceq $snapshot.compatibility.endpoint }).Count -ne 1) {
+        throw 'Provider metadata identity differs from the captured catalog.'
     }
     if (-not $AllowExpired -and $expires -le [DateTimeOffset]::UtcNow) {
         throw "Provider snapshot expired $($expires.ToString('o')); expired metadata cannot authorize scenario execution."
@@ -85,8 +91,8 @@ function Get-LauncherRefreshCandidate([string]$Generation, [string]$Model, [stri
     foreach ($value in [string]$snapshot.compatibility.model, [string]$snapshot.compatibility.endpoint) {
         if ($value.Length -gt 256 -or $value -notmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or @($value.Split('/') | Where-Object { $_ -in '.', '..' }).Count) { throw 'Renewal requires exact retained model and endpoint identifiers.' }
     }
-    if (($Model -and $snapshot.compatibility.model -ne $Model) -or ($Endpoint -and $snapshot.compatibility.endpoint -ne $Endpoint) -or
-        $catalog.data.id -ne $snapshot.compatibility.model -or @($catalog.data.endpoints | Where-Object tag -eq $snapshot.compatibility.endpoint).Count -ne 1) {
+    if (($Model -and $snapshot.compatibility.model -cne $Model) -or ($Endpoint -and $snapshot.compatibility.endpoint -cne $Endpoint) -or
+        $catalog.data.id -cne $snapshot.compatibility.model -or @($catalog.data.endpoints | Where-Object { $_.tag -ceq $snapshot.compatibility.endpoint }).Count -ne 1) {
         throw 'Renewal metadata differs from the selected provider identity or captured catalog.'
     }
     $expires = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until)
@@ -125,8 +131,8 @@ function Invoke-LauncherProviderRefresh($Ctx, $Candidate) {
         $valid = Assert-LauncherProvider $generation
         $snapshot = Get-Content -LiteralPath (Join-Path $valid 'snapshot.json') -Raw | ConvertFrom-Json -Depth 100
         $catalog = Get-Content -LiteralPath (Join-Path $valid 'endpoints.json') -Raw | ConvertFrom-Json -Depth 100
-        if ($snapshot.raw_sha256 -notmatch '^[0-9a-fA-F]{64}$' -or $snapshot.compatibility.model -ne $Candidate.model -or $snapshot.compatibility.endpoint -ne $Candidate.endpoint -or
-            $catalog.data.id -ne $Candidate.model -or @($catalog.data.endpoints | Where-Object tag -eq $Candidate.endpoint).Count -ne 1) { throw 'Refreshed provider identity or catalog differs from the authorized model and endpoint.' }
+        if ($snapshot.raw_sha256 -notmatch '^[0-9a-fA-F]{64}$' -or $snapshot.compatibility.model -cne $Candidate.model -or $snapshot.compatibility.endpoint -cne $Candidate.endpoint -or
+            $catalog.data.id -cne $Candidate.model -or @($catalog.data.endpoints | Where-Object { $_.tag -ceq $Candidate.endpoint }).Count -ne 1) { throw 'Refreshed provider identity or catalog differs from the authorized model and endpoint.' }
         $evidence.status = 'refreshed'; $evidence.valid_until = $snapshot.valid_until
         Write-JsonFile $resultPath $evidence
         Write-JsonFile (Join-Path $Ctx.Results 'provider-selection.json') @{ source = 'same-provider metadata refresh'; status = 'refreshed'; generation = $valid; model = $Candidate.model; endpoint = $Candidate.endpoint; refresh_attempted = $true; model_calls = 0; refresh_evidence = $resultPath }
@@ -152,7 +158,7 @@ function Find-LauncherProvider([string]$ProfilesRoot, [string]$Model, [string]$E
             if ($Model -or $Endpoint) {
                 $snapshotFile = if (Test-Path -LiteralPath (Join-Path $valid 'qualified/snapshot.json')) { 'qualified/snapshot.json' } else { 'snapshot.json' }
                 $snapshot = Get-Content -LiteralPath (Join-Path $valid $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
-                if (($Model -and $snapshot.compatibility.model -ne $Model) -or ($Endpoint -and $snapshot.compatibility.endpoint -ne $Endpoint)) { continue }
+                if (($Model -and $snapshot.compatibility.model -cne $Model) -or ($Endpoint -and $snapshot.compatibility.endpoint -cne $Endpoint)) { continue }
             }
             return $valid
         }
@@ -177,6 +183,17 @@ function New-LauncherSetupContext([string]$InvocationRoot, [string]$Executable, 
 function Restore-LauncherEnvironment([string]$Name, $Value) {
     if ($null -eq $Value) { Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue }
     else { [Environment]::SetEnvironmentVariable($Name, [string]$Value, 'Process') }
+}
+
+function Get-LauncherCredentialName($Status) {
+    if ($Status.ExitCode -ne 0 -or $Status.TimedOut -or $Status.InvalidLines -ne 0 -or
+        -not $Status.Result -or -not $Status.Result.data -or
+        $Status.Result.data.environment -isnot [string] -or [string]::IsNullOrWhiteSpace($Status.Result.data.environment)) {
+        throw "Cannot inspect installed VCP credential selection: incomplete credential status; see $($Status.StdoutPath) and $($Status.StderrPath)."
+    }
+    $name = $Status.Result.data.environment
+    if ($name.Length -gt 128 -or $name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw 'Unsupported credential environment-variable name.' }
+    return $name
 }
 
 function Resolve-LauncherInstalledProvider($Ctx, [string]$AccountRoot, [string]$RunRoot) {
@@ -216,14 +233,14 @@ function Resolve-LauncherInstalledProvider($Ctx, [string]$AccountRoot, [string]$
         try {
             $completion = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json -Depth 100
             if ($completion.version -eq 1 -and $completion.connection.status -eq 'connected' -and $completion.connection.evidence) {
-                $candidates.Add(@{ Model = $completion.connection.model; Directory = [string]$completion.connection.evidence; Source = $completionPath })
+                $candidates.Add(@{ Model = $completion.connection.model; Endpoint = $completion.connection.endpoint; Directory = [string]$completion.connection.evidence; Source = $completionPath })
             }
         }
         catch { $rejected.Add("${completionPath}: $($_.Exception.Message)") }
     }
     foreach ($model in $models) {
         $modelEndpoint = $null
-        foreach ($candidate in @($candidates | Where-Object Model -eq $model)) {
+        foreach ($candidate in @($candidates | Where-Object { $_.Model -ceq $model })) {
             try {
                 $directory = $candidate.Directory
                 if ($candidate.Profile) {
@@ -237,7 +254,7 @@ function Resolve-LauncherInstalledProvider($Ctx, [string]$AccountRoot, [string]$
                 $valid = Assert-LauncherProvider $directory -AllowExpired
                 $snapshotFile = if (Test-Path -LiteralPath (Join-Path $valid 'qualified/snapshot.json')) { 'qualified/snapshot.json' } else { 'snapshot.json' }
                 $snapshot = Get-Content -LiteralPath (Join-Path $valid $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
-                if ($snapshot.compatibility.model -ne $model) { throw 'Retained metadata differs from the configured model.' }
+                if ($snapshot.compatibility.model -cne $model -or ($candidate.Endpoint -and $snapshot.compatibility.endpoint -cne $candidate.Endpoint)) { throw 'Retained metadata differs from the configured model or endpoint.' }
                 $expires = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$snapshot.valid_until)
                 if ($expires -le [DateTimeOffset]::UtcNow) {
                     $rejected.Add("$($candidate.Source): provider metadata expired $($expires.ToString('o')).")
@@ -285,12 +302,16 @@ function New-LauncherArguments([string]$Script, [hashtable]$Parameters, [bool]$D
     return $arguments.ToArray()
 }
 
-function Invoke-LauncherChild([string]$Executable, [string[]]$Arguments) {
+function Invoke-LauncherChild([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory) {
     # The call operator keeps the child attached to this console. Do not capture
     # its output: progress and native-tool stdout/stderr must remain live.
     $PSNativeCommandUseErrorActionPreference = $false
-    & $Executable @Arguments
-    $script:launcherChildExitCode = $LASTEXITCODE
+    Push-Location -LiteralPath $WorkingDirectory
+    try {
+        & $Executable @Arguments
+        $script:launcherChildExitCode = $LASTEXITCODE
+    }
+    finally { Pop-Location }
 }
 
 function Write-LauncherResults([string]$InvocationRoot, [string]$ScenarioName, [string]$ProjectPath) {
@@ -363,6 +384,7 @@ try {
         }
     }
     $ProjectPath = [IO.Path]::GetFullPath($ProjectPath)
+    & $harness { param($path) Assert-ScenarioProjectPath $path } $ProjectPath
     if ((Test-Path -LiteralPath $ProjectPath) -and -not (Test-Path -LiteralPath $ProjectPath -PathType Container)) { throw 'ProjectPath must identify a directory.' }
     $projectPrefix = $ProjectPath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     if ($runRootFull -eq $ProjectPath -or $runRootFull.StartsWith($projectPrefix, [StringComparison]::OrdinalIgnoreCase)) {
@@ -389,8 +411,15 @@ try {
     }
     $invocationRoot = Join-Path $runRootFull ('launch-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Path $invocationRoot | Out-Null
-    $setupCtx = $null
-    if ($Mode -eq 'Full' -or -not $generation) { $setupCtx = New-LauncherSetupContext $invocationRoot $executable $ProjectPath }
+    $setupCtx = New-LauncherSetupContext $invocationRoot $executable $ProjectPath
+    $setupCtx.SkipPaidStages = $Mode -eq 'DryRun'
+    if ($Mode -eq 'DryRun') {
+        # Discover only the credential variable name, never its value. All later
+        # metadata and project processes must strip the configured alias too.
+        $credentialStatus = Invoke-Vcp -Ctx $setupCtx -Stage 'account' -Label 'credential-status' -DenyProviderCredentials -Arguments @('setup', 'credential', 'status')
+        $credentialName = Get-LauncherCredentialName $credentialStatus
+        $env:VCP_SCENARIO_CREDENTIAL_ENV = $credentialName
+    }
     if ($explicitExpired) {
         $setupCtx.ExpiredProvider = $explicitExpired
         Write-JsonFile (Join-Path $setupCtx.Results 'provider-selection.json') @{ source = 'explicit ProviderGeneration'; status = 'expired'; refresh_candidate = $explicitExpired; model_calls = 0 }
@@ -405,7 +434,7 @@ try {
     if ($generation -and $Mode -eq 'Full') {
         $snapshotFile = if (Test-Path -LiteralPath (Join-Path $generation 'qualified/snapshot.json')) { 'qualified/snapshot.json' } else { 'snapshot.json' }
         $selectedSnapshot = Get-Content -LiteralPath (Join-Path $generation $snapshotFile) -Raw | ConvertFrom-Json -Depth 100
-        if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$selectedSnapshot.valid_until) -le [DateTimeOffset]::UtcNow.AddSeconds($DeadlineSeconds + 300)) {
+        if ([DateTimeOffset]::FromUnixTimeMilliseconds([int64]$selectedSnapshot.valid_until) -le [DateTimeOffset]::UtcNow.AddSeconds(300)) {
             $setupCtx.ExpiredProvider = Get-LauncherRefreshCandidate $generation
             $generation = $null
         }
@@ -423,9 +452,7 @@ try {
         $AllowProcessPublish = $true
         if ($null -ne [Environment]::GetEnvironmentVariable('VCP_DENY_PROVIDER_CREDENTIALS', 'Process')) { throw 'VCP_DENY_PROVIDER_CREDENTIALS is set; Full mode cannot access credentials.' }
         $credentialStatus = Invoke-Vcp -Ctx $setupCtx -Stage 'account' -Label 'credential-status' -Arguments @('setup', 'credential', 'status')
-        if ($credentialStatus.ExitCode -ne 0) { throw "Cannot inspect installed VCP credential selection; see $($credentialStatus.StderrPath)." }
-        if ($credentialStatus.Result.data.environment) { $credentialName = [string]$credentialStatus.Result.data.environment }
-        if ($credentialName.Length -gt 128 -or $credentialName -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw 'Unsupported credential environment-variable name.' }
+        $credentialName = Get-LauncherCredentialName $credentialStatus
         $originalKey = [Environment]::GetEnvironmentVariable($credentialName, 'Process')
         if ([string]::IsNullOrEmpty($originalKey)) {
             $key = Read-Host "$credentialName (masked, for this run only; automated CLI runs need an environment credential)" -MaskInput
@@ -441,7 +468,7 @@ try {
         $preparation = if ($metadataRefreshed) { 'Endpoint metadata refreshed without inference using retained adapter evidence. Scenario budget unchanged. See provider-refresh.json.' } else { 'No provider setup or qualification performed.' }
         Write-Utf8File (Join-Path $setupCtx.Results 'summary.md') ("# Installed provider selection`n`nMetadata: $generation`n`n$preparation`n`nCommands: $($setupCtx.CommandLog)`n`nSelection evidence: provider-selection.json`n")
     }
-    if ($Mode -eq 'Full') { Write-Host "Scenario budget: $TurnBudgetUsd USD per turn; $MaxScenarioUsd USD scenario ceiling." }
+    if ($Mode -eq 'Full') { Write-Host 'Execution collection: spending and elapsed-time caps are suspended. Observed and unknown costs are retained in the run evidence.' }
     $parameters = @{
         ProviderGeneration = $generation; Vcp = $executable; RunRoot = $invocationRoot; ProjectPath = $ProjectPath
         TurnBudgetUsd = $TurnBudgetUsd; MaxScenarioUsd = $MaxScenarioUsd; MaxRepairTurns = $MaxRepairTurns
@@ -452,7 +479,7 @@ try {
     Write-Host "`nRunning scenario $Scenario ($Mode) with $executable"
     Write-Host "Invocation: $invocationRoot"
     Write-Host 'Progress follows in this console. Ctrl+C interrupts execution; an interrupted run may not produce a final scorecard.'
-    Invoke-LauncherChild $pwsh $arguments
+    Invoke-LauncherChild $pwsh $arguments $ProjectPath
     if ($null -ne $script:launcherChildExitCode) { $exitCode = [int]$script:launcherChildExitCode }
 }
 catch { Write-Host "Launcher failed: $($_.Exception.Message)" -ForegroundColor Red }

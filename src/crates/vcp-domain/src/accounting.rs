@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Provider-neutral integer accounting, separate from local resource metrics.
-use crate::{ids::*, revision::*, workspace::Scope};
+use crate::{ids::*, revision::*, workspace::Scope, Limit};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+mod estimate;
+pub use estimate::{EstimatedMicros, EstimatedMoney, UnknownEstimate};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -31,6 +34,23 @@ impl From<Currency> for String {
 pub struct Money {
     pub currency: Currency,
     pub micros: Micros,
+}
+
+/// Monetary admission configuration; actual observed charges remain finite Money.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MonetaryLimit {
+    pub currency: Currency,
+    pub micros: Limit<Micros>,
+}
+
+impl From<Money> for MonetaryLimit {
+    fn from(value: Money) -> Self {
+        Self {
+            currency: value.currency,
+            micros: Limit::Finite(value.micros),
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -102,7 +122,7 @@ pub struct CostQuote {
     pub normalization_version: u32,
     pub price: PriceSnapshot,
     pub bounds: Usage,
-    pub amount: Money,
+    pub amount: EstimatedMoney,
     pub method: String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,11 +162,11 @@ pub struct Ledger {
     pub revision: Revision,
     pub policy: PolicyRevision,
     pub currency: Currency,
-    pub cap: Micros,
+    pub cap: Limit<Micros>,
     pub protected: Micros,
     pub settled: Micros,
-    pub active: Micros,
-    pub unresolved: Micros,
+    pub active: EstimatedMicros,
+    pub unresolved: EstimatedMicros,
     pub allocations: BTreeMap<TaskId, Micros>,
     pub daily: Option<DailyPolicy>,
     pub overrun: bool,
@@ -161,9 +181,9 @@ pub struct Reservation {
     pub attempt: AttemptId,
     pub revision: Revision,
     pub phase: ReservationState,
-    pub amount: Money,
+    pub amount: EstimatedMoney,
     pub charged: Micros,
-    pub liability: Micros,
+    pub liability: EstimatedMicros,
     pub protected_draw: Micros,
     pub protected_returned: Micros,
     pub day: i64,
@@ -273,6 +293,31 @@ pub fn valid_hash(value: &str) -> bool {
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 impl Ledger {
+    /// Remaining root capacity before role-specific protected-fund treatment.
+    /// Unknown estimates cannot become numeric availability under finite caps.
+    pub fn remaining_before_protected(&self) -> crate::Result<crate::Limit<Micros>> {
+        match self.cap {
+            crate::Limit::Unbounded => Ok(crate::Limit::Unbounded),
+            crate::Limit::Finite(cap) => {
+                let active = self
+                    .active
+                    .known()
+                    .ok_or(crate::Error::Invalid("unpriced finite active liability"))?;
+                let unresolved = self.unresolved.known().ok_or(crate::Error::Invalid(
+                    "unpriced finite unresolved liability",
+                ))?;
+                let held = self
+                    .settled
+                    .get()
+                    .checked_add(active.get())
+                    .and_then(|value| value.checked_add(unresolved.get()))
+                    .ok_or(crate::Error::Overflow)?;
+                Ok(crate::Limit::Finite(Micros::new(
+                    cap.get().saturating_sub(held),
+                )))
+            }
+        }
+    }
     pub fn validate(&self) -> crate::Result<()> {
         if self.schema_version != 1 {
             return Err(crate::Error::Invalid("ledger version"));
@@ -291,17 +336,23 @@ impl Reservation {
     pub fn validate(&self) -> crate::Result<()> {
         if self.schema_version != 1
             || self.protected_returned > self.protected_draw
-            || self.protected_draw > self.amount.micros
+            || self
+                .amount
+                .micros
+                .known()
+                .map_or(self.protected_draw != Micros::ZERO, |amount| {
+                    self.protected_draw > amount
+                })
         {
             return Err(crate::Error::Invalid("reservation"));
         }
         let expected = match self.phase {
             ReservationState::Settled
             | ReservationState::Released
-            | ReservationState::ExplicitlyResolved => 0,
-            _ => self.amount.micros.get().saturating_sub(self.charged.get()),
+            | ReservationState::ExplicitlyResolved => EstimatedMicros::ZERO,
+            _ => self.amount.micros.remaining_after(self.charged),
         };
-        if self.liability.get() != expected {
+        if self.liability != expected {
             return Err(crate::Error::Invalid("reservation liability"));
         }
         Ok(())
@@ -331,7 +382,12 @@ impl Attempt {
             _ => return Err(crate::Error::Invalid("accounting redaction marker pairing")),
         }
         if self.schema_version != 1
-            || self.quote.normalization_version != 1
+            || self.quote.normalization_version
+                != if self.quote.amount.micros.known().is_some() {
+                    1
+                } else {
+                    2
+                }
             || !valid_hash(&self.request_digest)
             || !valid_hash(&self.admission_digest)
             || self.previous.as_ref() == Some(&self.id)

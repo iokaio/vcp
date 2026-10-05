@@ -130,7 +130,7 @@ impl PublicConnection {
                             }
                             Ok(None) => {
                                 facts.effective = vcp_engine::policy::optional(
-                                    context.engine.store().state(),
+                                    context.engine.store().current(),
                                     &access.workspace,
                                 )
                                 .map_err(|_| unavailable())?
@@ -165,13 +165,13 @@ fn task(store: &Store, access: &Access, p: &wire::Request) -> RpcResult<Task> {
         return Err(error(Code::PolicyDenied));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, p.task.as_str(), &access.workspace)
         .map_err(|_| unavailable())?
         .decode()
         .map_err(|_| unavailable())?;
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -207,7 +207,7 @@ fn inspect(
     check()?;
     let task = task(store, access, p)?;
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -216,7 +216,7 @@ fn inspect(
         .map_err(|_| unavailable())?
         .decode()
         .map_err(|_| unavailable())?;
-    let policy = vcp_engine::policy::optional(store.state(), &access.workspace)
+    let policy = vcp_engine::policy::optional(store.current(), &access.workspace)
         .map_err(|_| unavailable())?;
     let persisted = policy.as_ref().map(summary).transpose()?;
     let effective = if policy.is_none() {
@@ -280,7 +280,7 @@ fn inspect(
             }
         }
     } else {
-        for row in store.state().records.values().filter(|r| {
+        for row in store.current().records.values().filter(|r| {
             r.collection == Collection::Access
                 && r.workspace == access.workspace
                 && r.value["document_type"] == "vcp_authority_v1"
@@ -318,7 +318,7 @@ fn inspect(
     }
     // Digest the full visible inventory, not time-dependent expiry flags.
     let grants = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.collection == Collection::Access && r.workspace == access.workspace)
@@ -390,7 +390,7 @@ fn inspect(
     let page = wire::Page {
         scope: p.scope.clone(),
         task: p.task.clone(),
-        watermark: store.state().watermark.get().into(),
+        watermark: store.current().watermark.get().into(),
         observed_at_ms: observed.get().into(),
         authority_revision: workspace.authority.get().into(),
         deletion_revision: workspace.deletion.get().into(),

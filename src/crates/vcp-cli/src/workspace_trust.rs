@@ -5,7 +5,7 @@ use vcp_domain::{
     workspace::{Trust, Workspace},
     Revision, WorkspaceId,
 };
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{contract::{CanonicalStore, Collection}, Store};
 
 pub async fn execute(
     data: &Path,
@@ -37,7 +37,7 @@ pub async fn execute(
     let mut engine = vcp_engine::Engine::new(store).map_err(|e| e.to_string())?;
     let current: Workspace = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Workspace, workspace.as_str(), workspace)
         .and_then(|row| row.decode())
         .map_err(|e| e.to_string())?;
@@ -46,7 +46,7 @@ pub async fn execute(
     }
     // Existing policy and denials remain authoritative. This command never
     // installs execution profiles, automatic effects, or a new policy mode.
-    let policy = vcp_engine::policy::current(engine.store().state(), workspace)
+    let policy = vcp_engine::policy::current(engine.store().current(), workspace)
         .map_err(|e| e.to_string())?;
     let policy_revision = policy.revision;
     let policy_mode = policy.mode;
@@ -95,7 +95,7 @@ pub async fn execute(
     }
     let next: Workspace = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Workspace, workspace.as_str(), workspace)
         .and_then(|row| row.decode())
         .map_err(|e| e.to_string())?;

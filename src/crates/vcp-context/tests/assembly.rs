@@ -107,6 +107,79 @@ fn encode(parts: &[Part], envelope: &Envelope, tools: &Value) -> Result<Vec<u8>>
     )?)
 }
 
+#[test]
+fn adaptive_soft_target_omits_optional_evidence_but_preserves_required_context() {
+    use vcp_domain::request_allocation::{Activity, Allocation, Reason};
+    let revisions = revisions();
+    let mut parts = base(&revisions);
+    parts.push(part(
+        &revisions,
+        "optional",
+        Kind::Evidence,
+        Trust::Untrusted,
+        &"x".repeat(2000),
+    ));
+    let select = |target| {
+        vcp_context::selection::assemble_with_input_target(
+            parts.clone(),
+            revisions.clone(),
+            envelope(20_000),
+            json!([]),
+            vec![],
+            &Utf8ByteCeiling,
+            Some(Units::new(target)),
+            encode,
+        )
+        .unwrap()
+        .with_allocation(Allocation {
+            version: 1,
+            activity: Activity::Discovery,
+            input_target: Units::new(target),
+            input_target_exceeded_by_required_context: false,
+            output_limit: Units::new(100),
+            host_output_ceiling: Units::new(100),
+            previous_output: None,
+            previous_output_limit: None,
+            reason: Reason::ActivityDefault,
+        })
+        .unwrap()
+    };
+    let small = select(1);
+    assert_eq!(small.manifest.included.len(), 3);
+    assert!(
+        small
+            .manifest
+            .allocation
+            .unwrap()
+            .input_target_exceeded_by_required_context
+    );
+    assert!(small
+        .manifest
+        .excluded
+        .iter()
+        .any(|entry| entry.reason.contains("activity input target")));
+    let large = select(10_000);
+    assert_eq!(large.manifest.included.len(), 4);
+    assert!(
+        !large
+            .manifest
+            .allocation
+            .unwrap()
+            .input_target_exceeded_by_required_context
+    );
+    assert!(vcp_context::selection::assemble_with_input_target(
+        parts,
+        revisions,
+        envelope(200),
+        json!([]),
+        vec![],
+        &Utf8ByteCeiling,
+        Some(Units::new(1)),
+        encode,
+    )
+    .is_err());
+}
+
 fn handoff_fixture() -> vcp_context::handoff::Packet {
     let rev = revisions();
     let mut parts = base(&rev);
@@ -181,11 +254,11 @@ fn handoff_fixture() -> vcp_context::handoff::Packet {
         revision: Revision::ZERO,
         policy: PolicyRevision::ZERO,
         currency: "USD".to_owned().try_into().unwrap(),
-        cap: Micros::new(1000),
+        cap: vcp_domain::Limit::Finite(Micros::new(1000)),
         protected: Micros::new(100),
         settled: Micros::new(200),
-        active: Micros::new(50),
-        unresolved: Micros::new(75),
+        active: Micros::new(50).into(),
+        unresolved: Micros::new(75).into(),
         allocations: Default::default(),
         daily: None,
         overrun: false,
@@ -203,7 +276,10 @@ fn handoff_fixture() -> vcp_context::handoff::Packet {
 #[test]
 fn handoff_preserves_complete_pairs_constraints_and_uncertain_budget_on_destination_reassembly() {
     let packet = handoff_fixture();
-    assert_eq!(packet.remaining.get(), 575);
+    assert_eq!(
+        packet.remaining,
+        vcp_domain::Limit::Finite(Micros::new(575))
+    );
     let restored: vcp_context::handoff::Packet =
         serde_json::from_slice(&vcp_protocol::canonical_bytes(&packet).unwrap()).unwrap();
     let mut target = envelope(9000);
@@ -310,7 +386,7 @@ fn handoff_rejects_stale_steering_accounting_scope_and_orphan_results() {
         )
         .is_err());
     let mut ledger = packet.ledger.clone();
-    ledger.unresolved = Micros::new(80);
+    ledger.unresolved = Micros::new(80).into();
     assert!(packet
         .reassemble(
             &packet.manifest.revisions,
@@ -683,7 +759,7 @@ async fn exact_context_views_resolve_to_captured_bytes_on_both_backends_after_re
         )
         .unwrap();
         let expected = sealed.body().to_vec();
-        drop(store);
+        store.close().await.unwrap();
         let reopened = Store::open(temp.path(), kind, &[]).await.unwrap();
         let verified = sealed
             .verify_captures(|scope, id, limit| {

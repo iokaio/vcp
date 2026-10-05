@@ -51,7 +51,8 @@ fn rejection(rule: &str, message: &str) -> Resolution {
         validated_evidence: vec![],
     }
 }
-fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
+async fn current(store: &Store, access: &Access) -> Result<Vec<Version>> {
+    let state = store.current();
     let mut result = Vec::new();
     for record in state.records.values().filter(|r| {
         r.workspace == access.workspace
@@ -63,7 +64,14 @@ fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
             let row = state.record(Collection::Claim, id.as_str(), &access.workspace)?;
             if row.value["document_type"] == vcp_domain::redaction::VERSION {
                 let version: vcp_domain::redaction::RedactedVersion = row.decode()?;
-                access::redacted_scope(state, access, &version.scope, &version.sources)?;
+                access::redacted_scope_store(
+                    store,
+                    access,
+                    &version.scope,
+                    &version.sources,
+                    &|| Ok(()),
+                )
+                .await?;
                 continue;
             }
             let version: Version = state
@@ -73,36 +81,42 @@ fn current(state: &State, access: &Access) -> Result<Vec<Version>> {
             if !access.allows_task(&version.scope.task) {
                 return Err(Error::Access);
             }
-            if crate::history::removed(state, &access.workspace, &version)? {
+            if crate::history::proposal_removed_store_with_check(
+                store,
+                &access.workspace,
+                &version.proposal,
+                &|| Ok(()),
+            )
+            .await?
+            {
                 continue;
             }
-            access::version_scope(state, access, &version)?;
+            access::version_scope_store(store, access, &version, &|| Ok(())).await?;
             result.push(version);
         }
     }
     Ok(result)
 }
-pub(crate) fn evidence(
+pub(crate) async fn evidence(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
 ) -> Result<Vec<EvidenceObservation>> {
-    evidence_with_check(store, access, proposal, &|| Ok(()))
+    evidence_with_check(store, access, proposal, &|| Ok(())).await
 }
-pub(crate) fn evidence_with_check(
+pub(crate) async fn evidence_with_check(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<Vec<EvidenceObservation>> {
     check()?;
-    proposal
-        .evidence
-        .iter()
-        .map(|reference| {
+    let mut observations = Vec::with_capacity(proposal.evidence.len());
+    for reference in &proposal.evidence {
+        let observation: Result<EvidenceObservation> = async {
             check()?;
             let record = store
-                .state()
+                .current()
                 .records
                 .get(&key(Collection::Artifact, reference.artifact.as_str()));
             let Some(record) = record else {
@@ -142,7 +156,9 @@ pub(crate) fn evidence_with_check(
                     &access.history(),
                     &reference.artifact,
                     std::io::sink(),
-                ) {
+                )
+                .await
+                {
                     Ok(_) => Availability::Available,
                     Err(vcp_audit::Error::Access) => Availability::InvalidScope,
                     Err(vcp_audit::Error::Removed) => Availability::Unavailable,
@@ -155,7 +171,7 @@ pub(crate) fn evidence_with_check(
             };
             let verification_current = match &reference.verification {
                 None => false,
-                Some(id) => verify_evidence(store, access, proposal, reference, id)?,
+                Some(id) => verify_evidence(store, access, proposal, reference, id).await?,
             };
             check()?;
             Ok(EvidenceObservation {
@@ -163,17 +179,20 @@ pub(crate) fn evidence_with_check(
                 status,
                 verification_current,
             })
-        })
-        .collect()
+        }
+        .await;
+        observations.push(observation?);
+    }
+    Ok(observations)
 }
-fn verify_evidence(
+async fn verify_evidence(
     store: &Store,
     access: &Access,
     proposal: &Proposal,
     reference: &EvidenceRef,
     id: &VerificationId,
 ) -> Result<bool> {
-    let state = store.state();
+    let state = store.current();
     let Some(record) = state
         .records
         .get(&key(Collection::Verification, id.as_str()))
@@ -214,7 +233,7 @@ fn verify_evidence(
             expected == id
                 && after == &verification.fingerprint
                 && verification.satisfies(&task.required_checks, true)
-                && crate::fix_proof::matches(store, access, proposal)?
+                && crate::fix_proof::matches(store, access, proposal).await?
         }
         ClaimValue::Command {
             verification: Some(expected),
@@ -222,7 +241,7 @@ fn verify_evidence(
             ..
         } => {
             expected == id
-                && crate::proof::command_matches(store, access, proposal, reference)?
+                && crate::proof::command_matches(store, access, proposal, reference).await?
                 && verification
                     .checks
                     .iter()
@@ -237,10 +256,12 @@ fn verify_evidence(
 /// citing an arbitrary user event cannot establish an invented preference.
 /// Child commands share the host actor; without a direct-user marker their
 /// objectives cannot establish explicit user intent, even after steering.
-pub(crate) fn preference_matches(
-    state: &State,
+/// The caller resolves the exact canonical origin before invoking this shared
+/// predicate; arbitrary supplied observations are not canonical evidence.
+pub(crate) fn preference_matches_event(
+    state: vcp_store::CurrentStateView<'_>,
     access: &Access,
-    origin: &EventId,
+    event: Option<&vcp_protocol::event::EventEnvelope>,
     key: &str,
     value: &str,
 ) -> Result<bool> {
@@ -255,7 +276,7 @@ pub(crate) fn preference_matches(
         key: String,
         value: String,
     }
-    let Some(event) = state.events.iter().find(|e| &e.event.id == origin) else {
+    let Some(event) = event else {
         return Ok(false);
     };
     if event.event.workspace != access.workspace
@@ -324,8 +345,8 @@ pub(crate) fn preference_matches(
     Ok(false)
 }
 
-fn validate_origins(
-    state: &State,
+async fn validate_origins<S: CanonicalStore>(
+    store: &S,
     access: &Access,
     proposal: &Proposal,
     workspace: &Workspace,
@@ -344,7 +365,7 @@ fn validate_origins(
         )));
     }
     for origin in &proposal.origins {
-        let Some(event) = state.events.iter().find(|e| &e.event.id == origin) else {
+        let Some(event) = store.history_event(origin).await? else {
             return Ok(Some(rejection(
                 "vcp.origin",
                 "origin event is not retained",
@@ -372,7 +393,8 @@ fn validate_origins(
                 "explicit user statement must be an origin event",
             )));
         }
-        if !preference_matches(state, access, explicit_origin, key, value)? {
+        let event = store.history_event(explicit_origin).await?;
+        if !preference_matches_event(store.current(), access, event.as_ref(), key, value)? {
             return Ok(Some(rejection(
                 "vcp.preference",
                 "preference differs from exact typed user task/steering evidence",
@@ -434,20 +456,20 @@ pub(crate) async fn propose_inner(
     let digest = digest_bytes(&canonical_bytes(&proposal)?);
     for _ in 0..3 {
         if let Some((submission, request)) = manual {
-            crate::review::validate_fresh(store, access, submission, request)?;
+            crate::review::validate_fresh(store, access, submission, request).await?;
         }
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         if proposal.scope.workspace != access.workspace
             || proposal.actor != access.actor
             || !access.allows_task(&proposal.scope.task)
             || proposal.epochs.authority != workspace.authority
             || proposal.epochs.deletion != workspace.deletion
-            || proposal.epochs.policy != access::policy(store.state(), &access.workspace)?
+            || proposal.epochs.policy != access::policy(store.current(), &access.workspace)?
         {
             return Err(Error::Access);
         }
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 proposal.scope.task.as_str(),
@@ -457,7 +479,7 @@ pub(crate) async fn propose_inner(
         if task.scope != proposal.scope || task.redaction.is_some() {
             return Err(Error::Access);
         }
-        for row in store.state().records.values().filter(|r| {
+        for row in store.current().records.values().filter(|r| {
             r.workspace == access.workspace
                 && r.collection == Collection::Claim
                 && r.value["document_type"] == vcp_domain::redaction::PROPOSAL
@@ -481,17 +503,27 @@ pub(crate) async fn propose_inner(
                     .iter()
                     .any(|key| prior.origin_output_keys.contains(key))
             {
-                access::redacted_scope(store.state(), access, &prior.scope, &prior.sources)?;
+                access::redacted_scope_store(store, access, &prior.scope, &prior.sources, &|| {
+                    Ok(())
+                })
+                .await?;
                 return Err(Error::Conflict(
                     "proposal identity belongs to purged content",
                 ));
             }
         }
-        if crate::history::proposal_removed(store.state(), &access.workspace, &proposal)? {
+        if crate::history::proposal_removed_store_with_check(
+            store,
+            &access.workspace,
+            &proposal,
+            &|| Ok(()),
+        )
+        .await?
+        {
             return Err(Error::Access);
         }
         // The stable origin/extractor/output mapping survives lost acknowledgements.
-        for row in store.state().records.values().filter(|r| {
+        for row in store.current().records.values().filter(|r| {
             r.workspace == access.workspace
                 && r.collection == Collection::Claim
                 && r.value["document_type"] == "vcp_memory_proposal_v1"
@@ -515,7 +547,7 @@ pub(crate) async fn propose_inner(
                     ));
                 }
                 let result: ProposalResult = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Projection,
                         previous.proposal.command.as_str(),
@@ -526,21 +558,21 @@ pub(crate) async fn propose_inner(
                 // foreign evidence. Their bounded rejection receipt contains
                 // no derived claim; retain exact retry behavior for them.
                 if result.resolution.outcome != Outcome::Rejected {
-                    access::proposal_scope(store.state(), access, &previous.proposal)?;
+                    access::proposal_scope_store(store, access, &previous.proposal, &|| Ok(()))
+                        .await?;
                 }
-                access::resolution_scope(store.state(), access, &result.resolution)?;
+                access::resolution_scope_store(store, access, &result.resolution, &|| Ok(()))
+                    .await?;
                 let receipt = store
-                    .state()
-                    .transactions
-                    .get(&result.transaction)
-                    .ok_or(Error::Conflict("missing canonical memory receipt"))?
-                    .clone();
+                    .transaction_receipt(&result.transaction)
+                    .await?
+                    .ok_or(Error::Conflict("missing canonical memory receipt"))?;
                 let indexing = result
                     .intent
                     .as_ref()
                     .map(|id| {
                         store
-                            .state()
+                            .current()
                             .record(Collection::IndexIntent, id.as_str(), &access.workspace)
                             .and_then(Record::decode::<IndexIntent>)
                             .map(|i| i.status)
@@ -557,7 +589,7 @@ pub(crate) async fn propose_inner(
             crate::projections::rebuild(store, access, now).await?;
         }
         let head: Option<Head> = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, proposal.claim.as_str()))
             .map(Record::decode)
@@ -569,7 +601,7 @@ pub(crate) async fn propose_inner(
             return Err(Error::Access);
         }
         let sequence: Option<MemoryHead> = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, access.workspace.as_str()))
             .map(Record::decode)
@@ -580,16 +612,16 @@ pub(crate) async fn propose_inner(
             .next()?;
         let context = GovernanceContext {
             workspace: access.workspace.clone(),
-            current: current(store.state(), access)?,
-            evidence: evidence(store, access, &proposal)?,
+            current: current(store, access).await?,
+            evidence: evidence(store, access, &proposal).await?,
             head: head.as_ref().and_then(|h| h.current.clone()),
         };
-        let resolution = match validate_origins(store.state(), access, &proposal, &workspace)? {
+        let resolution = match validate_origins(store, access, &proposal, &workspace).await? {
             Some(rejected) => rejected,
             None => gates::evaluate(&proposal, &context).map_err(Error::Invalid)?,
         };
         let tx = TransactionId::new();
-        let watermark = store.state().watermark.next()?;
+        let watermark = store.current().watermark.next()?;
         let mut mutations = Vec::new();
         let recorded = ProposalRecord {
             document_type: DocumentType::Proposal,
@@ -774,7 +806,7 @@ pub(crate) async fn propose_inner(
         }
         let transaction = Transaction {
             id: tx,
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![event],
             command: Some(ReceiptInput {

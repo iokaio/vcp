@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The only receipted cross-session transaction is exact metadata-fork genesis.
 //! This is deliberately not a general relaxation of receipt/event scope.
-use crate::{contract::*, Error, Result};
+use crate::{contract::*, CurrentStateView, Error, Result};
 use vcp_domain::{
+    ids::{EventId, SessionId},
     revision::*,
     task::{Task, TaskState, Turn, TurnState},
     workspace::Session,
@@ -12,7 +13,7 @@ use vcp_protocol::{
         fork::{self, Acceptance},
         CommandResult,
     },
-    event::EventKind,
+    event::{EventEnvelope, EventKind},
 };
 
 pub(crate) fn marked(transaction: &Transaction) -> bool {
@@ -24,6 +25,54 @@ pub(crate) fn marked(transaction: &Transaction) -> bool {
 }
 
 pub(crate) fn validate(state: &State, transaction: &Transaction) -> Result<()> {
+    validate_with_history(state.into(), transaction, &mut StateForkHistory::new(state))
+}
+
+/// Full historical proofs needed only by exact metadata-fork genesis.
+pub(crate) trait ForkHistory {
+    fn has_session(&mut self, session: &SessionId) -> Result<bool>;
+    fn any_event(
+        &mut self,
+        id: &EventId,
+        predicate: &dyn Fn(&EventEnvelope) -> bool,
+    ) -> Result<bool>;
+}
+
+pub(crate) struct StateForkHistory<'a>(&'a State);
+
+impl<'a> StateForkHistory<'a> {
+    pub(crate) fn new(state: &'a State) -> Self {
+        Self(state)
+    }
+}
+
+impl ForkHistory for StateForkHistory<'_> {
+    fn has_session(&mut self, session: &SessionId) -> Result<bool> {
+        Ok(self
+            .0
+            .events
+            .iter()
+            .any(|event| &event.event.session == session))
+    }
+
+    fn any_event(
+        &mut self,
+        id: &EventId,
+        predicate: &dyn Fn(&EventEnvelope) -> bool,
+    ) -> Result<bool> {
+        Ok(self
+            .0
+            .events
+            .iter()
+            .any(|event| &event.event.id == id && predicate(event)))
+    }
+}
+
+pub(crate) fn validate_with_history(
+    state: CurrentStateView<'_>,
+    transaction: &Transaction,
+    history: &mut impl ForkHistory,
+) -> Result<()> {
     let receipt = transaction.command.as_ref().ok_or(Error::Access)?;
     if transaction.events.len() != 2
         || transaction.mutations.len() != 2
@@ -44,10 +93,7 @@ pub(crate) fn validate(state: &State, transaction: &Transaction) -> Result<()> {
         || accepted.new_session == receipt.session
         || accepted.new_task == accepted.source.task
         || state.sequences.contains_key(&accepted.new_session)
-        || state
-            .events
-            .iter()
-            .any(|event| event.event.session == accepted.new_session)
+        || history.has_session(&accepted.new_session)?
         || source.workspace != receipt.workspace
         || source.session != receipt.session
         || source.correlation != receipt.command
@@ -98,7 +144,7 @@ pub(crate) fn validate(state: &State, transaction: &Transaction) -> Result<()> {
         || turn.scope != accepted.source
         || turn.redaction.is_some()
         || turn.state != TurnState::Completed
-        || !state.events.iter().any(|event| {
+        || !history.any_event(&turn.cause, &|event| {
             event.event.id == turn.cause
                 && event.watermark == accepted.through_watermark
                 && event.event.workspace == receipt.workspace
@@ -126,7 +172,7 @@ pub(crate) fn validate(state: &State, transaction: &Transaction) -> Result<()> {
                             .as_ref()
                             == Some(&turn)
                 })
-        })
+        })?
     {
         return Err(Error::Access);
     }
@@ -188,3 +234,7 @@ pub(crate) fn validate(state: &State, transaction: &Transaction) -> Result<()> {
     task.validate()?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "fork_history_tests.rs"]
+mod tests;

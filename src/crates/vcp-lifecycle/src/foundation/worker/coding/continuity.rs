@@ -30,7 +30,28 @@ impl Context {
         .is_some())
     }
     pub fn configure_continuity(&mut self, binding: &ThreadBinding, config: Config) -> Result<()> {
-        self.can_start(binding)?;
+        self.configure_continuity_setup(binding, config, false)
+    }
+    pub(in crate::foundation::worker) fn continuity_configuration(
+        &self,
+        binding: &ThreadBinding,
+    ) -> Option<Config> {
+        self.coding
+            .get(&binding.scope.task)
+            .and_then(|state| state.continuity.as_ref())
+            .map(|setup| setup.config.clone())
+    }
+    pub(in crate::foundation::worker) fn configure_continuity_setup(
+        &mut self,
+        binding: &ThreadBinding,
+        config: Config,
+        held_child: bool,
+    ) -> Result<()> {
+        if held_child {
+            self.child_held_setup_access(binding)?;
+        } else {
+            self.can_start(binding)?;
+        }
         compaction::compact(&[], &self.context_revisions(binding)?, &config)?;
         self.continuity_facts(binding)?;
         let state = self
@@ -96,6 +117,7 @@ impl Context {
         binding: &ThreadBinding,
         mut parts: Vec<Part>,
         revisions: &Revisions,
+        retention_capacity: Option<u64>,
         encode: impl Fn(&[Part]) -> Result<Vec<u8>>,
     ) -> Result<Vec<Part>> {
         let Some(setup) = self
@@ -140,6 +162,38 @@ impl Context {
             .unwrap()
             .facts_digest = Some(facts_digest);
         let identity = vcp_protocol::digest_bytes(&canonical_bytes(&(&history, &config))?);
+        let before = encode(&parts)?;
+        // Six recent reads can evict the first file in an ordinary seven-file
+        // edit loop. Keep a bounded larger window when this exact fixed-provider
+        // request fits. The configured projection remains the fallback, and its
+        // no-gain memo never suppresses a fresh capacity-aware retention choice.
+        if let Some(expanded) = expanded_retention(&config, retention_capacity) {
+            if let Some(projection) = compaction::compact(&history, revisions, &expanded)? {
+                let projected =
+                    self.project_coding_parts(binding, &parts, revisions, &history, &projection)?;
+                let after = encode(&projected)?;
+                if expanded_fits(
+                    retention_capacity,
+                    before.len(),
+                    after.len(),
+                    config.minimum_gain_bytes,
+                ) {
+                    self.record_coding_projection(
+                        binding,
+                        &projection,
+                        &projected,
+                        &before,
+                        &after,
+                    )?;
+                    return Ok(projected);
+                }
+            } else if retention_capacity.is_some_and(|capacity| before.len() as u64 <= capacity) {
+                // Complete history already fits this larger recent window.
+                // Do not cache a base-policy no-gain decision: current mandatory
+                // facts can grow while the original history stays unchanged.
+                return Ok(parts);
+            }
+        }
         if previous_no_gain.as_ref() == Some(&identity) {
             return Ok(parts);
         }
@@ -151,7 +205,30 @@ impl Context {
             )?;
             return Ok(parts);
         };
-        let verified = projection.revalidate(revisions, &history, |id| {
+        let projected =
+            self.project_coding_parts(binding, &parts, revisions, &history, &projection)?;
+        let after = encode(&projected)?;
+        let gain = before.len().saturating_sub(after.len());
+        if gain < config.minimum_gain_bytes {
+            self.record_continuity_no_gain(
+                binding,
+                identity,
+                "serialized provider gain below configured minimum",
+            )?;
+            return Ok(parts);
+        }
+        self.record_coding_projection(binding, &projection, &projected, &before, &after)?;
+        Ok(projected)
+    }
+    fn project_coding_parts(
+        &mut self,
+        binding: &ThreadBinding,
+        parts: &[Part],
+        revisions: &Revisions,
+        history: &[Part],
+        projection: &compaction::Projection,
+    ) -> Result<Vec<Part>> {
+        let verified = projection.revalidate(revisions, history, |id| {
             self.coding_artifact(id)
                 .map_err(|_| vcp_context::manifest::Error::Stale)
         })?;
@@ -169,19 +246,24 @@ impl Context {
             .collect();
         projected.push(summary_part);
         projected.extend(projection.retained.clone());
-        let before = encode(&parts)?;
-        let after = encode(&projected)?;
+        Ok(projected)
+    }
+    fn record_coding_projection(
+        &mut self,
+        binding: &ThreadBinding,
+        projection: &compaction::Projection,
+        projected: &[Part],
+        before: &[u8],
+        after: &[u8],
+    ) -> Result<()> {
+        let summary = projected
+            .iter()
+            .rev()
+            .find(|part| part.kind == Kind::History)
+            .ok_or("compaction summary missing")?;
         let gain = before.len().saturating_sub(after.len());
-        if gain < config.minimum_gain_bytes {
-            self.record_continuity_no_gain(
-                binding,
-                identity,
-                "serialized provider gain below configured minimum",
-            )?;
-            return Ok(parts);
-        }
         self.capture(&binding.scope, Channel::Evidence, &canonical_bytes(&serde_json::json!({
-            "projection":projection,"summary_artifact":summary.spec.id,
+            "projection":projection,"summary_artifact":summary.artifact,
             "before_request_sha256":vcp_protocol::digest_bytes(&before),
             "after_request_sha256":vcp_protocol::digest_bytes(&after),
             "input_estimate_before":before.len(),"input_estimate_after":after.len(),
@@ -195,7 +277,7 @@ impl Context {
             .as_mut()
             .unwrap()
             .no_gain = None;
-        Ok(projected)
+        Ok(())
     }
     fn record_continuity_no_gain(
         &mut self,
@@ -217,5 +299,54 @@ impl Context {
             .unwrap()
             .no_gain = Some(identity);
         Ok(())
+    }
+}
+
+fn expanded_retention(config: &Config, capacity: Option<u64>) -> Option<Config> {
+    (capacity.is_some() && config.keep_recent_pairs < 12).then(|| Config {
+        keep_recent_pairs: 12,
+        ..config.clone()
+    })
+}
+
+fn expanded_fits(capacity: Option<u64>, before: usize, after: usize, minimum_gain: usize) -> bool {
+    capacity.is_some_and(|capacity| after as u64 <= capacity)
+        && before.saturating_sub(after) >= minimum_gain
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    #[test]
+    fn extra_recent_history_requires_fixed_capacity_and_exact_gain() {
+        let config = Config {
+            keep_recent_pairs: 6,
+            preview_bytes: 512,
+            minimum_gain_bytes: 2048,
+        };
+        assert!(
+            expanded_retention(&config, None).is_none(),
+            "routed behavior is unchanged"
+        );
+        assert_eq!(
+            expanded_retention(&config, Some(191296))
+                .unwrap()
+                .keep_recent_pairs,
+            12
+        );
+        assert!(expanded_retention(
+            &Config {
+                keep_recent_pairs: 12,
+                ..config.clone()
+            },
+            Some(191296)
+        )
+        .is_none());
+        assert!(expanded_fits(Some(191296), 250000, 191296, 2048));
+        assert!(!expanded_fits(Some(191296), 250000, 191297, 2048));
+        assert!(!expanded_fits(None, 250000, 100000, 2048));
+        assert!(!expanded_fits(Some(191296), 192000, 191296, 2048));
+        assert!(!expanded_fits(Some(191296), 100000, 101000, 2048));
     }
 }

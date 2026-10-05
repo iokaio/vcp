@@ -127,7 +127,7 @@ fn pages(client: &mut Client, fixture: &Fixture, first: &Value) -> BTreeSet<Stri
 async fn seed(fixture: &Fixture) -> ArtifactDescriptor {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -157,7 +157,7 @@ async fn seed(fixture: &Fixture) -> ArtifactDescriptor {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -195,7 +195,7 @@ async fn foreign_rows(fixture: &Fixture, source: &ArtifactDescriptor, copied: bo
     let task = TaskId::new();
     let root: Task = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -301,7 +301,7 @@ async fn foreign_rows(fixture: &Fixture, source: &ArtifactDescriptor, copied: bo
     }
     let store = engine.into_store();
     let rows = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| {
@@ -441,7 +441,7 @@ async fn compiled_scoped_retention_pages_purges_and_replays_after_reconnect() {
         assert!(observer.finish().await.0.success());
         let store = fixture.reopen_within(Duration::from_secs(45)).await;
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -455,30 +455,28 @@ async fn compiled_scoped_retention_pages_purges_and_replays_after_reconnect() {
         for row in &foreign {
             assert_eq!(
                 store
-                    .state()
+                    .current()
                     .record(row.collection, &row.id, &row.workspace)
                     .unwrap(),
                 row
             );
         }
         for command in ["observer-forget", "unleased-forget", "stale-forget"] {
-            assert!(!store
-                .state()
+            assert!(!(&store.archive_state().await.unwrap())
                 .commands
                 .contains_key(&vcp_store::contract::command_key(
                     &fixture.config.workspace,
                     &CommandId::parse(command).unwrap()
                 )));
         }
-        assert!(store
-            .state()
+        assert!((&store.archive_state().await.unwrap())
             .commands
             .contains_key(&vcp_store::contract::command_key(
                 &fixture.config.workspace,
                 &CommandId::parse("purge-once").unwrap()
             )));
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|record| matches!(record.collection, Collection::Attempt | Collection::Effect)));
@@ -494,7 +492,7 @@ async fn compiled_foreign_session_copy_denies_entire_preview_without_disclosure(
         let foreign = foreign_rows(&fixture, &source, true).await;
         let before = {
             let store = fixture.reopen().await;
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             store.close().await.unwrap();
             before
         };
@@ -515,7 +513,7 @@ async fn compiled_foreign_session_copy_denies_entire_preview_without_disclosure(
         assert!(client.finish().await.0.success());
         let store = fixture.reopen().await;
         assert_eq!(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &before,
             "denied observer preview must not write"
         );

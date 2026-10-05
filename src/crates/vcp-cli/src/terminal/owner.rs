@@ -10,7 +10,7 @@ use vcp_lifecycle::foundation::CanonicalHost;
 use vcp_protocol::command::{Approval, ApprovalState, Command};
 
 fn current(host: &CanonicalHost, scope: &Scope) -> Result<Task, String> {
-    host.snapshot()?
+    host.current_state()?
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|r| r.decode())
         .map_err(|e| e.to_string())
@@ -106,7 +106,7 @@ pub async fn resume(host: &CanonicalHost, session: &Session, scope: &Scope) -> R
 }
 
 fn answer(host: &CanonicalHost, scope: &Scope, id: String, allow: bool) -> Result<(), String> {
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let approval: Approval = state
         .record(Collection::Approval, &id, &scope.workspace)
         .and_then(|r| r.decode())
@@ -143,7 +143,7 @@ pub async fn run(
     session: &Session,
     scope: &Scope,
     model: &str,
-    seconds: u32,
+    seconds: vcp_domain::Limit<u32>,
     backup_triggers: &mut crate::backup_triggers::Triggers,
 ) -> Result<(), String> {
     let mut execution = crate::execution::RetainedExecution::claim(host, session, scope)?;
@@ -192,7 +192,7 @@ pub async fn run(
     let mut cleanup_previews = std::collections::BTreeMap::new();
     let result = async {
     let mut tick = tokio::time::interval(Duration::from_millis(200));
-    let deadline = tokio::time::sleep(Duration::from_secs(u64::from(seconds)));
+    let deadline = crate::execution::wait_deadline(crate::execution::deadline_after(seconds));
     tokio::pin!(deadline);
     let mut expired = false;
     let mut last = String::new();
@@ -288,8 +288,8 @@ pub async fn run(
                     }
                     Input::Unavailable(service)=>format!("{service}: service not ready in this stage; no work scheduled"),
                     Input::Agent {task,action} => {
-                        let state=host.snapshot()?;
-                        let child=crate::agents_view::child(&state,scope,&task)?;
+                        let state=host.current_state()?;
+                        let child=crate::agents_view::child(state.as_ref(),scope,&task)?;
                         match action {
                             AgentAction::Integrate => {
                                 if integration_pending.is_some() || integration_apply.is_some() {return Err("integration is already pending; pause remains available".into());}
@@ -329,7 +329,7 @@ pub async fn run(
                         }
                     },
                     Input::Cleanup {task,action} => {
-                        crate::agents_view::child(&host.snapshot()?,scope,&task)?;
+                        crate::agents_view::child(host.current_state()?.as_ref(),scope,&task)?;
                         if cleanup_pending.is_some() {return Err("cleanup operation is pending; pause remains available".into());}
                         let host=host.clone();let parent=session.id;
                         cleanup_pending=Some(match action {
@@ -360,7 +360,7 @@ pub async fn run(
                         "Delegation requested; snapshot, scope and shared budget admission are pending.".into()
                     },
                     Input::RecoverChild {task,git} => {
-                        crate::agents_view::child(&host.snapshot()?,scope,&task)?;
+                        crate::agents_view::child(host.current_state()?.as_ref(),scope,&task)?;
                         if delegation_pending.is_some() || children.contains_key(&task) {return Err("child preparation is pending or selected owner is already attached".into());}
                         let host=host.clone();let parent=session.clone();
                         delegation_pending=Some(tokio::spawn(async move {crate::delegation::recover(&host,&parent,task,git).await.map(|child|(child,false))}));
@@ -370,10 +370,10 @@ pub async fn run(
                     Input::Agents | Input::AgentsPage(_) => {
                         followed=None;
                         let offset=match command {Input::AgentsPage(offset)=>offset,_=>0};
-                        page_text=super::sanitize(&serde_json::to_string(&crate::agents_view::page(&host.snapshot()?,scope,crate::settings::now(),offset)?).map_err(|e|e.to_string())?,1024*1024);
+                        page_text=super::sanitize(&serde_json::to_string(&crate::agents_view::live_page(host,scope,crate::settings::now(),offset)?).map_err(|e|e.to_string())?,1024*1024);
                         display_page(&mut page_text)
                     },
-                    Input::Status => serde_json::to_string(&view(&host.snapshot()?,scope,model)?).map_err(|e|e.to_string())?,
+                    Input::Status => serde_json::to_string(&super::live_view(host,scope,model)?).map_err(|e|e.to_string())?,
                     Input::Observers => {
                         page=None; maintenance_page=None;
                         page_text=super::observer_status_text(&host.observer_status(session.id)?)?;
@@ -402,7 +402,7 @@ pub async fn run(
                     shadow.cancel().await;
                     active=false;
                     active_turn=None;
-                    let child_work=host.snapshot()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
+                    let child_work=host.current_state()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
                         .filter_map(|r|r.decode::<Task>().ok()).any(|t|t.scope.session==scope.session && t.root==scope.task && t.scope.task!=scope.task && !t.state.terminal());
                     if matches!(event.msg,EventMsg::TurnAborted(_)) {
                         stop(host,scope,TaskState::Paused)?;
@@ -481,7 +481,7 @@ pub async fn run(
                     }
                 }
                 if !active && child_review_pending && delegation_pending.is_none() && integration_pending.is_none() && integration_apply.is_none() && current(host,scope)?.state==TaskState::Running {
-                    let live_children=host.snapshot()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
+                    let live_children=host.current_state()?.records.values().filter(|r|r.collection==Collection::Task && r.workspace==scope.workspace)
                         .filter_map(|r|r.decode::<Task>().ok()).any(|t|t.scope.session==scope.session && t.root==scope.task && t.scope.task!=scope.task && !t.state.terminal());
                     if !live_children {
                         stop(host,scope,TaskState::Paused)?;
@@ -518,7 +518,7 @@ pub async fn run(
         if let Some(message) = backup_triggers.observe(host, current(host, scope)?.state) {
             notice = message;
         }
-        let snapshot = view(&host.snapshot()?, scope, model)?;
+        let snapshot = super::live_view(host, scope, model)?;
         // Keep control notices, questions and money separate from potentially
         // large inspection pages and untrusted commentary.
         let mut lines=vec![

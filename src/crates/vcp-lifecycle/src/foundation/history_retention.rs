@@ -10,7 +10,7 @@ use vcp_memory::{
     retention::{self, Action},
     retention_policy,
 };
-use vcp_store::Store;
+use vcp_store::{Store, contract::CanonicalStore};
 type Result<T, E = String> = std::result::Result<T, E>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -81,8 +81,8 @@ pub async fn execute(
 ) -> Result<serde_json::Value, String> {
     let result = match request {
         Request::History { query } => {
-            let page = vcp_audit::history_query::query(
-                store.state(),
+            let page = vcp_audit::history_query::query_store(
+                store,
                 &vcp_audit::history::Access {
                     workspace: access.workspace.clone(),
                     authority: access.authority,
@@ -91,14 +91,21 @@ pub async fn execute(
                 },
                 &query,
             )
+            .await
             .map_err(|e| e.to_string())?;
             let origins = page
                 .rows
                 .iter()
                 .map(|row| row.event.event.id.clone())
                 .collect();
-            let (links, truncated) = vcp_memory::history::origin_links(store, access, &origins)
-                .map_err(|e| e.to_string())?;
+            let (links, truncated) = vcp_memory::history::origin_links_store_with_check(
+                store,
+                access,
+                &origins,
+                &|| Ok(()),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
             let mut value = serde_json::to_value(page).map_err(|e| e.to_string())?;
             value["claim_links"] = serde_json::to_value(links).map_err(|e| e.to_string())?;
             value["claim_links_truncated"] = serde_json::json!(truncated);
@@ -108,9 +115,10 @@ pub async fn execute(
             claim,
             limit,
             cursor,
-        } => memory_page(store, access, claim, limit, cursor),
+        } => memory_page(store, access, claim, limit, cursor).await,
         Request::Preview { selector, action } => {
             let preview = retention::preview(store, access, selector, action, now)
+                .await
                 .map_err(|e| e.to_string())?;
             retention::save_preview(store, access, &preview, now)
                 .await
@@ -180,7 +188,9 @@ pub async fn execute(
                 .map_err(|e| e.to_string())?,
         ),
         Request::Notice => serde_json::to_value(
-            retention_policy::aging(store, access, now).map_err(|e| e.to_string())?,
+            retention_policy::aging(store, access, now)
+                .await
+                .map_err(|e| e.to_string())?,
         ),
         Request::NoticeShown => {
             retention_policy::acknowledge_notice(store, access, now)
@@ -191,7 +201,7 @@ pub async fn execute(
     };
     result.map_err(|e| e.to_string())
 }
-fn memory_page(
+async fn memory_page(
     store: &Store,
     access: &Access,
     claim: ClaimId,
@@ -200,7 +210,7 @@ fn memory_page(
 ) -> Result<serde_json::Value, serde_json::Error> {
     // Errors from canonical authorization are returned through the ordinary
     // adapter error boundary; they are never represented as empty histories.
-    fn page(
+    async fn page(
         store: &Store,
         access: &Access,
         claim: ClaimId,
@@ -211,7 +221,7 @@ fn memory_page(
             return Err("memory page limit must be 1..32".into());
         }
         let workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Workspace,
                 access.workspace.as_str(),
@@ -240,13 +250,14 @@ fn memory_page(
             cursor.as_ref().map_or(MemorySeq::ZERO, |c| c.after),
             limit as usize,
         )
+        .await
         .map_err(|e| e.to_string())?;
         let mut rows = Vec::new();
         let mut bytes = 0;
         for version in &history.versions {
             let mut value = serde_json::to_value(version).map_err(|e| e.to_string())?;
             let decision = retention::decision(
-                store.state(),
+                store.current(),
                 &access.workspace,
                 &retention::Target::Record(vcp_store::contract::key(
                     vcp_store::contract::Collection::Claim,
@@ -279,7 +290,9 @@ fn memory_page(
             serde_json::json!({"workspace":access.workspace,"claim":claim,"watermark":history.watermark,"at":at,"kind":"governed_memory","versions":rows,"next_cursor":more.then_some(MemoryCursor{workspace:access.workspace.clone(),access_digest,claim,at,after:next,authority:workspace.authority,deletion:workspace.deletion})}),
         )
     }
-    page(store, access, claim, limit, cursor).map_err(serde::ser::Error::custom)
+    page(store, access, claim, limit, cursor)
+        .await
+        .map_err(serde::ser::Error::custom)
 }
 fn preview_value(
     preview: &retention::PrunePreview,
@@ -335,7 +348,7 @@ impl super::CanonicalHost {
                 let tasks = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|record| record.collection == vcp_store::contract::Collection::Task)

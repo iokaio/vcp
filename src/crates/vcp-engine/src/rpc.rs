@@ -23,6 +23,8 @@ use vcp_protocol::{
     methods::{self, Call, ResultValue},
 };
 use vcp_store::contract::CanonicalStore;
+#[path = "rpc_acceptance_history.rs"]
+mod acceptance_history;
 
 pub const MAX_BATCH: usize = 64;
 /// Direct canonical reads and mutations; live controls require the lifecycle host.
@@ -52,13 +54,13 @@ pub const MEMORY_RETENTION_CAPABILITY: &str = vcp_protocol::memory_retention::CA
 #[cfg(test)]
 mod approval_source_tests;
 #[cfg(test)]
+mod inspector_query_tests;
+#[cfg(test)]
 mod memory_inspection_tests;
 #[cfg(test)]
 mod memory_query_tests;
 #[cfg(test)]
 mod workspace_binding_tests;
-#[cfg(test)]
-mod inspector_query_tests;
 
 /// Presentation extensions require explicit negotiation and implemented methods.
 /// Method registration in the schema alone never advertises the extension.
@@ -89,12 +91,27 @@ pub fn capabilities_for_methods(methods: &[String]) -> BTreeSet<String> {
     if capabilities.contains("routing/status") {
         capabilities.insert(vcp_protocol::routing_inspection::CAPABILITY.to_owned());
     }
-    if ["routing/reportCapture", "routing/reportRead", "routing/preview", "routing/apply", "routing/rollback"].iter().any(|method| capabilities.contains(*method)) {
+    if [
+        "routing/reportCapture",
+        "routing/reportRead",
+        "routing/preview",
+        "routing/apply",
+        "routing/rollback",
+    ]
+    .iter()
+    .any(|method| capabilities.contains(*method))
+    {
         capabilities.insert(vcp_protocol::routing_optimizer::CAPABILITY.to_owned());
     }
-    if ["backup/status", "backup/create", "backup/read", "backup/retry", "backup/cancel"]
-        .iter()
-        .any(|method| capabilities.contains(*method))
+    if [
+        "backup/status",
+        "backup/create",
+        "backup/read",
+        "backup/retry",
+        "backup/cancel",
+    ]
+    .iter()
+    .any(|method| capabilities.contains(*method))
     {
         capabilities.insert(vcp_protocol::backup_publisher::CAPABILITY.to_owned());
     }
@@ -400,13 +417,20 @@ impl RpcSession {
             ));
         }
         let inspector_profile = match &call {
-            Call::BackupStatus(_) | Call::BackupCreate(_) | Call::BackupRead(_) | Call::BackupRetry(_) | Call::BackupCancel(_) => Some(vcp_protocol::backup_publisher::CAPABILITY),
+            Call::BackupStatus(_)
+            | Call::BackupCreate(_)
+            | Call::BackupRead(_)
+            | Call::BackupRetry(_)
+            | Call::BackupCancel(_) => Some(vcp_protocol::backup_publisher::CAPABILITY),
             Call::HistoryQuery(_) => Some(vcp_protocol::history::CAPABILITY),
             Call::MemoryHistory(_) => Some(vcp_protocol::memory_history::CAPABILITY),
             Call::PolicyRead(_) => Some(vcp_protocol::policy_inspection::CAPABILITY),
             Call::RoutingStatus(_) => Some(vcp_protocol::routing_inspection::CAPABILITY),
-            Call::RoutingReportCapture(_) | Call::RoutingReportRead(_) | Call::RoutingPreview(_)
-                | Call::RoutingApply(_) | Call::RoutingRollback(_) => Some(vcp_protocol::routing_optimizer::CAPABILITY),
+            Call::RoutingReportCapture(_)
+            | Call::RoutingReportRead(_)
+            | Call::RoutingPreview(_)
+            | Call::RoutingApply(_)
+            | Call::RoutingRollback(_) => Some(vcp_protocol::routing_optimizer::CAPABILITY),
             _ => None,
         };
         if inspector_profile.is_some_and(|profile| !self.negotiated.contains(profile)) {
@@ -520,7 +544,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             )
         })?;
         self.engine
-            .query(
+            .query_current(
                 access,
                 &Query::Session {
                     session: access.session.clone(),
@@ -538,7 +562,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             Call::SessionRead(p) => {
                 check_scope(&p.scope, access)?;
                 match engine
-                    .query(
+                    .query_current(
                         access,
                         &Query::Session {
                             session: access.session.clone(),
@@ -561,7 +585,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     .transpose()
                     .map_err(|_| RpcError::invalid_params())?;
                 match engine
-                    .query(
+                    .query_current(
                         access,
                         &Query::Sessions {
                             limit: p.limit,
@@ -593,11 +617,11 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                 let task =
                     TaskId::parse(p.task.as_str()).map_err(|_| RpcError::invalid_params())?;
                 match engine
-                    .query(access, &Query::Task { task })
+                    .query_current(access, &Query::Task { task })
                     .map_err(query_error)?
                 {
                     QueryResult::Task { task, .. } => {
-                        ResultValue::Task(task_view(engine.store().state(), task)?)
+                        ResultValue::Task(task_view_store(engine.store(), task).await?)
                     }
                     _ => return Err(RpcError::internal_error()),
                 }
@@ -605,26 +629,36 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
             Call::TaskPresentation(p) => ResultValue::Presentation(
                 engine
                     .public_presentation(access, p, self.facts.now)
+                    .await
                     .map_err(query_error)?,
             ),
             Call::UsageRead(p) => {
                 ResultValue::Usage(engine.public_usage(access, p).map_err(query_error)?)
             }
-            Call::ContextInspect(p) => {
-                ResultValue::Evidence(engine.public_context(access, p).map_err(query_error)?)
-            }
-            Call::RoutingExplain(p) => {
-                ResultValue::Evidence(engine.public_routing(access, p).map_err(query_error)?)
-            }
+            Call::ContextInspect(p) => ResultValue::Evidence(
+                engine
+                    .public_context(access, p)
+                    .await
+                    .map_err(query_error)?,
+            ),
+            Call::RoutingExplain(p) => ResultValue::Evidence(
+                engine
+                    .public_routing(access, p)
+                    .await
+                    .map_err(query_error)?,
+            ),
             Call::CommandRead(p) => {
                 check_scope(&p.scope, access)?;
                 let command = CommandId::parse(p.command_id.as_str())
                     .map_err(|_| RpcError::invalid_params())?;
                 match engine
                     .query(access, &Query::Command { command })
+                    .await
                     .map_err(query_error)?
                 {
-                    QueryResult::Command { receipt, .. } => acceptance(engine, access, &receipt)?,
+                    QueryResult::Command { receipt, .. } => {
+                        acceptance(engine, access, &receipt).await?
+                    }
                     _ => return Err(RpcError::internal_error()),
                 }
             }
@@ -638,7 +672,7 @@ impl<S: CanonicalStore> RpcHost for EngineRpcHost<'_, S> {
                     .handle_public(call, access, host)
                     .await
                     .map_err(|error| public_error(error, operation, approval))?;
-                acceptance(engine, access, &receipt)?
+                acceptance(engine, access, &receipt).await?
             }
             _ => {
                 return Err(application(
@@ -697,14 +731,34 @@ pub(crate) fn session_view(session: Session) -> Result<methods::SessionView, Rpc
 /// be admitted: expiry, ownership and policy are rechecked by approval/respond.
 /// There is no persisted addressable generic Question/Reconciliation input model;
 /// waiting state and unknown effects must not manufacture input identities.
+#[cfg(test)]
 pub(crate) fn task_view(
     state: &vcp_store::contract::State,
     task: vcp_domain::task::Task,
 ) -> Result<methods::TaskView, RpcError> {
-    use vcp_domain::{
-        effect::{Effect, EffectState},
-        task::TaskState,
+    let pending = task_pending(state.into(), &task)?;
+    let turn = crate::public::current_public_turn(state, &task.scope);
+    finish_task_view(state.into(), task, pending, turn)
+}
+pub(crate) async fn task_view_store<S: CanonicalStore>(
+    store: &S,
+    task: vcp_domain::task::Task,
+) -> Result<methods::TaskView, RpcError> {
+    let pending = task_pending(store.current(), &task)?;
+    let turn = match crate::public::current_public_turn_checked(store, &task.scope).await {
+        Ok(turn) => Ok(turn),
+        Err(crate::public::HistoryVisitError::Evidence(error)) => Err(error),
+        Err(crate::public::HistoryVisitError::Read) => {
+            return Err(query_error(QueryError::InvalidData))
+        }
     };
+    finish_task_view(store.current(), task, pending, turn)
+}
+fn task_pending(
+    state: vcp_store::CurrentStateView<'_>,
+    task: &vcp_domain::task::Task,
+) -> Result<(Vec<methods::PendingInput>, u8), RpcError> {
+    use vcp_domain::effect::{Effect, EffectState};
     use vcp_protocol::command::{Approval, ApprovalState};
     use vcp_store::contract::Collection;
     let invalid = || query_error(QueryError::InvalidData);
@@ -779,7 +833,18 @@ pub(crate) fn task_view(
             _ => {}
         }
     }
-    let turn = match crate::public::current_public_turn(state, &task.scope) {
+    Ok((pending_inputs, effect_rank))
+}
+fn finish_task_view(
+    state: vcp_store::CurrentStateView<'_>,
+    task: vcp_domain::task::Task,
+    (pending_inputs, effect_rank): (Vec<methods::PendingInput>, u8),
+    selected: Result<Option<vcp_domain::task::Turn>, PublicError>,
+) -> Result<methods::TaskView, RpcError> {
+    use vcp_domain::task::TaskState;
+    use vcp_store::contract::Collection;
+    let invalid = || query_error(QueryError::InvalidData);
+    let turn = match selected {
         Ok(turn) => turn
             .filter(|turn| turn.steering == task.steering)
             .map(|turn| id(turn.id.as_str()))
@@ -789,8 +854,32 @@ pub(crate) fn task_view(
         Err(PublicError::Unavailable) => None,
         Err(error) => return Err(public_error(error, None, false)),
     };
+    let diagnostic = if task.state == TaskState::Paused && task.redaction.is_none() {
+        methods::ExecutionPauseReason::decode(&task.reason).filter(|diagnostic| {
+            state
+                .record(
+                    Collection::Artifact,
+                    diagnostic.evidence.as_str(),
+                    &task.scope.workspace,
+                )
+                .ok()
+                .and_then(|record| {
+                    record
+                        .decode::<vcp_domain::artifact::ArtifactDescriptor>()
+                        .ok()
+                })
+                .is_some_and(|artifact| {
+                    artifact.spec.scope == task.scope
+                        && artifact.spec.schema == "execution-completion-repair/1"
+                })
+        })
+    } else {
+        None
+    };
     let reason = if task.redaction.is_some() {
         "Task content was removed.".to_owned()
+    } else if let Some(diagnostic) = &diagnostic {
+        diagnostic.message.clone()
     } else {
         task.reason
     };
@@ -826,6 +915,7 @@ pub(crate) fn task_view(
             TaskState::Cancelled => methods::TaskStatus::Cancelled,
         },
         reason,
+        diagnostic,
         pending_inputs,
         effects: match effect_rank {
             3 => methods::EffectStatus::Unknown,
@@ -843,7 +933,7 @@ pub(crate) fn task_view(
 /// Project a canonical receipt inside the host's serialized admission operation.
 /// Recheck current access and persisted identity even when the caller just wrote
 /// the receipt, so this helper cannot project a forged or out-of-scope result.
-pub fn acceptance<S: CanonicalStore>(
+pub async fn acceptance<S: CanonicalStore>(
     engine: &Engine<S>,
     access: &Access,
     receipt: &CommandReceipt,
@@ -855,6 +945,7 @@ pub fn acceptance<S: CanonicalStore>(
                 command: receipt.command.clone(),
             },
         )
+        .await
         .map_err(query_error)?
     {
         QueryResult::Command {
@@ -874,38 +965,43 @@ pub fn acceptance<S: CanonicalStore>(
             ))
         }
     };
-    let event = engine
-        .store()
-        .state()
-        .events
-        .iter()
-        .find(|event| {
-            event.watermark == receipt.watermark
+    let unavailable = || {
+        application(
+            Code::CursorGap,
+            Retry::AfterRevalidation,
+            Some(command_id.clone()),
+            "command projection scope evidence unavailable",
+        )
+    };
+    let mut pages = acceptance_history::Pages::open(engine.store())
+        .await
+        .map_err(|_| unavailable())?;
+    let mut first_task = None;
+    'lookup: while let Some(rows) = pages
+        .next(engine.store())
+        .await
+        .map_err(|_| unavailable())?
+    {
+        for event in rows {
+            if event.watermark == receipt.watermark
                 && event.event.correlation == receipt.command
                 && event.event.workspace == access.workspace
                 && event.event.session == access.session
-        })
-        .ok_or_else(|| {
-            application(
-                Code::CursorGap,
-                Retry::AfterRevalidation,
-                Some(command_id.clone()),
-                "command projection scope evidence unavailable",
-            )
-        })?;
+            {
+                first_task = Some(event.event.task);
+                break 'lookup;
+            }
+        }
+    }
+    let task = first_task.ok_or_else(unavailable)?;
     Ok(ResultValue::Acceptance(methods::Acceptance {
         command_id,
         scope: methods::Scope {
             workspace: id(access.workspace.as_str())?,
             session: id(access.session.as_str())?,
         },
-        task: event
-            .event
-            .task
-            .as_ref()
-            .map(|task| id(task.as_str()))
-            .transpose()?,
-        turn: accepted_turn(engine, access, receipt)?,
+        task: task.as_ref().map(|task| id(task.as_str())).transpose()?,
+        turn: accepted_turn(engine, access, receipt).await?,
         revision: revision.get().into(),
         watermark: receipt.watermark.get().into(),
         outcome: methods::OperationOutcome::Accepted,
@@ -915,7 +1011,7 @@ pub fn acceptance<S: CanonicalStore>(
 /// A receipt identifies the turn it created, never whichever turn is current
 /// when a retry is read. Only the original retained Queued genesis fact proves
 /// that identity; subsequent task/turn changes cannot redirect the receipt.
-fn accepted_turn<S: CanonicalStore>(
+async fn accepted_turn<S: CanonicalStore>(
     engine: &Engine<S>,
     access: &Access,
     receipt: &CommandReceipt,
@@ -934,7 +1030,7 @@ fn accepted_turn<S: CanonicalStore>(
             "accepted turn identity evidence unavailable",
         )
     };
-    let state = engine.store().state();
+    let state = engine.store().current();
     // Public start v1 commits exactly four ordered facts: task, input artifact,
     // root ledger, queued turn. The retained receipt span survives projection
     // pruning and distinguishes it from legacy one-event Start/AdvanceTurn
@@ -948,82 +1044,101 @@ fn accepted_turn<S: CanonicalStore>(
         return Ok(None);
     }
     let mut expected = None;
-    for genesis in state.events.iter().filter(|event| {
-        event.watermark == receipt.watermark
-            && event.event.correlation == receipt.command
-            && event.event.workspace == access.workspace
-            && event.event.session == access.session
-            && event.event.kind == EventKind::TaskCreated
-    }) {
-        let task = genesis.event.task.as_ref().ok_or_else(unavailable)?;
-        let scope = vcp_domain::workspace::Scope {
-            workspace: access.workspace.clone(),
-            session: access.session.clone(),
-            task: task.clone(),
-        };
-        if expected.is_some()
-            || crate::public_start::retained_start_budget(state, &scope)
-                .map_err(|_| unavailable())?
-                .is_none()
-        {
-            return Err(unavailable());
+    let mut pages = acceptance_history::Pages::open(engine.store())
+        .await
+        .map_err(|_| unavailable())?;
+    while let Some(rows) = pages
+        .next(engine.store())
+        .await
+        .map_err(|_| unavailable())?
+    {
+        for genesis in rows.iter().filter(|event| {
+            event.watermark == receipt.watermark
+                && event.event.correlation == receipt.command
+                && event.event.workspace == access.workspace
+                && event.event.session == access.session
+                && event.event.kind == EventKind::TaskCreated
+        }) {
+            let task = genesis.event.task.as_ref().ok_or_else(unavailable)?;
+            let scope = vcp_domain::workspace::Scope {
+                workspace: access.workspace.clone(),
+                session: access.session.clone(),
+                task: task.clone(),
+            };
+            if expected.is_some()
+                || crate::public_start::retained_start_budget_store(engine.store(), &scope)
+                    .await
+                    .map_err(|_| unavailable())?
+                    .is_none()
+            {
+                return Err(unavailable());
+            }
+            expected = Some(id(genesis.event.data["public_start"]["turn"]
+                .as_str()
+                .ok_or_else(unavailable)?)?);
         }
-        expected = Some(id(genesis.event.data["public_start"]["turn"]
-            .as_str()
-            .ok_or_else(unavailable)?)?);
     }
     let expected = expected.ok_or_else(unavailable)?;
     let mut result = None;
-    for event in state.events.iter().filter(|event| {
-        event.watermark == receipt.watermark
-            && event.event.correlation == receipt.command
-            && event.event.workspace == access.workspace
-            && event.event.session == access.session
-            && event.event.kind == EventKind::TurnTransition
-    }) {
-        if event.redaction.is_some() || event.event.data["schema_version"] != 1 {
-            return Err(unavailable());
-        }
-        for row in state.records.values().filter(|row| {
-            row.collection == Collection::Tombstone && row.workspace == access.workspace
+    let mut pages = acceptance_history::Pages::open(engine.store())
+        .await
+        .map_err(|_| unavailable())?;
+    while let Some(rows) = pages
+        .next(engine.store())
+        .await
+        .map_err(|_| unavailable())?
+    {
+        for event in rows.iter().filter(|event| {
+            event.watermark == receipt.watermark
+                && event.event.correlation == receipt.command
+                && event.event.workspace == access.workspace
+                && event.event.session == access.session
+                && event.event.kind == EventKind::TurnTransition
         }) {
-            let mask: RetentionMask = row.decode().map_err(|_| unavailable())?;
-            mask.validate().map_err(|_| unavailable())?;
-            if mask.workspace != access.workspace
-                || (mask.session == access.session
-                    && mask.first <= event.sequence
-                    && event.sequence <= mask.last)
-            {
+            if event.redaction.is_some() || event.event.data["schema_version"] != 1 {
                 return Err(unavailable());
             }
-        }
-        for fact in event.event.data["facts"]
-            .as_array()
-            .ok_or_else(unavailable)?
-        {
-            if fact["collection"] != "turn" {
-                continue;
+            for row in state.records.values().filter(|row| {
+                row.collection == Collection::Tombstone && row.workspace == access.workspace
+            }) {
+                let mask: RetentionMask = row.decode().map_err(|_| unavailable())?;
+                mask.validate().map_err(|_| unavailable())?;
+                if mask.workspace != access.workspace
+                    || (mask.session == access.session
+                        && mask.first <= event.sequence
+                        && event.sequence <= mask.last)
+                {
+                    return Err(unavailable());
+                }
             }
-            let revision: Revision =
-                serde_json::from_value(fact["revision"].clone()).map_err(|_| unavailable())?;
-            if revision != Revision::ZERO {
-                continue;
-            }
-            let turn: Turn =
-                serde_json::from_value(fact["value"].clone()).map_err(|_| unavailable())?;
-            if turn.scope.workspace != access.workspace
-                || turn.scope.session != access.session
-                || event.event.task.as_ref() != Some(&turn.scope.task)
-                || turn.revision != Revision::ZERO
-                || turn.state != TurnState::Queued
-                || turn.cause != event.event.id
-                || turn.redaction.is_some()
-                || fact["id"] != turn.id.as_str()
-                || result.is_some()
+            for fact in event.event.data["facts"]
+                .as_array()
+                .ok_or_else(unavailable)?
             {
-                return Err(unavailable());
+                if fact["collection"] != "turn" {
+                    continue;
+                }
+                let revision: Revision =
+                    serde_json::from_value(fact["revision"].clone()).map_err(|_| unavailable())?;
+                if revision != Revision::ZERO {
+                    continue;
+                }
+                let turn: Turn =
+                    serde_json::from_value(fact["value"].clone()).map_err(|_| unavailable())?;
+                if turn.scope.workspace != access.workspace
+                    || turn.scope.session != access.session
+                    || event.event.task.as_ref() != Some(&turn.scope.task)
+                    || turn.revision != Revision::ZERO
+                    || turn.state != TurnState::Queued
+                    || turn.cause != event.event.id
+                    || turn.redaction.is_some()
+                    || fact["id"] != turn.id.as_str()
+                    || result.is_some()
+                {
+                    return Err(unavailable());
+                }
+                result = Some(id(turn.id.as_str())?);
             }
-            result = Some(id(turn.id.as_str())?);
         }
     }
     if result.as_ref() != Some(&expected) {
@@ -1508,7 +1623,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(first["result"]["kind"], "acceptance");
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             let retry = send(&mut rpc, &mut engine, &access(), create(2))
                 .await
                 .unwrap();
@@ -1551,7 +1666,7 @@ mod tests {
                 page["result"]["value"]["sessions"][0]["scope"]["session"],
                 "session"
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let mut engine = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
             let mut rpc = RpcSession::new(server()).unwrap();
@@ -1568,7 +1683,7 @@ mod tests {
                 send(&mut rpc, &mut engine, &access(), query).await.unwrap()["result"],
                 first["result"]
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
         }
     }
@@ -1592,7 +1707,7 @@ mod tests {
         send(&mut rpc, &mut engine, &access(), init())
             .await
             .unwrap();
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         let mut notification = create(1);
         notification.as_object_mut().unwrap().remove("id");
         assert!(send(
@@ -1650,7 +1765,7 @@ mod tests {
                 .unwrap()["error"]["data"]["details"]["code"],
             "CAPABILITY_UNAVAILABLE"
         );
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
     }
 
@@ -1683,7 +1798,7 @@ mod tests {
         send(&mut rpc, &mut engine, &access(), init())
             .await
             .unwrap();
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         assert_eq!(
             send(
                 &mut rpc,
@@ -1719,7 +1834,7 @@ mod tests {
                 ["details"]["code"],
             "POLICY_DENIED"
         );
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
     }
 
@@ -1728,7 +1843,7 @@ mod tests {
         for backend in [BackendKind::Sqlite, BackendKind::Files] {
             let temp = tempfile::tempdir().unwrap();
             let mut engine = setup(temp.path(), backend).await;
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             for mixed in [false, true] {
                 let mut rpc = RpcSession::new(server()).unwrap();
                 send(&mut rpc, &mut engine, &access(), init())
@@ -1749,11 +1864,11 @@ mod tests {
                         .is_none()
                 );
                 assert!(rpc.is_closed());
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
                 assert!(send(&mut rpc, &mut engine, &access(), create(99))
                     .await
                     .is_none());
-                assert_eq!(engine.store().state().watermark, watermark);
+                assert_eq!(engine.store().current().watermark, watermark);
             }
             engine.into_store().close().await.unwrap();
         }
@@ -1771,7 +1886,7 @@ mod tests {
                 .await
                 .unwrap();
             assert!(initialized.get("result").is_some());
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             let read = request(
                 2,
                 "command/read",
@@ -1791,9 +1906,12 @@ mod tests {
                 .await
                 .is_none());
             assert!(rpc.is_closed());
-            let committed = engine.store().state().watermark;
+            let committed = engine.store().current().watermark;
             assert!(committed > before);
-            assert_eq!(engine.store().state().commands.len(), 2);
+            assert_eq!(
+                engine.store().archive_state().await.unwrap().commands.len(),
+                2
+            );
             assert!(send(&mut rpc, &mut engine, &access(), create(3))
                 .await
                 .is_none());
@@ -1808,7 +1926,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(receipt["result"], retried["result"]);
-            assert_eq!(engine.store().state().watermark, committed);
+            assert_eq!(engine.store().current().watermark, committed);
             engine.into_store().close().await.unwrap();
         }
     }

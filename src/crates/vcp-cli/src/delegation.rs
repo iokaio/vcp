@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Explicit owner delegation; JSON selects work, never provider credentials or grants.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     io::Read,
@@ -17,7 +17,7 @@ use vcp_lifecycle::foundation::{CanonicalHost, DelegationRequest};
 use vcp_repository::{worktree::Snapshotter, Root, RootIdentity};
 use vcp_store::contract::Collection;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Specification {
     pub version: u32,
@@ -94,7 +94,7 @@ pub async fn recover(
     })
 }
 pub fn resume(host: &CanonicalHost, child: &Child, scope: &Scope) -> Result<(), String> {
-    let task = crate::agents_view::child(&host.snapshot()?, scope, &child.task)?;
+    let task = crate::agents_view::child(host.current_state()?.as_ref(), scope, &child.task)?;
     if task.state.terminal() || task.state == vcp_domain::task::TaskState::Running {
         return Err("child resume requires a suspended task".into());
     }
@@ -128,7 +128,7 @@ pub async fn run(
     let mut scope = scope.clone();
     scope.task = child.task.clone();
     let task: vcp_domain::task::Task = host
-        .snapshot()?
+        .current_state()?
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .and_then(|r| r.decode())
         .map_err(|e| e.to_string())?;
@@ -210,7 +210,7 @@ pub async fn run(
         .await;
         if outcome.is_err() {
             let task: vcp_domain::task::Task = host
-                .snapshot()?
+                .current_state()?
                 .record(Collection::Task, scope.task.as_str(), &scope.workspace)
                 .and_then(|r| r.decode())
                 .map_err(|e| e.to_string())?;
@@ -337,8 +337,9 @@ async fn prepare_specification(
             "delegation requires version 1, absolute native paths and 1–3600 seconds".into(),
         );
     }
+    let original_request = serde_json::to_value(&spec).map_err(|e| e.to_string())?;
     let snapshotter = native_snapshotter(spec.git)?;
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let workspace: Workspace = state
         .record(
             Collection::Workspace,
@@ -358,7 +359,7 @@ async fn prepare_specification(
         &spec.disposable_parent,
     )
     .map_err(|e| e.to_string())?;
-    let request = DelegationRequest {
+    let mut request = DelegationRequest {
         role: spec
             .role
             .unwrap_or_else(|| "bounded development child".into()),
@@ -377,19 +378,44 @@ async fn prepare_specification(
                 .get()
                 .checked_add(u64::from(spec.seconds) * 1000)
                 .ok_or("child deadline overflow")?,
-        ),
+        )
+        .into(),
         required_checks: spec.required_checks,
     };
+    request.deadline = host.delegated_execution_deadline(parent.id, request.deadline)?;
+    let request_evidence = host.capture(
+        parent.id,
+        vcp_domain::artifact::Channel::Evidence,
+        vcp_protocol::canonical_bytes(&serde_json::json!({
+            "schema":"delegation-execution-constraints/1", "scope":scope,
+            "status":"requested_before_admission",
+            "original_request":original_request,
+            "effective":{"deadline":request.deadline},
+            "origin":"explicit CLI execution policy", "authority":"diagnostic evidence only"
+        }))
+        .map_err(|e| e.to_string())?,
+    )?;
     let task = host
         .delegate_child(parent.id, request, &snapshotter, &disposable)
         .await?;
+    host.capture(
+        parent.id,
+        vcp_domain::artifact::Channel::Evidence,
+        vcp_protocol::canonical_bytes(&serde_json::json!({
+            "schema":"delegation-execution-result/1", "scope":scope,
+            "request_evidence":request_evidence.spec.id,
+            "child":task,"status":"registered_and_materialized",
+            "authority":"diagnostic evidence only"
+        }))
+        .map_err(|e| e.to_string())?,
+    )?;
     let config = parent.thread.config().await.as_ref().clone();
     let session = parent
         .start_child(host, config, task.clone(), &snapshotter)
         .await?;
     if let Err(error) = host.configure_child_from_parent(parent.id, session.id) {
         let pause = (|| -> Result<(), String> {
-            let state = host.snapshot()?;
+            let state = host.current_state()?;
             let child: vcp_domain::task::Task = state
                 .record(Collection::Task, task.as_str(), &scope.workspace)
                 .and_then(|r| r.decode())

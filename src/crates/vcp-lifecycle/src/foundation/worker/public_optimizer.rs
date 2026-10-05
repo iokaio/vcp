@@ -51,7 +51,7 @@ fn counter(value: &methods::Counter) -> RpcResult<u64> {
 }
 fn workspace(store: &Store, access: &Access) -> RpcResult<Workspace> {
     let value: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -81,7 +81,7 @@ fn memory_access(
         None
     } else {
         let mut tasks = BTreeSet::new();
-        for row in store.state().records.values() {
+        for row in store.current().records.values() {
             check()?;
             if row.collection != Collection::Task || row.workspace != access.workspace {
                 continue;
@@ -242,7 +242,7 @@ impl PublicConnection {
                                 .public_authorize(&access, &connection, token.as_ref(), true)
                                 .is_ok();
                         let result =
-                            read::read(context.engine.store(), &access, request, global, &check)?;
+                            context.runtime.block_on(read::read(context.engine.store(), &access, request, global, &check))?;
                         check()?;
                         return Ok(ResultValue::RoutingReport(result));
                     }
@@ -261,15 +261,16 @@ impl PublicConnection {
                     // Receipt lookup precedes workspace/trust preconditions and the volatile
                     // preview cache. Reopening may discard previews, never accepted outcomes.
                     if let Some(command) = &command {
-                        if let Some(committed) =
-                            service::replay(context.engine.store(), &global, command)
-                                .map_err(service_error)?
+                        if let Some(committed) = context
+                            .runtime
+                            .block_on(service::replay(context.engine.store(), &global, command))
+                            .map_err(service_error)?
                         {
-                            return vcp_engine::rpc::acceptance(
+                            return context.runtime.block_on(vcp_engine::rpc::acceptance(
                                 &context.engine,
                                 &access,
                                 &committed.receipt,
-                            );
+                            ));
                         }
                     }
                     if context.authority_pending || context.capture_admission_blocked() {
@@ -328,12 +329,14 @@ impl PublicConnection {
                             if check().is_err() {
                                 return Err(unknown(&call));
                             }
-                            vcp_engine::rpc::acceptance(
-                                &context.engine,
-                                &access,
-                                &committed.receipt,
-                            )
-                            .map_err(|_| unknown(&call))
+                            context
+                                .runtime
+                                .block_on(vcp_engine::rpc::acceptance(
+                                    &context.engine,
+                                    &access,
+                                    &committed.receipt,
+                                ))
+                                .map_err(|_| unknown(&call))
                         }
                         Call::RoutingPreview(request) => {
                             let ceilings = context
@@ -352,26 +355,30 @@ impl PublicConnection {
                                 wire::Proposal::Apply { report, edits } => {
                                     let report_command = CommandId::parse(report.as_str())
                                         .map_err(|_| RpcError::invalid_params())?;
-                                    let captured = service::read_report(
-                                        context.engine.store(),
-                                        &global,
-                                        &access.session,
-                                        &report_command,
-                                        &service_check,
-                                    )
-                                    .map_err(service_error)?;
-                                    let proposal = routing_state::preview_with_check(
-                                        context.engine.store(),
-                                        &global,
-                                        &captured.report.id,
-                                        preview::edits(edits)?,
-                                        &ceilings,
-                                        &|| {
-                                            service_check()
-                                                .map_err(|_| "optimizer interrupted".into())
-                                        },
-                                    )
-                                    .map_err(|_| failure(Code::VersionConflict))?;
+                                    let captured = context
+                                        .runtime
+                                        .block_on(service::read_report(
+                                            context.engine.store(),
+                                            &global,
+                                            &access.session,
+                                            &report_command,
+                                            &service_check,
+                                        ))
+                                        .map_err(service_error)?;
+                                    let proposal = context
+                                        .runtime
+                                        .block_on(routing_state::preview_with_check(
+                                            context.engine.store(),
+                                            &global,
+                                            &captured.report.id,
+                                            preview::edits(edits)?,
+                                            &ceilings,
+                                            &|| {
+                                                service_check()
+                                                    .map_err(|_| "optimizer interrupted".into())
+                                            },
+                                        ))
+                                        .map_err(|_| failure(Code::VersionConflict))?;
                                     (Some(report.clone()), Proposal::Apply(proposal))
                                 }
                                 wire::Proposal::Rollback { target_revision } => (
@@ -477,12 +484,14 @@ impl PublicConnection {
                             if check().is_err() {
                                 return Err(unknown(&call));
                             }
-                            vcp_engine::rpc::acceptance(
-                                &context.engine,
-                                &access,
-                                &committed.receipt,
-                            )
-                            .map_err(|_| unknown(&call))
+                            context
+                                .runtime
+                                .block_on(vcp_engine::rpc::acceptance(
+                                    &context.engine,
+                                    &access,
+                                    &committed.receipt,
+                                ))
+                                .map_err(|_| unknown(&call))
                         }
                         _ => Err(RpcError::invalid_params()),
                     }

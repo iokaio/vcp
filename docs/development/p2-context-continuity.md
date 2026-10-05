@@ -7,10 +7,20 @@ integration contracts; complete continuity acceptance remains pending.
 `vcp_context::compaction::compact` accepts only adjacent, complete, unique
 tool-call/result pairs from one canonical scope. It rejects current objectives,
 constraints, instructions and task-state parts. Those fields must remain outside
-any summary. It preserves a configured number of recent pairs in full and creates
-UTF-8-safe previews of older arguments/results with explicit omitted byte counts
-and original artifact references. The previews are untrusted historical data,
+any summary. It preserves each configured recent pair in full when its combined
+canonical content is at most 32 KiB. Older pairs and oversized recent pairs use
+UTF-8-safe previews with explicit omitted byte counts and original artifact
+references. Original pair indices preserve chronology when retained pairs are
+noncontiguous. The previews are untrusted historical data,
 never proof that an operation succeeded or authority to execute another one.
+
+The native fixed-provider owner may expand a smaller configured recent window
+to twelve pairs when the exact serialized request, including current facts and
+tool schemas, fits the selected input capacity and preserves the minimum gain.
+If twelve pairs contain all history and no useful projection remains, the full
+history must itself fit. Otherwise the configured window remains the fallback.
+Pairs above 32 KiB still receive bounded previews. Routed owners retain their
+configured policy so extra history cannot exclude a smaller routing candidate.
 
 Every input artifact remains a dependency, including sources omitted from the
 preview. A saved projection records its algorithm/configuration, revisions,

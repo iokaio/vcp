@@ -35,9 +35,9 @@ impl CanonicalHost {
         cursor: vcp_protocol::subscription::Cursor,
     ) -> Result<vcp_protocol::subscription::EventPage, String> {
         self.worker.run_cleanup(move |context| {
-            Ok(context
+            Ok(context.runtime.block_on(context
                 .engine
-                .events(&context.access, &cursor, worker::now())?)
+                .events(&context.access, &cursor, worker::now()))?)
         })
     }
 
@@ -61,7 +61,7 @@ impl CanonicalHost {
             let current: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &context.config.workspace)?
                 .decode()?;
             Ok(CommandEnvelope {
@@ -110,11 +110,11 @@ impl CanonicalHost {
                 } if matches!(next, TaskState::Paused | TaskState::Cancelled) => (*next, reason),
                 _ => return Err("stop accepts only pause or cancellation".into()),
             };
-            if let Some(receipt) = context.engine.store().state().command(
+            if let Some(receipt) = context.runtime.block_on(context.engine.store().command_receipt(
                 &command.workspace,
                 &command.id,
                 &command.digest()?,
-            )? {
+            ))? {
                 return Ok(receipt);
             }
             if !context.owner_alive
@@ -127,7 +127,7 @@ impl CanonicalHost {
             let current: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &command.workspace)?
                 .decode()?;
             let scope = Scope {

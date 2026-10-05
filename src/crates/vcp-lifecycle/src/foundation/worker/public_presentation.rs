@@ -10,8 +10,11 @@ pub(super) fn model(
     request: &methods::Inspect,
     page: &mut methods::TaskPresentation,
 ) {
-    let state = context.engine.store().state();
-    let Some(artifact) = latest_routing(state, access, request) else {
+    let Some(artifact) =
+        context
+            .runtime
+            .block_on(latest_routing(context.engine.store(), access, request))
+    else {
         return;
     };
     let artifact = &artifact;
@@ -33,8 +36,8 @@ pub(super) fn model(
         return;
     };
     if context
-        .engine
-        .public_artifact(
+        .runtime
+        .block_on(context.engine.public_artifact(
             access,
             &methods::ArtifactRead {
                 scope: request.scope.clone(),
@@ -43,7 +46,7 @@ pub(super) fn model(
                 offset: 0.into(),
                 length: 1,
             },
-        )
+        ))
         .is_err()
     {
         return;
@@ -68,11 +71,13 @@ pub(super) fn model(
         page.model = model;
     }
 }
-fn latest_routing(
-    state: &vcp_store::contract::State,
+async fn latest_routing(
+    store: &impl CanonicalStore,
     access: &vcp_engine::Access,
     request: &methods::Inspect,
 ) -> Option<ArtifactDescriptor> {
+    let state = store.current();
+    let count = store.history_event_count().await.ok()?;
     let workspace: vcp_domain::workspace::Workspace = state
         .record(
             Collection::Workspace,
@@ -97,15 +102,21 @@ fn latest_routing(
     }
     // Any hidden/unreadable newer task history makes chronology unknown. Do not
     // skip missing descriptors and accidentally present an older selected model.
-    for row in state.events.iter().rev().filter(|row| {
-        row.event.workspace == access.workspace
-            && row.event.session == access.session
-            && row
+    for ordinal in (0..count).rev() {
+        let row = store.history_event_at(ordinal).await.ok()??;
+        if store.current().watermark != state.watermark || row.watermark > state.watermark {
+            return None;
+        }
+        if row.event.workspace != access.workspace
+            || row.event.session != access.session
+            || !row
                 .event
                 .task
                 .as_ref()
                 .is_some_and(|task| task.as_str() == request.task.as_str())
-    }) {
+        {
+            continue;
+        }
         if row.redaction.is_some()
             || masks.iter().any(|mask| {
                 mask.session == access.session
@@ -193,6 +204,18 @@ fn selected_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct Reference<'a>(&'a vcp_store::contract::State);
+    impl vcp_store::contract::reference::ReferenceStore for Reference<'_> {
+        fn state(&self) -> &vcp_store::contract::State {
+            self.0
+        }
+        async fn transact(
+            &mut self,
+            _: vcp_store::contract::Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            unreachable!("read-only fixture")
+        }
+    }
     #[test]
     fn retained_selection_rejects_wrong_scope_steering_and_invalid_identity() {
         let mut decision: vcp_models::routing::RoutingDecision = serde_json::from_value(serde_json::json!({
@@ -224,8 +247,8 @@ mod tests {
         )
         .is_none());
     }
-    #[test]
-    fn latest_routing_does_not_fall_back_across_hidden_or_missing_history() {
+    #[tokio::test]
+    async fn latest_routing_does_not_fall_back_across_hidden_or_missing_history() {
         use vcp_domain::{
             artifact::ArtifactSpec,
             retention::RetentionMask,
@@ -336,8 +359,10 @@ mod tests {
                 },
             });
         }
+        state.watermark = Watermark::new(2);
         assert_eq!(
-            latest_routing(&state, &access, &request)
+            latest_routing(&Reference(&state), &access, &request)
+                .await
                 .unwrap()
                 .spec
                 .id
@@ -348,7 +373,9 @@ mod tests {
             .records
             .remove(&key(Collection::Artifact, "a-later"))
             .unwrap();
-        assert!(latest_routing(&state, &access, &request).is_none());
+        assert!(latest_routing(&Reference(&state), &access, &request)
+            .await
+            .is_none());
         state
             .records
             .insert(key(Collection::Artifact, "a-later"), newest);
@@ -373,6 +400,8 @@ mod tests {
             )
             .unwrap(),
         );
-        assert!(latest_routing(&state, &access, &request).is_none());
+        assert!(latest_routing(&Reference(&state), &access, &request)
+            .await
+            .is_none());
     }
 }

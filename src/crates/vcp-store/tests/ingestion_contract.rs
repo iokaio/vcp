@@ -93,6 +93,104 @@ fn queued() -> (State, Cursor, Job) {
     (state, cursor, job)
 }
 
+#[tokio::test]
+async fn incremental_history_predicates_replay_both_backends_and_report_actual_work() {
+    for backend in [
+        vcp_store::BackendKind::Files,
+        vcp_store::BackendKind::Sqlite,
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("canonical");
+        let mut store = vcp_store::Store::open(&root, backend, &[]).await.unwrap();
+        store.transact(initial()).await.unwrap();
+        let mut state = store.archive_state().await.unwrap();
+        let mut cursor = cursor(&state);
+        let job = job(&cursor, &state);
+        store
+            .transact(tx(
+                &state,
+                vec![
+                    put(row(&cursor.id, cursor.revision, &cursor), None),
+                    put(row(&job.id, job.revision, &job), None),
+                ],
+            ))
+            .await
+            .unwrap();
+        for index in 0..3 {
+            state = store.archive_state().await.unwrap();
+            let mut append = tx(&state, vec![]);
+            let mut event = state.events[0].event.clone();
+            event.id = EventId::parse(format!("incremental-ingestion-{index}")).unwrap();
+            append.events.push(event);
+            store.transact(append).await.unwrap();
+        }
+        state = store.archive_state().await.unwrap();
+        let mut workspace = workspace();
+        workspace.revision = workspace.revision.next().unwrap();
+        workspace.deletion = DeletionEpoch::new(1);
+        store
+            .transact(tx(
+                &state,
+                vec![put(
+                    Record::typed(
+                        Collection::Workspace,
+                        workspace.id.to_string(),
+                        workspace.id.clone(),
+                        workspace.revision,
+                        &workspace,
+                    )
+                    .unwrap(),
+                    Some(Revision::ZERO),
+                )],
+            ))
+            .await
+            .unwrap();
+        state = store.archive_state().await.unwrap();
+        cursor.revision = cursor.revision.next().unwrap();
+        cursor.after = Units::new(state.events.len() as u64);
+        cursor.scanned_through = state.events.last().unwrap().watermark;
+        let invalid = tx(
+            &state,
+            vec![put(
+                row(&cursor.id, cursor.revision, &cursor),
+                Some(Revision::ZERO),
+            )],
+        );
+        let expected_error = state.prepare(&invalid).err().unwrap().to_string();
+        assert_eq!(
+            store.transact(invalid).await.err().unwrap().to_string(),
+            expected_error
+        );
+        assert_eq!(
+            store
+                .diagnostics()
+                .ingestion_validation_work
+                .dependency_fallbacks,
+            2
+        );
+        assert_eq!(
+            store.diagnostics().ingestion_validation_work.rows_examined,
+            5
+        );
+        assert_eq!(store.archive_state().await.unwrap(), state);
+        store.close().await.unwrap();
+        let reopened = vcp_store::Store::open(&root, backend, &[]).await.unwrap();
+        assert_eq!(reopened.archive_state().await.unwrap(), state);
+        let d = reopened.diagnostics();
+        assert_eq!(d.replayed_commits, 6);
+        assert_eq!(d.event_validation_work.rows_examined, 4);
+        assert_eq!(d.redaction_validation_work.rows_examined, 8);
+        assert_eq!(d.redaction_validation_work.prefix_reuses, 5);
+        assert_eq!(d.redaction_validation_work.full_passes, 1);
+        assert_eq!(d.ingestion_validation_work.rows_examined, 1);
+        assert_eq!(d.ingestion_validation_work.prefix_reuses, 4);
+        assert_eq!(d.ingestion_validation_work.full_passes, 1);
+        assert!(d.validation_history_reads.redaction.physical_started > 0);
+        assert!(d.validation_history_reads.ingestion.physical_started > 0);
+        reopened.close().await.unwrap();
+    }
+}
+
 #[test]
 fn cursor_cannot_lose_origins_or_duplicate_their_jobs() {
     let state = State::default().prepare(&initial()).unwrap().0;

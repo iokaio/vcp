@@ -25,10 +25,14 @@ mod console;
 mod control;
 #[cfg(windows)]
 pub(super) mod decision;
+mod diagnostic_history;
+mod diagnostic_turn;
 #[cfg(windows)]
 mod escalation;
 #[cfg(windows)]
 mod execution;
+mod execution_constraints;
+mod financial_outcome;
 #[cfg(windows)]
 mod hooks;
 #[cfg(windows)]
@@ -39,6 +43,8 @@ mod memory_query;
 #[cfg(windows)]
 pub(super) mod observers;
 mod provider;
+#[cfg(windows)]
+mod public_backup;
 pub(super) mod public_connection;
 mod public_diff;
 #[cfg(windows)]
@@ -46,25 +52,23 @@ mod public_editor;
 mod public_events;
 mod public_export;
 mod public_history;
-mod public_policy;
-mod public_routing_inspection;
-mod public_optimizer;
-#[cfg(windows)]
-mod public_backup;
 mod public_memory;
 mod public_memory_history;
 mod public_memory_query;
 mod public_memory_review;
-mod public_retention;
-pub(super) mod public_resume;
-mod public_rpc;
+mod public_optimizer;
+mod public_policy;
 mod public_presentation;
+pub(super) mod public_resume;
+mod public_retention;
+mod public_routing_inspection;
+mod public_rpc;
 #[cfg(windows)]
 pub(super) mod public_start;
 mod public_workspace;
 mod reasoning;
+mod reconciliation;
 pub(super) mod recovery;
-mod retention_policy;
 mod routing;
 #[cfg(windows)]
 pub(super) mod skills;
@@ -125,23 +129,39 @@ impl Drop for Inner {
 pub struct Worker(Arc<Inner>);
 impl Worker {
     pub fn open(config: Config, expected: Option<Revision>) -> std::result::Result<Self, String> {
+        Self::start(config, expected, None)
+    }
+    pub fn open_owned_selected(
+        config: Config,
+        store: Store,
+        expected: Revision,
+    ) -> std::result::Result<Self, String> {
+        Self::start(config, Some(expected), Some(store))
+    }
+    fn start(
+        config: Config,
+        expected: Option<Revision>,
+        store: Option<Store>,
+    ) -> std::result::Result<Self, String> {
         let (tx, rx) = mpsc::sync_channel::<Job>(32);
         let (ready, ready_rx) = mpsc::sync_channel(1);
         let thread = std::thread::Builder::new()
             .name("vcp-canonical-store".into())
-            .spawn(move || match Context::open_selected(config, expected) {
-                Ok(mut context) => {
-                    let _ = ready.send(Ok(()));
-                    while let Ok(job) = rx.recv() {
-                        job(&mut context);
+            .spawn(
+                move || match Context::open_selected(config, expected, store) {
+                    Ok(mut context) => {
+                        let _ = ready.send(Ok(()));
+                        while let Ok(job) = rx.recv() {
+                            job(&mut context);
+                        }
+                        context.close().map_err(|error| error.to_string())
                     }
-                    context.close().map_err(|error| error.to_string())
-                }
-                Err(error) => {
-                    let _ = ready.send(Err(error.to_string()));
-                    Err(error.to_string())
-                }
-            })
+                    Err(error) => {
+                        let _ = ready.send(Err(error.to_string()));
+                        Err(error.to_string())
+                    }
+                },
+            )
             .map_err(|error| error.to_string())?;
         ready_rx.recv().map_err(|_| "canonical worker stopped")??;
         let thread_id = thread.thread().id();
@@ -190,7 +210,12 @@ impl Worker {
             .ok_or("canonical owner closed")?
             .try_send(job)
             .map_err(|_| "canonical queue unavailable or full")?;
-        match rx.recv_timeout(Duration::from_secs(30)) {
+        // Once queued, the operation owns its canonical outcome. A caller-side
+        // elapsed-time limit cannot cancel it and must not abandon its result
+        // while it can still commit (including a provider send intent).
+        // Queue bounds, explicit fencing and operation-specific cancellation
+        // remain independent; loss of the worker still requires reopening.
+        match rx.recv() {
             Ok((result, fenced)) => {
                 if fenced {
                     self.fence();
@@ -199,12 +224,17 @@ impl Worker {
             }
             Err(_) => {
                 self.fence();
-                Err("canonical operation outcome unknown; reopen required".into())
+                Err(
+                    "canonical worker disconnected; operation outcome unknown; reopen required"
+                        .into(),
+                )
             }
         }
     }
 }
 pub struct Context {
+    pub diagnostics: super::execution_diagnostics::Collector,
+    diagnostic_turn: diagnostic_turn::Memo,
     pub(super) local_memory_only: bool,
     pub engine: Engine<Store>,
     pub runtime: tokio::runtime::Runtime,
@@ -215,6 +245,7 @@ pub struct Context {
     interrupted_capture: bool,
     response_recovery: Vec<ArtifactDescriptor>,
     owner_alive: bool,
+    execution_deadline: Option<vcp_domain::Limit<Timestamp>>,
     authority_pending: bool,
     public_mode: bool,
     public_controller: Option<public_connection::CurrentController>,
@@ -276,6 +307,46 @@ fn has_unpriced_media(value: &serde_json::Value) -> bool {
     }
 }
 impl Context {
+    pub fn begin_diagnostic(
+        &self,
+        binding: &ThreadBinding,
+        phase: super::execution_diagnostics::Phase,
+        attempt: Option<AttemptId>,
+    ) -> super::execution_diagnostics::Span {
+        self.diagnostics.begin(
+            phase,
+            binding.scope.clone(),
+            self.current_diagnostic_turn(binding),
+            attempt,
+        )
+    }
+    fn current_diagnostic_turn(&self, binding: &ThreadBinding) -> Option<vcp_domain::TurnId> {
+        let store = self.engine.store();
+        let current = store.current_state();
+        self.runtime.block_on(
+            self.diagnostic_turn
+                .resolve(&current, &binding.scope, || async {
+                    vcp_engine::public::current_public_turn_store(store, &binding.scope)
+                        .await
+                        .map(|turn| turn.map(|turn| turn.id))
+                }),
+        )
+    }
+    pub(super) fn encoding_diagnostic(
+        &self,
+        binding: &ThreadBinding,
+        purpose: super::execution_diagnostics::EncodingPurpose,
+        snapshot: &vcp_models::catalog::Snapshot,
+        effort: Option<vcp_models::reasoning::Effort>,
+    ) -> super::execution_diagnostics::EncodingSession {
+        self.diagnostics.encoding(
+            binding.scope.clone(),
+            self.current_diagnostic_turn(binding),
+            purpose,
+            &snapshot.id,
+            effort,
+        )
+    }
     fn close(self) -> Result<()> {
         self.runtime.block_on(self.engine.into_store().close())?;
         Ok(())
@@ -283,9 +354,13 @@ impl Context {
 
     #[cfg(test)]
     fn open(config: Config) -> Result<Self> {
-        Self::open_selected(config, None)
+        Self::open_selected(config, None, None)
     }
-    fn open_selected(config: Config, expected: Option<Revision>) -> Result<Self> {
+    fn open_selected(
+        config: Config,
+        expected: Option<Revision>,
+        selected_store: Option<Store>,
+    ) -> Result<Self> {
         vcp_policy::validate_host_denials(&config.host_tool_denials)?;
         if config.input_ceiling.get() == 0 || config.output_ceiling.get() == 0 {
             return Err("provider ceilings required".into());
@@ -296,15 +371,27 @@ impl Context {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let store = runtime.block_on(Store::open_with_artifact_limit(
-            &config.canonical_root,
-            config.backend,
-            &[],
-            config.artifact_limit.get(),
-        ))?;
+        let store = match selected_store {
+            Some(store) => {
+                if !store.healthy()
+                    || store.kind() != config.backend
+                    || store.artifact_limit() != config.artifact_limit.get()
+                    || store.canonical_anchor() != config.canonical_root.canonicalize()?
+                {
+                    return Err("selected canonical owner does not match configuration".into());
+                }
+                store
+            }
+            None => runtime.block_on(Store::open_with_artifact_limit(
+                &config.canonical_root,
+                config.backend,
+                &[],
+                config.artifact_limit.get(),
+            ))?,
+        };
         if let Some(expected) = expected {
             let task: Task = store
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     config.root_task.as_str(),
@@ -338,12 +425,12 @@ impl Context {
         let response_recovery: Vec<_> = unfinished
             .iter()
             .filter(|physical| {
-                capture_recovery::response(engine.store().state(), physical).is_some()
+                capture_recovery::response(engine.store().current(), physical).is_some()
             })
             .cloned()
             .collect();
         let interrupted_capture = unfinished.iter().any(|physical| {
-            if capture_recovery::response(engine.store().state(), physical).is_some() {
+            if capture_recovery::response(engine.store().current(), physical).is_some() {
                 return false;
             }
             physical.state != CaptureState::Aborted
@@ -355,7 +442,7 @@ impl Context {
                 || physical.spec.omissions.contains(&Omission::CaptureFailure)
                 || engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         physical.spec.id.as_str(),
@@ -368,13 +455,15 @@ impl Context {
         });
         let provider_required = engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Artifact)
             .filter_map(|row| row.decode::<ArtifactDescriptor>().ok())
             .any(|row| row.spec.schema == "openrouter-provider-configuration/1");
         let mut context = Self {
+            diagnostics: super::execution_diagnostics::Collector::default(),
+            diagnostic_turn: diagnostic_turn::Memo::default(),
             local_memory_only: false,
             engine,
             runtime,
@@ -385,6 +474,7 @@ impl Context {
             interrupted_capture,
             response_recovery,
             owner_alive: true,
+            execution_deadline: None,
             authority_pending: false,
             public_mode: false,
             public_controller: None,
@@ -412,7 +502,7 @@ impl Context {
             #[cfg(windows)]
             verification: HashMap::new(),
         };
-        if context.engine.store().state().records.is_empty() {
+        if context.engine.store().current().records.is_empty() {
             context.command(
                 Command::Initialize {
                     binding: context.config.binding.clone(),
@@ -424,7 +514,7 @@ impl Context {
             let workspace: Workspace = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     context.config.workspace.as_str(),
@@ -439,7 +529,7 @@ impl Context {
             let attempts: Vec<Attempt> = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Attempt)
@@ -461,7 +551,7 @@ impl Context {
             let tasks: Vec<Task> = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|r| r.collection == Collection::Task)
@@ -478,7 +568,8 @@ impl Context {
         context.stop_coding_turns("owner recovered canonical turn")?;
         #[cfg(windows)]
         context.recover_observers()?;
-        context.apply_startup_retention_policy()?;
+        // Saved retention policy is preserved for inspection and explicit
+        // governed requests. Opening an execution owner never prunes evidence.
         Ok(context)
     }
     fn actor(&self) -> vcp_budget::Actor {
@@ -543,7 +634,7 @@ impl Context {
             .and_then(|id| {
                 self.engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Task, id.as_str(), &self.config.workspace)
                     .ok()
             })
@@ -565,7 +656,7 @@ impl Context {
         let host = HostFacts {
             now: now(),
             policy: vcp_engine::policy::optional(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config.workspace,
             )?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -580,7 +671,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -622,7 +713,7 @@ impl Context {
         #[cfg(windows)]
         if binding.scope.task != self.config.root_task
             && vcp_engine::agents::graph(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &binding.scope,
                 &self.config.root_task,
             )?
@@ -631,7 +722,7 @@ impl Context {
             let child: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),
@@ -639,7 +730,7 @@ impl Context {
                 )?
                 .decode()?;
             if !vcp_engine::agents::eligibility(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &child,
                 now(),
                 self.owner_alive,
@@ -658,7 +749,7 @@ impl Context {
             let task: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, current.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if task.state != TaskState::Running {
@@ -692,6 +783,28 @@ impl Context {
         commit: ResumeCommit,
         final_check: impl FnOnce() -> Result<T>,
     ) -> Result<CommandReceipt> {
+        let span =
+            self.begin_diagnostic(binding, super::execution_diagnostics::Phase::Resume, None);
+        let result = self.resume_checked_inner(
+            binding,
+            expected,
+            fingerprint,
+            idle_owned,
+            commit,
+            final_check,
+        );
+        span.finish(&result);
+        result
+    }
+    fn resume_checked_inner<T>(
+        &mut self,
+        binding: &ThreadBinding,
+        expected: Revision,
+        fingerprint: vcp_domain::verification::Fingerprint,
+        idle_owned: &[(ToolRunId, ExecutionId)],
+        commit: ResumeCommit,
+        final_check: impl FnOnce() -> Result<T>,
+    ) -> Result<CommandReceipt> {
         if let Some(receipt) = self.recheck_resume(&commit)? {
             return Ok(receipt);
         }
@@ -705,7 +818,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -716,21 +829,13 @@ impl Context {
             return Err("repository fingerprint changed; refresh canonical task first".into());
         }
         self.revalidate_resume_environment(binding)?;
-        let budget_current = vcp_budget::ledger(self.engine.store().state(), &binding.scope)
-            .map(|ledger| {
-                !ledger.overrun
-                    && ledger
-                        .settled
-                        .get()
-                        .saturating_add(ledger.active.get())
-                        .saturating_add(ledger.unresolved.get())
-                        < ledger.cap.get()
-            })
-            .unwrap_or(true);
+        // Financial observations survive resume; they do not grant or deny
+        // execution while monetary restrictions are suspended.
+        let budget_current = true;
         let tasks = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -759,7 +864,7 @@ impl Context {
         let effects_reconciled = !self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Effect)
@@ -791,7 +896,7 @@ impl Context {
             for row in self
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Approval)
@@ -804,7 +909,7 @@ impl Context {
                     && approval.controller.as_ref() == Some(self.engine.controller())
                     && approval.owner_epoch == Some(self.engine.owner_epoch())
                     && vcp_engine::questions::actionable(
-                        self.engine.store().state(),
+                        self.engine.store().current(),
                         &approval,
                         now(),
                     )?
@@ -835,7 +940,7 @@ impl Context {
             let host = HostFacts {
                 now: now(),
                 policy: vcp_engine::policy::optional(
-                    self.engine.store().state(),
+                    self.engine.store().current(),
                     &self.config.workspace,
                 )?
                 .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -869,7 +974,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -883,7 +988,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -967,6 +1072,7 @@ impl Context {
         if self.capture_admission_blocked() {
             return Err("unfinished capture requires reconciliation".into());
         }
+        self.guard_unresolved_availability(binding)?;
         #[cfg(windows)]
         if let Err(error) = self.check_public_start_budget() {
             self.pause_root("original public run budget requires attention")?;
@@ -1066,11 +1172,11 @@ impl Context {
                 return Err(error);
             }
         };
-        let root = vcp_budget::ledger(self.engine.store().state(), scope)?;
+        let root = vcp_budget::ledger(self.engine.store().current(), scope)?;
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
             .decode()?;
         // Reserve all possible input/cache partitions conservatively. Prices
@@ -1134,6 +1240,8 @@ impl Context {
             TurnState::ReservingBudget,
             "reserving captured request budget",
         )?;
+        #[cfg(windows)]
+        self.provider_queue_current(binding)?;
         let reservation = self.runtime.block_on(vcp_budget::reserve_captured(
             self.engine.store_mut(),
             input,
@@ -1246,6 +1354,21 @@ impl Context {
             ))?;
             return Err(error);
         }
+        #[cfg(feature = "qualification")]
+        self.qualification_model_dispatch_point(
+            super::model_dispatch_qualification::Point::BeforeSendIntent,
+            &attempt.id,
+        )?;
+        #[cfg(windows)]
+        if let Err(error) = self.provider_queue_current(binding) {
+            self.runtime.block_on(vcp_budget::release_before_send(
+                self.engine.store_mut(),
+                &attempt.id,
+                scope,
+                &actor,
+            ))?;
+            return Err(error);
+        }
         if let Err(error) = self.runtime.block_on(vcp_budget::submit(
             self.engine.store_mut(),
             &attempt.id,
@@ -1265,22 +1388,32 @@ impl Context {
                 .streams
                 .insert(attempt.id.clone(), prepared.stream);
         }
-        let deadline = self
-            .provider
-            .as_ref()
-            .map(|provider| std::time::Instant::now() + provider.timeout);
+        let deadline = if self.execution_deadline == Some(vcp_domain::Limit::Unbounded) {
+            None
+        } else {
+            self.provider
+                .as_ref()
+                .map(|provider| std::time::Instant::now() + provider.timeout)
+        };
         #[cfg(windows)]
         let deadline = match (deadline, self.coding_remaining()) {
             (Some(provider), Some(remaining)) => {
                 Some(provider.min(std::time::Instant::now() + remaining))
             }
+            (None, Some(remaining)) => Some(std::time::Instant::now() + remaining),
             (other, _) => other,
         };
         let retry = self
             .provider
             .as_mut()
             .and_then(|p| p.retries.remove(&binding.scope.task));
-        let (deadline, retries) = retry.map_or((deadline, 0), |r| (Some(r.deadline), r.count));
+        let (deadline, retries) = retry.map_or((deadline, 0), |r| (r.deadline, r.count));
+        #[cfg(windows)]
+        let deadline = match (deadline, self.provider_queue_deadline(binding)) {
+            (Some(current), Some(queued)) => Some(current.min(queued)),
+            (None, queued) => queued,
+            (current, None) => current,
+        };
         #[cfg(windows)]
         self.seed_decision_shadow(binding, &attempt);
         #[cfg(feature = "qualification")]
@@ -1306,6 +1439,22 @@ impl Context {
         }
         Ok(())
     }
+    pub fn response_http_error_source(
+        &mut self,
+        attempt: &AttemptId,
+        source: Option<vcp_models::retry::LimitSource>,
+    ) -> Result<()> {
+        if !self.streams.contains_key(attempt) {
+            return Ok(());
+        }
+        if let Some(provider) = self.provider.as_mut() {
+            provider.error_sources.remove(attempt);
+            if let Some(source) = source {
+                provider.error_sources.insert(attempt.clone(), source);
+            }
+        }
+        Ok(())
+    }
     pub fn response_error_chunk(&mut self, attempt: &AttemptId, bytes: &[u8]) -> Result<()> {
         if !self.streams.contains_key(attempt) && self.response_was_retained_unknown(attempt)? {
             return Ok(());
@@ -1327,7 +1476,7 @@ impl Context {
         let attempt: Attempt = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Attempt, id.as_str(), &self.config.workspace)?
             .decode()?;
         // retain_unknown aborts and attaches the exact captured prefix before
@@ -1351,7 +1500,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 self.config.root_task.as_str(),
@@ -1377,17 +1526,14 @@ impl Context {
         if !self.owner_alive {
             return Err("budget initialization requires live owner".into());
         }
-        let state = self.engine.store().state();
-        if state
+        let state = self.engine.store().current();
+        let existing = state
             .record(
                 Collection::Ledger,
                 self.config.root_task.as_str(),
                 &self.config.workspace,
             )
-            .is_ok()
-        {
-            return Ok(());
-        }
+            .is_ok();
         let root: Task = state
             .record(
                 Collection::Task,
@@ -1399,14 +1545,22 @@ impl Context {
             return Err("root budget scope denied".into());
         }
         let actor = self.actor();
-        self.runtime.block_on(vcp_budget::initialize(
-            self.engine.store_mut(),
-            root.scope,
-            self.config.cap.clone(),
-            self.config.protected,
-            None,
-            &actor,
-        ))?;
+        if existing && self.config.cap.micros.is_unbounded() {
+            self.runtime.block_on(vcp_budget::suspend_constraints(
+                self.engine.store_mut(),
+                &root.scope,
+                &actor,
+            ))?;
+        } else if !existing {
+            self.runtime.block_on(vcp_budget::initialize(
+                self.engine.store_mut(),
+                root.scope,
+                self.config.cap.clone(),
+                self.config.protected,
+                None,
+                &actor,
+            ))?;
+        }
         Ok(())
     }
     pub fn pause_all(&mut self, reason: &str) -> Result<()> {
@@ -1416,7 +1570,7 @@ impl Context {
         let tasks: Vec<Task> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Task)
@@ -1537,7 +1691,7 @@ impl Context {
             provider_tools: Units::ZERO,
         };
         let admitted = vcp_budget::attempt(
-            self.engine.store().state(),
+            self.engine.store().current(),
             attempt,
             &binding.scope.workspace,
         )?;
@@ -1546,6 +1700,13 @@ impl Context {
             normalized,
             Timestamp::ZERO,
         )?;
+        let Some(actual_micros) = actual.amount.micros.known() else {
+            return self.unknown(
+                binding,
+                attempt,
+                "terminal usage includes unpriced charge categories",
+            );
+        };
         let observation = UsageObservation {
             id: ObservationId::new(),
             scope: binding.scope.clone(),
@@ -1554,7 +1715,10 @@ impl Context {
             mode: UsageMode::Cumulative {
                 version: Units::new(1),
             },
-            amount: actual.amount,
+            amount: Money {
+                currency: actual.amount.currency,
+                micros: actual_micros,
+            },
             final_usage: true,
             raw: descriptor.spec.id,
             correction: None,
@@ -1590,7 +1754,7 @@ impl Context {
             let task: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),
@@ -1600,7 +1764,7 @@ impl Context {
             let root: Task = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     self.config.root_task.as_str(),
@@ -1654,28 +1818,61 @@ impl Context {
         }) {
             return self.settle_rejected_provider(binding, attempt);
         }
+        let failure = self.provider.as_mut().and_then(|provider| {
+            provider.error_sources.remove(attempt);
+            provider.failures.remove(attempt)
+        });
+        let generation = self
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.streams.get(attempt))
+            .and_then(|stream| stream.observed_generation())
+            .cloned();
         if let Some(provider) = &mut self.provider {
             provider.streams.remove(attempt);
         }
         if let Some(mut writer) = self.streams.remove(attempt) {
             let descriptor = writer.abort()?;
             drop(writer);
+            let raw = descriptor.spec.id.clone();
             self.command(
-                Command::AttachArtifact { descriptor },
+                Command::AttachArtifact {
+                    descriptor: descriptor.clone(),
+                },
                 Some(binding.scope.task.clone()),
                 Revision::ZERO,
             )?;
+            self.record_failed_charge(attempt, &descriptor, failure.as_ref(), generation.as_ref())?;
+            if let Some(failure) = &failure {
+                self.capture(
+                    &binding.scope,
+                    Channel::Evidence,
+                    &canonical_bytes(&serde_json::json!({
+                        "attempt": attempt, "raw_response": raw,
+                        "failure": failure, "liability_unresolved": true,
+                    }))?,
+                    "provider-failure/1",
+                )?;
+            }
         }
+        let reason = failure
+            .as_ref()
+            .map(|failure| format!("{}; submitted charge remains unresolved and requires accounting reconciliation", failure.summary()))
+            .unwrap_or_else(|| reason.to_owned());
         let actor = self.actor();
         self.runtime.block_on(vcp_budget::hold_uncertain(
             self.engine.store_mut(),
             attempt,
             &binding.scope,
             &actor,
-            reason,
+            &reason,
         ))?;
         if pause {
-            self.pause_root("provider outcome requires accounting reconciliation")?;
+            let pause_reason = failure
+                .as_ref()
+                .map(|_| reason.as_str())
+                .unwrap_or("provider outcome requires accounting reconciliation");
+            self.pause_root(pause_reason)?;
         }
         Ok(())
     }

@@ -2,6 +2,25 @@
 //! Retained tool wrappers; canonical assembly owns the actual provider body.
 pub use super::canonical_tools::CanonicalTools;
 use super::*;
+
+/// A validated, non-executable incomplete response awaiting the retained
+/// owner's terminal event. Evidence identifies the discarded partial response.
+#[derive(Clone, Debug)]
+pub struct OutputContinuation {
+    pub attempt: AttemptId,
+    pub evidence: Vec<ArtifactId>,
+    pub feedback: String,
+}
+
+/// Bounded working history for installed CLI tasks and their isolated children.
+/// This controls projections, never original artifact retention or authority.
+pub fn continuity_defaults() -> vcp_context::compaction::Config {
+    vcp_context::compaction::Config {
+        keep_recent_pairs: 6,
+        preview_bytes: 512,
+        minimum_gain_bytes: 2048,
+    }
+}
 use codex_extension_api::*;
 use serde_json::{json, Value};
 
@@ -35,8 +54,15 @@ pub struct CodingConfig {
     pub affected_paths: Vec<PathBuf>,
     /// Cumulative root requests, including children and helpers, across reopen.
     pub max_requests: u32,
-    /// Absolute UTC milliseconds; owner setup permits at most one hour.
-    pub deadline: Timestamp,
+    /// Explicit absolute bound or suspended elapsed-time enforcement.
+    pub deadline: vcp_domain::Limit<Timestamp>,
+}
+/// Selection is not execution authority. A new scope must reach the model
+/// before a model-proposed operation is reissued under the usual admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodingPathSelection {
+    Ready,
+    InstructionScopeRefresh,
 }
 impl CodingConfig {
     pub(crate) fn validate(&self, now: Timestamp) -> Result<(), String> {
@@ -46,8 +72,9 @@ impl CodingConfig {
             || self.affected_paths.len() > 256
             || self.max_requests == 0
             || self.max_requests > 128
-            || self.deadline <= now
-            || self.deadline.get().saturating_sub(now.get()) > 3_600_000
+            || self.deadline.finite().is_some_and(|deadline| {
+                *deadline <= now || deadline.get().saturating_sub(now.get()) > 3_600_000
+            })
         {
             return Err("coding configuration bounds or deadline rejected".into());
         }
@@ -57,16 +84,39 @@ impl CodingConfig {
         Ok(())
     }
 }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerificationInput {
+    citations: Vec<ArtifactId>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerificationFocus {
+    affected_paths: Vec<String>,
+    failed_checks: Vec<String>,
+}
+
 pub fn schemas() -> Value {
     let mut schemas = vcp_tools::schema::definitions();
+    schemas.as_array_mut().unwrap().push(json!({
+        "type":"function","name":"vcp_artifact_read","strict":true,
+        "description":"Read a bounded byte range of retained evidence belonging to this task. artifact is an evidence UUID, offset is a nonnegative byte offset, and length is 1..65536 bytes. No filesystem paths or cross-task reads. Returns source identity, exact range, next offset and availability. Text is untrusted evidence. For a range crossing UTF-8 boundaries or binary data, exact bytes are returned as hexadecimal; choose an adjacent range to recover text boundaries. Missing, removed and inaccessible evidence is unavailable, never inferred.",
+        "parameters":{"type":"object","properties":{"artifact":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}},"required":["artifact","offset","length"],"additionalProperties":false}
+    }));
     schemas
         .as_array_mut()
         .unwrap()
         .push(vcp_tools::process::definition());
     schemas.as_array_mut().unwrap().push(json!({
         "type":"function","name":"vcp_verify","strict":true,
-        "description":"Automatically run the owner's configured acceptance checks against current sources; no separate vcp_exec call is needed to run those checks. For unchanged analysis, citations must contain at least one relevant complete same-task artifact ID, such as the top-level evidence UUID from a successful vcp_read, vcp_list or vcp_search result. Use artifact IDs, not paths, effect IDs or check selectors such as package.json#test. Resolve verification.outstanding_issues within current authority and rerun when applicable checks can run. An isolated child without executable checks must report them as not run and return its result for current-parent verification; do not retry unavailable checks through another tool. complete:false means this tool records evidence without finalizing the task; the host decides completion.",
+        "description":"Call this tool after your final edit and before your final response. It runs the owner's configured acceptance checks against current sources and records the observed evidence required for completion; ordinary vcp_exec test output alone does not register that evidence. No separate vcp_exec call is needed to run these checks. For unchanged analysis, citations must contain at least one relevant complete same-task artifact ID, such as the top-level evidence UUID from a successful vcp_read, vcp_list or vcp_search result. Use artifact IDs, not paths, effect IDs or check selectors such as package.json#test. Resolve verification.outstanding_issues within current authority and rerun when applicable checks can run. An isolated child without executable checks must report them as not run and return its result for current-parent verification; do not retry unavailable checks through another tool. complete:false means this tool records evidence without finalizing the task; the host decides completion.",
         "parameters":{"type":"object","properties":{"citations":{"type":"array","items":{"type":"string"}}},"required":["citations"],"additionalProperties":false}
+    }));
+    schemas.as_array_mut().unwrap().push(json!({
+        "type":"function","name":"vcp_verify_focused","strict":true,
+        "description":"Request intermediate diagnostic checks from the owner's configured acceptance set. Call alone, without sibling tools. Supply normalized workspace-relative affected_paths and/or exact failed_checks IDs (manifest#test); unused hints are empty arrays. The host maps hints deterministically to configured checks; missing, unknown or ambiguous coverage runs the full set. Results are diagnostic_only even after full fallback and cannot authorize completion. Call vcp_verify after the final edit for full completion evidence. This tool grants no new command, path or process authority; unavailable child process checks remain not run.",
+        "parameters":{"type":"object","properties":{"affected_paths":{"type":"array","items":{"type":"string"}},"failed_checks":{"type":"array","items":{"type":"string"}}},"required":["affected_paths","failed_checks"],"additionalProperties":false}
     }));
     schemas.as_array_mut().unwrap().push(json!({
         "type":"function","name":"vcp_skill","strict":true,
@@ -210,12 +260,40 @@ fn mcp_request(arguments: &str) -> Result<super::mcp::Request, String> {
     }
 }
 fn check_hook_tool_boundary(name: &str, authorization_hooks: bool) -> Result<(), String> {
-    if authorization_hooks && matches!(name, "vcp_mcp" | "vcp_verify") {
+    if authorization_hooks && matches!(name, "vcp_mcp" | "vcp_verify" | "vcp_verify_focused") {
         return Err(format!("{name} is unavailable with configured before_tool_authorization hooks: version 1 supports native file/process authorization and rewrites only; the operation was not dispatched"));
     }
     Ok(())
 }
 impl CanonicalHost {
+    /// Consume only after TurnComplete/TurnAborted for the current retained
+    /// turn. This does not resume paused tasks or authorize a partial tool call.
+    pub fn take_output_continuation(
+        &self,
+        thread: ThreadId,
+    ) -> Result<Option<OutputContinuation>, String> {
+        self.owner_verification_ready(thread)?;
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.take_output_continuation(&binding))
+    }
+    /// Owner-observed activity selects a soft allocation policy without granting effects.
+    pub fn set_next_coding_activity(
+        &self,
+        thread: ThreadId,
+        activity: vcp_domain::request_allocation::Activity,
+    ) -> Result<(), String> {
+        self.owner_verification_ready(thread)?;
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| context.set_next_coding_activity(&binding, activity))
+    }
+
+    pub fn has_output_continuation(&self, thread: ThreadId) -> Result<bool, String> {
+        let binding = self.binding(thread)?;
+        self.worker
+            .run(move |context| Ok(context.has_output_continuation(&binding)))
+    }
     /// Freeze the root's model-facing tool ceiling before retained startup.
     /// Reopen and child startup reuse the recorded ceiling without widening it.
     pub fn configure_canonical_tools(&self, tools: CanonicalTools) -> Result<(), String> {
@@ -319,7 +397,7 @@ impl Wrapper {
                 let task: vcp_domain::task::Task = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         vcp_store::contract::Collection::Task,
                         binding.scope.task.as_str(),
@@ -360,6 +438,7 @@ impl Wrapper {
         self.host
             .worker
             .run(move |context| context.select_coding_paths(&binding, &selected))
+            .map(|selection| selection == CodingPathSelection::Ready)
     }
     async fn completed_hooks(
         &self,
@@ -439,7 +518,10 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
     fn supports_parallel_tool_calls(&self) -> bool {
         // Only VCP's prepared resource scheduler may decide which effects
         // overlap. Verification remains an isolated retained operation.
-        !matches!(self.name.as_str(), "vcp_verify" | "vcp_mcp")
+        !matches!(
+            self.name.as_str(),
+            "vcp_verify" | "vcp_verify_focused" | "vcp_mcp"
+        )
     }
     fn tool_name(&self) -> ToolName {
         ToolName::plain(self.name.clone())
@@ -478,11 +560,27 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 .worker
                 .run(move |context| context.consume_coding_call(&scoped, &id, &name, &input))
                 .map_err(FunctionCallError::RespondToModel)?;
+            let diagnostic_binding = binding.clone();
+            let diagnostic_attempt = attempt.clone();
+            let diagnostic_call = normalized.id.clone();
+            let diagnostic = self
+                .host
+                .worker
+                .run_cleanup(move |context| {
+                    Ok(context
+                        .begin_diagnostic(
+                            &diagnostic_binding,
+                            super::execution_diagnostics::Phase::ToolDispatch,
+                            Some(diagnostic_attempt),
+                        )
+                        .with_call_id(&diagnostic_call))
+                })
+                .ok();
             let result: Result<Value, String> = async {
                 let scoped = binding.clone();
                 let selected = normalized.clone();
-                if !self.host.worker.run(move |context| context.select_coding_paths(&scoped, &selected))? {
-                    return Ok(json!({"executed":false,"reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
+                if self.host.worker.run(move |context| context.select_coding_paths(&scoped, &selected))? == CodingPathSelection::InstructionScopeRefresh {
+                    return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"New instruction scope selected. Review the refreshed context before issuing this operation again."}));
                 }
                 if self.name == "vcp_mcp" {
                     check_hook_tool_boundary(&self.name, self.host.has_tool_hooks(self.thread)?)?;
@@ -498,21 +596,32 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     else { value = json!({"result":value,"after_hooks":after_hooks}); }
                     return Ok(value);
                 }
-                if self.name == "vcp_verify" {
+                if matches!(self.name.as_str(), "vcp_verify" | "vcp_verify_focused") {
                     check_hook_tool_boundary(&self.name, self.host.has_tool_hooks(self.thread)?)?;
-                    #[derive(serde::Deserialize)]
-                    #[serde(deny_unknown_fields)]
-                    struct Input { citations: Vec<ArtifactId> }
-                    let input: Input = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
-                    let observed = self.host.verify_for_coding(self.thread, input.citations).await?;
+                    let diagnostic_only = self.name == "vcp_verify_focused";
+                    let (citations, selection) = if diagnostic_only {
+                        let focus: VerificationFocus = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
+                        (vec![], super::verification::VerificationSelection::Focused { affected_paths: focus.affected_paths, failed_checks: focus.failed_checks })
+                    } else {
+                        let input: VerificationInput = serde_json::from_str(&arguments).map_err(|e| e.to_string())?;
+                        (input.citations, super::verification::VerificationSelection::Completion)
+                    };
+                    let observed = self.host.verify_for_coding(self.thread, citations, selection).await?;
                     let report = observed.verification;
                     sources.extend(report.outputs.clone());
                     sources.extend(report.checks.iter().map(|c| c.output.clone()));
                     let hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterVerification,
-                        format!("verify-{}", call.call_id), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
+                        format!("verify-{}", call.call_id), vec![], json!({"tool":self.name}), &mut sources).await;
                     let after_hooks = self.completed_hooks(vcp_extensions::hooks::registry::HookEvent::AfterToolCompletion,
-                        format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":"vcp_verify"}), &mut sources).await;
-                    return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
+                        format!("verify-after-{}", vcp_protocol::digest_bytes(call.call_id.as_bytes())), vec![], json!({"tool":self.name}), &mut sources).await;
+                    return Ok(json!({"verification":report,"diagnostics":observed.diagnostics,"diagnostic_only":diagnostic_only,"complete":false,"hooks":hooks,"after_hooks":after_hooks}));
+                }
+                if self.name == "vcp_artifact_read" {
+                    let scoped = binding.clone();
+                    let input = arguments.clone();
+                    let (value, artifact) = self.host.worker.run(move |context| context.read_coding_artifact(&scoped, &input))?;
+                    sources.extend(artifact);
+                    return Ok(value);
                 }
                 // vcp_skill read returns verified reference text; it performs
                 // no native effect, so it needs neither the patch path nor MCP isolation.
@@ -531,7 +640,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                     sources.extend(before_hooks.iter().map(|o| o.artifact.clone()));
                     if !self.rewritten_paths_ready(&normalized, &before_hooks)? {
                         self.host.cancel_queued_effect(binding.clone(), proposal.effect().clone(), "rewritten instruction scope needs refresh".into())?;
-                        return Ok(json!({"executed":false,"reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
+                        return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
                     }
                     let before_hooks = super::hooks::adapters::presentation(&before_hooks);
                     if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
@@ -572,7 +681,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 sources.extend(before_hooks.iter().map(|o| o.artifact.clone()));
                 if !self.rewritten_paths_ready(&normalized, &before_hooks)? {
                     self.host.cancel_queued_effect(binding.clone(), proposal.effect().clone(), "rewritten instruction scope needs refresh".into())?;
-                    return Ok(json!({"executed":false,"reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
+                    return Ok(json!({"executed":false,"code":"instruction_scope_refresh","reason":"Hook rewrite selected new instruction scope; review refreshed context before requesting the operation again.","hooks":super::hooks::adapters::presentation(&before_hooks)}));
                 }
                 let before_hooks = super::hooks::adapters::presentation(&before_hooks);
                 if !matches!(proposal.decision, vcp_policy::Decision::Allow { .. }) {
@@ -590,6 +699,16 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
                 }
                 Ok(response)
             }.await;
+            if let Some(diagnostic) = diagnostic {
+                if result
+                    .as_ref()
+                    .is_ok_and(|value| value["executed"] == false)
+                {
+                    diagnostic.skipped();
+                } else {
+                    diagnostic.finish(&result);
+                }
+            }
             let mut result = match result {
                 Ok(result) => result,
                 Err(error) => json!({"error":error,"complete":false}),
@@ -623,8 +742,58 @@ impl<'call> ToolExecutor<ToolCall<'call>> for Wrapper {
 mod mcp_content_tests {
     use super::*;
     #[test]
+    fn verification_focus_preserves_legacy_calls_and_strict_schema() {
+        let definitions = schemas();
+        let codec = vcp_models::request::Tools::parse(&definitions).unwrap();
+        codec
+            .validate_call("vcp_verify", r#"{"citations":[]}"#)
+            .unwrap();
+        serde_json::from_str::<VerificationInput>(r#"{"citations":[]}"#).unwrap();
+        let focused = json!({"affected_paths":["ui/source.ts"],"failed_checks":[]});
+        codec
+            .validate_call("vcp_verify_focused", &focused.to_string())
+            .unwrap();
+        assert_eq!(
+            serde_json::from_value::<VerificationFocus>(focused)
+                .unwrap()
+                .affected_paths,
+            ["ui/source.ts"]
+        );
+        for value in [
+            json!({"affected_paths":[],"failed_checks":[],"command":"arbitrary"}),
+            json!({"affected_paths":[]}),
+            json!(null),
+        ] {
+            assert!(codec
+                .validate_call("vcp_verify_focused", &value.to_string())
+                .is_err());
+            assert!(serde_json::from_value::<VerificationFocus>(value).is_err());
+        }
+        assert!(codec
+            .validate_call("vcp_verify", r#"{"citations":[],"focus":null}"#)
+            .is_err());
+        for name in ["vcp_verify", "vcp_verify_focused"] {
+            let verify = definitions
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|value| value["name"] == name)
+                .unwrap();
+            assert_eq!(verify["strict"], true);
+            assert_eq!(verify["parameters"]["additionalProperties"], false);
+            assert_eq!(
+                verify["parameters"]["required"],
+                if name == "vcp_verify" {
+                    json!(["citations"])
+                } else {
+                    json!(["affected_paths", "failed_checks"])
+                }
+            );
+        }
+    }
+    #[test]
     fn unsupported_tool_paths_cannot_bypass_configured_authorization_hooks() {
-        for tool in ["vcp_mcp", "vcp_verify"] {
+        for tool in ["vcp_mcp", "vcp_verify", "vcp_verify_focused"] {
             assert!(check_hook_tool_boundary(tool, true)
                 .unwrap_err()
                 .contains("not dispatched"));

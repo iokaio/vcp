@@ -133,7 +133,7 @@ async fn unacknowledged_pending_mismatched_failed_and_provider_captures_stay_fen
                 let acknowledged = store
                     .transact(Transaction {
                         id: TransactionId::new(),
-                        expected_watermark: store.state().watermark,
+                        expected_watermark: store.current().watermark,
                         mutations: vec![Mutation::Put {
                             expected: None,
                             record,
@@ -151,7 +151,7 @@ async fn unacknowledged_pending_mismatched_failed_and_provider_captures_stay_fen
                 }
             }
             let physical = store.spool().inspect(&id).unwrap();
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             store.close().await.unwrap();
             let (host, owner) = CanonicalHost::open(cfg.clone()).unwrap();
             // Inspection can publish the startup fence, but cannot reconcile it.

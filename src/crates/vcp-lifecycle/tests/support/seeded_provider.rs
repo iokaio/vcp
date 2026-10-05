@@ -55,6 +55,42 @@ fn expected(plan: Plan) -> (usize, u64, u64) {
         Plan::Exhausted => (3, 0, 300),
     }
 }
+/// Independent MR-05 contract: three unresolved availability failures contain
+/// this root across successful steps and explicit owner continuations. Missing
+/// usage and authentication uncertainty remain booked but do not count as pool
+/// failures. Derive the literal wire prefix without examining product markers.
+fn expected_prefix(plans: &[Plan]) -> Vec<(usize, u64, u64, bool)> {
+    let mut availability = 0;
+    plans
+        .iter()
+        .map(|plan| {
+            let mut row = (0, 0, 0, false);
+            for position in 0..expected(*plan).0 {
+                if availability >= 3 {
+                    row.3 = true;
+                    break;
+                }
+                row.0 += 1;
+                if priced_position(*plan, position) {
+                    row.1 += FEE;
+                } else {
+                    row.2 += FEE;
+                    if matches!(
+                        plan,
+                        Plan::Retry429 | Plan::Retry503 | Plan::Exhausted | Plan::StopTimer
+                    ) {
+                        availability += 1;
+                    }
+                }
+            }
+            row.3 |= matches!(
+                plan,
+                Plan::MissingUsage | Plan::Unauthorized | Plan::Exhausted | Plan::StopTimer
+            );
+            row
+        })
+        .collect()
+}
 fn priced_position(plan: Plan, position: usize) -> bool {
     matches!(
         (plan, position),
@@ -124,6 +160,7 @@ struct Journal {
     resumes: usize,
     wires: Vec<Wire>,
     errors: Vec<String>,
+    plans: Vec<Plan>,
 }
 impl Journal {
     fn error(&mut self, error: impl Into<String>) {
@@ -201,7 +238,7 @@ fn observe(
         "captured request bytes differ from actual HTTP bytes",
     )?;
     require(
-        attempt.quote.amount.micros.get() == FEE,
+        attempt.quote.amount.micros.known().unwrap().get() == FEE,
         "fixture admission deviated from independently fixed 100-micro fee",
     )?;
     Ok(Wire {
@@ -265,7 +302,7 @@ impl Fixture {
         std::fs::create_dir(&workspace).unwrap();
         let workspace = workspace.canonicalize().unwrap();
         let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-        config.cap.micros = Micros::new(CAP);
+        config.cap.micros = Micros::new(CAP).into();
         config.max_transport_retries = 2;
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
         host.command(
@@ -379,12 +416,21 @@ impl Fixture {
                 format!("unexpected pre-turn root state {:?}", root.state),
             )?;
         }
-        let sealed = sealed_provider_context(self.host(), id, &self.snapshot, None);
-        self.host()
-            .prepare_context(id, sealed, serde_json::json!([]), vec![])?;
+        let mut plans = self.journal.lock().unwrap().plans.clone();
+        plans.push(plan);
+        if expected_prefix(&plans).last().unwrap().0 != 0 {
+            let sealed = sealed_provider_context(self.host(), id, &self.snapshot, None);
+            self.host()
+                .prepare_context(id, sealed, serde_json::json!([]), vec![])?;
+        }
+        // An independently predicted containment denial needs no new sealed
+        // context. The guard runs before consuming prepared state; repeated
+        // owner continuations must prove zero wire sends rather than trying to
+        // overwrite an unused queued request.
         let mut journal = self.journal.lock().unwrap();
         journal.active = Some((turn, plan));
         journal.position = 0;
+        journal.plans.push(plan);
         Ok(())
     }
     async fn start(&self) -> Result<(), String> {
@@ -419,10 +465,11 @@ impl Fixture {
             .map_err(|error| error.to_string())?
             .decode()
             .map_err(|error| error.to_string())?;
-        let expected_state = if matches!(
-            plan,
-            Plan::MissingUsage | Plan::Unauthorized | Plan::Exhausted
-        ) {
+        let guarded_pause = expected_prefix(&self.journal.lock().unwrap().plans)
+            .last()
+            .unwrap()
+            .3;
+        let expected_state = if guarded_pause {
             TaskState::Paused
         } else {
             TaskState::Running
@@ -453,16 +500,11 @@ impl Fixture {
             errors.is_empty(),
             format!("responder violations: {errors:?}"),
         )?;
-        let counts: Vec<_> = executed.iter().copied().map(expected).collect();
-        let expected_resumes = executed
+        let counts = expected_prefix(executed);
+        let expected_resumes = counts
             .iter()
             .take(executed.len().saturating_sub(1))
-            .filter(|plan| {
-                matches!(
-                    plan,
-                    Plan::MissingUsage | Plan::Unauthorized | Plan::Exhausted
-                )
-            })
+            .filter(|row| row.3)
             .count();
         require(
             self.journal.lock().unwrap().resumes == expected_resumes,
@@ -510,7 +552,7 @@ impl Fixture {
         for (turn, plan) in executed.iter().copied().enumerate() {
             let turn_wires: Vec<_> = wires.iter().filter(|wire| wire.turn == turn).collect();
             require(
-                turn_wires.len() == expected(plan).0,
+                turn_wires.len() == counts[turn].0,
                 format!("logical turn {turn} has wrong retry count"),
             )?;
             for (position, wire) in turn_wires.iter().enumerate() {
@@ -554,11 +596,11 @@ impl Fixture {
                     "reservation charge differs from independent response plan",
                 )?;
                 require(
-                    reservation.liability.get() == if paid { 0 } else { FEE },
+                    reservation.liability.known().unwrap().get() == if paid { 0 } else { FEE },
                     "unknown liability differs from fixed fee",
                 )?;
                 require(
-                    reservation.amount.micros.get() == FEE && reservation.attempt == current.id,
+                    reservation.amount.micros.known().unwrap().get() == FEE && reservation.attempt == current.id,
                     "reservation fee/attempt binding mismatch",
                 )?;
                 require(
@@ -575,18 +617,18 @@ impl Fixture {
         let unresolved: u64 = counts.iter().map(|row| row.2).sum();
         require(
             ledger.settled.get() == settled
-                && ledger.unresolved.get() == unresolved
-                && ledger.active.get() == 0
-                && ledger.cap.get() == CAP
+                && ledger.unresolved.known().unwrap().get() == unresolved
+                && ledger.active.known().unwrap().get() == 0
+                && ledger.cap.finite().expect("finite historical fixture").get() == CAP
                 && !ledger.overrun,
             format!(
                 "ledger differs: settled={}/{} unresolved={}/{} active={} cap={}",
                 ledger.settled.get(),
                 settled,
-                ledger.unresolved.get(),
+                ledger.unresolved.known().unwrap().get(),
                 unresolved,
-                ledger.active.get(),
-                ledger.cap.get()
+                ledger.active.known().unwrap().get(),
+                ledger.cap.finite().expect("finite historical fixture").get()
             ),
         )?;
         require(
@@ -612,6 +654,60 @@ impl Fixture {
         self.observer.lock().unwrap().take();
         Ok(())
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn seeded_provider_each_prethreshold_plan_preserves_original_wire_and_money_contract() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for plan in PLANS {
+            let temp = tempfile::tempdir().unwrap();
+            let mut fixture = Fixture::new(&temp, backend).await;
+            fixture.run_turn(0, plan).await.unwrap_or_else(|error| {
+                panic!("prethreshold backend={backend:?} plan={plan:?}: {error}")
+            });
+            fixture.verify(&[plan]).await.unwrap();
+            let row = expected_prefix(&[plan])[0];
+            let original = expected(plan);
+            assert_eq!(
+                (row.0, row.1, row.2),
+                original,
+                "a fresh root must preserve every original retry/charge contract"
+            );
+            fixture.close_runtime().await.unwrap();
+            fixture.verify(&[plan]).await.unwrap();
+        }
+    }
+}
+
+#[test]
+fn seeded_provider_independent_guard_table_keeps_successes_and_truncates_failed_retries() {
+    assert_eq!(
+        expected_prefix(&[Plan::Retry429, Plan::Paid, Plan::Retry503, Plan::Paid]),
+        vec![
+            (2, 100, 100, false),
+            (1, 100, 0, false),
+            (2, 0, 200, true),
+            (0, 0, 0, true)
+        ]
+    );
+    assert_eq!(
+        expected_prefix(&[
+            Plan::MissingUsage,
+            Plan::Unauthorized,
+            Plan::Retry503,
+            Plan::Paid
+        ]),
+        vec![
+            (1, 0, 100, true),
+            (1, 0, 100, true),
+            (3, 100, 200, false),
+            (1, 100, 0, false)
+        ]
+    );
+    assert_eq!(
+        expected_prefix(&[Plan::Exhausted, Plan::Paid]),
+        vec![(3, 0, 300, true), (0, 0, 0, true)]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -651,7 +747,18 @@ async fn seeded_provider_retry_pause_reopen_never_replays_unknown_send() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         for seed in SEEDS {
             let generated = plans(seed);
-            let mut schedule = vec![Plan::Paid, Plan::MissingUsage, generated[6], generated[7]];
+            // Keep this pause/reopen case below the availability threshold until
+            // the explicit stopped send. The burst case independently exercises
+            // threshold containment and denied owner continuations.
+            let before_threshold: Vec<_> = generated
+                .iter()
+                .skip(6)
+                .copied()
+                .filter(|plan| !matches!(plan, Plan::Retry503 | Plan::Exhausted))
+                .take(2)
+                .collect();
+            let mut schedule = vec![Plan::Paid, Plan::MissingUsage];
+            schedule.extend(before_threshold);
             eprintln!(
                 "seeded-provider-stop begin backend={backend:?} seed={seed:#x} prefix={schedule:?}"
             );

@@ -354,9 +354,9 @@ fn agents_pages_preserve_all_children_and_canonical_node_cost_without_resuming()
                 amount: Money {
                     currency: Currency::try_from("USD".to_owned()).unwrap(),
                     micros: Micros::new(30),
-                },
+                }.into(),
                 charged: Micros::new(10),
-                liability: Micros::new(20),
+                liability: Micros::new(20).into(),
                 protected_draw: Micros::ZERO,
                 protected_returned: Micros::ZERO,
                 day: 0,

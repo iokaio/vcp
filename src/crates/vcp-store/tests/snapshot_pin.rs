@@ -8,7 +8,7 @@ async fn payload_free_snapshot_pins_survive_owner_reopen_and_exclude_cleanup() {
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
         let first = store.snapshot().unwrap();
         let second = store.snapshot().unwrap();
-        assert!(first.state().records.is_empty());
+        assert!(first.current().records.is_empty());
         #[cfg(windows)]
         {
             let lock = temp.path().join("root-snapshot.lock");
@@ -39,6 +39,9 @@ async fn malformed_snapshot_lock_is_an_error_not_a_live_snapshot() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
+        // Initial layout migration already acquired and released this pin.
+        // Replace the known fixture file with the same malformed directory.
+        std::fs::remove_file(temp.path().join("root-snapshot.lock")).unwrap();
         std::fs::create_dir(temp.path().join("root-snapshot.lock")).unwrap();
         assert!(store.try_snapshot_cleanup_guard().is_err());
         assert!(store.snapshot().is_err());

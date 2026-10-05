@@ -4,8 +4,209 @@ use std::collections::BTreeSet;
 use vcp_domain::policy::*;
 use vcp_store::BackendKind;
 
+#[cfg(windows)]
 #[test]
-fn startup_applies_due_saved_retention_without_resuming_or_model_work() {
+fn retained_artifact_read_never_resurrects_redacted_or_purged_bytes() {
+    use crate::foundation::coding::CodingConfig;
+    use vcp_domain::artifact::CaptureState;
+    use vcp_models::catalog::{Compatibility, Snapshot};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        for redacted in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let (mut context, binding) = setup(&temp, backend);
+            std::fs::write(temp.path().join("workspace/anchor.txt"), "fixture anchor").unwrap();
+            let raw = serde_json::to_vec(&json!({"data":{"id":"fixture/model","endpoints":[{"tag":"fixture/region","status":0,"context_length":200000,"max_prompt_tokens":180000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0"}}]}})).unwrap();
+            let snapshot = Snapshot::from_endpoints(
+                &raw,
+                Timestamp::ZERO,
+                Timestamp::new(u64::MAX),
+                Compatibility {
+                    id: "artifact-access-fixture/1".into(),
+                    model: "fixture/model".into(),
+                    endpoint: "fixture/region".into(),
+                    qualified_at: Timestamp::ZERO,
+                    valid_until: Timestamp::new(u64::MAX),
+                    responses_text_tools: true,
+                    byte_ceiling_qualified: true,
+                    provider_preferences_qualified: true,
+                    deny_data_collection: true,
+                    require_zdr: true,
+                    request_price_limit: "0".into(),
+                    required_parameters: BTreeSet::from(["tools".into(), "max_tokens".into()]),
+                    qualified_reasoning_efforts: BTreeSet::new(),
+                },
+            )
+            .unwrap();
+            context
+                .configure_provider(snapshot, raw, Duration::from_secs(30))
+                .unwrap();
+            context
+                .configure_coding(
+                    &binding,
+                    CodingConfig {
+                        canonical_tools: Default::default(),
+                        operating: "Fixture artifact reads only".into(),
+                        affected_paths: vec!["anchor.txt".into()],
+                        max_requests: 4,
+                        deadline: Timestamp::new(now().get() + 60_000).into(),
+                    },
+                )
+                .unwrap();
+            let artifact = context
+                .capture(
+                    &binding.scope,
+                    Channel::Stdout,
+                    b"retained private fixture bytes",
+                    "fixture-artifact/1",
+                )
+                .unwrap();
+            let arguments = json!({"artifact":artifact.spec.id,"offset":0,"length":64}).to_string();
+            let (before, source) = context.read_coding_artifact(&binding, &arguments).unwrap();
+            assert_eq!(before["content"], "retained private fixture bytes");
+            assert_eq!(source, Some(artifact.spec.id.clone()));
+            let prior: Task = context
+                .engine
+                .store()
+                .current()
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            context
+                .command(
+                    Command::Transition {
+                        next: TaskState::Cancelled,
+                        reason: "fixture owner stops before explicit retention".into(),
+                        verification: None,
+                    },
+                    Some(binding.scope.task.clone()),
+                    prior.revision,
+                )
+                .unwrap();
+            let mut workspace: Workspace = context
+                .engine
+                .store()
+                .current()
+                .record(
+                    Collection::Workspace,
+                    binding.scope.workspace.as_str(),
+                    &binding.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            let prior_revision = workspace.revision;
+            workspace.revision = workspace.revision.next().unwrap();
+            workspace.deletion = workspace.deletion.next().unwrap();
+            let transaction = Transaction {
+                id: TransactionId::new(),
+                expected_watermark: context.engine.store().current().watermark,
+                events: vec![],
+                command: None,
+                mutations: vec![Mutation::Put {
+                    expected: Some(prior_revision),
+                    record: Record::typed(
+                        Collection::Workspace,
+                        workspace.id.as_str(),
+                        workspace.id.clone(),
+                        workspace.revision,
+                        &workspace,
+                    )
+                    .unwrap(),
+                }],
+            };
+            context
+                .runtime
+                .block_on(context.engine.store_mut().transact(transaction))
+                .unwrap();
+            let mut current = context
+                .runtime
+                .block_on(context.engine.store().archive_state())
+                .unwrap();
+            if redacted {
+                let record = current
+                    .records
+                    .get_mut(&vcp_store::contract::key(
+                        Collection::Task,
+                        binding.scope.task.as_str(),
+                    ))
+                    .unwrap();
+                let mut task: Task = record.decode().unwrap();
+                task.state = TaskState::Cancelled;
+                record.value = serde_json::to_value(
+                    vcp_protocol::redaction::task(&task, DeletionEpoch::new(1)).unwrap(),
+                )
+                .unwrap();
+            } else {
+                // Keep the old physical spool bytes: current canonical purge
+                // state must deny reads even before physical cleanup finishes.
+                let record = current
+                    .records
+                    .get_mut(&vcp_store::contract::key(
+                        Collection::Artifact,
+                        artifact.spec.id.as_str(),
+                    ))
+                    .unwrap();
+                let mut descriptor: ArtifactDescriptor = record.decode().unwrap();
+                descriptor.state = CaptureState::Purged;
+                descriptor.retained.clear();
+                record.value = serde_json::to_value(descriptor).unwrap();
+            }
+            let requests_before = current
+                .records
+                .values()
+                .filter(|record| record.collection == Collection::Attempt)
+                .count();
+            context
+                .runtime
+                .block_on(context.engine.store_mut().rewrite_base(current, &[]))
+                .unwrap();
+            match context.read_coding_artifact(&binding, &arguments) {
+                Ok((result, source)) => {
+                    assert_eq!(result["availability"], "unavailable");
+                    assert!(result["content"].is_null());
+                    assert!(source.is_none());
+                }
+                Err(_) => {} // Terminal authority denies even tool admission.
+            }
+            if !redacted {
+                let mut bytes = Vec::new();
+                assert!(context
+                    .runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        context.engine.store(),
+                        &context.history_access(),
+                        &artifact.spec.id,
+                        &mut bytes
+                    ))
+                    .is_err());
+                assert!(
+                    bytes.is_empty(),
+                    "the retained reader must not recover purged payload bytes"
+                );
+            }
+            assert_eq!(
+                context
+                    .engine
+                    .store()
+                    .current()
+                    .records
+                    .values()
+                    .filter(|record| record.collection == Collection::Attempt)
+                    .count(),
+                requests_before
+            );
+            context.close().unwrap();
+        }
+    }
+}
+
+#[test]
+fn startup_preserves_due_saved_retention_and_evidence_without_resuming() {
     use vcp_domain::retention_selector::{Criterion, Selector, Tree};
     use vcp_memory::{
         retention::Action,
@@ -39,16 +240,34 @@ fn startup_applies_due_saved_retention_without_resuming_or_model_work() {
                 .unwrap()
                 .is_none()
         );
+        let saved_policy = retention_policy::show(context.engine.store(), &access).unwrap();
+        let before: Workspace = context
+            .engine
+            .store()
+            .current()
+            .record(
+                Collection::Workspace,
+                access.workspace.as_str(),
+                &access.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
         context.close().unwrap();
         let reopened = Context::open(config.clone()).unwrap();
-        let run = retention_policy::latest_run(reopened.engine.store(), &reopened.memory_access())
-            .unwrap()
-            .unwrap();
-        assert_eq!(run.status, "completed");
+        assert!(
+            retention_policy::latest_run(reopened.engine.store(), &reopened.memory_access())
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            retention_policy::show(reopened.engine.store(), &reopened.memory_access()).unwrap(),
+            saved_policy
+        );
         let task: Task = reopened
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -61,14 +280,14 @@ fn startup_applies_due_saved_retention_without_resuming_or_model_work() {
         assert!(!reopened
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Attempt));
         let workspace: Workspace = reopened
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -77,12 +296,13 @@ fn startup_applies_due_saved_retention_without_resuming_or_model_work() {
             .unwrap()
             .decode()
             .unwrap();
+        assert_eq!(workspace.deletion, before.deletion);
         reopened.close().unwrap();
         let again = Context::open(config).unwrap();
         let current: Workspace = again
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 access.workspace.as_str(),
@@ -117,7 +337,8 @@ fn setup(temp: &tempfile::TempDir, backend: BackendKind) -> (Context, ThreadBind
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }
+        .into(),
         protected: Micros::ZERO,
         price: PriceSnapshot {
             id: "a".repeat(64),
@@ -204,11 +425,99 @@ fn setup(temp: &tempfile::TempDir, backend: BackendKind) -> (Context, ThreadBind
         .unwrap();
     (context, binding)
 }
+
+#[test]
+fn canonical_worker_waits_for_slow_admitted_outcome_on_both_stores() {
+    std::thread::scope(|threads| {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            threads.spawn(move || {
+                let temp = tempfile::tempdir().unwrap();
+                let (context, _) = setup(&temp, backend);
+                let config = context.config.clone();
+                context.close().unwrap();
+                let worker = Worker::open(config, None).unwrap();
+                let before = worker
+                    .run(|context| Ok(context.engine.store().current().watermark))
+                    .unwrap();
+                let result = worker
+                    .run(|context| {
+                        // Cross the former production wait, not a reduced test timer.
+                        std::thread::sleep(Duration::from_millis(30_100));
+                        Ok(context.engine.store().current().watermark)
+                    })
+                    .unwrap();
+                assert_eq!(result, before);
+                assert!(!worker.fenced());
+                assert_eq!(worker.run(|_| Ok(17)).unwrap(), 17);
+                drop(worker); // joins and closes SQLite before TempDir cleanup
+            });
+        }
+    });
+}
+
+#[test]
+fn canonical_worker_explicit_fence_keeps_admitted_result_and_cleanup() {
+    let temp = tempfile::tempdir().unwrap();
+    let (context, _) = setup(&temp, BackendKind::Files);
+    let config = context.config.clone();
+    context.close().unwrap();
+    let worker = Worker::open(config, None).unwrap();
+    let (arrived, arrival) = std::sync::mpsc::sync_channel(1);
+    let (release, released) = std::sync::mpsc::sync_channel(1);
+    let pending = worker.clone();
+    let caller = std::thread::spawn(move || {
+        pending.run(move |_| {
+            arrived.send(()).unwrap();
+            released.recv().unwrap();
+            Ok(23)
+        })
+    });
+    arrival.recv_timeout(Duration::from_secs(5)).unwrap();
+    worker.fence();
+    assert!(worker.run(|_| Ok(())).unwrap_err().contains("fenced"));
+    release.send(()).unwrap();
+    assert_eq!(caller.join().unwrap().unwrap(), 23);
+    assert!(worker.fenced());
+    assert_eq!(worker.run_cleanup(|_| Ok(29)).unwrap(), 29);
+}
+
+#[test]
+fn canonical_worker_disconnect_and_self_reentry_remain_fenced() {
+    let temp = tempfile::tempdir().unwrap();
+    let (context, _) = setup(&temp, BackendKind::Files);
+    let config = context.config.clone();
+    context.close().unwrap();
+    let worker = Worker::open(config, None).unwrap();
+    let nested = worker.clone();
+    let error = worker
+        .run(move |_| Ok(nested.run(|_| Ok(())).unwrap_err()))
+        .unwrap();
+    assert!(error.contains("cannot synchronously reenter"));
+    assert!(worker.fenced());
+    drop(worker);
+
+    // Accept the queued job, then lose it before an outcome can be delivered.
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<Job>(32);
+    let thread = std::thread::spawn(move || {
+        drop(receiver.recv().unwrap());
+        Ok(())
+    });
+    let worker = Worker(Arc::new(Inner {
+        thread_id: thread.thread().id(),
+        sender: Mutex::new(Some(sender)),
+        thread: Mutex::new(Some(thread)),
+        fenced: AtomicBool::new(false),
+    }));
+    let error = worker.run(|_| Ok(())).unwrap_err();
+    assert!(error.contains("worker disconnected"));
+    assert!(error.contains("outcome unknown; reopen required"));
+    assert!(worker.fenced());
+}
 fn effect(context: &Context, id: &ToolRunId) -> Effect {
     context
         .engine
         .store()
-        .state()
+        .current()
         .record(Collection::Effect, id.as_str(), &context.config.workspace)
         .unwrap()
         .decode()
@@ -243,6 +552,44 @@ fn pending(context: &mut Context, binding: &ThreadBinding, patch: &str) -> ToolR
             .unwrap();
     }
     id
+}
+
+#[test]
+fn recovery_retains_directory_only_partial_effect_without_replaying_file() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut context, binding) = setup(&temp, backend);
+        let id = pending(
+            &mut context,
+            &binding,
+            "*** Begin Patch\n*** Add File: Data/Models/one.cs\n+one\n*** End Patch",
+        );
+        std::fs::create_dir(temp.path().join("workspace/Data")).unwrap();
+        let config = context.config.clone();
+        context.close().unwrap();
+        let reopened = Context::open(config).unwrap();
+        assert_eq!(effect(&reopened, &id).state, EffectState::Failed);
+        assert!(temp.path().join("workspace/Data").is_dir());
+        assert!(!temp.path().join("workspace/Data/Models").exists());
+        let report: ArtifactDescriptor = reopened
+            .engine
+            .store()
+            .current()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .filter_map(|row| row.decode::<ArtifactDescriptor>().ok())
+            .find(|a| a.spec.schema == "vcp-effect-reconciliation-v1")
+            .unwrap();
+        let report = reopened.recovery_artifact(&report).unwrap();
+        let observations = report["observations"].as_array().unwrap();
+        assert!(observations.iter().any(|o| o["class"] == "directory"
+            && o["path"] == "Data"
+            && o["certainty"] == "present"));
+        assert!(observations.iter().any(|o| o["class"] == "directory"
+            && o["path"] == "Data/Models"
+            && o["certainty"] == "absent"));
+    }
 }
 
 #[test]
@@ -352,7 +699,7 @@ fn recovery_accepts_only_matching_process_execution_receipts_and_never_reuses_pi
             let report: ArtifactDescriptor = reopened
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Artifact)

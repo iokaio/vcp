@@ -26,7 +26,7 @@ pub struct DelegationRequest {
     pub write_paths: BTreeSet<String>,
     pub untracked_inputs: BTreeSet<String>,
     pub allocation: Micros,
-    pub deadline: Timestamp,
+    pub deadline: vcp_domain::Limit<Timestamp>,
     pub required_checks: Vec<String>,
 }
 fn default_role() -> String {
@@ -34,6 +34,17 @@ fn default_role() -> String {
 }
 fn default_read_paths() -> BTreeSet<String> {
     BTreeSet::from([String::new()])
+}
+
+fn effective_delegated_deadline(
+    owner: Option<vcp_domain::Limit<Timestamp>>,
+    requested: vcp_domain::Limit<Timestamp>,
+) -> vcp_domain::Limit<Timestamp> {
+    if owner == Some(vcp_domain::Limit::Unbounded) {
+        vcp_domain::Limit::Unbounded
+    } else {
+        requested
+    }
 }
 
 /// Versioned convenience instructions, never authority or a model selection.
@@ -85,7 +96,10 @@ impl DelegationRequest {
             || self.write_paths.len() > 127
             || self.untracked_inputs.len() > 4096
             || self.allocation == Micros::ZERO
-            || self.deadline <= worker::now()
+            || self
+                .deadline
+                .finite()
+                .is_some_and(|deadline| *deadline <= worker::now())
             || (self.mode == ChildMode::ReadOnly && !self.write_paths.is_empty())
             || (self.mode == ChildMode::IsolatedWrite && self.write_paths.is_empty())
         {
@@ -131,6 +145,23 @@ impl DelegationRequest {
     }
 }
 impl CanonicalHost {
+    /// Select only the delegated task-duration policy. This does not change
+    /// grant expiry, process timeouts, request ceilings or execution authority.
+    pub fn delegated_execution_deadline(
+        &self,
+        parent: ThreadId,
+        requested: vcp_domain::Limit<Timestamp>,
+    ) -> Result<vcp_domain::Limit<Timestamp>, String> {
+        let binding = self.binding(parent)?;
+        self.worker.run(move |context| {
+            context.can_start(&binding)?;
+            Ok(effective_delegated_deadline(
+                context.execution_deadline,
+                requested,
+            ))
+        })
+    }
+
     /// Persist an assignment and its shared allocation, then qualify its isolated
     /// workspace. This does not start a provider or grant executable effects.
     pub async fn delegate_child(
@@ -152,7 +183,7 @@ impl CanonicalHost {
                 let task: Task = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Task,
                         checked.scope.task.as_str(),
@@ -182,11 +213,19 @@ impl CanonicalHost {
                     write: true,
                 }));
                 if let Some((_, ceiling)) = context.child_assignment(&checked.scope.task)? {
+                    let root_ledger = vcp_budget::ledger(
+                        context.engine.store().current(),
+                        &Scope {
+                            task: task.root.clone(),
+                            ..checked.scope.clone()
+                        },
+                    )?;
                     if paths
                         .iter()
                         .any(|path| !ceiling.paths.iter().any(|allowed| allowed.covers(path)))
-                        || requested.deadline > ceiling.deadline
-                        || requested.allocation > ceiling.allocation
+                        || !deadline_within(requested.deadline, ceiling.deadline)
+                        || (!root_ledger.cap.is_unbounded()
+                            && requested.allocation > ceiling.allocation)
                         || ceiling.model_policy != provider.snapshot.compatibility.model
                         || (requested.mode == ChildMode::IsolatedWrite
                             && ceiling.mode == ChildMode::ReadOnly)
@@ -220,7 +259,7 @@ impl CanonicalHost {
         self.worker.run(move |context| {
             context.can_start(&binding)?;
             context.initialize_root_budget()?;
-            let state = context.engine.store().state();
+            let state = context.engine.store().current();
             let task: Task = state
                 .record(
                     Collection::Task,
@@ -332,6 +371,35 @@ impl CanonicalHost {
 mod tests {
     use super::*;
 
+    #[test]
+    fn delegated_deadline_requires_explicit_owner_policy_and_keeps_finite_requests() {
+        use vcp_domain::Limit;
+        let requested = Limit::Finite(Timestamp::new(100));
+        assert_eq!(effective_delegated_deadline(None, requested), requested);
+        assert_eq!(
+            effective_delegated_deadline(Some(Limit::Finite(Timestamp::new(50))), requested),
+            requested
+        );
+        assert_eq!(
+            effective_delegated_deadline(Some(Limit::Unbounded), requested),
+            Limit::Unbounded
+        );
+        let mut finite = request();
+        finite.deadline = worker::now()
+            .get()
+            .checked_add(1000)
+            .map(Timestamp::new)
+            .unwrap()
+            .into();
+        assert!(finite.validate().is_ok());
+        let mut legacy = serde_json::to_value(&finite).unwrap();
+        legacy["deadline"] = serde_json::to_value(*finite.deadline.finite().unwrap()).unwrap();
+        let decoded: DelegationRequest = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded.deadline, finite.deadline);
+        finite.deadline = Timestamp::new(0).into();
+        assert!(finite.validate().is_err());
+    }
+
     fn request() -> DelegationRequest {
         DelegationRequest {
             role: default_role(),
@@ -343,7 +411,7 @@ mod tests {
             write_paths: BTreeSet::new(),
             untracked_inputs: BTreeSet::from(["src/parser.rs".into()]),
             allocation: Micros::new(100),
-            deadline: Timestamp::new(u64::MAX),
+            deadline: vcp_domain::Limit::Unbounded,
             required_checks: vec![],
         }
     }
@@ -409,7 +477,7 @@ mod tests {
         invalid.write_paths.clear();
         assert!(invalid.validate().is_err());
         invalid = base;
-        invalid.deadline = Timestamp::new(0);
+        invalid.deadline = Timestamp::new(0).into();
         assert!(invalid.validate().is_err());
     }
 }

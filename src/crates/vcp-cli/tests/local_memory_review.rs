@@ -83,7 +83,7 @@ fn resolve(
 async fn seed(fixture: &Fixture) -> (Value, Value) {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -93,7 +93,7 @@ async fn seed(fixture: &Fixture) -> (Value, Value) {
         .decode()
         .unwrap();
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             fixture.config.workspace.as_str(),
@@ -102,7 +102,7 @@ async fn seed(fixture: &Fixture) -> (Value, Value) {
         .unwrap()
         .decode()
         .unwrap();
-    let policy = match store.state().records.get(&vcp_store::contract::key(
+    let policy = match store.current().records.get(&vcp_store::contract::key(
         Collection::Access,
         fixture.config.workspace.as_str(),
     )) {
@@ -116,8 +116,7 @@ async fn seed(fixture: &Fixture) -> (Value, Value) {
             _ => panic!("expected canonical policy"),
         },
     };
-    let origin = store
-        .state()
+    let origin = (&store.archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| {
@@ -149,7 +148,7 @@ async fn seed(fixture: &Fixture) -> (Value, Value) {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -391,7 +390,7 @@ async fn compiled_manual_review_reconnect_replays_original_receipts_and_preserve
         ] {
             assert_eq!(
                 store
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|r| r.value["document_type"] == kind)
@@ -401,8 +400,7 @@ async fn compiled_manual_review_reconnect_replays_original_receipts_and_preserve
         }
         for suffix in ["accepted", "invalid", "contrary", "explicit-reject"] {
             for prefix in ["submit", "decide"] {
-                assert!(store
-                    .state()
+                assert!((&store.archive_state().await.unwrap())
                     .commands
                     .contains_key(&vcp_store::contract::command_key(
                         &fixture.config.workspace,
@@ -410,16 +408,14 @@ async fn compiled_manual_review_reconnect_replays_original_receipts_and_preserve
                     )));
             }
         }
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .contains_key(&vcp_store::contract::command_key(
                 &fixture.config.workspace,
                 &CommandId::parse("stale-submit").unwrap()
             )));
         for denied in ["missing-capability-submit", "legacy-prose-submit"] {
-            assert!(!store
-                .state()
+            assert!(!(&store.archive_state().await.unwrap())
                 .commands
                 .contains_key(&vcp_store::contract::command_key(
                     &fixture.config.workspace,

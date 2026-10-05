@@ -241,6 +241,11 @@ pub enum Sessions {
 }
 #[derive(Debug, Subcommand)]
 pub enum Tasks {
+    /// Reconcile provider charge metadata for a paused root without resuming work.
+    ReconcileCost {
+        #[arg(value_parser = task_id)]
+        task: TaskId,
+    },
     /// Inspect attributed child progress without starting or resuming work.
     Agents {
         #[arg(value_parser = task_id)]
@@ -279,7 +284,7 @@ pub enum View {
 /// Resolved before engine construction, including task-file decoding and cap.
 pub struct ValidatedRun {
     pub objective: String,
-    pub budget: Micros,
+    pub budget: vcp_domain::Limit<Micros>,
     pub autonomy: Autonomy,
     pub skills: Vec<String>,
 }
@@ -489,11 +494,10 @@ impl Run {
                 return Err("duplicate --skill selection".into());
             }
         }
-        let budget = self
-            .budget_usd
-            .or(persisted_cap)
-            .filter(|cap| cap.get() > 0)
-            .ok_or("an explicit --budget-usd or persisted budget cap is required")?;
+        // Numeric legacy arguments are still parsed and retained by their
+        // source; the approved branch execution has no monetary admission cap.
+        let _legacy_cap = self.budget_usd.or(persisted_cap);
+        let budget = vcp_domain::Limit::Unbounded;
         let objective = match (&self.objective, &self.file) {
             (Some(text), None) => text.clone(),
             (None, Some(path)) => {

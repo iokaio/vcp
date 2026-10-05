@@ -13,6 +13,8 @@ use std::{
 };
 use vcp_domain::{ActorId, CommandId, Timestamp, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
+#[path = "restore_import_stream.rs"]
+mod stream;
 
 pub struct Imported {
     root: PathBuf,
@@ -48,11 +50,11 @@ impl Imported {
     /// checking and publishing the expected workspace descriptor revision.
     pub async fn reopen_verified(&self) -> Result<Store> {
         let store = Store::open(&self.root, self.backend, &self.forbidden).await?;
-        if digest_bytes(&canonical_bytes(store.state())?) != self.state_digest {
+        if store.prefix_digest(store.current().watermark).await? != self.state_digest {
             return Err(Error::Conflict("prepared restore root changed"));
         }
         for row in store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == crate::contract::Collection::Artifact)
@@ -79,7 +81,23 @@ pub(crate) async fn prepare(
     if cancelled() {
         return Err(Error::Unavailable("restore import cancelled"));
     }
-    let archive = &validated.archive;
+    let (archive, proof) = match &validated.data {
+        crate::restore_stage::Data::Stream(stream) => {
+            return self::stream::prepare_stream(
+                stream,
+                &digest_bytes(&canonical_bytes(&validated.manifest())?),
+                root,
+                forbidden,
+                backend,
+                operation,
+                actor,
+                timestamp,
+                cancelled,
+            )
+            .await;
+        }
+        crate::restore_stage::Data::Legacy { archive, proof } => (archive, proof),
+    };
     let source = archive.state();
     let transaction = crate::restore_authority::transaction(
         source,
@@ -93,13 +111,14 @@ pub(crate) async fn prepare(
         fs::create_dir(root)?;
     }
     let directory = Directory::open(root, forbidden)?;
+    let source_digest = crate::legacy_state_stream::digest(source)?;
     let base = crate::replay_base::ReplayBase {
         version: 1,
-        source_digest: digest_bytes(&canonical_bytes(source)?),
+        source_digest: source_digest.clone(),
         state: source.clone(),
         prefixes: vec![crate::replay_base::PrefixCommitment {
             watermark: source.watermark,
-            digest: digest_bytes(&canonical_bytes(source)?),
+            digest: source_digest,
         }],
     };
     let bytes = canonical_bytes(&base)?;
@@ -116,15 +135,17 @@ pub(crate) async fn prepare(
     if cancelled() {
         return Err(Error::Unavailable("restore import cancelled"));
     }
-    immutable(
-        &root.join("format.json"),
-        &canonical_bytes(&serde_json::json!({"version":2,"backend":backend}))?,
-    )?;
+    if !root.join("format.json").exists() {
+        immutable(
+            &root.join("format.json"),
+            &canonical_bytes(&serde_json::json!({"version":2,"backend":backend}))?,
+        )?;
+    }
     let mut store = Store::open(root, backend, forbidden).await?;
-    if store.state() == source {
+    if store.archive_state().await? == *source {
         store.transact(transaction).await?;
     }
-    if store.state() != &expected {
+    if store.archive_state().await? != expected {
         return Err(Error::Corruption("restore sanitized state differs"));
     }
     store.close().await?;
@@ -132,15 +153,15 @@ pub(crate) async fn prepare(
         return Err(Error::Unavailable("restore import cancelled"));
     }
     let reopened = Store::open(root, backend, forbidden).await?;
-    if reopened.state() != &expected {
+    if reopened.archive_state().await? != expected {
         return Err(Error::Corruption("restore fresh reopen differs"));
     }
     reopened.close().await?;
     Ok(Imported {
         root: root.to_owned(),
         workspace: archive.workspace().clone(),
-        state_digest: digest_bytes(&canonical_bytes(&expected)?),
-        source_manifest: digest_bytes(&canonical_bytes(&validated.proof.restored().manifest)?),
+        state_digest: crate::legacy_state_stream::digest(&expected)?,
+        source_manifest: digest_bytes(&canonical_bytes(&proof.restored().manifest)?),
         checkpoint: archive.inputs().checkpoint.clone(),
         backend,
         forbidden: forbidden.to_vec(),

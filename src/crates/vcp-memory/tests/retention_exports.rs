@@ -3,6 +3,7 @@ use vcp_audit::{history, session_export};
 use vcp_domain::{artifact::*, task::*, verification::Fingerprint, workspace::*, *};
 use vcp_engine::{public_export::*, Access, Engine, HostFacts};
 use vcp_protocol::{command::*, methods};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::contract::{key, Collection};
 use vcp_store::{artifact::ArtifactWriter, BackendKind, Store};
 
@@ -171,7 +172,7 @@ async fn fixture(
     let token = engine.controller_token(&access(), &connection).unwrap();
     (engine, root, other, connection, token)
 }
-fn prepare(
+async fn prepare(
     engine: &Engine<Store>,
     request: methods::SessionExport,
     root: &TaskId,
@@ -180,6 +181,7 @@ fn prepare(
 ) -> PreparedPublicExport {
     match engine
         .prepare_public_export(request, &access(), connection, token, &disclosure(), root)
+        .await
         .unwrap()
     {
         PublicExportAdmission::Ready(value) => value,
@@ -203,13 +205,15 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             &other,
             &connection,
             &token,
-        );
+        )
+        .await;
         let rendered = session_export::render(
             engine.store(),
             &reader(),
             prepared.sources(),
             prepared.capture(),
         )
+        .await
         .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&rendered.payload).unwrap();
         assert!(payload["artifacts"]
@@ -236,7 +240,7 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             .map(|id| {
                 engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Artifact, id.as_str(), &access().workspace)
                     .unwrap()
                     .decode()
@@ -284,7 +288,9 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             ]),
         };
         let preview =
-            retention::preview(&store, &auth, selector, Action::Purge, Timestamp::new(10)).unwrap();
+            retention::preview(&store, &auth, selector, Action::Purge, Timestamp::new(10))
+                .await
+                .unwrap();
         for output in &outputs {
             assert!(preview
                 .dependent
@@ -306,7 +312,7 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
         }
         for output in &outputs {
             let descriptor: ArtifactDescriptor = store
-                .state()
+                .current()
                 .record(Collection::Artifact, output.as_str(), &auth.workspace)
                 .unwrap()
                 .decode()
@@ -315,7 +321,7 @@ async fn source_purge_physically_removes_both_export_copies_after_source_revisio
             assert!(store.spool().read(&descriptor, &mut Vec::new()).is_err());
         }
         let other: Task = store
-            .state()
+            .current()
             .record(Collection::Task, other.as_str(), &auth.workspace)
             .unwrap()
             .decode()

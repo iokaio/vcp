@@ -100,13 +100,14 @@ impl Lifecycle {
         })?;
         let pid = pty.child.id();
         let done = Arc::new(AtomicBool::new(false));
+        let control = Arc::new(Mutex::new(Control::default()));
         self.0
             .jobs
             .lock()
             .map_err(|_| io::Error::other("poisoned jobs"))?
             .entry(thread)
             .or_default()
-            .push(job.clone());
+            .push(OwnedJob::new(job.clone(), control.clone()));
         self.0
             .process_observers
             .lock()
@@ -115,7 +116,6 @@ impl Lifecycle {
             .or_default()
             .push(done.clone());
         drop(state);
-        let control = Arc::new(Mutex::new(Control::default()));
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let result = Process {
             _resources: None,

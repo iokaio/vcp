@@ -118,18 +118,18 @@ async fn history_pages_match_cli_metadata_without_payloads_and_recheck_access() 
         observer.write = false;
         observer.bootstrap = false;
         let mut query = request(&observer);
-        let before = engine.store().state().clone();
-        let first = inspect(engine.store(), &observer, &query, &|| Ok(())).unwrap();
+        let before = engine.store().archive_state().await.unwrap();
+        let first = inspect(engine.store(), &observer, &query, &|| Ok(()))
+            .await
+            .unwrap();
         assert_eq!(first.rows.len(), 1);
         assert!(!first.complete);
         assert!(first.claim_links.is_empty());
-        assert!(
-            !serde_json::to_string(&first)
-                .unwrap()
-                .contains("private history needle")
-        );
+        assert!(!serde_json::to_string(&first)
+            .unwrap()
+            .contains("private history needle"));
         let cli = vcp_audit::history_query::query_session(
-            engine.store().state(),
+            &engine.store().archive_state().await.unwrap(),
             &vcp_audit::history::Access {
                 workspace: observer.workspace.clone(),
                 authority: observer.authority,
@@ -160,33 +160,43 @@ async fn history_pages_match_cli_metadata_without_payloads_and_recheck_access() 
         );
         assert_eq!(first.rows[0].visibility, cli.rows[0].visibility);
         query.cursor = first.next_cursor;
-        let second = inspect(engine.store(), &observer, &query, &|| Ok(())).unwrap();
+        let second = inspect(engine.store(), &observer, &query, &|| Ok(()))
+            .await
+            .unwrap();
         assert_eq!(second.rows.len(), 1);
         assert_ne!(first.rows[0].id, second.rows[0].id);
         let mut other = observer.clone();
         other.actor = ActorId::new();
-        assert!(inspect(engine.store(), &other, &query, &|| Ok(())).is_err());
+        assert!(inspect(engine.store(), &other, &query, &|| Ok(()))
+            .await
+            .is_err());
         let mut changed = query.clone();
         changed.limit = 2;
-        assert!(inspect(engine.store(), &observer, &changed, &|| Ok(())).is_err());
+        assert!(inspect(engine.store(), &observer, &changed, &|| Ok(()))
+            .await
+            .is_err());
         let mut denied = observer.clone();
         denied.read = false;
-        assert!(inspect(engine.store(), &denied, &query, &|| Ok(())).is_err());
+        assert!(inspect(engine.store(), &denied, &query, &|| Ok(()))
+            .await
+            .is_err());
         let mut foreign = query.clone();
         foreign.scope.session = wid("foreign-session");
-        assert!(inspect(engine.store(), &observer, &foreign, &|| Ok(())).is_err());
+        assert!(inspect(engine.store(), &observer, &foreign, &|| Ok(()))
+            .await
+            .is_err());
         let mut search = request(&observer);
         search.task = Some(wid(first_task.as_str()));
         search.text = Some("private history needle".into());
-        let search = inspect(engine.store(), &observer, &search, &|| Ok(())).unwrap();
+        let search = inspect(engine.store(), &observer, &search, &|| Ok(()))
+            .await
+            .unwrap();
         assert_eq!(search.rows.len(), 1);
-        assert!(
-            !serde_json::to_string(&search)
-                .unwrap()
-                .contains("private history needle")
-        );
+        assert!(!serde_json::to_string(&search)
+            .unwrap()
+            .contains("private history needle"));
         assert_eq!(
-            engine.store().state(),
+            &engine.store().archive_state().await.unwrap(),
             &before,
             "observer pagination cannot write canonical state"
         );
@@ -200,6 +210,8 @@ async fn history_pages_match_cli_metadata_without_payloads_and_recheck_access() 
             },
         )
         .await;
-        assert!(inspect(engine.store(), &observer, &query, &|| Ok(())).is_err());
+        assert!(inspect(engine.store(), &observer, &query, &|| Ok(()))
+            .await
+            .is_err());
     }
 }

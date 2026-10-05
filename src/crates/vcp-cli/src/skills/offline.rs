@@ -5,6 +5,7 @@ use vcp_extensions::{
     discovery::{Catalog, MatchContext},
     skill_manifest::SourceRegistry,
 };
+use vcp_store::contract::CanonicalStore;
 
 pub fn on_host(
     host: &vcp_lifecycle::foundation::CanonicalHost,
@@ -42,7 +43,7 @@ pub async fn execute(
     .await
     {
         Ok(store) => {
-            let result = super::inspect(profile, &entry.config, store.state(), offset);
+            let result = super::inspect(profile, &entry.config, store.current(), offset);
             store.close().await.map_err(|e| e.to_string())?;
             result
         }

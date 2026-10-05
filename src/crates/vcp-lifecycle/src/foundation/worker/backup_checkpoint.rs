@@ -18,7 +18,7 @@ impl Context {
         let canonical: vcp_domain::search::Generation = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Generation,
                 manifest.id.as_str(),
@@ -76,7 +76,7 @@ impl Context {
             .collect::<std::result::Result<_, _>>()?;
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.engine.store().state().watermark,
+            expected_watermark: self.engine.store().current().watermark,
             mutations: records
                 .into_iter()
                 .map(|record| Mutation::Put {
@@ -108,7 +108,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -128,7 +128,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 self.config.root_task.as_str(),
@@ -248,7 +248,7 @@ impl Context {
             .references = links;
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.engine.store().state().watermark,
+            expected_watermark: self.engine.store().current().watermark,
             mutations: records
                 .into_iter()
                 .map(|record| Mutation::Put {

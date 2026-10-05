@@ -29,8 +29,8 @@ use vcp_protocol::{
     event::{EventInput, EventKind},
 };
 use vcp_store::{
-    contract::{key, CanonicalStore, Collection, Mutation, Receipt, Record, State, Transaction},
-    Store,
+    contract::{key, CanonicalStore, Collection, Mutation, Receipt, Record, Transaction},
+    CurrentStateView, Store,
 };
 
 const MAX_INVENTORY_BYTES: u64 = 64 * 1024 * 1024;
@@ -51,7 +51,7 @@ fn redirected(metadata: &fs::Metadata) -> bool {
         metadata.file_type().is_symlink()
     }
 }
-fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<Active>> {
+fn active(state: CurrentStateView<'_>, workspace: &WorkspaceId) -> Result<Option<Active>> {
     state
         .records
         .get(&key(Collection::Generation, workspace.as_str()))
@@ -65,7 +65,11 @@ fn active(state: &State, workspace: &WorkspaceId) -> Result<Option<Active>> {
         })
         .transpose()
 }
-fn generation(state: &State, id: &GenerationId, workspace: &WorkspaceId) -> Result<Generation> {
+fn generation(
+    state: CurrentStateView<'_>,
+    id: &GenerationId,
+    workspace: &WorkspaceId,
+) -> Result<Generation> {
     let result: Generation = state
         .record(Collection::Generation, id.as_str(), workspace)?
         .decode()?;
@@ -88,12 +92,12 @@ pub fn capture(
     scope: &Scope,
     inventory: Inventory,
 ) -> Result<Snapshot> {
-    let workspace = access::authorize(store.state(), access, true)?;
+    let workspace = access::authorize(store.current(), access, true)?;
     inventory.validate()?;
     if access.tasks.is_some()
         || scope.workspace != access.workspace
         || inventory.workspace != access.workspace
-        || inventory.watermark != store.state().watermark
+        || inventory.watermark != store.current().watermark
         || inventory.authority != workspace.authority
         || inventory.deletion != workspace.deletion
     {
@@ -113,7 +117,7 @@ pub fn capture(
     let mut intents = Vec::new();
     let mut memory_seq = MemorySeq::ZERO;
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.workspace == access.workspace)
@@ -155,7 +159,7 @@ pub fn capture(
     Ok(Snapshot {
         scope: scope.clone(),
         inventory,
-        previous: active(store.state(), &access.workspace)?,
+        previous: active(store.current(), &access.workspace)?,
         intents,
         memory_seq,
     })
@@ -669,23 +673,22 @@ impl Publisher {
         now: Timestamp,
         barrier: &dyn Fn(Barrier),
     ) -> Result<Receipt> {
-        access::authorize(store.state(), access, true)?;
+        access::authorize(store.current(), access, true)?;
         if access.tasks.is_some() || prepared.manifest.scope.workspace != access.workspace {
             return Err(Error::Access);
         }
         // A lost reply is resolved from canonical evidence, even when derived
         // files subsequently need rebuilding. Do not run the activation twice.
         if let Some(receipt) = store
-            .state()
-            .transactions
-            .get(&prepared.manifest.transaction)
+            .transaction_receipt(&prepared.manifest.transaction)
+            .await?
         {
-            if generation(store.state(), &prepared.manifest.id, &access.workspace)?
+            if generation(store.current(), &prepared.manifest.id, &access.workspace)?
                 != prepared.manifest
             {
                 return Err(Error::Conflict("publication retry identity"));
             }
-            return Ok(receipt.clone());
+            return Ok(receipt);
         }
         // Existing qualification path remains valid; production performs this
         // expensive phase on a blocking CPU worker using validate_prepared().
@@ -739,20 +742,20 @@ impl Publisher {
         now: Timestamp,
         barrier: &dyn Fn(Barrier),
     ) -> Result<Receipt> {
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         let manifest = &prepared.manifest;
         if access.tasks.is_some() || manifest.scope.workspace != access.workspace {
             return Err(Error::Access);
         }
-        if let Some(receipt) = store.state().transactions.get(&manifest.transaction) {
-            if generation(store.state(), &manifest.id, &access.workspace)? != *manifest {
+        if let Some(receipt) = store.transaction_receipt(&manifest.transaction).await? {
+            if generation(store.current(), &manifest.id, &access.workspace)? != *manifest {
                 return Err(Error::Conflict("publication retry identity"));
             }
-            return Ok(receipt.clone());
+            return Ok(receipt);
         }
         if workspace.authority != manifest.authority
             || workspace.deletion != manifest.deletion
-            || active(store.state(), &access.workspace)? != prepared.previous
+            || active(store.current(), &access.workspace)? != prepared.previous
         {
             return Err(Error::Conflict("publication snapshot invalidated"));
         }
@@ -834,7 +837,7 @@ impl Publisher {
             .filter(|intent| manifest.covered_intents.contains(&intent.id))
         {
             let mut current: IndexIntent = store
-                .state()
+                .current()
                 .record(
                     Collection::IndexIntent,
                     captured.id.as_str(),
@@ -876,7 +879,7 @@ impl Publisher {
         };
         let transaction = Transaction {
             id: manifest.transaction.clone(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![event],
             command: None,
@@ -897,7 +900,7 @@ impl Publisher {
         access: &Access,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Recovery> {
-        self.recover_state(store.state(), access, check)
+        self.recover_state(store.current(), access, check)
     }
     /// A canonical snapshot keeps the authoritative cut and artifact/root pins
     /// alive while native component reopen runs outside the owner worker.
@@ -914,7 +917,7 @@ impl Publisher {
         access: &Access,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Recovery> {
-        self.recover_state(snapshot.state(), access, check)
+        self.recover_state(snapshot.current(), access, check)
     }
     /// Read-only inspection of a workspace generation under a scoped captured
     /// query. Complete component integrity is verified, but the broad View and
@@ -926,12 +929,12 @@ impl Publisher {
         check: &dyn Fn() -> Result<()>,
     ) -> Result<crate::retrieval::Selection> {
         captured.check_reader(access)?;
-        let recovery = self.recover_components(captured.captured_state(), access, check)?;
+        let recovery = self.recover_components(captured.captured_current(), access, check)?;
         crate::retrieval::search(captured, recovery.view.as_ref(), None, &|| check().is_err())
     }
     fn recover_state(
         &self,
-        state: &State,
+        state: CurrentStateView<'_>,
         access: &Access,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Recovery> {
@@ -942,7 +945,7 @@ impl Publisher {
     }
     fn recover_components(
         &self,
-        state: &State,
+        state: CurrentStateView<'_>,
         access: &Access,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Recovery> {
@@ -1013,9 +1016,9 @@ impl Publisher {
         id: &GenerationId,
         policy: &GarbagePolicy,
     ) -> Result<bool> {
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         let obsolete =
-            generation(store.state(), id, &access.workspace)?.deletion < workspace.deletion;
+            generation(store.current(), id, &access.workspace)?.deletion < workspace.deletion;
         if access.tasks.is_some() {
             return Err(Error::Access);
         }
@@ -1033,14 +1036,14 @@ impl Publisher {
         scope: &vcp_domain::workspace::Scope,
         ceiling: &BTreeSet<vcp_domain::TaskId>,
     ) -> Result<bool> {
-        let workspace = access::authorize(store.state(), access, true)?;
+        let workspace = access::authorize(store.current(), access, true)?;
         if access.tasks.is_none()
             || scope.workspace != access.workspace
             || !access.allows_task(&scope.task)
         {
             return Err(Error::Access);
         }
-        let manifest = generation(store.state(), id, &access.workspace)?;
+        let manifest = generation(store.current(), id, &access.workspace)?;
         let allowed = |own: &vcp_domain::workspace::Scope| {
             own.workspace == scope.workspace
                 && own.session == scope.session
@@ -1100,17 +1103,17 @@ impl Publisher {
             || !policy.historical_deletion_allowed
             || policy.retained.contains(id)
             || pins.readers.get(id).copied().unwrap_or(0) > 0
-            || active(store.state(), &access.workspace)?
+            || active(store.current(), &access.workspace)?
                 .is_some_and(|active| active.generation == *id && !obsolete)
             || store
-                .state()
+                .current()
                 .records
                 .values()
                 .any(|row| row.workspace == access.workspace && vcp_store::snapshot_pin_active(row))
         {
             return Ok(false);
         }
-        generation(store.state(), id, &access.workspace)?;
+        generation(store.current(), id, &access.workspace)?;
         // Hold through deletion so snapshot acquisition and generation cleanup
         // cannot race, including snapshots with no retained artifacts.
         let Some(_snapshot_guard) = store.try_snapshot_cleanup_guard()? else {

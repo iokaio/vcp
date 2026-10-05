@@ -96,7 +96,7 @@ impl<S: CanonicalStore> Engine<S> {
         }
         // Shared queries validate actual workspace/session bindings as well as
         // current read authority; bootstrap is never enough to acquire a lease.
-        self.query(
+        self.query_current(
             access,
             &Query::Session {
                 session: access.session.clone(),
@@ -111,7 +111,7 @@ impl<S: CanonicalStore> Engine<S> {
             .map_err(|_| ControllerError::InvalidState)?;
         let Some(record) = self
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Access, &id))
         else {
@@ -142,7 +142,7 @@ impl<S: CanonicalStore> Engine<S> {
 
     /// Read-only scoped ownership facts. This never constructs a controller token.
     pub fn read_controller(&self, access: &Access) -> Result<Option<Lease>> {
-        self.query(
+        self.query_current(
             access,
             &Query::Session {
                 session: access.session.clone(),
@@ -154,7 +154,7 @@ impl<S: CanonicalStore> Engine<S> {
 
     /// Check replay before a live host changes admission. A replayed acquisition
     /// must not mint a refreshed token after policy changes or lease release.
-    pub fn controller_acquire_receipt(
+    pub async fn controller_acquire_receipt(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -169,12 +169,12 @@ impl<S: CanonicalStore> Engine<S> {
                 expected_revision: expected,
             },
         )?;
-        self.controller_receipt(access, command, &digest)
+        self.controller_receipt(access, command, &digest).await
     }
 
     /// Access-before-replay validation lets the live host return an already
     /// durable explicit release without holding the retained owner a second time.
-    pub fn controller_release_receipt(
+    pub async fn controller_release_receipt(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -192,12 +192,12 @@ impl<S: CanonicalStore> Engine<S> {
                 reason: Reason::Released,
             },
         )?;
-        self.controller_receipt(access, command, &digest)
+        self.controller_receipt(access, command, &digest).await
     }
 
     /// Reconciliation remains available after a separate acquisition. Returning
     /// this receipt neither releases nor renews the current process's lease.
-    pub fn controller_recover_receipt(
+    pub async fn controller_recover_receipt(
         &self,
         access: &Access,
         connection: &ControllerId,
@@ -214,7 +214,7 @@ impl<S: CanonicalStore> Engine<S> {
                 generation,
             },
         )?;
-        self.controller_receipt(access, command, &digest)
+        self.controller_receipt(access, command, &digest).await
     }
 
     fn controller_digest(
@@ -229,22 +229,22 @@ impl<S: CanonicalStore> Engine<S> {
         })).map(|bytes|digest_bytes(&bytes)).map_err(|_|ControllerError::InvalidOperation)
     }
 
-    fn controller_receipt(
+    async fn controller_receipt(
         &self,
         access: &Access,
         command: &CommandId,
         digest: &str,
     ) -> Result<Option<CommandReceipt>> {
         self.store()
-            .state()
-            .command(&access.workspace, command, digest)
+            .command_receipt(&access.workspace, command, digest)
+            .await
             .map_err(|_| ControllerError::CommandConflict)
     }
 
     fn controller_quiescent(&self, access: &Access) -> Result<()> {
         for record in self
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Task && r.workspace == access.workspace)
@@ -280,7 +280,7 @@ impl<S: CanonicalStore> Engine<S> {
                 expected_revision: expected,
             },
         )?;
-        if let Some(receipt) = self.controller_receipt(access, &command, &digest)? {
+        if let Some(receipt) = self.controller_receipt(access, &command, &digest).await? {
             return Ok(receipt);
         }
         let current = self.load_controller(access)?;
@@ -418,7 +418,7 @@ impl<S: CanonicalStore> Engine<S> {
                 reason,
             },
         )?;
-        if let Some(receipt) = self.controller_receipt(access, &command, &digest)? {
+        if let Some(receipt) = self.controller_receipt(access, &command, &digest).await? {
             return Ok(receipt);
         }
         self.check_controller(access, connection, token)?;
@@ -462,7 +462,7 @@ impl<S: CanonicalStore> Engine<S> {
                 generation,
             },
         )?;
-        if let Some(receipt) = self.controller_receipt(access, &command, &digest)? {
+        if let Some(receipt) = self.controller_receipt(access, &command, &digest).await? {
             return Ok(receipt);
         }
         let current = self
@@ -526,7 +526,7 @@ impl<S: CanonicalStore> Engine<S> {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.store().state().watermark,
+            expected_watermark: self.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: previous.map(|lease| lease.revision),
                 record,
@@ -592,12 +592,15 @@ mod tests {
         observer.write = false;
         assert!(engine.read_controller(&observer).unwrap().is_some());
         assert!(matches!(
-            engine.controller_acquire_receipt(&observer, &connection, &command("acquire"), None),
+            engine
+                .controller_acquire_receipt(&observer, &connection, &command("acquire"), None)
+                .await,
             Err(ControllerError::Access)
         ));
         assert_eq!(
             engine
                 .controller_acquire_receipt(&owner, &connection, &command("acquire"), None)
+                .await
                 .unwrap(),
             Some(acquired)
         );
@@ -614,7 +617,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let watermark = engine.store().state().watermark;
+        let watermark = engine.store().current().watermark;
         assert_eq!(
             engine
                 .controller_release_receipt(
@@ -624,27 +627,32 @@ mod tests {
                     token.revision(),
                     token.generation()
                 )
+                .await
                 .unwrap(),
             Some(released)
         );
         assert!(matches!(
-            engine.controller_release_receipt(
-                &observer,
-                &connection,
-                &command("release"),
-                token.revision(),
-                token.generation()
-            ),
+            engine
+                .controller_release_receipt(
+                    &observer,
+                    &connection,
+                    &command("release"),
+                    token.revision(),
+                    token.generation()
+                )
+                .await,
             Err(ControllerError::Access)
         ));
         assert!(matches!(
-            engine.controller_release_receipt(
-                &owner,
-                &connection,
-                &command("release"),
-                token.revision(),
-                Revision::new(2)
-            ),
+            engine
+                .controller_release_receipt(
+                    &owner,
+                    &connection,
+                    &command("release"),
+                    token.revision(),
+                    Revision::new(2)
+                )
+                .await,
             Err(ControllerError::CommandConflict)
         ));
         observer.authority = AuthorityRevision::new(1);
@@ -652,7 +660,7 @@ mod tests {
             engine.read_controller(&observer),
             Err(ControllerError::Access)
         ));
-        assert_eq!(engine.store().state().watermark, watermark);
+        assert_eq!(engine.store().current().watermark, watermark);
         engine.into_store().close().await.unwrap();
     }
     fn command(name: &str) -> CommandId {
@@ -667,7 +675,7 @@ mod tests {
         let current: Option<Task> = task.as_ref().and_then(|id| {
             engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, id.as_str(), &access.workspace)
                 .ok()
                 .map(|r| r.decode().unwrap())
@@ -778,7 +786,7 @@ mod tests {
             assert_eq!(token.generation(), Revision::new(1));
             assert_eq!(token.revision(), Revision::ZERO);
             engine.check_controller(&access(), &a, &token).unwrap();
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .acquire_controller(&access(), &a, command("acquire"), None, now())
@@ -845,13 +853,16 @@ mod tests {
                 Err(ControllerError::CommandConflict)
             );
             assert!(engine.controller_token(&actor, &a).is_err());
-            assert_eq!(engine.store().state().watermark, before);
+            assert_eq!(engine.store().current().watermark, before);
             let events: Vec<_> = engine
                 .store()
-                .state()
+                .archive_state()
+                .await
+                .unwrap()
                 .events
                 .iter()
                 .filter(|e| e.event.correlation == command("acquire"))
+                .cloned()
                 .collect();
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].event.kind, EventKind::AccessChanged);
@@ -885,7 +896,7 @@ mod tests {
             let mut refreshed = access();
             let workspace: vcp_domain::workspace::Workspace = engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     refreshed.workspace.as_str(),
@@ -933,7 +944,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .release_controller(
@@ -958,7 +969,7 @@ mod tests {
             );
             assert!(engine.controller_token(&access(), &a).is_err());
             assert!(engine.check_controller(&access(), &a, &token).is_err());
-            assert_eq!(engine.store().state().watermark, before);
+            assert_eq!(engine.store().current().watermark, before);
             assert_eq!(
                 engine
                     .release_controller(
@@ -1002,7 +1013,7 @@ mod tests {
             let next = engine.controller_token(&access(), &b).unwrap();
             assert_eq!(next.generation(), Revision::new(2));
             assert_eq!(next.revision(), Revision::new(2));
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .acquire_controller(&access(), &a, command("acquire-a"), None, now())
@@ -1027,7 +1038,7 @@ mod tests {
             );
             engine.check_controller(&access(), &b, &next).unwrap();
             assert!(engine.controller_token(&access(), &a).is_err());
-            assert_eq!(engine.store().state().watermark, before);
+            assert_eq!(engine.store().current().watermark, before);
             engine
                 .release_controller(
                     &access(),
@@ -1102,7 +1113,7 @@ mod tests {
             let mut engine = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
             assert!(engine.check_controller(&access(), &a, &old_token).is_err());
             assert!(engine.controller_token(&access(), &a).is_err());
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .acquire_controller(&access(), &a, command("acquire-a"), None, now())
@@ -1110,7 +1121,7 @@ mod tests {
                     .unwrap(),
                 acquired
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             assert_eq!(
                 engine
                     .acquire_controller(
@@ -1165,7 +1176,7 @@ mod tests {
                 .unwrap();
             let token = engine.controller_token(&access(), &b).unwrap();
             assert_eq!(token.generation(), Revision::new(2));
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .recover_controller(
@@ -1180,11 +1191,11 @@ mod tests {
                     .unwrap(),
                 recovered
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.check_controller(&access(), &b, &token).unwrap();
             let stored: Task = engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Task, task.as_str(), &access().workspace)
                 .unwrap()
                 .decode()
@@ -1241,14 +1252,14 @@ mod tests {
                 engine.controller_lease(&access()).unwrap().unwrap().id,
                 engine.controller_lease(&other).unwrap().unwrap().id
             );
-            let before = engine.store().state().watermark;
+            let before = engine.store().current().watermark;
             assert_eq!(
                 engine
                     .acquire_controller(&other, &connection, command("first"), None, now())
                     .await,
                 Err(ControllerError::CommandConflict)
             );
-            assert_eq!(engine.store().state().watermark, before);
+            assert_eq!(engine.store().current().watermark, before);
             engine.into_store().close().await.unwrap();
         }
     }

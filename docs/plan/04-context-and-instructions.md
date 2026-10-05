@@ -121,6 +121,18 @@ history. Record token gain and stop repeated no-gain compaction. Model-assisted
 compaction consumes an ordinary root reservation and cannot consume protected
 verification/reporting funds accidentally.
 
+The deterministic `bounded-tool-pair-previews/3` projection keeps each configured
+recent pair complete when its combined canonical content is at most 32 KiB.
+Oversized recent pairs and the preceding same-sized window receive bounded
+previews; older completed pairs retain metadata only. Every compacted pair keeps
+call IDs, tool names, original artifact references and exact byte-omission counts.
+Original pair indices and the retained-pair map preserve chronology. Preview
+text is bounded by four times `keep_recent_pairs * preview_bytes`; all original
+source hashes remain revalidated dependencies. Current objectives, constraints, base/diff,
+effects, costs and verification state remain outside historical compaction.
+The [October 4 A/B campaign evidence](../test-plans/ab-campaign.md#p2-08-bounded-history-projection)
+records the observed long-turn overflow and its offline retained-history replay.
+
 Test a long trace with an early obsolete assumption, a late user correction, an
 unfinished tool call and a post-cancellation unknown charge. Assert those current
 facts structurally after compaction, not by comparing generated prose. Later

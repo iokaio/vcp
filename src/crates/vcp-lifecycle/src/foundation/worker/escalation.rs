@@ -45,7 +45,7 @@ impl Context {
         let declared_task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, input.task.as_str(), &access.workspace)?
             .decode()?;
         if declared_task.root != self.config.root_task {
@@ -54,7 +54,9 @@ impl Context {
         if let Some(existing) = declarations::existing(self.engine.store(), &access, &input)? {
             return Ok(serde_json::to_value(existing)?);
         }
-        let (task, _) = declarations::validate(self.engine.store(), &access, &input)?;
+        let (task, _) =
+            self.runtime
+                .block_on(declarations::validate(self.engine.store(), &access, &input))?;
         let artifact = self.capture(
             &task.scope,
             Channel::Evidence,
@@ -90,7 +92,7 @@ impl Context {
         let attempts: Vec<Attempt> = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Attempt)
@@ -162,7 +164,7 @@ impl Context {
         }
         let mut pairs = Vec::new();
         let mut bytes_total = 0usize;
-        for row in self.engine.store().state().records.values().filter(|r| {
+        for row in self.engine.store().current().records.values().filter(|r| {
             r.collection == Collection::Artifact && r.workspace == binding.scope.workspace
         }) {
             let descriptor: ArtifactDescriptor = row.decode()?;
@@ -175,12 +177,13 @@ impl Context {
                 return Err("escalation history bound".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                &descriptor.spec.id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    &descriptor.spec.id,
+                    &mut bytes,
+                ))?;
             bytes_total = bytes_total
                 .checked_add(bytes.len())
                 .ok_or("escalation history overflow")?;
@@ -203,7 +206,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -237,13 +240,15 @@ impl Context {
                 return Err("orphan escalation result".into());
             }
             let result: serde_json::Value = serde_json::from_str(output)?;
-            let observed = if name == "vcp_verify" && result.get("verification").is_some() {
+            let observed = if matches!(name.as_str(), "vcp_verify" | "vcp_verify_focused")
+                && result.get("verification").is_some()
+            {
                 let verification: vcp_domain::verification::Verification =
                     serde_json::from_value(result["verification"].clone())?;
                 let canonical: vcp_domain::verification::Verification = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Verification,
                         verification.id.as_str(),

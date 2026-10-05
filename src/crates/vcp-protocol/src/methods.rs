@@ -66,6 +66,50 @@ impl Counter {
     }
 }
 
+/// Estimate totals preserve legacy decimal strings; missing valuation terms
+/// remain explicit and must not be displayed as a known zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EstimatedCounter(pub vcp_domain::accounting::EstimatedMicros);
+impl From<vcp_domain::accounting::EstimatedMicros> for EstimatedCounter {
+    fn from(value: vcp_domain::accounting::EstimatedMicros) -> Self {
+        Self(value)
+    }
+}
+impl From<u64> for EstimatedCounter {
+    fn from(value: u64) -> Self {
+        Self(vcp_domain::Micros::new(value).into())
+    }
+}
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for EstimatedCounter {
+    fn schema_name() -> String {
+        "EstimatedCounter".into()
+    }
+    fn json_schema(generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        #[derive(schemars::JsonSchema)]
+        #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+        #[allow(dead_code)]
+        enum UnknownEstimate {
+            Unknown {
+                #[schemars(range(min = 1, max = 1))]
+                version: u32,
+                known_component: Counter,
+                #[schemars(regex(pattern = "^[1-9]"))]
+                unknown_components: Counter,
+            },
+        }
+        #[derive(schemars::JsonSchema)]
+        #[serde(untagged)]
+        #[allow(dead_code)]
+        enum EstimateInput {
+            Known(Counter),
+            Unknown(UnknownEstimate),
+        }
+        EstimateInput::json_schema(generator)
+    }
+}
+
 #[cfg(feature = "schema")]
 fn string_schema(pattern: String, max: u32) -> schemars::schema::Schema {
     use schemars::schema::{InstanceType, SchemaObject, StringValidation};
@@ -208,12 +252,11 @@ dto!(TaskCancel {
     reason: String
 });
 dto!(Budget {
-    cap_micros: Counter,
+    cap_micros: vcp_domain::Limit<Counter>,
     currency: Currency,
     #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1024)))]
     max_requests: u32,
-    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 86400)))]
-    deadline_seconds: u32
+    deadline_seconds: vcp_domain::Limit<u32>
 });
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -456,9 +499,20 @@ impl Call {
     /// Bind the authenticated principal, exact version, scope and semantics;
     /// transport request IDs and reconnecting controller epochs are excluded.
     pub fn digest(&self, authenticated_actor: &str) -> Result<String, serde_json::Error> {
+        let mut call = serde_json::to_value(self)?;
+        // Finite tagged limits have the same meaning as legacy scalar limits.
+        // Keep original command receipts verifiable without rewriting history.
+        if let Self::TurnStart(request) = self {
+            if let Some(value) = request.budget.cap_micros.finite() {
+                call["params"]["budget"]["cap_micros"] = serde_json::to_value(value)?;
+            }
+            if let Some(value) = request.budget.deadline_seconds.finite() {
+                call["params"]["budget"]["deadline_seconds"] = serde_json::to_value(value)?;
+            }
+        }
         Ok(crate::digest_bytes(&crate::canonical_bytes(
             &serde_json::json!({
-                "protocol":"vcp-public/1.0", "actor":authenticated_actor, "call":self
+                "protocol":"vcp-public/1.0", "actor":authenticated_actor, "call":call
             }),
         )?))
     }
@@ -536,11 +590,16 @@ impl Call {
             Self::TurnPause(p) | Self::TurnCancel(p) => text(&p.reason, 4096),
             Self::TurnStart(p) => {
                 objective(&p.objective, &p.constraints, &p.acceptance)?;
-                if p.budget.cap_micros.as_str() == "0"
+                if p.budget
+                    .cap_micros
+                    .finite()
+                    .is_some_and(|value| value.as_str() == "0")
                     || p.budget.max_requests == 0
                     || p.budget.max_requests > 1024
-                    || p.budget.deadline_seconds == 0
-                    || p.budget.deadline_seconds > 86400
+                    || p.budget
+                        .deadline_seconds
+                        .finite()
+                        .is_some_and(|value| *value == 0 || *value > 86400)
                 {
                     return Err("budget bound");
                 }
@@ -653,7 +712,36 @@ enumeration!(ControllerOwnership {
     Released
 });
 dto!(ControllerView { scope: Scope, revision: Option<Counter>, generation: Counter, ownership: ControllerOwnership, watermark: Counter });
-dto!(TaskView { scope: Scope, task: Id, root: Id, parent: Option<Id>, turn: Option<Id>, revision: Counter, steering_revision: Counter, state: TaskStatus, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] reason: String, pending_inputs: Vec<PendingInput>, effects: EffectStatus });
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum ExecutionReasonCode {
+    #[serde(rename = "execution.no_progress")]
+    NoProgress,
+}
+dto!(ExecutionPauseReason {
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1)))]
+    schema_version: u32,
+    code: ExecutionReasonCode,
+    #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 1024)))]
+    message: String,
+    evidence: Id,
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1000000)))]
+    repeats: u32,
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 1000000)))]
+    threshold: u32
+});
+impl ExecutionPauseReason {
+    /// Presentation metadata only. This must never authorize dispatch or resume.
+    pub fn decode(reason: &str) -> Option<Self> {
+        if reason.len() > 4096 { return None; }
+        let value: Self = serde_json::from_str(reason).ok()?;
+        (value.schema_version == 1 && !value.message.trim().is_empty()
+            && value.message.chars().count() <= 1024 && value.threshold > 0
+            && value.threshold <= 1_000_000 && value.repeats >= value.threshold
+            && value.repeats <= 1_000_000).then_some(value)
+    }
+}
+dto!(TaskView { scope: Scope, task: Id, root: Id, parent: Option<Id>, turn: Option<Id>, revision: Counter, steering_revision: Counter, state: TaskStatus, #[cfg_attr(feature = "schema", schemars(length(min = 1, max = 4096)))] reason: String, #[serde(default, skip_serializing_if = "Option::is_none")] diagnostic: Option<ExecutionPauseReason>, pending_inputs: Vec<PendingInput>, effects: EffectStatus });
 dto!(SessionView { scope: Scope, revision: Counter, configuration_revision: Counter, fork_origin: Option<Id>, fork_through: Option<Id> });
 // A completed page sequence describes one canonical boundary. The replay cursor
 // starts after that boundary; it is not a grant or a live producer subscription.
@@ -757,10 +845,10 @@ dto!(UsageView {
     task: Id,
     root: Id,
     currency: Currency,
-    cap_micros: Counter,
+    cap_micros: vcp_domain::Limit<Counter>,
     settled_micros: Counter,
-    reserved_micros: Counter,
-    unresolved_micros: Counter,
+    reserved_micros: EstimatedCounter,
+    unresolved_micros: EstimatedCounter,
     overrun: bool
 });
 dto!(ArtifactRange {
@@ -1075,5 +1163,42 @@ mod tests {
         .is_err());
         let p = json!({"command_id":"c","host":"h","root":"x".repeat(MAX_METHOD_BYTES)});
         assert!(Call::decode("workspace/open", p).is_err());
+    }
+
+    #[test]
+    fn explicit_limits_preserve_legacy_command_receipt_identity() {
+        let legacy = json!({"method":"turn/start","params":{"scope":{"workspace":"ws","session":"s"},"mutation":{"command_id":"c","expected_revision":"0","steering_revision":"0"},"task":"t","turn":"turn","objective":"inspect","constraints":[],"acceptance":[],"budget":{"cap_micros":"100","currency":"USD","max_requests":3,"deadline_seconds":30}}});
+        let expected = crate::digest_bytes(
+            &crate::canonical_bytes(
+                &json!({"protocol":"vcp-public/1.0","actor":"owner","call":legacy}),
+            )
+            .unwrap(),
+        );
+        let call: Call = serde_json::from_value(legacy).unwrap();
+        call.validate().unwrap();
+        assert_eq!(call.digest("owner").unwrap(), expected);
+        let tagged = serde_json::to_value(&call).unwrap();
+        assert_eq!(
+            tagged["params"]["budget"]["deadline_seconds"],
+            json!({"version":1,"kind":"finite","value":30})
+        );
+        let mut unbounded = tagged;
+        unbounded["params"]["budget"]["deadline_seconds"] = json!({"version":1,"kind":"unbounded"});
+        unbounded["params"]["budget"]["cap_micros"] = json!({"version":1,"kind":"unbounded"});
+        let call: Call = serde_json::from_value(unbounded).unwrap();
+        call.validate().unwrap();
+        assert_ne!(call.digest("owner").unwrap(), expected);
+    }
+
+    #[test]
+    fn structured_pause_reason_is_bounded_and_legacy_text_stays_legacy() {
+        let reason = json!({"schema_version":1,"code":"execution.no_progress","message":"Observed repeated failed checks.",
+            "evidence":"artifact","repeats":3,"threshold":3});
+        assert_eq!(ExecutionPauseReason::decode(&reason.to_string()).unwrap().evidence.as_str(), "artifact");
+        for (field, value) in [("schema_version",json!(2)),("repeats",json!(2)),("threshold",json!(0)),("code",json!("invented")),("message",json!("x".repeat(1025)))] {
+            let mut invalid = reason.clone(); invalid[field] = value;
+            assert!(ExecutionPauseReason::decode(&invalid.to_string()).is_none());
+        }
+        assert!(ExecutionPauseReason::decode("Paused by user; resume when ready.").is_none());
     }
 }

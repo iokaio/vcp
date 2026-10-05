@@ -221,6 +221,10 @@
       "sha256": "551bfda589b5e70df4d90c404fabeb914ffc3ee23c899c0f72b8593139727e3b"
     },
     {
+      "path": "src/third_party/patches/codex/0048-cli-tests-product-version.patch",
+      "sha256": "b44703088214423be8469993ed6a80cd2b0570f455680d4bcdcfde9981c2d35f"
+    },
+    {
       "path": "src/third_party/patches/codex/0048-windows-cli-codegen.patch",
       "sha256": "d5e2ddcf5789099234f1abba3b4b7a9efaed48f98c7d429df2b6fe5d0342b461"
     },
@@ -229,12 +233,20 @@
       "sha256": "63cc435963a11adc652eb9e977d25d9b92be2e3c9aac5234c54835fae6844bc8"
     },
     {
-      "path": "src/third_party/patches/codex/0050-dotnet-verification-lock.patch",
+      "path": "src/third_party/patches/codex/0050-failed-generation-identity.patch",
+      "sha256": "4942803b143db2fcf0f5c706170d44ed66ffe175badb1fb0337a8643719f20be"
+    },
+    {
+      "path": "src/third_party/patches/codex/0051-dotnet-verification-lock.patch",
       "sha256": "17c2e32650c6c1ff83317f4d6710ab981826e5fab6a518f7ac72855c6f247b23"
     },
     {
+      "path": "src/third_party/patches/codex/0052-explicit-limit-schema-lock.patch",
+      "sha256": "2799535afb26be662ac25b51837e4e5bfc3bd9c3e650a5af3a137222ff1099a3"
+    },
+    {
       "path": "src/third_party/patches/codex/local-candidate-product-version.patch",
-      "sha256": "90e2faedb1b8eece295870cdc1aa1b66b105c3ab8958f1a47c8173983e00b306"
+      "sha256": "bb0f1b0475713b4d8fd807163803555a0d4215b2a2f99a67fac08d054537c970"
     }
   ],
   "licenses": [

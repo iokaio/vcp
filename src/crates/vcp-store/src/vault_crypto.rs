@@ -20,6 +20,12 @@ use vcp_domain::{CommandId, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 pub const FORMAT: &str = "vcp-signed-age/1";
+#[path = "vault_manifest_envelope.rs"]
+mod manifest_envelope;
+#[path = "vault_crypto_stream.rs"]
+pub(crate) mod stream;
+pub use manifest_envelope::ManifestEnvelope;
+pub use stream::{RootDescriptor, StreamManifest};
 const DOMAIN: &[u8] = b"vcp-portable-manifest-signature-v1\0";
 #[derive(Clone, Copy)]
 pub struct Limits {
@@ -97,7 +103,7 @@ pub struct Restored {
 }
 struct BoundedOutput {
     file: File,
-    remaining: usize,
+    remaining: u64,
     #[cfg(feature = "qualification")]
     storage_full_after: Option<usize>,
 }
@@ -107,7 +113,7 @@ impl Write for BoundedOutput {
         if self.storage_full_after == Some(0) {
             return Err(std::io::ErrorKind::StorageFull.into());
         }
-        if bytes.len() > self.remaining {
+        if bytes.len() as u64 > self.remaining {
             return Err(std::io::Error::other("ciphertext output limit"));
         }
         #[cfg(feature = "qualification")]
@@ -120,7 +126,7 @@ impl Write for BoundedOutput {
         if let Some(remaining) = &mut self.storage_full_after {
             *remaining -= count;
         }
-        self.remaining -= count;
+        self.remaining -= count as u64;
         Ok(count)
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -189,7 +195,7 @@ pub struct FinalizedCiphertext {
     file: File,
     sha256: String,
     bytes: u64,
-    pub(crate) manifest: Manifest,
+    pub(crate) manifest: ManifestEnvelope,
     pub(crate) writer: [u8; 32],
     pub(crate) recipient: String,
     _staging: Arc<Directory>,
@@ -205,7 +211,7 @@ impl FinalizedCiphertext {
         self.bytes
     }
     pub fn format(&self) -> &'static str {
-        FORMAT
+        self.manifest.format()
     }
     /// Copy only the held finalized object, rejecting any staging modification.
     /// Destination publication remains the caller's separate durable operation.
@@ -326,7 +332,7 @@ pub fn encrypt(
     let mut encoder = encryptor
         .wrap_output(BoundedOutput {
             file,
-            remaining: limits.ciphertext_bytes,
+            remaining: limits.ciphertext_bytes as u64,
             #[cfg(feature = "qualification")]
             storage_full_after: staging.storage_full_after,
         })
@@ -358,7 +364,7 @@ pub fn encrypt(
         file,
         sha256: format!("{:x}", digest.finalize()),
         bytes,
-        manifest,
+        manifest: manifest.into(),
         writer: writer.verifying_key().to_bytes(),
         recipient: recipient.to_string(),
         _staging: staging.directory.clone(),
@@ -373,6 +379,15 @@ pub fn decrypt(
     trust: &Trust,
     limits: Limits,
 ) -> Result<Restored> {
+    decrypt_exact(path, identity, trust, limits, None)
+}
+pub(crate) fn decrypt_exact(
+    path: &Path,
+    identity: &Identity,
+    trust: &Trust,
+    limits: Limits,
+    expected: Option<&Object>,
+) -> Result<Restored> {
     limits.validate()?;
     if !hash(&trust.lineage)
         || trust.writers.is_empty()
@@ -382,6 +397,11 @@ pub fn decrypt(
         return Err(Error::Access);
     }
     let ciphertext = crate::private_paths::read_public_ciphertext(path, limits.ciphertext_bytes)?;
+    if expected.is_some_and(|expected| {
+        ciphertext.len() as u64 != expected.bytes || digest_bytes(&ciphertext) != expected.sha256
+    }) {
+        return Err(Error::Corruption("acquired ciphertext commitment differs"));
+    }
     let decryptor = age::Decryptor::new(ciphertext.as_slice())
         .map_err(|_| Error::Corruption("invalid age ciphertext"))?;
     let decoder = decryptor
@@ -439,12 +459,35 @@ pub fn decrypt(
     })
 }
 
+/// Hash selected ciphertext from one held reader with fixed memory use. This is
+/// an acquisition identity, not writer authentication or restore permission.
+pub fn inspect_ciphertext(path: &Path, check: &dyn Fn() -> Result<()>) -> Result<Object> {
+    let mut input = crate::private_paths::PublicCiphertext::open_stream(path, u64::MAX)?;
+    let mut digest = Sha256::new();
+    let mut bytes = 0u64;
+    let mut buffer = [0; 65536];
+    loop {
+        check()?;
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        bytes = bytes
+            .checked_add(count as u64)
+            .ok_or(Error::Limit("ciphertext length"))?;
+        digest.update(&buffer[..count]);
+    }
+    let sha256 = format!("{:x}", digest.finalize());
+    input.finish_identity(bytes, &sha256)?;
+    Ok(Object { bytes, sha256 })
+}
+
 /// Durable receipt of an already finalized encoder, retained only in canonical
 /// job metadata. This is not a public plaintext-to-publisher constructor.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Finalization {
-    pub manifest: Manifest,
+    pub manifest: ManifestEnvelope,
     pub writer: [u8; 32],
     pub recipient: String,
     pub sha256: String,
@@ -466,7 +509,8 @@ impl FinalizedCiphertext {
         directory: Arc<Directory>,
     ) -> Result<Self> {
         regular(path)?;
-        if receipt.bytes > 65 * 1024 * 1024 || !hash(&receipt.sha256) {
+        receipt.manifest.validate()?;
+        if receipt.bytes > receipt.manifest.ciphertext_limit()? || !hash(&receipt.sha256) {
             return Err(Error::Limit("persisted ciphertext"));
         }
         let mut options = OpenOptions::new();

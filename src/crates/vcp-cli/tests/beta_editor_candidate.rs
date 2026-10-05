@@ -143,7 +143,7 @@ async fn final_installed_candidate_editor_lifecycle_preserves_both_stores() {
         let key_bytes = vcp_protocol::digest_bytes(vcp_domain::ActorId::new().as_str().as_bytes());
         std::fs::write(&key, key_bytes.as_bytes()).unwrap();
         let store = fixture.reopen().await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         let mut reports = Vec::new();
         for mode in [
@@ -205,7 +205,7 @@ async fn final_installed_candidate_editor_lifecycle_preserves_both_stores() {
             let store = fixture.reopen_within(Duration::from_secs(45)).await;
             local_fixture::assert_offline_paused(&store, &fixture.config);
             assert_eq!(
-                store.state(),
+                &store.archive_state().await.unwrap(),
                 &before,
                 "{mode} must preserve all canonical records, accounting, commands and history"
             );

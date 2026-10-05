@@ -2,7 +2,7 @@
 //! Synthetic canonical source for actual editor inspectors, seeded through the
 //! same governed services as native CLI/SDK qualification. No provider runs.
 use super::local_fixture::Fixture;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
     artifact::{ArtifactSpec, Channel, Range},
@@ -20,7 +20,7 @@ use vcp_store::{
 pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -29,8 +29,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
         .unwrap()
         .decode()
         .unwrap();
-    let origin = store
-        .state()
+    let origin = (&store.archive_state().await.unwrap())
         .events
         .iter()
         .find(|event| {
@@ -63,7 +62,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -124,7 +123,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -249,7 +248,9 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     let mut at = None;
     loop {
         let (page, upper, more) =
-            vcp_memory::history::window(&store, &access, &proposal.claim, at, after, 32).unwrap();
+            vcp_memory::history::window(&store, &access, &proposal.claim, at, after, 32)
+                .await
+                .unwrap();
         at = Some(upper);
         for row in page.versions {
             after = row.memory_seq;
@@ -271,6 +272,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
         &vcp_memory::search_record::ChunkerSpec::default(),
         vcp_memory::search_record::Limits::default(),
     )
+    .await
     .unwrap();
     let publisher = vcp_memory::publication::Publisher::new(
         &fixture.config.canonical_root.join("search-generations"),
@@ -329,7 +331,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     let probe = vcp_memory::retention_public::preview(&store,&scoped,task.scope.clone(),
         Selector { schema_version:1, tree:Tree::Match(Criterion::Path("src/retention-only".into())) },
         vcp_memory::retention::Action::Purge, Timestamp::new(1004),
-    ).expect("valid synthetic manifests and exact retained path must permit a real purge preview before GUI launch");
+    ).await.expect("valid synthetic manifests and exact retained path must permit a real purge preview before GUI launch");
     assert!(!probe.selection().selected.is_empty());
     assert!(
         !probe.selection().protected.is_empty(),
@@ -383,6 +385,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
         vcp_memory::retention::Action::Purge,
         Timestamp::new(1006),
     )
+    .await
     .expect("terminal independent source permits governed purge preview");
     assert!(!eligible.selection().selected.is_empty());
     assert!(eligible.selection().protected.is_empty());
@@ -406,7 +409,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
     let mut history = Vec::new();
     loop {
         let page = vcp_audit::history_query::query_session(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &history_access,
             &query,
             &task.scope.session,
@@ -420,7 +423,7 @@ pub(super) async fn seed(fixture: &Fixture) -> serde_json::Value {
             break;
         }
     }
-    let input = json!({"executable":env!("CARGO_BIN_EXE_vcp"),"workspace":fixture.workspace,"data":fixture.data,"scope":fixture.scope(),"task":fixture.config.root_task,"claim":proposal.claim,"artifact":artifact.spec.id,"retention_artifact":retention_artifact,"origin":origin,"versions":versions,"history":history,"watermark":store.state().watermark.get().to_string(),"inspection":inspection});
+    let input = json!({"executable":env!("CARGO_BIN_EXE_vcp"),"workspace":fixture.workspace,"data":fixture.data,"scope":fixture.scope(),"task":fixture.config.root_task,"claim":proposal.claim,"artifact":artifact.spec.id,"retention_artifact":retention_artifact,"origin":origin,"versions":versions,"history":history,"watermark":store.current().watermark.get().to_string(),"inspection":inspection});
     store.close().await.unwrap();
     input
 }
@@ -497,7 +500,7 @@ async fn seed_inspection(
         .unwrap();
     let workspace: vcp_domain::workspace::Workspace = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -525,7 +528,7 @@ async fn seed_inspection(
         .unwrap();
     let workspace: vcp_domain::workspace::Workspace = engine
         .store()
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -671,7 +674,7 @@ async fn seed_inspection(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(

@@ -8,11 +8,13 @@ pub mod effect;
 pub mod forecast;
 pub mod ids;
 pub mod ingestion;
+pub mod limit;
 pub mod memory;
 pub mod memory_review;
 pub mod policy;
 pub mod public_diff;
 pub mod redaction;
+pub mod request_allocation;
 pub mod retention;
 pub mod retention_selector;
 pub mod revision;
@@ -22,6 +24,7 @@ pub mod verification;
 pub mod workspace;
 
 pub use ids::*;
+pub use limit::Limit;
 pub use revision::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

@@ -13,7 +13,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
@@ -21,6 +21,10 @@ const MAGIC: &[u8; 8] = b"VCPJ0001";
 const COMMITTED: &[u8; 8] = b"VCPCMIT1";
 const HEADER: usize = 8 + 4 + 4 + 64;
 const TRAILER: usize = 64 + 8;
+#[path = "backend_current.rs"]
+pub(crate) mod current_publication;
+#[path = "backend_history.rs"]
+mod history;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,11 +67,44 @@ pub(crate) struct Journal {
     file: File,
     root: PathBuf,
     chain: String,
-    base: State,
+    base_watermark: vcp_domain::Watermark,
     initial_chain: String,
     // Unit-test fault injection only; never a runtime capacity or policy setting.
     #[cfg(test)]
     pub(crate) write_budget: Option<usize>,
+}
+struct Checkpoint {
+    watermark: vcp_domain::Watermark,
+    state: State,
+    chain: serde_json::Value,
+}
+impl Checkpoint {
+    fn verify_observed(
+        &self,
+        state: &State,
+        chain: &str,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<()> {
+        let started = Instant::now();
+        let result = self.verify(state, chain);
+        diagnostics
+            .checkpoint_verification
+            .record(started, result.is_ok());
+        diagnostics.checkpoint_state_comparisons =
+            diagnostics.checkpoint_state_comparisons.saturating_add(1);
+        result
+    }
+    fn verify(&self, state: &State, chain: &str) -> Result<()> {
+        if self.chain != chain {
+            return Err(Error::Corruption("checkpoint journal boundary"));
+        }
+        if &self.state != state {
+            return Err(Error::Corruption(
+                "checkpoint differs from canonical history",
+            ));
+        }
+        Ok(())
+    }
 }
 fn sql_error(error: sqlx::Error) -> Error {
     if let sqlx::Error::Database(database) = &error {
@@ -90,11 +127,28 @@ impl Backend {
         }
     }
 
-    pub(crate) async fn open(root: &Path, kind: BackendKind) -> Result<(Self, State, Vec<Commit>)> {
+    #[cfg(test)]
+    pub(crate) async fn open(root: &Path, kind: BackendKind) -> Result<(Self, State)> {
         let base = crate::replay_base::ReplayBase::load(root)?;
-        let seed = base.as_ref().map(|b| b.state.clone()).unwrap_or_default();
+        Self::open_observed(
+            root,
+            kind,
+            base.as_ref(),
+            &mut crate::StoreDiagnostics::new(kind),
+        )
+        .await
+        .map(|(backend, state, _)| (backend, state))
+    }
+    pub(crate) async fn open_observed(
+        root: &Path,
+        kind: BackendKind,
+        base: Option<&crate::replay_base::ReplayBase>,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<(Self, State, StateSize)> {
+        let seed = base.map(|b| b.state.clone()).unwrap_or_default();
+        let mut size = StateSize::measure(&seed)?;
+        diagnostics.state_size_full_scans = diagnostics.state_size_full_scans.saturating_add(1);
         let initial_chain = base
-            .as_ref()
             .map(|b| b.chain())
             .transpose()?
             .unwrap_or_else(|| "0".repeat(64));
@@ -155,8 +209,9 @@ impl Backend {
                     return Err(Error::Corruption("SQLite integrity check"));
                 }
                 let mut state = seed;
-                let mut commits = Vec::new();
+                let replay_started = Instant::now();
                 // Bound each load and keyset-page the log instead of fetching the history as one SQL result.
+                let replay_result = async {
                 loop {
                     let row = sqlx::query("SELECT watermark,id,payload,digest FROM commits WHERE watermark>? ORDER BY watermark LIMIT 1")
                         .bind(i64::try_from(state.watermark.get()).map_err(|_| Error::Limit("SQLite sequence"))?).fetch_optional(&mut db).await?;
@@ -173,13 +228,30 @@ impl Backend {
                     {
                         return Err(Error::Corruption("SQLite commit identity"));
                     }
-                    state.replay(&commit)?;
-                    commits.push(commit);
+                    state = state.into_replayed_observed(&commit, diagnostics, &mut size)?;
+                    diagnostics.replayed_commits = diagnostics.replayed_commits.saturating_add(1);
+                    diagnostics.replay_payload_bytes = diagnostics
+                        .replay_payload_bytes
+                        .saturating_add(payload.len() as u64);
                 }
+                Ok::<_, Error>(state)
+                }.await;
+                diagnostics
+                    .replay
+                    .record(replay_started, replay_result.is_ok());
+                let state = replay_result?;
                 let mut backend = Self::Sqlite(db);
-                backend.verify_materialized(&state).await?;
+                let verification_started = Instant::now();
+                let verification = backend.verify_materialized(&state).await;
+                diagnostics
+                    .materialized_verification
+                    .record(verification_started, verification.is_ok());
+                verification?;
+                diagnostics.materialized_records = state.records.len() as u64;
+                diagnostics.materialized_events = state.events.len() as u64;
+                diagnostics.materialized_commands = state.commands.len() as u64;
                 backend.configuration().await?;
-                Ok((backend, state, commits))
+                Ok((backend, state, size))
             }
             BackendKind::Files => {
                 let mut journal = Journal {
@@ -192,13 +264,21 @@ impl Backend {
                     root: root.to_owned(),
                     chain: initial_chain.clone(),
                     initial_chain,
-                    base: seed,
+                    base_watermark: seed.watermark,
                     #[cfg(test)]
                     write_budget: None,
                 };
-                let (state, commits) = journal.replay()?;
-                journal.verify_checkpoint(&state, &commits)?;
-                Ok((Self::Files(journal), state, commits))
+                let checkpoint_started = Instant::now();
+                let checkpoint = journal.read_checkpoint();
+                diagnostics
+                    .checkpoint_loading
+                    .record(checkpoint_started, checkpoint.is_ok());
+                let checkpoint = checkpoint?;
+                let replay_started = Instant::now();
+                let replay = journal.replay(seed, diagnostics, checkpoint.as_ref(), &mut size);
+                diagnostics.replay.record(replay_started, replay.is_ok());
+                let state = replay?;
+                Ok((Self::Files(journal), state, size))
             }
         }
     }
@@ -350,25 +430,74 @@ impl Backend {
                     return Err(Error::Corruption("SQLite projection count"));
                 }
             }
-            for event in &state.events {
-                let bytes: Vec<u8> = sqlx::query_scalar("SELECT payload FROM events WHERE id=?")
-                    .bind(event.event.id.as_str())
-                    .fetch_one(&mut *db)
-                    .await?;
-                if bytes != canonical_bytes(event)? {
-                    return Err(Error::Corruption("SQLite event content"));
+            // Every retained row is still compared against fully validated
+            // replay state. Keyset pages avoid one database round trip per row
+            // without loading another complete copy of historical payloads.
+            let events: std::collections::BTreeMap<_, _> = state
+                .events
+                .iter()
+                .map(|event| (event.event.id.as_str(), event))
+                .collect();
+            let mut last_id = String::new();
+            let mut verified = 0usize;
+            loop {
+                let rows =
+                    sqlx::query("SELECT id,payload FROM events WHERE id>? ORDER BY id LIMIT 256")
+                        .bind(&last_id)
+                        .fetch_all(&mut *db)
+                        .await?;
+                if rows.is_empty() {
+                    break;
+                }
+                for row in rows {
+                    let id: String = row.try_get("id")?;
+                    let event = events
+                        .get(id.as_str())
+                        .ok_or(Error::Corruption("SQLite unexpected event"))?;
+                    let bytes: Vec<u8> = row.try_get("payload")?;
+                    if id <= last_id || bytes != canonical_bytes(event)? {
+                        return Err(Error::Corruption("SQLite event content"));
+                    }
+                    last_id = id;
+                    verified += 1;
                 }
             }
-            for receipt in state.commands.values() {
-                let bytes: Vec<u8> =
-                    sqlx::query_scalar("SELECT payload FROM commands WHERE workspace=? AND id=?")
-                        .bind(receipt.workspace.as_str())
-                        .bind(receipt.command.as_str())
-                        .fetch_one(&mut *db)
-                        .await?;
-                if bytes != canonical_bytes(receipt)? {
-                    return Err(Error::Corruption("SQLite receipt content"));
+            if verified != state.events.len() {
+                return Err(Error::Corruption("SQLite projection count"));
+            }
+            let mut last_workspace = String::new();
+            let mut last_id = String::new();
+            let mut verified = 0usize;
+            loop {
+                let rows = sqlx::query("SELECT workspace,id,payload FROM commands WHERE (workspace,id)>(?,?) ORDER BY workspace,id LIMIT 256")
+                    .bind(&last_workspace).bind(&last_id)
+                    .fetch_all(&mut *db).await?;
+                if rows.is_empty() {
+                    break;
                 }
+                for row in rows {
+                    let workspace: String = row.try_get("workspace")?;
+                    let id: String = row.try_get("id")?;
+                    let key = format!("{workspace}:{id}");
+                    let receipt = state
+                        .commands
+                        .get(&key)
+                        .ok_or(Error::Corruption("SQLite unexpected receipt"))?;
+                    let bytes: Vec<u8> = row.try_get("payload")?;
+                    if (&workspace, &id) <= (&last_workspace, &last_id)
+                        || receipt.workspace.as_str() != workspace
+                        || receipt.command.as_str() != id
+                        || bytes != canonical_bytes(receipt)?
+                    {
+                        return Err(Error::Corruption("SQLite receipt content"));
+                    }
+                    last_workspace = workspace;
+                    last_id = id;
+                    verified += 1;
+                }
+            }
+            if verified != state.commands.len() {
+                return Err(Error::Corruption("SQLite projection count"));
             }
             let fk = sqlx::query("PRAGMA foreign_key_check")
                 .fetch_optional(&mut *db)
@@ -376,6 +505,15 @@ impl Backend {
             if fk.is_some() {
                 return Err(Error::Corruption("SQLite foreign references"));
             }
+        }
+        Ok(())
+    }
+    pub(crate) fn checkpoint_current(
+        &mut self,
+        owner: &crate::durable_owner::DurableOwner,
+    ) -> Result<()> {
+        if let Self::Files(journal) = self {
+            journal.checkpoint_current(owner)?;
         }
         Ok(())
     }
@@ -401,7 +539,13 @@ impl Backend {
     }
 }
 impl Journal {
-    fn replay(&mut self) -> Result<(State, Vec<Commit>)> {
+    fn replay(
+        &mut self,
+        base: State,
+        diagnostics: &mut crate::StoreDiagnostics,
+        checkpoint: Option<&Checkpoint>,
+        size: &mut StateSize,
+    ) -> Result<State> {
         // A published durable tip distinguishes truncation of acknowledged data
         // from a writer that died before appending its commit marker.
         let mut tips = fs::read_dir(&self.root)?
@@ -430,8 +574,13 @@ impl Journal {
                 return Err(Error::Corruption("acknowledged journal was truncated"));
             }
         }
-        let mut state = self.base.clone();
-        let mut commits = Vec::new();
+        let mut state = base;
+        let mut checkpoint_chain = self.initial_chain.clone();
+        if let Some(checkpoint) =
+            checkpoint.filter(|checkpoint| checkpoint.watermark == state.watermark)
+        {
+            checkpoint.verify_observed(&state, &checkpoint_chain, diagnostics)?;
+        }
         loop {
             let start = self.file.stream_position()?;
             let remaining = self
@@ -472,8 +621,27 @@ impl Journal {
                 return Err(Error::Corruption("committed journal bytes"));
             }
             let commit: Commit = serde_json::from_slice(&payload)?;
-            state.replay(&commit)?;
-            commits.push(commit);
+            state = state.into_replayed_observed(&commit, diagnostics, size)?;
+            if let Some(checkpoint) =
+                checkpoint.filter(|checkpoint| state.watermark <= checkpoint.watermark)
+            {
+                // Preserve the former validator's canonical checkpoint chain.
+                let canonical = canonical_bytes(&commit)?;
+                let mut boundary = Vec::new();
+                boundary.extend_from_slice(MAGIC);
+                boundary.extend_from_slice(&(canonical.len() as u32).to_le_bytes());
+                boundary.extend_from_slice(&(!(canonical.len() as u32)).to_le_bytes());
+                boundary.extend_from_slice(checkpoint_chain.as_bytes());
+                boundary.extend_from_slice(&canonical);
+                checkpoint_chain = digest_bytes(&boundary);
+                if state.watermark == checkpoint.watermark {
+                    checkpoint.verify_observed(&state, &checkpoint_chain, diagnostics)?;
+                }
+            }
+            diagnostics.replayed_commits = diagnostics.replayed_commits.saturating_add(1);
+            diagnostics.replay_payload_bytes = diagnostics
+                .replay_payload_bytes
+                .saturating_add(payload.len() as u64);
             self.chain = hash;
             if let Some(tip) = &tip {
                 if tip["watermark"] == serde_json::to_value(state.watermark)?
@@ -492,7 +660,10 @@ impl Journal {
             }
         }
         self.file.seek(SeekFrom::End(0))?;
-        Ok((state, commits))
+        if checkpoint.is_some_and(|checkpoint| checkpoint.watermark > state.watermark) {
+            return Err(Error::Corruption("checkpoint pointer"));
+        }
+        Ok(state)
     }
     fn quarantine_tail(&mut self, start: u64) -> Result<()> {
         self.file.seek(SeekFrom::Start(start))?;
@@ -553,7 +724,7 @@ impl Journal {
         }
         self.file.write_all(bytes)
     }
-    fn verify_checkpoint(&self, state: &State, commits: &[Commit]) -> Result<()> {
+    fn read_checkpoint(&self) -> Result<Option<Checkpoint>> {
         let mut pointers = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
@@ -568,7 +739,7 @@ impl Journal {
             let watermark: vcp_domain::Watermark =
                 serde_json::from_value(seal["watermark"].clone())?;
             let name = format!("checkpoint-{:020}.json", watermark.get());
-            if seal["version"] != 1 || seal["file"] != name || watermark > state.watermark {
+            if seal["version"] != 1 || seal["file"] != name {
                 return Err(Error::Corruption("checkpoint pointer"));
             }
             let bytes = read_bounded(&self.root.join(name), 64 * 1024 * 1024)?;
@@ -576,37 +747,18 @@ impl Journal {
                 return Err(Error::Corruption("checkpoint seal"));
             }
             let checkpoint: State = serde_json::from_slice(&bytes)?;
-            let mut expected = self.base.clone();
-            if watermark < expected.watermark {
+            if watermark < self.base_watermark {
                 return Err(Error::Corruption("checkpoint before replay base"));
             }
-            let mut chain = self.initial_chain.clone();
-            for commit in commits
-                .iter()
-                .take_while(|c| c.receipt.watermark <= watermark)
-            {
-                expected.replay(commit)?;
-                let payload = canonical_bytes(commit)?;
-                let mut header = Vec::new();
-                header.extend_from_slice(MAGIC);
-                header.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-                header.extend_from_slice(&(!(payload.len() as u32)).to_le_bytes());
-                header.extend_from_slice(chain.as_bytes());
-                header.extend_from_slice(&payload);
-                chain = digest_bytes(&header);
-            }
-            if seal["chain"] != chain {
-                return Err(Error::Corruption("checkpoint journal boundary"));
-            }
-            if expected != checkpoint {
-                return Err(Error::Corruption(
-                    "checkpoint differs from canonical history",
-                ));
-            }
+            return Ok(Some(Checkpoint {
+                watermark,
+                state: checkpoint,
+                chain: seal["chain"].clone(),
+            }));
         }
         // The retained full journal is an unambiguous recovery source when an
         // unpublished/torn checkpoint has no active marker. No history is deleted.
-        Ok(())
+        Ok(None)
     }
 }
 

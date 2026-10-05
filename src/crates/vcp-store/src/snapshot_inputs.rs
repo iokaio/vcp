@@ -2,10 +2,7 @@
 //! Host-captured workspace and derivative inputs. This layer verifies retained
 //! canonical artifacts; it never runs Git, reads arbitrary workspace files, or
 //! claims a derivative is ready before the destination engine reopens it.
-use crate::{
-    contract::{Collection, State},
-    Error, Result,
-};
+use crate::{contract::Collection, CurrentStateView, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_domain::{
@@ -66,7 +63,7 @@ pub struct Coverage {
     pub generations: Vec<GenerationStatus>,
 }
 fn descriptor(
-    state: &State,
+    state: CurrentStateView<'_>,
     workspace: &WorkspaceId,
     id: &ArtifactId,
 ) -> Result<ArtifactDescriptor> {
@@ -105,12 +102,13 @@ pub(crate) fn relative(path: &str) -> bool {
     })
 }
 impl Inputs {
-    pub(crate) fn validate_with(
+    pub(crate) fn validate_with<'a>(
         &self,
-        state: &State,
+        state: impl Into<CurrentStateView<'a>>,
         workspace: &WorkspaceId,
         read: &dyn Fn(&ArtifactId) -> Result<Vec<u8>>,
     ) -> Result<Coverage> {
+        let state = state.into();
         if self.generations.len() > 64 {
             return Err(Error::Limit("backup generations"));
         }
@@ -383,7 +381,11 @@ pub(crate) fn generation_component(
     }
     Ok(Some(id))
 }
-pub(crate) fn component_scope(state: &State, record: &crate::contract::Record) -> Result<()> {
+pub(crate) fn component_scope<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    record: &crate::contract::Record,
+) -> Result<()> {
+    let state = state.into();
     let Some(id) = generation_component(record)? else {
         return Ok(());
     };

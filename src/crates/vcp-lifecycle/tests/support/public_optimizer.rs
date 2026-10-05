@@ -3,7 +3,7 @@ use super::*;
 use vcp_lifecycle::foundation::routing_state::public_optimizer as public;
 fn session(store: &Store) -> SessionId {
     store
-        .state()
+        .current()
         .records
         .values()
         .find(|r| r.collection == Collection::Session)
@@ -14,7 +14,7 @@ fn session(store: &Store) -> SessionId {
 }
 fn command(store: &Store, access: &Access, id: &str) -> public::Command {
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -70,9 +70,12 @@ async fn public_optimizer_atomic_capture_apply_replay_and_rollback_reopen() {
         )
         .await
         .unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert_eq!(
-            public::replay(&store, &access, &capture).unwrap().unwrap(),
+            public::replay(&store, &access, &capture)
+                .await
+                .unwrap()
+                .unwrap(),
             committed
         );
         assert_eq!(
@@ -89,9 +92,10 @@ async fn public_optimizer_atomic_capture_apply_replay_and_rollback_reopen() {
             .unwrap(),
             committed
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         let report =
             public::read_report(&store, &access, &capture.session, &capture.id, &|| Ok(()))
+                .await
                 .unwrap();
         assert_ne!(report.report.id, capture.id.as_str());
         assert!(public::read_report(
@@ -101,17 +105,18 @@ async fn public_optimizer_atomic_capture_apply_replay_and_rollback_reopen() {
             &capture.id,
             &|| Ok(())
         )
+        .await
         .is_err());
         let mut changed = capture.clone();
         changed.digest = "f".repeat(64);
         assert_eq!(
-            public::replay(&store, &access, &changed),
+            public::replay(&store, &access, &changed).await,
             Err(public::Error::CommandConflict)
         );
         changed = capture.clone();
         changed.actor = ActorId::new();
         assert_eq!(
-            public::replay(&store, &access, &changed),
+            public::replay(&store, &access, &changed).await,
             Err(public::Error::Access)
         );
         let proposal = preview(
@@ -121,6 +126,7 @@ async fn public_optimizer_atomic_capture_apply_replay_and_rollback_reopen() {
             vec![Edit::QualityFloorBps(8000)],
             &ceilings,
         )
+        .await
         .unwrap();
         let apply = command(&store, &access, "public-apply");
         let accepted = public::apply(
@@ -219,16 +225,21 @@ async fn public_optimizer_atomic_capture_apply_replay_and_rollback_reopen() {
         let reopened = Store::open(directory.path(), backend, &[]).await.unwrap();
         assert_eq!(
             public::replay(&reopened, &access, &capture)
+                .await
                 .unwrap()
                 .unwrap(),
             committed
         );
         assert_eq!(
-            public::replay(&reopened, &access, &apply).unwrap().unwrap(),
+            public::replay(&reopened, &access, &apply)
+                .await
+                .unwrap()
+                .unwrap(),
             accepted
         );
         assert_eq!(
             public::replay(&reopened, &access, &rollback_command)
+                .await
                 .unwrap()
                 .unwrap(),
             rolled
@@ -240,6 +251,7 @@ async fn public_optimizer_atomic_capture_apply_replay_and_rollback_reopen() {
             &capture.id,
             &|| Ok(()),
         )
+        .await
         .unwrap();
     }
 }
@@ -262,7 +274,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record: Record::typed(
@@ -283,7 +295,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
         capture.session = other.id.clone();
         #[cfg(feature = "qualification")]
         {
-            let before = store.state().clone();
+            let before = store.archive_state().await.unwrap();
             assert_eq!(
                 public::qualification_capture_after_spool(
                     &mut store,
@@ -297,8 +309,11 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
                 .await,
                 Err(public::Error::Unavailable)
             );
-            assert_eq!(store.state(), &before);
-            assert!(public::replay(&store, &access, &capture).unwrap().is_none());
+            assert_eq!(store.archive_state().await.unwrap(), before);
+            assert!(public::replay(&store, &access, &capture)
+                .await
+                .unwrap()
+                .is_none());
             assert!(public::read_report(
                 &store,
                 &access,
@@ -306,6 +321,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
                 &capture.id,
                 &|| Ok(())
             )
+            .await
             .is_err());
         }
         let committed = public::capture(
@@ -320,6 +336,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
         .await
         .unwrap();
         let report = public::read_report(&store, &access, &other.id, &capture.id, &|| Ok(()))
+            .await
             .unwrap()
             .report;
         let pin = report
@@ -327,7 +344,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
             .as_ref()
             .expect("task-backed source forecast is retained");
         let descriptor: vcp_domain::artifact::ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 pin.artifact.as_str(),
@@ -338,7 +355,9 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
             .unwrap();
         assert_eq!(descriptor.spec.scope, task.scope);
         assert!(store
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .filter(|e| e.watermark == committed.receipt.watermark)
@@ -352,6 +371,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
             &capture.id,
             &|| Ok(())
         )
+        .await
         .is_err());
         let mut scoped = observer(&access, BTreeSet::from([task.scope.task.clone()]));
         scoped.write = true;
@@ -369,13 +389,16 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
         .await
         .unwrap();
         scoped.write = false;
-        public::read_report(&store, &scoped, &selected.session, &selected.id, &|| Ok(())).unwrap();
+        public::read_report(&store, &scoped, &selected.session, &selected.id, &|| Ok(()))
+            .await
+            .unwrap();
         scoped.tasks = Some(BTreeSet::new());
         assert!(
             public::read_report(&store, &scoped, &selected.session, &selected.id, &|| Ok(()))
+                .await
                 .is_err()
         );
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let interrupted = command(&store, &access, "public-interrupted");
         assert_eq!(
             public::capture(
@@ -390,7 +413,7 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
             .await,
             Err(public::Error::Cancelled)
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         let calls = std::cell::Cell::new(0);
         let cancel = || {
             calls.set(calls.get() + 1);
@@ -400,8 +423,12 @@ async fn public_optimizer_source_capture_preserves_foreign_scope_and_receipt_ses
                 Ok(())
             }
         };
-        assert!(forecasts::observe_with_check(&store, &access, window(), &cancel).is_err());
+        assert!(
+            forecasts::observe_with_check(&store, &access, window(), &cancel)
+                .await
+                .is_err()
+        );
         assert!(calls.get() > 8);
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
     }
 }

@@ -20,7 +20,7 @@ use vcp_protocol::{
     event::{EventEnvelope, EventKind},
 };
 use vcp_store::{
-    contract::{Collection, Record},
+    contract::{CanonicalStore, Collection, Record},
     Store,
 };
 
@@ -97,13 +97,13 @@ struct Reader<'a> {
     cache: BTreeMap<ArtifactId, (ArtifactDescriptor, Vec<u8>)>,
 }
 impl Reader<'_> {
-    fn read(&mut self, id: &ArtifactId) -> Result<Option<(ArtifactDescriptor, Vec<u8>)>> {
+    async fn read(&mut self, id: &ArtifactId) -> Result<Option<(ArtifactDescriptor, Vec<u8>)>> {
         if let Some(value) = self.cache.get(id) {
             return Ok(Some(value.clone()));
         }
         let Some(row) = self
             .store
-            .state()
+            .current()
             .records
             .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
         else {
@@ -128,7 +128,9 @@ impl Reader<'_> {
             &self.access.history(),
             id,
             &mut bytes,
-        ) {
+        )
+        .await
+        {
             Ok(_) => {}
             Err(vcp_audit::Error::Access) => return Err(Error::Access),
             Err(_) => return Ok(None),
@@ -187,7 +189,7 @@ fn proposal(
     })
 }
 
-fn add_observation(
+async fn add_observation(
     reader: &mut Reader<'_>,
     workspace: &Workspace,
     event: &EventEnvelope,
@@ -200,7 +202,7 @@ fn add_observation(
         return Ok(());
     }
     let mut candidate = proposal(workspace, reader.access, event, &task.scope, observation)?;
-    candidate.epochs.policy = access::policy(reader.store.state(), &workspace.id)?;
+    candidate.epochs.policy = access::policy(reader.store.current(), &workspace.id)?;
     if candidate.validate().is_err() {
         result.finding(
             "invalid_observation",
@@ -229,10 +231,11 @@ fn add_observation(
         value,
     } = &candidate.value
     {
-        if !crate::repository::preference_matches(
-            reader.store.state(),
+        let origin = reader.store.history_event(explicit_origin).await?;
+        if !crate::repository::preference_matches_event(
+            reader.store.current(),
             reader.access,
-            explicit_origin,
+            origin.as_ref(),
             key,
             value,
         )? {
@@ -248,7 +251,7 @@ fn add_observation(
         }
     }
     for reference in &candidate.evidence {
-        let Some((descriptor, _)) = reader.read(&reference.artifact)? else {
+        let Some((descriptor, _)) = reader.read(&reference.artifact).await? else {
             result.finding(
                 "missing_evidence",
                 "evidence is unavailable, pruned, incomplete or over the batch limit",
@@ -298,7 +301,7 @@ struct CheckRequest {
     directory: String,
 }
 
-fn native_verification(
+async fn native_verification(
     reader: &mut Reader<'_>,
     workspace: &Workspace,
     event: &EventEnvelope,
@@ -325,7 +328,7 @@ fn native_verification(
         if record.collection != Collection::Verification {
             continue;
         }
-        let Some(current) = reader.store.state().records.get(&record.key()) else {
+        let Some(current) = reader.store.current().records.get(&record.key()) else {
             continue;
         };
         if current.revision != record.revision
@@ -346,7 +349,7 @@ fn native_verification(
             return Err(Error::Access);
         }
         for check in verification.checks.iter().take(MAX_PROPOSALS) {
-            let Some((check_artifact, bytes)) = reader.read(&check.output)? else {
+            let Some((check_artifact, bytes)) = reader.read(&check.output).await? else {
                 result.finding(
                     "missing_check",
                     "verification check receipt unavailable",
@@ -396,7 +399,7 @@ fn native_verification(
                 // Filter by digest before loading unrelated captured outputs.
                 let Some(row) = reader
                     .store
-                    .state()
+                    .current()
                     .records
                     .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
                 else {
@@ -407,7 +410,7 @@ fn native_verification(
                 }
                 let descriptor: ArtifactDescriptor = row.decode()?;
                 if descriptor.sha256 == origin.sha256 {
-                    if let Some((descriptor, _)) = reader.read(id)? {
+                    if let Some((descriptor, _)) = reader.read(id).await? {
                         configuration = Some(descriptor);
                         break;
                     }
@@ -480,7 +483,8 @@ fn native_verification(
                     correction: None,
                 },
                 result,
-            )?;
+            )
+            .await?;
         }
         if verification.checks.len() > MAX_PROPOSALS || verification.outputs.len() > MAX_ARTIFACTS {
             result.finding(
@@ -506,8 +510,8 @@ impl CheckPlan {
 
 /// Pure discovery over a canonical event. Caller persists jobs, findings and
 /// governed proposal receipts; no worker, model call or mutation starts here.
-pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<Extraction> {
-    let workspace = access::authorize(store.state(), access, false)?;
+pub async fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<Extraction> {
+    let workspace = access::authorize(store.current(), access, false)?;
     if event.event.workspace != workspace.id
         || event
             .event
@@ -517,14 +521,14 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
     {
         return Err(Error::Access);
     }
-    if !store.state().events.iter().any(|saved| saved == event) {
+    if store.history_event(&event.event.id).await?.as_ref() != Some(event) {
         return Err(Error::Invalid(
             "extraction requires an unmodified canonical event".into(),
         ));
     }
     let mut result = Extraction::default();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == workspace.id && r.collection == Collection::Tombstone)
@@ -551,7 +555,7 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
         return Ok(result);
     };
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, task_id.as_str(), &workspace.id)?
         .decode()?;
     if task.scope.session != event.event.session {
@@ -564,14 +568,14 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
         cache: BTreeMap::new(),
     };
     if event.event.kind == EventKind::VerificationRecorded {
-        native_verification(&mut reader, &workspace, event, &task, &mut result)?;
+        native_verification(&mut reader, &workspace, event, &task, &mut result).await?;
     }
     let mut seen = BTreeSet::new();
     for id in event.event.artifacts.iter().take(MAX_ARTIFACTS) {
         if !seen.insert(id.clone()) {
             continue;
         }
-        let Some((descriptor, bytes)) = reader.read(id)? else {
+        let Some((descriptor, bytes)) = reader.read(id).await? else {
             result.finding(
                 "missing_artifact",
                 "observed artifact unavailable or exceeds extraction budget",
@@ -604,7 +608,8 @@ pub fn extract(store: &Store, access: &Access, event: &EventEnvelope) -> Result<
                     &task,
                     observation,
                     &mut result,
-                )?;
+                )
+                .await?;
             }
         } else if matches!(
             descriptor.spec.schema.as_str(),

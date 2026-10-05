@@ -36,9 +36,14 @@ produce `not_run` rather than inferred coverage.
 
 The console parser requires an explicit successful run, matching nonempty test
 counts, distinct passed names and every owner-configured fully qualified test name.
+Failed/skipped result rows must match VSTest's test-name and bracketed-duration
+format; application log messages such as `Failed to determine the https port for
+redirect.` are not test results. Failure summaries and incomplete counts still
+reject verification.
 Skipped, failed, ambiguous, truncated and unsupported localized output cannot prove
-completion. These checks qualify the VSTest console format; they do not qualify
-arbitrary .NET test platforms or model assertions about test quality.
+completion. These checks qualify the VSTest console format for one test assembly;
+multiple success summaries are rejected. They do not qualify arbitrary .NET test
+platforms or model assertions about test quality.
 
 The .NET SDK needs explicit public directory values even without restore. Owner
 profiles may configure `APPDATA`, `LOCALAPPDATA` and `ProgramFiles(x86)`; no ambient

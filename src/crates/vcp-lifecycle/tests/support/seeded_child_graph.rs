@@ -87,7 +87,7 @@ impl Oracle {
                 .decode()
                 .unwrap()
         };
-        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        let ledger = vcp_budget::ledger(state, &binding.scope).unwrap();
         let sum = |value| {
             self.charge
                 .iter()
@@ -97,9 +97,9 @@ impl Oracle {
         };
         assert_eq!(
             (
-                ledger.active.get(),
+                ledger.active.known().unwrap().get(),
                 ledger.settled.get(),
-                ledger.unresolved.get()
+                ledger.unresolved.known().unwrap().get()
             ),
             (
                 sum(Charge::Active),
@@ -136,7 +136,7 @@ impl Oracle {
             .map(|id| (id.clone(), Micros::new(400)))
             .collect::<BTreeMap<_, _>>();
         assert_eq!(ledger.allocations, allocations);
-        let graph = vcp_engine::agents::graph(&state, &binding.scope, &config.root_task)
+        let graph = vcp_engine::agents::graph(state, &binding.scope, &config.root_task)
             .unwrap()
             .unwrap();
         assert_eq!(graph.children.keys().cloned().collect::<BTreeSet<_>>(), ids);
@@ -550,7 +550,7 @@ async fn seeded_child_stop_reopen_preserves_graph_and_root_liability() {
                                             .map(String::from)
                                             .collect(),
                                         allocation: Micros::new(400),
-                                        deadline: Timestamp::new(u64::MAX),
+                                        deadline: Timestamp::new(u64::MAX).into(),
                                         required_checks: vec![],
                                     },
                                     &f.snapshotter,
@@ -576,7 +576,7 @@ async fn seeded_child_stop_reopen_preserves_graph_and_root_liability() {
                                     write_paths: BTreeSet::new(),
                                     untracked_inputs: BTreeSet::new(),
                                     allocation: Micros::new(400),
-                                    deadline: Timestamp::new(u64::MAX),
+                                    deadline: Timestamp::new(u64::MAX).into(),
                                     required_checks: vec![],
                                 },
                                 &f.snapshotter,

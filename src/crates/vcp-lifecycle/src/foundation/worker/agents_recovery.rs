@@ -39,7 +39,7 @@ impl worker::Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 spec.snapshot.as_str(),
@@ -53,12 +53,13 @@ impl worker::Context {
             return Err("registered child base evidence differs".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &spec.snapshot,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &spec.snapshot,
+                &mut bytes,
+            ))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
 }
@@ -101,7 +102,7 @@ impl CanonicalHost {
             let task: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     selected.as_str(),
@@ -133,7 +134,7 @@ impl CanonicalHost {
                     let task: Task = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Task,
                             selected.as_str(),
@@ -304,7 +305,7 @@ impl CanonicalHost {
             let task: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),

@@ -87,11 +87,17 @@ async fn retention_case(admitted: bool) {
         let descriptor = writer.finalize().unwrap();
         drop(writer);
         store
-            .transact(attach(store.state(), descriptor.clone(), None))
+            .transact(attach(
+                &store.archive_state().await.unwrap(),
+                descriptor.clone(),
+                None,
+            ))
             .await
             .unwrap();
         let snapshot = store.snapshot().unwrap();
-        let original = Archive::capture(&store, &snapshot, &ws.id, &|| false).unwrap();
+        let original = Archive::capture(&store, &snapshot, &ws.id, &|| false)
+            .await
+            .unwrap();
         assert_eq!(
             original.retained_artifact(&descriptor.spec.id).unwrap(),
             MARKER
@@ -104,7 +110,7 @@ async fn retention_case(admitted: bool) {
             .begin(&mut store, operation.clone(), &ws.id, &trust)
             .await
             .unwrap();
-        let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
+        let prepared = jobs.prepare(&store, capture, &|| false).await.unwrap();
         let job = jobs
             .accept_prepared(&mut store, &ws.id, prepared)
             .await
@@ -155,6 +161,7 @@ async fn retention_case(admitted: bool) {
             Action::Purge,
             Timestamp::new(1000),
         )
+        .await
         .unwrap();
         assert!(preview.protected.is_empty());
         assert!(preview.backup_copies.contains(&operation.to_string()));
@@ -169,18 +176,18 @@ async fn retention_case(admitted: bool) {
         assert!(!cleanup.local_cleanup_complete);
         assert!(!cleanup.cleanup.as_ref().unwrap().pinned.is_empty());
         let erased: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(Collection::Artifact, descriptor.spec.id.as_str(), &ws.id)
             .unwrap()
             .decode()
             .unwrap();
         assert_eq!(erased.state, CaptureState::Purged);
-        let before = store.state().watermark;
+        let before = store.current().watermark;
         assert!(jobs
             .admit(&mut store, &operation, &ws.id, &trust)
             .await
             .is_err());
-        assert_eq!(store.state().watermark, before);
+        assert_eq!(store.current().watermark, before);
         assert_eq!(
             Jobs::inspect(&store, &operation, &ws.id).unwrap().stage,
             if admitted {
@@ -195,7 +202,7 @@ async fn retention_case(admitted: bool) {
                 .admit_prepared(&mut store, &ws.id, &trust, proof)
                 .await
                 .is_err());
-            assert_eq!(store.state().watermark, before);
+            assert_eq!(store.current().watermark, before);
         }
         if let Some((job, mut ciphertext, permit)) = admitted_copy {
             let vault = Vault::open(
@@ -250,7 +257,9 @@ async fn retention_case(admitted: bool) {
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &forbidden).await.unwrap();
         let snapshot = store.snapshot().unwrap();
-        let fresh = Archive::capture(&store, &snapshot, &ws.id, &|| false).unwrap();
+        let fresh = Archive::capture(&store, &snapshot, &ws.id, &|| false)
+            .await
+            .unwrap();
         assert!(fresh.retained_artifact(&descriptor.spec.id).is_err());
         for bytes in fresh.payloads().unwrap().values() {
             assert!(!bytes.windows(MARKER.len()).any(|window| window == MARKER));
@@ -261,7 +270,7 @@ async fn retention_case(admitted: bool) {
             .await
             .unwrap();
         assert_eq!(capture.job().deletion, cleaned.deletion.get());
-        let prepared = jobs.prepare(&store, capture, &|| false).unwrap();
+        let prepared = jobs.prepare(&store, capture, &|| false).await.unwrap();
         jobs.accept_prepared(&mut store, &ws.id, prepared)
             .await
             .unwrap();

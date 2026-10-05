@@ -113,6 +113,10 @@ impl Prepared {
             return Err(Error::Invalid("tool revalidation cancelled"));
         }
         self.revalidate_index()?;
+        for change in &self.changes {
+            self.root
+                .hold_planned_parents(&change.path, &change.parents, &Default::default())?;
+        }
         if let Some((manifest, probes)) = &self.integration_parent {
             vcp_repository::merge::revalidate_parent(&self.root, manifest, probes)?;
         }
@@ -268,8 +272,16 @@ pub fn prepare_cancellable(
             })
         })
         .collect::<std::result::Result<_, serde_json::Error>>()?;
-    resources.sort_by(|a, b| a.path.cmp(&b.path));
-    resources.dedup_by(|a, b| a.path == b.path);
+    for parent in changes.iter().flat_map(|change| &change.parents) {
+        resources.push(Resource {
+            root: root.identity.root.clone(),
+            path: parent.path.clone(),
+            write: parent.native_identity.is_none(),
+            version: vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(parent)?),
+        });
+    }
+    resources.sort_by_key(|a| a.path.to_lowercase());
+    resources.dedup_by(|a, b| a.path.eq_ignore_ascii_case(&b.path));
     if resources.is_empty() || matches!(request, Request::List { .. } | Request::Search { .. }) {
         resources.push(Resource {
             root: root.identity.root.clone(),
@@ -314,7 +326,21 @@ pub fn prepare_cancellable(
         integration_child: None,
     })
 }
+/// Validate a tool's workspace-relative directory before instruction selection.
+/// The empty string selects the registered root; invalid input is never normalized.
+pub fn validate_directory_path(path: &str) -> Result<()> {
+    checked_path(path, true)
+}
+
 pub(crate) fn checked_path(path: &str, empty: bool) -> Result<()> {
+    if empty
+        && (matches!(path, "." | "/" | "\\")
+            || (path.contains('"') && path.bytes().all(|byte| matches!(byte, b'"' | b'\\'))))
+    {
+        return Err(Error::Invalid(
+            "workspace root requires an empty JSON string (zero characters): use \"directory\":\"\" for vcp_exec or \"path\":\"\" for vcp_list; do not put quote or backslash characters inside the value",
+        ));
+    }
     if !vcp_policy::relative(path) || (!empty && path.is_empty()) {
         return Err(Error::Invalid("relative path"));
     }

@@ -478,7 +478,7 @@ impl CanonicalHost {
             let current: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),
@@ -651,7 +651,7 @@ impl CanonicalHost {
             let current: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),
@@ -1074,7 +1074,7 @@ impl CanonicalHost {
             if pin!=expected{return Err("remote HTTP owner pin changed".into());}
             if let Some(lease)=credential{lease.validate_authority(&configured.profile,&pin,timestamp())?;}
             if !matches!(context.remote_mcp_decision(&binding,&server,&registration,&authority,&source)?,vcp_policy::Decision::Allow{..}) {return Err("remote wire source or authority changed".into());}
-            let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
+            let current:Effect=context.engine.store().current().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
             if current.execution.as_ref()!=Some(&execution) || !matches!(current.state,EffectState::DispatchRecorded|EffectState::Running){return Err("remote HTTP parent intent is not current".into());}
             let document=serde_json::json!({"schema_version":1,"effect":effect,"execution":execution,"sequence":sequence,"request_digest":digest,"body":serde_json::from_slice::<serde_json::Value>(&body)?,"source":source.evidence()?,"delivery":"intent only; not a remote receipt"});
             let artifact=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&document)?,"vcp-mcp-http-wire-intent-v1")?;

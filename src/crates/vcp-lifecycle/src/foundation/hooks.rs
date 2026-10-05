@@ -142,7 +142,7 @@ impl CanonicalHost {
             let effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),
@@ -178,7 +178,7 @@ impl CanonicalHost {
             if context
                 .engine
                 .store()
-                .state()
+                .current()
                 .records
                 .contains_key(&key(Collection::Artifact, plan_id.as_str()))
             {

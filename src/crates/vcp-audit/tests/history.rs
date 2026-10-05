@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
+#[path = "support/history_live.rs"]
+mod history_live;
+#[path = "support/pinned_history.rs"]
+mod pinned_history;
+#[path = "support/projection_live.rs"]
+mod projection_live;
 use vcp_audit::{history::*, projection, Error};
 use vcp_domain::{
     accounting::*, artifact::*, effect::*, ids::*, revision::*, task::*, verification::*,
@@ -29,7 +35,9 @@ async fn browser_pages_survive_append_but_recheck_current_access_and_retention()
         let initial: std::collections::BTreeSet<_> = fixture
             .engine
             .store()
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .map(|e| e.event.id.clone())
@@ -45,8 +53,12 @@ async fn browser_pages_survive_append_but_recheck_current_access_and_retention()
             artifact: None,
             expand_compacted: false,
         };
-        let first =
-            history_query::query(fixture.engine.store().state(), &access(), &query).unwrap();
+        let first = history_query::query(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &access(),
+            &query,
+        )
+        .unwrap();
         query.cursor = first.next_cursor.clone();
         let mut selected: std::collections::BTreeSet<_> = first
             .rows
@@ -56,8 +68,12 @@ async fn browser_pages_survive_append_but_recheck_current_access_and_retention()
         let id = TaskId::new();
         issue(&mut fixture.engine, create(&id, None, None), Some(id), 0).await;
         while query.cursor.is_some() {
-            let page =
-                history_query::query(fixture.engine.store().state(), &access(), &query).unwrap();
+            let page = history_query::query(
+                &fixture.engine.store().archive_state().await.unwrap(),
+                &access(),
+                &query,
+            )
+            .unwrap();
             assert!(page.newer_events > 0);
             for row in page.rows {
                 assert!(selected.insert(row.event.event.id));
@@ -69,20 +85,28 @@ async fn browser_pages_survive_append_but_recheck_current_access_and_retention()
         let mut restricted = access();
         restricted.tasks = Some([fixture.root.clone()].into_iter().collect());
         assert!(matches!(
-            history_query::query(fixture.engine.store().state(), &restricted, &query),
+            history_query::query(
+                &fixture.engine.store().archive_state().await.unwrap(),
+                &restricted,
+                &query
+            ),
             Err(Error::Restart(_))
         ));
         query.cursor = None;
         query.artifact = Some(fixture.request.spec.id.clone());
-        let linked =
-            history_query::query(fixture.engine.store().state(), &access(), &query).unwrap();
+        let linked = history_query::query(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &access(),
+            &query,
+        )
+        .unwrap();
         assert!(!linked.rows.is_empty());
         assert!(linked
             .rows
             .iter()
             .all(|r| r.artifacts.contains(&fixture.request.spec.id)));
         let cursor = history_query::query(
-            fixture.engine.store().state(),
+            &fixture.engine.store().archive_state().await.unwrap(),
             &access(),
             &Query {
                 artifact: None,
@@ -93,7 +117,7 @@ async fn browser_pages_survive_append_but_recheck_current_access_and_retention()
         .unwrap()
         .next_cursor
         .unwrap();
-        let state = fixture.engine.store().state();
+        let state = fixture.engine.store().archive_state().await.unwrap();
         let mut workspace: Workspace = state
             .record(
                 Collection::Workspace,
@@ -128,7 +152,11 @@ async fn browser_pages_survive_append_but_recheck_current_access_and_retention()
         query.limit = 1;
         query.cursor = Some(cursor);
         assert!(matches!(
-            history_query::query(fixture.engine.store().state(), &access(), &query),
+            history_query::query(
+                &fixture.engine.store().archive_state().await.unwrap(),
+                &access(),
+                &query
+            ),
             Err(Error::Restart(_))
         ));
     }
@@ -141,7 +169,7 @@ async fn browser_compaction_is_presentation_and_exclusion_keeps_raw_history() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temporary = tempfile::tempdir().unwrap();
         let fixture = fixture(temporary.path(), backend).await;
-        let mut state = fixture.engine.store().state().clone();
+        let mut state = fixture.engine.store().archive_state().await.unwrap();
         let event = state
             .events
             .iter()
@@ -231,7 +259,7 @@ async fn session_browser_bounds_large_artifact_lists_before_projection_and_scope
             metadata: None,
         };
         let event_id = event.id.clone();
-        let before = fixture.engine.store().state().watermark;
+        let before = fixture.engine.store().current().watermark;
         fixture
             .engine
             .store_mut()
@@ -256,7 +284,7 @@ async fn session_browser_bounds_large_artifact_lists_before_projection_and_scope
             expand_compacted: false,
         };
         let page = history_query::query_session(
-            fixture.engine.store().state(),
+            &fixture.engine.store().archive_state().await.unwrap(),
             &access(),
             &request,
             &source.session,
@@ -267,8 +295,12 @@ async fn session_browser_bounds_large_artifact_lists_before_projection_and_scope
         assert!(page.rows[0].event.event.task.is_none());
         assert!(page.rows[0].content_truncated);
         assert_eq!(page.rows[0].artifact_links.len(), 128);
-        let cli =
-            history_query::query(fixture.engine.store().state(), &access(), &request).unwrap();
+        let cli = history_query::query(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &access(),
+            &request,
+        )
+        .unwrap();
         assert_eq!(
             cli.rows[0].artifact_links.len(),
             256,
@@ -276,7 +308,7 @@ async fn session_browser_bounds_large_artifact_lists_before_projection_and_scope
         );
         request.text = None;
         let first = history_query::query_session(
-            fixture.engine.store().state(),
+            &fixture.engine.store().archive_state().await.unwrap(),
             &access(),
             &request,
             &source.session,
@@ -286,14 +318,14 @@ async fn session_browser_bounds_large_artifact_lists_before_projection_and_scope
         let foreign = SessionId::new();
         assert!(matches!(
             history_query::query_session(
-                fixture.engine.store().state(),
+                &fixture.engine.store().archive_state().await.unwrap(),
                 &access(),
                 &request,
                 &foreign
             ),
             Err(Error::Restart(_))
         ));
-        let mut state = fixture.engine.store().state().clone();
+        let mut state = fixture.engine.store().archive_state().await.unwrap();
         let mut foreign_event = state.events.last().unwrap().clone();
         foreign_event.event.id = EventId::new();
         foreign_event.event.session = foreign.clone();
@@ -310,7 +342,7 @@ async fn session_browser_bounds_large_artifact_lists_before_projection_and_scope
         assert!(page.gaps.is_empty());
         // A taskless event never lends its session authority to a foreign
         // artifact descriptor, even when that descriptor shares a workspace.
-        let mut foreign_artifact = fixture.engine.store().state().clone();
+        let mut foreign_artifact = fixture.engine.store().archive_state().await.unwrap();
         foreign_artifact
             .records
             .get_mut(&key(Collection::Artifact, fixture.request.spec.id.as_str()))
@@ -620,7 +652,7 @@ async fn fixture(directory: &std::path::Path, kind: BackendKind) -> Fixture {
         host().now,
     )
     .unwrap();
-    let ledger = vcp_budget::ledger(engine.store().state(), &scope(&root)).unwrap();
+    let ledger = vcp_budget::ledger(engine.store().current(), &scope(&root)).unwrap();
     let admission = vcp_budget::Admission {
         transaction: TransactionId::new(),
         attempt: AttemptId::new(),
@@ -723,7 +755,10 @@ async fn live_fold_duplicate_delivery_and_version_activation_preserve_unknowns()
         let initial = projection::publish(fixture.engine.store_mut(), &workspace, 1)
             .await
             .unwrap();
-        assert_eq!(initial.ledgers[&fixture.root].unresolved.get(), 20);
+        assert_eq!(
+            initial.ledgers[&fixture.root].unresolved.known(),
+            Some(Micros::new(20))
+        );
         assert_eq!(
             initial.effects[&fixture.effect].state,
             EffectState::OutcomeUnknown
@@ -731,7 +766,17 @@ async fn live_fold_duplicate_delivery_and_version_activation_preserve_unknowns()
         assert_eq!(initial.tasks[&fixture.child].state, TaskState::Paused);
         let mut duplicate = initial.clone();
         assert!(!duplicate
-            .apply(fixture.engine.store().state().events.last().unwrap())
+            .apply(
+                fixture
+                    .engine
+                    .store()
+                    .archive_state()
+                    .await
+                    .unwrap()
+                    .events
+                    .last()
+                    .unwrap()
+            )
             .unwrap());
         assert_eq!(duplicate, initial);
         late_charge(&mut fixture).await;
@@ -739,13 +784,16 @@ async fn live_fold_duplicate_delivery_and_version_activation_preserve_unknowns()
             .await
             .unwrap();
         assert_eq!(live.ledgers[&fixture.root].settled.get(), 30);
-        assert_eq!(live.ledgers[&fixture.root].unresolved.get(), 0);
+        assert_eq!(
+            live.ledgers[&fixture.root].unresolved.known(),
+            Some(Micros::ZERO)
+        );
         assert_eq!(
             live.tasks[&fixture.fork].fork_origin,
             Some(fixture.root.clone())
         );
         let rebuilt = projection::rebuild(
-            fixture.engine.store().state(),
+            &fixture.engine.store().archive_state().await.unwrap(),
             &workspace,
             1,
             live.watermark,
@@ -755,20 +803,25 @@ async fn live_fold_duplicate_delivery_and_version_activation_preserve_unknowns()
         let new = projection::publish(fixture.engine.store_mut(), &workspace, 2)
             .await
             .unwrap();
-        let old = projection::rebuild(fixture.engine.store().state(), &workspace, 1, new.watermark)
-            .unwrap();
+        let old = projection::rebuild(
+            &fixture.engine.store().archive_state().await.unwrap(),
+            &workspace,
+            1,
+            new.watermark,
+        )
+        .unwrap();
         assert_eq!(
             new.semantic_digest().unwrap(),
             old.semantic_digest().unwrap()
         );
         assert!(!new.event_kinds.is_empty());
-        let state = fixture.engine.store().state().clone();
+        let state = fixture.engine.store().archive_state().await.unwrap();
         assert!(
             projection::publish(fixture.engine.store_mut(), &workspace, 3)
                 .await
                 .is_err()
         );
-        assert_eq!(&state, fixture.engine.store().state());
+        assert_eq!(state, fixture.engine.store().archive_state().await.unwrap());
     }
 }
 #[tokio::test]
@@ -795,6 +848,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
             1,
             Timestamp::new(2000),
         )
+        .await
         .unwrap();
     let page = history
         .page(
@@ -804,6 +858,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
             &cursor,
             Timestamp::new(2000),
         )
+        .await
         .unwrap();
     assert_eq!(page.events.len(), 1);
     assert_eq!(page.events[0].event.kind, EventKind::UsageReconciled);
@@ -812,23 +867,27 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         ..filter.clone()
     };
     assert!(matches!(
-        history.page(
-            fixture.engine.store(),
-            &access(),
-            &wrong,
-            &cursor,
-            Timestamp::new(2000)
-        ),
+        history
+            .page(
+                fixture.engine.store(),
+                &access(),
+                &wrong,
+                &cursor,
+                Timestamp::new(2000)
+            )
+            .await,
         Err(Error::Restart(_))
     ));
     assert!(matches!(
-        history.page(
-            fixture.engine.store(),
-            &access(),
-            &filter,
-            &cursor,
-            Timestamp::new(62_000)
-        ),
+        history
+            .page(
+                fixture.engine.store(),
+                &access(),
+                &filter,
+                &cursor,
+                Timestamp::new(62_000)
+            )
+            .await,
         Err(Error::Restart(_))
     ));
     let mut bytes = Vec::new();
@@ -838,6 +897,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         &fixture.request.spec.id,
         &mut bytes,
     )
+    .await
     .unwrap();
     assert_eq!(bytes, b"{\"request\":\"synthetic\"}");
     let denied = Access {
@@ -850,7 +910,8 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
             &denied,
             &fixture.request.spec.id,
             Vec::new()
-        ),
+        )
+        .await,
         Err(Error::Access)
     ));
     issue(
@@ -874,6 +935,7 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         &fixture.request.spec.id,
         Vec::new()
     )
+    .await
     .is_err());
     let renewed = Access {
         authority: AuthorityRevision::new(1),
@@ -885,15 +947,18 @@ async fn filtered_history_uses_one_snapshot_and_current_artifact_authority() {
         &fixture.request.spec.id,
         Vec::new()
     )
+    .await
     .is_ok());
     assert!(matches!(
-        history.page(
-            fixture.engine.store(),
-            &renewed,
-            &filter,
-            &cursor,
-            Timestamp::new(2000)
-        ),
+        history
+            .page(
+                fixture.engine.store(),
+                &renewed,
+                &filter,
+                &cursor,
+                Timestamp::new(2000)
+            )
+            .await,
         Err(Error::Restart(_))
     ));
 }
@@ -911,8 +976,9 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             128,
             Timestamp::new(1000),
         )
+        .await
         .unwrap();
-    let state = fixture.engine.store().state();
+    let state = fixture.engine.store().archive_state().await.unwrap();
     let mut workspace: Workspace = state
         .record(
             Collection::Workspace,
@@ -977,13 +1043,15 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
         .await
         .unwrap();
     assert!(matches!(
-        history.page(
-            fixture.engine.store(),
-            &access(),
-            &filter,
-            &cursor,
-            Timestamp::new(1000)
-        ),
+        history
+            .page(
+                fixture.engine.store(),
+                &access(),
+                &filter,
+                &cursor,
+                Timestamp::new(1000)
+            )
+            .await,
         Err(Error::Restart(_))
     ));
     assert!(matches!(
@@ -992,7 +1060,8 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             &access(),
             &fixture.request.spec.id,
             Vec::new()
-        ),
+        )
+        .await,
         Err(Error::Removed)
     ));
     let query = vcp_audit::inspection::InspectionQuery {
@@ -1005,8 +1074,9 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             length: 12,
         }),
     };
-    let removed =
-        vcp_audit::inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    let removed = vcp_audit::inspection::inspect(fixture.engine.store(), &access(), &query)
+        .await
+        .unwrap();
     assert!(removed.items.is_empty());
     assert_eq!(removed.gaps[0]["visibility"], "pruned");
     assert_eq!(removed.gaps[0]["source"], fixture.request.spec.source);
@@ -1018,6 +1088,7 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             128,
             Timestamp::new(1000),
         )
+        .await
         .unwrap();
     let page = history
         .page(
@@ -1027,6 +1098,7 @@ async fn retention_masks_invalidate_old_cursors_and_prevent_historical_artifact_
             &fresh,
             Timestamp::new(1000),
         )
+        .await
         .unwrap();
     assert_eq!(page.gaps.len(), 1);
     assert!(!page.events.iter().any(|e| e.sequence == mask.first));
@@ -1047,7 +1119,7 @@ async fn fresh_process_rebuild_after_dropping_only_projections_agrees_at_same_wa
         let live = projection::publish(fixture.engine.store_mut(), &access().workspace, 1)
             .await
             .unwrap();
-        let state = fixture.engine.store().state();
+        let state = fixture.engine.store().archive_state().await.unwrap();
         let mutations = state
             .records
             .values()
@@ -1107,10 +1179,10 @@ async fn killed_projection_activation_keeps_view_and_watermark_atomic() {
                 .unwrap();
             late_charge(&mut fixture).await;
             let expected = projection::rebuild(
-                fixture.engine.store().state(),
+                &fixture.engine.store().archive_state().await.unwrap(),
                 &access().workspace,
                 2,
-                fixture.engine.store().state().watermark,
+                fixture.engine.store().current().watermark,
             )
             .unwrap();
             drop(fixture);
@@ -1146,9 +1218,10 @@ async fn killed_projection_activation_keeps_view_and_watermark_atomic() {
             child.kill().unwrap();
             assert!(!child.wait().unwrap().success());
             let mut store = Store::open(&root, kind, &[]).await.unwrap();
-            let recovered = projection::active(store.state(), &access().workspace)
-                .unwrap()
-                .unwrap();
+            let recovered =
+                projection::active(&store.archive_state().await.unwrap(), &access().workspace)
+                    .unwrap()
+                    .unwrap();
             assert_eq!(
                 recovered,
                 if barrier == "after_commit" {
@@ -1163,10 +1236,102 @@ async fn killed_projection_activation_keeps_view_and_watermark_atomic() {
             assert_eq!(activated, expected);
             assert_eq!(
                 activated,
-                projection::rebuild(store.state(), &access().workspace, 2, activated.watermark)
-                    .unwrap()
+                projection::rebuild(
+                    &store.archive_state().await.unwrap(),
+                    &access().workspace,
+                    2,
+                    activated.watermark
+                )
+                .unwrap()
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn inspection_chain_pages_preserve_all_events_from_one_transaction() {
+    use vcp_audit::inspection::{self, InspectionQuery, View};
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut fixture = fixture(temporary.path(), backend).await;
+        let events = (0..5)
+            .map(|index| EventInput {
+                id: EventId::new(),
+                workspace: access().workspace,
+                session: engine_access().session,
+                task: Some(fixture.root.clone()),
+                actor: engine_access().actor,
+                correlation: CommandId::new(),
+                causation: None,
+                timestamp: Timestamp::ZERO,
+                kind: EventKind::Diagnostic,
+                artifacts: vec![],
+                data: serde_json::json!({"schema_version":1,"fixture_index":index}),
+                metadata: None,
+            })
+            .collect();
+        let expected_watermark = fixture.engine.store().current().watermark;
+        fixture
+            .engine
+            .store_mut()
+            .transact(Transaction {
+                id: TransactionId::new(),
+                expected_watermark,
+                mutations: vec![],
+                events,
+                command: None,
+            })
+            .await
+            .unwrap();
+        let expected: Vec<_> = fixture
+            .engine
+            .store()
+            .archive_state()
+            .await
+            .unwrap()
+            .events
+            .iter()
+            .filter(|event| event.event.task.as_ref() == Some(&fixture.root))
+            .map(|event| event.event.id.to_string())
+            .collect();
+        let mut query = InspectionQuery {
+            id: fixture.root.to_string(),
+            view: View::Chain,
+            limit: 1,
+            cursor: None,
+            range: None,
+        };
+        let first = inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .unwrap();
+        let mut obsolete = first.next_cursor.clone().unwrap();
+        assert_eq!(obsolete.version, 2);
+        obsolete.version = 1;
+        query.cursor = Some(obsolete);
+        assert!(matches!(
+            inspection::inspect(fixture.engine.store(), &access(), &query).await,
+            Err(Error::Restart(_))
+        ));
+        query.cursor = None;
+        let mut observed = Vec::new();
+        loop {
+            let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+                .await
+                .unwrap();
+            for row in page.items {
+                if let Some(id) = row
+                    .pointer("/event/event/id")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    observed.push(id.to_owned());
+                }
+            }
+            query.cursor = page.next_cursor;
+            if query.cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(observed, expected);
     }
 }
 
@@ -1187,12 +1352,16 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
             cursor: None,
             range: None,
         };
-        let first = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let first = inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .unwrap();
         assert_eq!(first.scope.task, fixture.root);
         assert!(first.next_cursor.is_some());
         let mut items = Vec::new();
         loop {
-            let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+            let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+                .await
+                .unwrap();
             assert_eq!(page.source_watermark, first.source_watermark);
             assert!(page.items.len() <= 2);
             items.extend(page.items);
@@ -1229,7 +1398,7 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
         let mut wrong = query.clone();
         wrong.view = View::Costs;
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &access(), &wrong),
+            inspection::inspect(fixture.engine.store(), &access(), &wrong).await,
             Err(Error::Restart(_))
         ));
         let restricted = Access {
@@ -1237,22 +1406,24 @@ async fn inspection_pages_navigate_canonical_evidence_and_survive_projection_reb
             ..access()
         };
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &restricted, &query),
+            inspection::inspect(fixture.engine.store(), &restricted, &query).await,
             Err(Error::Access)
         ));
-        let mut state = fixture.engine.store().state().clone();
+        let mut state = fixture.engine.store().archive_state().await.unwrap();
         let _ = projection::rebuild(&state, &access().workspace, 1, state.watermark).unwrap();
         state
             .records
             .retain(|_, r| r.collection != Collection::Projection);
         assert_eq!(
             inspection::records(&state, &access(), &query).unwrap(),
-            inspection::inspect(fixture.engine.store(), &access(), &query).unwrap()
+            inspection::inspect(fixture.engine.store(), &access(), &query)
+                .await
+                .unwrap()
         );
         // A canonical change cannot silently mix pages.
         capture(&mut fixture.engine, &fixture.root, b"new evidence").await;
         assert!(matches!(
-            inspection::inspect(fixture.engine.store(), &access(), &query),
+            inspection::inspect(fixture.engine.store(), &access(), &query).await,
             Err(Error::Restart(_))
         ));
     }
@@ -1298,7 +1469,7 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: fixture.engine.store().state().watermark,
+            expected_watermark: fixture.engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: claim,
@@ -1323,7 +1494,9 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
             cursor: None,
             range: None,
         };
-        let memory = inspection::inspect(fixture.engine.store(), &restricted, &query).unwrap();
+        let memory = inspection::inspect(fixture.engine.store(), &restricted, &query)
+            .await
+            .unwrap();
         assert!(!serde_json::to_string(&memory).unwrap().contains(marker));
         assert!(memory.items.iter().any(
             |item| item["id"] == id.as_str() && item["visibility"] == "governed_query_required"
@@ -1334,7 +1507,9 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
         };
         let mut found = false;
         loop {
-            let page = inspection::inspect(fixture.engine.store(), &restricted, &chain).unwrap();
+            let page = inspection::inspect(fixture.engine.store(), &restricted, &chain)
+                .await
+                .unwrap();
             assert!(!serde_json::to_string(&page).unwrap().contains(marker));
             found |= page.items.iter().any(|item| {
                 item.pointer("/event/event/data/proposal") == Some(&serde_json::json!(proposal))
@@ -1358,6 +1533,7 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
                 128,
                 Timestamp::new(3000),
             )
+            .await
             .unwrap();
         let page = history
             .page(
@@ -1367,6 +1543,7 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
                 &cursor,
                 Timestamp::new(3000),
             )
+            .await
             .unwrap();
         assert_eq!(page.events.len(), 1);
         assert_eq!(page.events[0].event.data["proposal"], proposal.as_str());
@@ -1374,7 +1551,9 @@ async fn generic_history_and_inspection_do_not_expose_derived_memory_payloads() 
         assert!(fixture
             .engine
             .store()
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .any(|event| event.event.data.to_string().contains(marker)));
@@ -1400,7 +1579,9 @@ async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
     };
     let mut recovered = Vec::new();
     loop {
-        let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+        let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .unwrap();
         let item = &page.items[0];
         let chunk: Vec<u8> = serde_json::from_value(item["bytes"].clone()).unwrap();
         assert!(chunk.len() <= MAX_RANGE as usize);
@@ -1416,25 +1597,27 @@ async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
         ..access()
     };
     assert!(matches!(
-        inspection::inspect(fixture.engine.store(), &denied, &query),
+        inspection::inspect(fixture.engine.store(), &denied, &query).await,
         Err(Error::Access)
     ));
     let other = Access {
         workspace: WorkspaceId::new(),
         ..access()
     };
-    assert!(inspection::inspect(fixture.engine.store(), &other, &query).is_err());
+    assert!(inspection::inspect(fixture.engine.store(), &other, &query)
+        .await
+        .is_err());
     let stale = Access {
         authority: AuthorityRevision::new(99),
         ..access()
     };
     assert!(matches!(
-        inspection::inspect(fixture.engine.store(), &stale, &query),
+        inspection::inspect(fixture.engine.store(), &stale, &query).await,
         Err(Error::Access)
     ));
     query.range.as_mut().unwrap().length = MAX_RANGE + 1;
     assert!(matches!(
-        inspection::inspect(fixture.engine.store(), &access(), &query),
+        inspection::inspect(fixture.engine.store(), &access(), &query).await,
         Err(Error::Limit)
     ));
     query.range = Some(RangeRequest {
@@ -1450,7 +1633,11 @@ async fn inspection_ranges_preserve_binary_bytes_and_enforce_current_scope() {
         .join("seal.json");
     // Removing metadata is not an empty output; corruption stays a hard error.
     std::fs::rename(&spool_file, spool_file.with_extension("missing")).unwrap();
-    assert!(inspection::inspect(fixture.engine.store(), &access(), &query).is_err());
+    assert!(
+        inspection::inspect(fixture.engine.store(), &access(), &query)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -1485,7 +1672,9 @@ async fn inspection_marks_missing_and_incomplete_content_without_reconstruction(
             length: 100,
         }),
     };
-    let page = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    let page = inspection::inspect(fixture.engine.store(), &access(), &query)
+        .await
+        .unwrap();
     assert_eq!(page.items[0]["text"], "partial\x1b[31m");
     assert_eq!(page.items[0]["representation"], "captured_bytes");
     assert_eq!(page.gaps[0]["capture_state"], "aborted");
@@ -1503,7 +1692,9 @@ async fn inspection_marks_missing_and_incomplete_content_without_reconstruction(
         .join(artifact.spec.id.as_str())
         .join("spec.json");
     std::fs::rename(&spec_file, spec_file.with_extension("missing")).unwrap();
-    let missing = inspection::inspect(fixture.engine.store(), &access(), &query).unwrap();
+    let missing = inspection::inspect(fixture.engine.store(), &access(), &query)
+        .await
+        .unwrap();
     assert!(missing.items.is_empty());
     assert_eq!(missing.gaps[0]["visibility"], "missing");
     assert_eq!(missing.gaps[0]["source"], artifact.spec.source);
@@ -1519,7 +1710,7 @@ async fn browser_rejects_unavailable_facets_even_in_nested_or_and_negation() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let fixture = fixture(temp.path(), backend).await;
-        let state = fixture.engine.store().state();
+        let state = fixture.engine.store().archive_state().await.unwrap();
         let mut query = Query {
             selector: Selector {
                 schema_version: 1,
@@ -1531,7 +1722,7 @@ async fn browser_rejects_unavailable_facets_even_in_nested_or_and_negation() {
             artifact: None,
             expand_compacted: false,
         };
-        assert!(!history_query::query(state, &access(), &query)
+        assert!(!history_query::query(&state, &access(), &query)
             .unwrap()
             .rows
             .is_empty());
@@ -1541,7 +1732,7 @@ async fn browser_rejects_unavailable_facets_even_in_nested_or_and_negation() {
             .decode()
             .unwrap();
         query.selector.tree = Tree::Match(Criterion::Status(Status::Task(task.state)));
-        assert!(!history_query::query(state, &access(), &query)
+        assert!(!history_query::query(&state, &access(), &query)
             .unwrap()
             .rows
             .is_empty());
@@ -1565,7 +1756,7 @@ async fn browser_rejects_unavailable_facets_even_in_nested_or_and_negation() {
                 // event-only browsing adapter lacks these metadata capabilities.
                 assert!(query.selector.clone().normalized().is_ok());
                 assert!(matches!(
-                    history_query::query(state, &access(), &query),
+                    history_query::query(&state, &access(), &query),
                     Err(Error::UnsupportedFilter(_))
                 ));
             }

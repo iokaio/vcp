@@ -31,6 +31,36 @@ impl Prompter for Script {
             .transpose()
     }
 }
+
+#[test]
+fn interactive_rotation_choices_are_explicit_and_survive_revisiting() {
+    let mut choices = Default::default();
+    let mut prompt = Script::new(&[
+        "rotate",
+        "main",
+        "fixture/one,fixture/two",
+        "",
+        "fixture/three",
+        "",
+        "fixture/reserve",
+        "0.10",
+        "use",
+    ]);
+    let set = choose_set(&mut prompt, model_preferences::balanced(), &mut choices).unwrap();
+    assert_eq!(choices["main"].len(), 3);
+    assert_eq!(
+        choices["main"][0].models,
+        vec!["fixture/one", "fixture/two"]
+    );
+    assert_eq!(
+        choices["main"][2].max_reference_request_cost_usd.as_deref(),
+        Some("0.10")
+    );
+    let original = choices.clone();
+    choose_set(&mut Script::new(&["use"]), set, &mut choices).unwrap();
+    assert_eq!(choices, original);
+    assert!(prompt.transcript.contains("no model calls were made"));
+}
 #[derive(Default)]
 struct Fake {
     calls: usize,

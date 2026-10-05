@@ -31,7 +31,11 @@ async fn capture(store: &mut Store, scope: &Scope) -> ArtifactDescriptor {
     let artifact = writer.finalize().unwrap();
     drop(writer);
     store
-        .transact(common::attach(store.state(), artifact.clone(), None))
+        .transact(common::attach(
+            &store.archive_state().await.unwrap(),
+            artifact.clone(),
+            None,
+        ))
         .await
         .unwrap();
     artifact
@@ -75,7 +79,7 @@ async fn reserve_attempt(
         })
         .collect(),
     };
-    let ledger = vcp_budget::ledger(store.state(), scope).unwrap();
+    let ledger = vcp_budget::ledger(store.current(), scope).unwrap();
     let attempt = vcp_budget::reserve(
         store,
         vcp_budget::Admission {
@@ -181,7 +185,7 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: Record::typed(
                         Collection::Task,
@@ -198,7 +202,7 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
             })
             .await
             .unwrap();
-        let ledger = vcp_budget::ledger(store.state(), &scope).unwrap();
+        let ledger = vcp_budget::ledger(store.current(), &scope).unwrap();
         vcp_budget::configure(
             &mut store,
             &scope,
@@ -253,7 +257,7 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: Record::typed(
                         Collection::Verification,
@@ -290,7 +294,7 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
         .await
         .unwrap();
         let mut root: Task = store
-            .state()
+            .current()
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)
             .unwrap()
             .decode()
@@ -300,7 +304,7 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: Record::typed(
                         Collection::Task,
@@ -351,11 +355,13 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
         assert_eq!(report.observed.verification_checks_not_run, 1);
         assert_eq!(
             report.counts.reserved_liability_micros.get("USD"),
-            Some(&50)
+            Some(&Some(50))
         );
         assert_eq!(report.cohorts.values().sum::<u64>(), 3);
-        let cutoff = store.state().watermark;
-        let comparison = compare_reports(&store, &access, &baseline.id, &report.id).unwrap();
+        let cutoff = store.current().watermark;
+        let comparison = compare_reports(&store, &access, &baseline.id, &report.id)
+            .await
+            .unwrap();
         assert!(comparison.comparable);
         assert_eq!(
             comparison
@@ -375,9 +381,10 @@ async fn mixed_failed_child_and_unresolved_support_costs_stay_in_denominator() {
             .iter()
             .any(|c| c.contains("Unknown charges")));
         assert!(!comparison.automatic_action);
-        assert_eq!(store.state().watermark, cutoff);
+        assert_eq!(store.current().watermark, cutoff);
         assert!(
             !compare_reports(&store, &access, &report.id, &baseline.id)
+                .await
                 .unwrap()
                 .comparable
         );
@@ -439,7 +446,7 @@ async fn catalog_publication_keeps_raw_attribution_and_prior_revision_across_ref
         let next =
             CatalogRevision::create(Some(first.id.clone()), Timestamp::new(20), None, vec![])
                 .unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(publish_registry(
             &mut store,
             &access,
@@ -450,7 +457,7 @@ async fn catalog_publication_keeps_raw_attribution_and_prior_revision_across_ref
         )
         .await
         .is_err());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         let updated = publish_registry(
             &mut store,
             &access,
@@ -464,7 +471,7 @@ async fn catalog_publication_keeps_raw_attribution_and_prior_revision_across_ref
         assert_eq!(updated.revision, Revision::new(1));
         assert_eq!(original.value.catalog, first);
         let retained: Vec<String> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Projection)
@@ -531,7 +538,7 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
         )
         .await
         .unwrap();
-        let before_ledger = vcp_budget::ledger(store.state(), &scope).unwrap();
+        let before_ledger = vcp_budget::ledger(store.current(), &scope).unwrap();
         let current =
             reserve_attempt(&mut store, &scope, RequestRole::Main, 30, "second-model").await;
         let endpoint = |model: &str| r::ModelEndpoint {
@@ -559,7 +566,8 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
                 excluded: BTreeSet::new(),
                 input_tokens: Units::new(1),
                 output_tokens: Units::new(1),
-                available: money(1000),
+                available: money(1000).into(),
+                candidate_requests: vec![],
                 protected_verification: Micros::ZERO,
                 estimates: vec![],
             },
@@ -646,10 +654,10 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
                 deadline: Timestamp::new(2000),
             },
             ledger_revision: before_ledger.revision,
-            remaining: Micros::new(975),
-            estimated_request: Micros::new(30),
-            estimated_handoff: Micros::ZERO,
-            unresolved: Micros::new(25),
+            remaining: Micros::new(975).into(),
+            estimated_request: Micros::new(30).into(),
+            estimated_handoff: Micros::ZERO.into(),
+            unresolved: Micros::new(25).into(),
         };
         let handoff = e::Handoff {
             packet_sha256: "a".repeat(64),
@@ -659,7 +667,7 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
             routing_decision: decision.id,
             original_artifacts: vec![previous.request],
         };
-        let cutoff = store.state().watermark;
+        let cutoff = store.current().watermark;
         let mut forged = handoff.clone();
         forged.destination_request_sha256 = "0".repeat(64);
         assert!(record_escalation(
@@ -700,7 +708,7 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
         )
         .await
         .is_err());
-        assert_eq!(store.state().watermark, cutoff);
+        assert_eq!(store.current().watermark, cutoff);
         let admitted = record_escalation(
             &mut store,
             &access,
@@ -712,7 +720,7 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
         )
         .await
         .unwrap();
-        let cutoff = store.state().watermark;
+        let cutoff = store.current().watermark;
         assert_eq!(
             record_escalation(
                 &mut store,
@@ -727,7 +735,7 @@ async fn escalation_admission_binds_actual_request_counts_and_reopens_without_du
             .unwrap(),
             admitted
         );
-        assert_eq!(store.state().watermark, cutoff);
+        assert_eq!(store.current().watermark, cutoff);
         store.close().await.unwrap();
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(

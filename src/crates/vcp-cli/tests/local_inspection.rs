@@ -92,7 +92,7 @@ async fn compiled_retained_inspection_pages_references_and_rejects_wrong_selecti
         let fixture = Fixture::new(backend).await;
         let mut store = fixture.reopen().await;
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 fixture.config.root_task.as_str(),
@@ -156,7 +156,7 @@ async fn compiled_retained_inspection_pages_references_and_rejects_wrong_selecti
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: records
                     .into_iter()
                     .map(|record| Mutation::Put {
@@ -287,8 +287,7 @@ async fn compiled_retained_inspection_pages_references_and_rejects_wrong_selecti
         // A genuine canonical commit between attachments invalidates the saved
         // source boundary; this is not a forged cursor or a scope-only failure.
         let mut store = fixture.reopen().await;
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|receipt| receipt.command.as_str() == "observer-open"));
@@ -302,7 +301,7 @@ async fn compiled_retained_inspection_pages_references_and_rejects_wrong_selecti
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record,

@@ -15,14 +15,18 @@ use vcp_protocol::{
 };
 use vcp_store::{artifact::ArtifactWriter, contract::*, BackendKind, Store};
 
-async fn fixture(store: &mut Store) -> Transaction {
+pub(crate) async fn fixture(store: &mut Store) -> Transaction {
     store.transact(common::initial()).await.unwrap();
     let mut writer = store.spool().create(common::spec()).unwrap();
     writer.write_chunk(b"synthetic turn input").unwrap();
     let artifact = writer.finalize().unwrap();
     drop(writer);
     store
-        .transact(common::attach(store.state(), artifact.clone(), None))
+        .transact(common::attach(
+            (&store.archive_state().await.unwrap()),
+            artifact.clone(),
+            None,
+        ))
         .await
         .unwrap();
     let boundary = EventId::new();
@@ -38,7 +42,7 @@ async fn fixture(store: &mut Store) -> Transaction {
         reason: "imported completed boundary for store contract fixture".into(),
     };
     store.transact(Transaction {
-        id:TransactionId::new(),expected_watermark:store.state().watermark,
+        id:TransactionId::new(),expected_watermark:(&store.archive_state().await.unwrap()).watermark,
         mutations:vec![Mutation::Put {expected:None,record:Record::typed(Collection::Turn,turn.id.as_str(),common::workspace().id,Revision::ZERO,&turn).unwrap()}],
         events:vec![EventInput {id:boundary,workspace:common::workspace().id,session:common::session().id,task:Some(common::task().scope.task),actor:ActorId::new(),correlation:CommandId::new(),causation:None,timestamp:Timestamp::new(1),kind:EventKind::TurnTransition,artifacts:vec![],metadata:None,data:serde_json::json!({"schema_version":1,"facts":[{"collection":"turn","id":turn.id,"revision":turn.revision,"value":turn}]})}],command:None,
     }).await.unwrap();
@@ -47,7 +51,7 @@ async fn fixture(store: &mut Store) -> Transaction {
         schema_version: 1,
         source: turn.scope.clone(),
         through_turn: turn.id,
-        through_watermark: store.state().watermark,
+        through_watermark: (&store.archive_state().await.unwrap()).watermark,
         new_session: SessionId::parse("forked-session").unwrap(),
         new_task: TaskId::parse("forked-task").unwrap(),
     };
@@ -100,7 +104,7 @@ async fn fixture(store: &mut Store) -> Transaction {
     source.task = None;
     Transaction {
         id: TransactionId::new(),
-        expected_watermark: store.state().watermark,
+        expected_watermark: (&store.archive_state().await.unwrap()).watermark,
         mutations: vec![
             Mutation::Put {
                 expected: None,
@@ -144,7 +148,7 @@ async fn only_exact_paired_genesis_can_cross_receipt_scope_on_both_stores() {
         let temp = tempfile::tempdir().unwrap();
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         let valid = fixture(&mut store).await;
-        let before = store.state().clone();
+        let before = (&store.archive_state().await.unwrap()).clone();
         for variant in 0..13 {
             let mut bad = valid.clone();
             bad.id = TransactionId::new();
@@ -173,11 +177,21 @@ async fn only_exact_paired_genesis_can_cross_receipt_scope_on_both_stores() {
                 _ => bad.events[1].workspace = WorkspaceId::new(),
             }
             assert!(store.transact(bad).await.is_err(), "variant {variant}");
-            assert_eq!(store.state(), &before, "variant {variant}");
+            assert_eq!(
+                (&store.archive_state().await.unwrap()),
+                &before,
+                "variant {variant}"
+            );
         }
         let committed = store.transact(valid.clone()).await.unwrap();
-        assert_eq!(store.state().records.len(), before.records.len() + 2);
-        assert_eq!(store.state().events.len(), before.events.len() + 2);
+        assert_eq!(
+            (&store.archive_state().await.unwrap()).records.len(),
+            before.records.len() + 2
+        );
+        assert_eq!(
+            (&store.archive_state().await.unwrap()).events.len(),
+            before.events.len() + 2
+        );
         let receipt = committed.command.as_ref().unwrap();
         assert_eq!(receipt.first_event, receipt.last_event);
         assert_eq!(
@@ -185,20 +199,21 @@ async fn only_exact_paired_genesis_can_cross_receipt_scope_on_both_stores() {
             before.sequences[&common::session().id].next().unwrap()
         );
         assert_eq!(
-            store.state().sequences[&SessionId::parse("forked-session").unwrap()],
+            (&store.archive_state().await.unwrap()).sequences
+                [&SessionId::parse("forked-session").unwrap()],
             SessionSeq::new(1)
         );
         assert_eq!(store.transact(valid.clone()).await.unwrap(), committed);
-        let after = store.state().clone();
+        let after = (&store.archive_state().await.unwrap()).clone();
         let mut another = valid;
         another.id = TransactionId::new();
         another.expected_watermark = after.watermark;
         another.command.as_mut().unwrap().command = CommandId::new();
         assert!(store.transact(another).await.is_err());
-        assert_eq!(store.state(), &after);
+        assert_eq!((&store.archive_state().await.unwrap()), &after);
         store.close().await.unwrap();
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert_eq!(store.state(), &after);
+        assert_eq!((&store.archive_state().await.unwrap()), &after);
         store.close().await.unwrap();
     }
 }

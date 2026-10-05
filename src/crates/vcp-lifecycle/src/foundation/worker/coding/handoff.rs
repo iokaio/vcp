@@ -8,36 +8,7 @@ use vcp_domain::effect::Effect;
 
 impl Context {
     pub(in crate::foundation::worker) fn ensure_coding_ledger(&mut self) -> Result<()> {
-        if self
-            .engine
-            .store()
-            .state()
-            .records
-            .values()
-            .any(|r| r.collection == Collection::Ledger && r.id == self.config.root_task.as_str())
-        {
-            return Ok(());
-        }
-        let root: Task = self
-            .engine
-            .store()
-            .state()
-            .record(
-                Collection::Task,
-                self.config.root_task.as_str(),
-                &self.config.workspace,
-            )?
-            .decode()?;
-        let actor = self.actor();
-        self.runtime.block_on(vcp_budget::initialize(
-            self.engine.store_mut(),
-            root.scope,
-            self.config.cap.clone(),
-            self.config.protected,
-            None,
-            &actor,
-        ))?;
-        Ok(())
+        self.initialize_root_budget()
     }
     /// Every outgoing coding boundary has an explicit captured continuation.
     /// No provider opaque state is promoted to instructions or fabricated text.
@@ -66,11 +37,11 @@ impl Context {
         if ids.len() > 4096 {
             return Err("handoff reference count exceeds bound".into());
         }
-        let records = &self.engine.store().state().records;
+        let records = self.engine.store().current().records;
         let ledger: Ledger = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Ledger,
                 self.config.root_task.as_str(),
@@ -80,7 +51,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -123,7 +94,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &binding.scope.workspace)?
                 .decode()?;
             total_bytes = total_bytes

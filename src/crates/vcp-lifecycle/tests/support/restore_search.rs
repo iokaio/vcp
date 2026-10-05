@@ -71,7 +71,7 @@ async fn restored_lexical_rebuild_preserves_untrusted_paused_authority_and_retri
             .await
             .unwrap();
         let after: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 config.workspace.as_str(),
@@ -123,7 +123,7 @@ async fn restored_lexical_rebuild_preserves_untrusted_paused_authority_and_retri
         drop(publisher);
 
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 config.root_task.as_str(),
@@ -134,14 +134,14 @@ async fn restored_lexical_rebuild_preserves_untrusted_paused_authority_and_retri
             .unwrap();
         assert_eq!(task.state, TaskState::Paused);
         assert!(store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::LocalResources
                 && r.value["source"]
                     .as_str()
                     .is_some_and(|s| s.contains("restore-lexical"))));
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         store.close().await.unwrap();
         let repeated = restore_search::rebuild_after_restore(&config, shared_cancel.clone())
             .await
@@ -152,7 +152,7 @@ async fn restored_lexical_rebuild_preserves_untrusted_paused_authority_and_retri
         let store = Store::open(&config.canonical_root, backend, &[])
             .await
             .unwrap();
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         store.close().await.unwrap();
     }
 }

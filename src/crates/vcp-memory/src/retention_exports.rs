@@ -8,12 +8,13 @@ use vcp_store::{
     Store,
 };
 
-pub(super) fn extend(
+pub(super) async fn extend(
     store: &Store,
     workspace: &WorkspaceId,
     dependencies: &mut BTreeMap<Target, BTreeSet<Target>>,
 ) -> Result<()> {
-    for export in vcp_store::export_contract::retention_dependencies(store.state(), workspace)? {
+    for export in vcp_store::export_contract::retention_dependencies_store(store, workspace).await?
+    {
         let sources: BTreeSet<_> = export
             .records
             .into_iter()

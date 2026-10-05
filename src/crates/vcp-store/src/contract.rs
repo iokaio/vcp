@@ -20,9 +20,40 @@ use vcp_protocol::{
 #[path = "agents_contract.rs"]
 mod agents_contract;
 #[path = "ingestion_contract.rs"]
-mod ingestion_contract;
+pub(crate) mod ingestion_contract;
 #[path = "search_contract.rs"]
 mod search_contract;
+#[path = "state_size.rs"]
+mod state_size;
+pub(crate) use state_size::StateSize;
+#[path = "prepared_transition.rs"]
+mod prepared_transition;
+pub(crate) use prepared_transition::PreparedTransition;
+#[path = "current_preparation.rs"]
+pub(crate) mod current_preparation;
+#[cfg(test)]
+#[path = "current_preparation_reference.rs"]
+mod current_preparation_reference;
+#[path = "current_transition.rs"]
+pub(crate) mod current_transition;
+#[cfg(test)]
+#[path = "current_transition_domain_tests.rs"]
+mod current_transition_domain_tests;
+#[path = "current_validation.rs"]
+pub(crate) mod current_validation;
+#[path = "event_history_validation.rs"]
+pub(crate) mod event_history_validation;
+#[path = "mutation_preparation.rs"]
+mod mutation_preparation;
+#[path = "record_validation_facts.rs"]
+mod record_validation_facts;
+#[path = "shared_state.rs"]
+mod shared_state;
+pub use shared_state::SharedStateValue;
+// Qualification only: production keeps complete historical event validation.
+#[cfg(test)]
+#[path = "event_index.rs"]
+mod event_index_qualification;
 
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_TRANSACTION_BYTES: usize = 8 * 1024 * 1024;
@@ -37,7 +68,7 @@ pub const MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
 // their object keys changes byte order, not encoded length. Count that length
 // directly instead of allocating and sorting another complete JSON tree on
 // every replayed commit. Digests and persisted bytes still use canonical_bytes.
-fn encoded_len(value: &impl Serialize) -> Result<usize> {
+pub(crate) fn encoded_len(value: &impl Serialize) -> Result<usize> {
     #[derive(Default)]
     struct Counter(usize);
     impl std::io::Write for Counter {
@@ -519,7 +550,10 @@ impl Record {
             refs.extend(agents_contract::references(self)?);
             return Ok(refs);
         }
-        if crate::editor_contract::kind(self)? { refs.extend(crate::editor_contract::references(self)?); return Ok(refs); }
+        if crate::editor_contract::kind(self)? {
+            refs.extend(crate::editor_contract::references(self)?);
+            return Ok(refs);
+        }
         if let Some(kind) = self.memory_kind()? {
             use vcp_domain::memory::*;
             if let Some(scope) = self.task_scope()? {
@@ -717,7 +751,9 @@ impl Record {
         if crate::observer_contract::kind(self) {
             return crate::observer_contract::scope(self).map(Some);
         }
-        if crate::editor_contract::kind(self)? { return Ok(Some(crate::editor_contract::scope(self)?)); }
+        if crate::editor_contract::kind(self)? {
+            return Ok(Some(crate::editor_contract::scope(self)?));
+        }
         if agents_contract::kind(self)? {
             return Ok(Some(self.decode::<vcp_domain::agents::TaskGraph>()?.scope));
         }
@@ -880,16 +916,92 @@ pub struct Commit {
 #[serde(deny_unknown_fields)]
 pub struct State {
     pub watermark: Watermark,
-    pub records: BTreeMap<String, Record>,
-    pub events: Vec<EventEnvelope>,
-    pub commands: BTreeMap<String, CommandReceipt>,
-    pub transactions: BTreeMap<TransactionId, Receipt>,
+    pub records: SharedStateValue<BTreeMap<String, Record>>,
+    pub events: SharedStateValue<Vec<EventEnvelope>>,
+    pub commands: SharedStateValue<BTreeMap<String, CommandReceipt>>,
+    pub transactions: SharedStateValue<BTreeMap<TransactionId, Receipt>>,
     pub sequences: BTreeMap<SessionId, SessionSeq>,
+}
+/// Publication checks inspect the prior records and receipts, never prior
+/// event payloads. Keeping that boundary explicit lets private replay transfer
+/// owned history after the checks that require the complete prior State.
+#[derive(Clone, Copy)]
+pub(crate) struct RecordView<'a> {
+    pub watermark: Watermark,
+    pub records: &'a BTreeMap<String, Record>,
+    transactions: &'a BTreeMap<TransactionId, Receipt>,
+    excluded_transaction: Option<&'a TransactionId>,
+}
+impl<'a> RecordView<'a> {
+    pub fn transaction(&self, id: &TransactionId) -> Option<&'a Receipt> {
+        if self.excluded_transaction == Some(id) {
+            None
+        } else {
+            self.transactions.get(id)
+        }
+    }
+    pub fn record(
+        &self,
+        collection: Collection,
+        id: &str,
+        workspace: &WorkspaceId,
+    ) -> Result<&'a Record> {
+        let record = self
+            .records
+            .get(&key(collection, id))
+            .ok_or(Error::Conflict("record not found"))?;
+        if &record.workspace != workspace {
+            return Err(Error::Access);
+        }
+        Ok(record)
+    }
+}
+enum Preparation<'a> {
+    Borrowed(&'a State),
+    Owned(State),
+}
+impl std::ops::Deref for Preparation<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        match self {
+            Self::Borrowed(state) => state,
+            Self::Owned(state) => state,
+        }
+    }
+}
+impl Preparation<'_> {
+    fn history(&mut self) -> SharedStateValue<Vec<EventEnvelope>> {
+        match self {
+            Self::Borrowed(state) => state.events.clone(),
+            Self::Owned(state) => std::mem::take(&mut state.events),
+        }
+    }
+    fn commands(&mut self) -> SharedStateValue<BTreeMap<String, CommandReceipt>> {
+        match self {
+            Self::Borrowed(state) => state.commands.clone(),
+            Self::Owned(state) => std::mem::take(&mut state.commands),
+        }
+    }
+    fn transactions(&mut self) -> SharedStateValue<BTreeMap<TransactionId, Receipt>> {
+        match self {
+            Self::Borrowed(state) => state.transactions.clone(),
+            Self::Owned(state) => std::mem::take(&mut state.transactions),
+        }
+    }
 }
 pub fn command_key(workspace: &WorkspaceId, command: &CommandId) -> String {
     format!("{workspace}:{command}")
 }
 impl State {
+    pub(crate) fn record_view(&self) -> RecordView<'_> {
+        RecordView {
+            watermark: self.watermark,
+            records: &self.records,
+            transactions: &self.transactions,
+            excluded_transaction: None,
+        }
+    }
+    #[cfg(test)]
     fn memory_version(
         &self,
         id: &ClaimVersionId,
@@ -897,6 +1009,7 @@ impl State {
     ) -> Result<(ClaimId, ProposalId, MemorySeq)> {
         crate::redaction_contract::version_identity(self, id, workspace)
     }
+    #[cfg(test)]
     fn validate_memory(&self, record: &Record) -> Result<()> {
         use vcp_domain::memory::*;
         match record.memory_kind()? {
@@ -1021,14 +1134,78 @@ impl State {
         }
     }
     pub fn validate(&self) -> Result<()> {
+        self.validate_sized(None)
+    }
+    fn validate_sized(&self, size: Option<StateSize>) -> Result<()> {
+        self.validate_observed(size, None)
+    }
+    fn validate_observed(
+        &self,
+        size: Option<StateSize>,
+        mut phases: Option<&mut crate::ValidationPhases>,
+    ) -> Result<()> {
+        use crate::diagnostics::observe;
+        observe(phases.as_deref_mut().map(|p| &mut p.capacity), || {
+            self.validate_capacity(size)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.records), || {
+            let result = self.validate_records();
+            #[cfg(test)]
+            {
+                let reference = self.validate_records_reference();
+                assert_eq!(
+                    result.as_ref().map_err(|error| error.to_string()),
+                    reference.as_ref().map_err(|error| error.to_string()),
+                    "current-only record validator differs from complete-State reference"
+                );
+            }
+            result
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.events), || {
+            self.validate_event_history()
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.redaction), || {
+            crate::redaction_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.accounting), || {
+            crate::accounting_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.ingestion), || {
+            ingestion_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.search), || {
+            search_contract::validate(self)
+        })?;
+        observe(phases.as_deref_mut().map(|p| &mut p.agents), || {
+            agents_contract::validate(self)
+        })?;
+        Ok(())
+    }
+    fn validate_capacity(&self, size: Option<StateSize>) -> Result<()> {
         if self.records.len() > MAX_RECORDS {
             return Err(Error::Limit("canonical record count"));
         }
-        if encoded_len(self)? > MAX_STATE_BYTES {
+        let bytes = match size {
+            Some(size) => size.bytes(),
+            None => encoded_len(self)?,
+        };
+        if bytes > MAX_STATE_BYTES {
             return Err(Error::Limit(
                 "canonical view bytes; explicit migration required",
             ));
         }
+        Ok(())
+    }
+    fn validate_records(&self) -> Result<()> {
+        current_validation::validate_records(
+            self.into(),
+            &mut crate::historical_facts::StateEventFacts::new(self),
+        )
+    }
+    // Frozen complete-State reference retained for differential qualification.
+    #[cfg(test)]
+    fn validate_records_reference(&self) -> Result<()> {
+        let mut facts = record_validation_facts::RecordFacts::default();
         for (key, record) in &self.records {
             if &record.key() != key {
                 return Err(Error::Corruption("canonical key"));
@@ -1069,16 +1246,18 @@ impl State {
             }
             crate::snapshot_inputs::component_scope(self, record)?;
             for reference in record.required_references()? {
-                let target = self
+                let (target_key, target) = self
                     .records
-                    .get(&reference)
+                    .get_key_value(&reference)
                     .ok_or(Error::Corruption("missing canonical reference"))?;
                 if target.workspace != record.workspace {
                     return Err(Error::Access);
                 }
                 let backup_provenance =
                     crate::snapshot_inputs::cross_task_provenance(record, target, &reference)?;
-                if let (Some(source), Some(target)) = (record.task_scope()?, target.task_scope()?) {
+                if let (Some(source), Some(target)) =
+                    (facts.scope(key, record)?, facts.scope(target_key, target)?)
+                {
                     // Fork and parent links are explicit task relationships. Data
                     // belonging to another task cannot be reused as this task's
                     // turn input, verification, approval, or effect observation.
@@ -1096,7 +1275,7 @@ impl State {
                     }
                 }
             }
-            if let Some(scope) = record.task_scope()? {
+            if let Some(scope) = facts.scope(key, record)? {
                 let task: Task = self
                     .record(Collection::Task, scope.task.as_str(), &scope.workspace)?
                     .decode()?;
@@ -1147,357 +1326,129 @@ impl State {
                 }
             }
         }
-        let mut event_ids = BTreeSet::new();
-        let mut sequences = BTreeMap::<SessionId, SessionSeq>::new();
-        for event in &self.events {
-            if event.version != 1
-                || event.watermark > self.watermark
-                || !event_ids.insert(event.event.id.clone())
-            {
-                return Err(Error::Corruption("event identity"));
-            }
-            self.record(
-                Collection::Session,
-                event.event.session.as_str(),
-                &event.event.workspace,
-            )?;
-            if let Some(task) = &event.event.task {
-                let task: Task = self
-                    .record(Collection::Task, task.as_str(), &event.event.workspace)?
-                    .decode()?;
-                if task.scope.session != event.event.session {
-                    return Err(Error::Access);
-                }
-            }
-            for artifact in &event.event.artifacts {
-                let artifact: ArtifactDescriptor = self
-                    .record(
-                        Collection::Artifact,
-                        artifact.as_str(),
-                        &event.event.workspace,
-                    )?
-                    .decode()?;
-                if artifact.spec.scope.session != event.event.session
-                    || event
-                        .event
-                        .task
-                        .as_ref()
-                        .is_some_and(|t| t != &artifact.spec.scope.task)
-                {
-                    return Err(Error::Access);
-                }
-            }
-            let expected = sequences
-                .get(&event.event.session)
-                .copied()
-                .unwrap_or_default()
-                .next()?;
-            if event.sequence != expected {
-                return Err(Error::Corruption("event sequence gap or duplicate"));
-            }
-            sequences.insert(event.event.session.clone(), expected);
-        }
-        if sequences != self.sequences {
-            return Err(Error::Corruption("session watermark"));
-        }
-        crate::redaction_contract::validate(self)?;
-        crate::accounting_contract::validate(self)?;
-        ingestion_contract::validate(self)?;
-        search_contract::validate(self)?;
-        agents_contract::validate(self)?;
         Ok(())
     }
+    fn validate_event_history(&self) -> Result<()> {
+        let mut validator = event_history_validation::EventHistoryValidator::new(
+            self.watermark,
+            &self.records,
+            &self.sequences,
+        );
+        validator.extend(self.events.iter().map(Ok))?;
+        validator.finish()
+    }
     pub fn prepare(&self, transaction: &Transaction) -> Result<(Self, Commit)> {
-        let bytes = canonical_bytes(transaction)?;
-        if bytes.len() > MAX_TRANSACTION_BYTES {
-            return Err(Error::Limit("transaction bytes"));
-        }
-        let digest = digest_bytes(&bytes);
-        if let Some(receipt) = self.transactions.get(&transaction.id) {
-            if receipt.digest != digest {
-                return Err(Error::Conflict("transaction ID reused"));
-            }
-            return Ok((
-                self.clone(),
-                Commit {
-                    version: FORMAT_VERSION,
-                    transaction: transaction.clone(),
-                    receipt: receipt.clone(),
-                },
-            ));
-        }
-        if transaction.expected_watermark != self.watermark {
-            return Err(Error::Conflict("stale canonical watermark"));
-        }
-        crate::memory_review_contract::transaction(self, transaction)?;
-        let watermark = self.watermark.next()?;
-        let mut result = self.clone();
-        result.watermark = watermark;
-        let mut touched = BTreeSet::new();
-        for mutation in &transaction.mutations {
-            match mutation {
-                Mutation::Put { expected, record } => {
-                    let late_accounting = crate::accounting_contract::redacted_attempt_update(
-                        self,
-                        transaction,
-                        record,
-                    )?;
-                    if crate::redaction_contract::kind(record)?.is_some()
-                        || (matches!(
-                            record.collection,
-                            Collection::Task
-                                | Collection::Turn
-                                | Collection::Effect
-                                | Collection::Verification
-                                | Collection::Attempt
-                                | Collection::Settlement
-                        ) && record.value.get("redaction").is_some_and(|v| !v.is_null())
-                            && !late_accounting)
-                        || (record.collection == Collection::Attempt
-                            && !late_accounting
-                            && record
-                                .value
-                                .get("redacted_at_revision")
-                                .is_some_and(|value| !value.is_null()))
-                        || (record.collection == Collection::Settlement
-                            && record
-                                .value
-                                .get("observation_digest")
-                                .is_some_and(|v| !v.is_null()))
-                        || (record.collection == Collection::Artifact
-                            && record.decode::<ArtifactDescriptor>()?.state
-                                == vcp_domain::artifact::CaptureState::Purged)
-                    {
-                        return Err(Error::Conflict("redaction requires sealed rewrite"));
-                    }
-                    let key = record.key();
-                    if !touched.insert(key.clone()) {
-                        return Err(Error::Conflict("duplicate mutation"));
-                    }
-                    match (self.records.get(&key), expected) {
-                        (None, None) if record.revision == Revision::ZERO => {
-                            if record.controller_lease()? {
-                                record
-                                    .decode::<vcp_domain::controller::Lease>()?
-                                    .validate()?;
-                            }
-                            ingestion_contract::insert(record)?;
-                            crate::snapshot_jobs::insert(self, record)?;
-                        }
-                        (Some(previous), Some(expected))
-                            if previous.revision == *expected
-                                && record.revision == expected.next()?
-                                && previous.workspace == record.workspace =>
-                        {
-                            if previous.controller_lease()? != record.controller_lease()? {
-                                return Err(Error::Conflict(
-                                    "controller lease document type changed",
-                                ));
-                            }
-                            if previous.controller_lease()? {
-                                previous
-                                    .decode::<vcp_domain::controller::Lease>()?
-                                    .validate_transition(&record.decode()?)?;
-                            }
-                            if matches!(
-                                previous.collection,
-                                Collection::Task
-                                    | Collection::Turn
-                                    | Collection::Effect
-                                    | Collection::Verification
-                                    | Collection::Attempt
-                                    | Collection::Settlement
-                            ) && previous
-                                .value
-                                .get("redaction")
-                                .is_some_and(|value| !value.is_null())
-                                && !late_accounting
-                            {
-                                return Err(Error::Conflict(
-                                    "redacted evidence cannot be replaced",
-                                ));
-                            }
-                            crate::accounting_contract::transition(previous, record)?;
-                            ingestion_contract::transition(previous, record)?;
-                            search_contract::transition(previous, record)?;
-                            agents_contract::transition(previous, record)?;
-                            crate::editor_contract::transition(previous, record)?;
-                            crate::snapshot_jobs::transition(previous, record)?;
-                            if previous.immutable_memory()? {
-                                return Err(Error::Conflict("immutable memory evidence"));
-                            }
-                            if previous.memory_kind()? != record.memory_kind()? {
-                                return Err(Error::Conflict("memory document type changed"));
-                            }
-                            if previous.memory_kind()? == Some("vcp_memory_sequence_v1") {
-                                let before: vcp_domain::memory::MemoryHead = previous.decode()?;
-                                let after: vcp_domain::memory::MemoryHead = record.decode()?;
-                                if after.sequence <= before.sequence {
-                                    return Err(Error::Conflict("memory sequence must advance"));
-                                }
-                            }
-                            if previous.memory_kind()? == Some("vcp_memory_index_intent_v1") {
-                                let mut before: vcp_domain::memory::IndexIntent =
-                                    previous.decode()?;
-                                let after: vcp_domain::memory::IndexIntent = record.decode()?;
-                                before.revision = after.revision;
-                                before.status = after.status;
-                                if before != after {
-                                    return Err(Error::Conflict(
-                                        "memory index intent identity changed",
-                                    ));
-                                }
-                            }
-                            if matches!(
-                                record.collection,
-                                Collection::Verification
-                                    | Collection::Settlement
-                                    | Collection::LocalResources
-                            ) {
-                                return Err(Error::Conflict("immutable evidence record"));
-                            }
-                            if record.collection == Collection::Artifact {
-                                let prior: ArtifactDescriptor = previous.decode()?;
-                                let next: ArtifactDescriptor = record.decode()?;
-                                if prior.state != vcp_domain::artifact::CaptureState::Pending
-                                    || next.length < prior.length
-                                    || prior.spec.id != next.spec.id
-                                {
-                                    return Err(Error::Conflict(
-                                        "immutable or regressing artifact",
-                                    ));
-                                }
-                            }
-                        }
-                        _ => return Err(Error::Conflict("entity revision or identity")),
-                    }
-                    result.records.insert(key, record.clone());
-                }
-                Mutation::DropProjection { id, expected } => {
-                    let key = key(Collection::Projection, id);
-                    if self
-                        .records
-                        .get(&key)
-                        .map(crate::editor_contract::kind)
-                        .transpose()?
-                        .unwrap_or(false)
-                    {
-                        return Err(Error::Conflict("durable editor authority cannot be dropped"));
-                    }
-                    if self
-                        .records
-                        .get(&key)
-                        .map(agents_contract::kind)
-                        .transpose()?
-                        .unwrap_or(false)
-                    {
-                        return Err(Error::Conflict("durable graph cannot be dropped"));
-                    }
-                    if self
-                        .records
-                        .get(&key)
-                        .map(Record::immutable_memory)
-                        .transpose()?
-                        .unwrap_or(false)
-                    {
-                        return Err(Error::Conflict("immutable memory evidence"));
-                    }
-                    if !touched.insert(key.clone())
-                        || self
-                            .records
-                            .get(&key)
-                            .is_none_or(|r| r.revision != *expected)
-                    {
-                        return Err(Error::Conflict("projection revision"));
-                    }
-                    result.records.remove(&key);
-                }
-            }
-        }
-        let mut first = SessionSeq::ZERO;
-        let mut last = SessionSeq::ZERO;
-        for event in &transaction.events {
-            let sequence = result
-                .sequences
-                .get(&event.session)
-                .copied()
-                .unwrap_or_default()
-                .next()?;
-            result.sequences.insert(event.session.clone(), sequence);
-            if transaction
-                .command
-                .as_ref()
-                .is_some_and(|c| c.session == event.session)
-            {
-                if first == SessionSeq::ZERO {
-                    first = sequence;
-                }
-                last = sequence;
-            }
-            result.events.push(EventEnvelope {
-                redaction: None,
-                version: 1,
-                sequence,
-                watermark,
-                event: event.clone(),
-            });
-        }
-        let command = if let Some(input) = &transaction.command {
-            result.record(
-                Collection::Session,
-                input.session.as_str(),
-                &input.workspace,
-            )?;
-            if input.digest.len() != 64
-                || !input
-                    .digest
-                    .bytes()
-                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-            {
-                return Err(Error::Corruption("command digest"));
-            }
-            if crate::fork_contract::marked(transaction)
-                || transaction.events.iter().any(|e| {
-                    e.workspace != input.workspace
-                        || e.session != input.session
-                        || e.correlation != input.command
-                })
-            {
-                crate::fork_contract::validate(self, transaction)?;
-            }
-            let key = command_key(&input.workspace, &input.command);
-            if result.commands.contains_key(&key) {
-                return Err(Error::Conflict("command already committed"));
-            }
-            let receipt = CommandReceipt {
-                version: 1,
-                command: input.command.clone(),
-                workspace: input.workspace.clone(),
-                digest: input.digest.clone(),
-                transaction: transaction.id.clone(),
-                watermark,
-                first_event: first,
-                last_event: last,
-                result: input.result.clone(),
-            };
-            result.commands.insert(key, receipt.clone());
-            Some(receipt)
-        } else {
-            None
-        };
-        let receipt = Receipt {
-            transaction: transaction.id.clone(),
-            digest,
-            watermark,
-            command,
-        };
+        Self::prepare_from(Preparation::Borrowed(self), transaction, None, None)
+    }
+    pub(crate) fn prepare_observed(
+        &self,
+        transaction: &Transaction,
+        diagnostics: &mut crate::StoreDiagnostics,
+        size: &mut StateSize,
+    ) -> Result<(Self, Commit)> {
+        let started = std::time::Instant::now();
+        let result = Self::prepare_from(
+            Preparation::Borrowed(self),
+            transaction,
+            Some(diagnostics),
+            Some(size),
+        );
+        diagnostics.preparation.record(started, result.is_ok());
         result
-            .transactions
-            .insert(transaction.id.clone(), receipt.clone());
-        result.validate()?;
-        crate::accounting_contract::admission(self, &result, transaction)?;
-        search_contract::publication(self, &result, transaction)?;
-        agents_contract::publication(self, &result)?;
+    }
+    fn prepare_from(
+        mut source: Preparation<'_>,
+        transaction: &Transaction,
+        diagnostics: Option<&mut crate::StoreDiagnostics>,
+        mut size: Option<&mut StateSize>,
+    ) -> Result<(Self, Commit)> {
+        let current = crate::CurrentState::from_state(&source);
+        let proposed = match current_preparation::propose(
+            &current,
+            transaction,
+            &mut current_preparation::StateHistory(&source),
+        )? {
+            current_preparation::Outcome::Duplicate(receipt) => {
+                return Ok((
+                    source.clone(),
+                    Commit {
+                        version: FORMAT_VERSION,
+                        transaction: transaction.clone(),
+                        receipt,
+                    },
+                ));
+            }
+            current_preparation::Outcome::Proposed(proposed) => proposed,
+        };
+        // Account for the typed delta before transferring any retained rows.
+        // No partial archival State is constructed or passed to a validator.
+        let next_size = size
+            .as_deref()
+            .map(|size| size.next_proposal(&source, &proposed))
+            .transpose()?;
+        let current_preparation::ProposedTransition {
+            current,
+            mut events,
+            receipt,
+            ..
+        } = proposed;
+        let mut history = source.history();
+        if !events.is_empty() {
+            history.append(&mut events);
+        }
+        let mut commands = source.commands();
+        if let Some(command) = &receipt.command {
+            commands.insert(
+                command_key(&command.workspace, &command.command),
+                command.clone(),
+            );
+        }
+        let mut transactions = source.transactions();
+        transactions.insert(transaction.id.clone(), receipt.clone());
+        // Construct a complete archival DTO at once: every retained event and
+        // receipt is present before any validation or publication can occur.
+        let result = State {
+            watermark: current.watermark,
+            records: current.records,
+            events: history,
+            commands,
+            transactions,
+            sequences: current.sequences,
+        };
+        if let Some(diagnostics) = diagnostics {
+            if next_size.is_some() {
+                diagnostics.state_size_delta_updates =
+                    diagnostics.state_size_delta_updates.saturating_add(1);
+            }
+            let started = std::time::Instant::now();
+            let validation =
+                result.validate_observed(next_size, Some(&mut diagnostics.validation_phases));
+            diagnostics.validation.record(started, validation.is_ok());
+            diagnostics.validation_input_records = diagnostics
+                .validation_input_records
+                .saturating_add(result.records.len() as u64);
+            diagnostics.validation_input_events = diagnostics
+                .validation_input_events
+                .saturating_add(result.events.len() as u64);
+            validation?;
+        } else {
+            result.validate_sized(next_size)?;
+        }
+        // The only receipt added above is the current transaction, whose prior
+        // absence was checked before preparation. Excluding it recreates the
+        // exact prior receipt lookup without cloning the historical map.
+        let before = RecordView {
+            watermark: source.watermark,
+            records: &source.records,
+            transactions: &result.transactions,
+            excluded_transaction: Some(&transaction.id),
+        };
+        crate::accounting_contract::admission(before, &result, transaction)?;
+        search_contract::publication(before, &result, transaction)?;
+        agents_contract::publication(before, &result)?;
+        if let (Some(size), Some(next_size)) = (size.as_deref_mut(), next_size) {
+            *size = next_size;
+        }
         Ok((
             result,
             Commit {
@@ -1508,30 +1459,137 @@ impl State {
         ))
     }
     pub fn replay(&mut self, commit: &Commit) -> Result<()> {
+        *self = Self::replay_from(Preparation::Borrowed(self), commit, None, None)?;
+        Ok(())
+    }
+    /// Private reconstruction discards the owned state on any invalid commit.
+    /// Public replay retains its original atomic failure contract.
+    pub(crate) fn into_replayed(self, commit: &Commit) -> Result<Self> {
+        Self::replay_from(Preparation::Owned(self), commit, None, None)
+    }
+    pub(crate) fn into_replayed_observed(
+        self,
+        commit: &Commit,
+        diagnostics: &mut crate::StoreDiagnostics,
+        size: &mut StateSize,
+    ) -> Result<Self> {
+        let mut candidate = *size;
+        let result = Self::replay_from(
+            Preparation::Owned(self),
+            commit,
+            Some(diagnostics),
+            Some(&mut candidate),
+        );
+        if result.is_ok() {
+            *size = candidate;
+        }
+        result
+    }
+    fn replay_from(
+        source: Preparation<'_>,
+        commit: &Commit,
+        diagnostics: Option<&mut crate::StoreDiagnostics>,
+        size: Option<&mut StateSize>,
+    ) -> Result<Self> {
         if commit.version != FORMAT_VERSION {
             return Err(Error::Incompatible);
         }
-        if self.transactions.contains_key(&commit.transaction.id) {
+        if source.transactions.contains_key(&commit.transaction.id) {
             return Err(Error::Corruption("duplicate persisted transaction"));
         }
-        let (next, expected) = self.prepare(&commit.transaction)?;
+        let (next, expected) = Self::prepare_from(source, &commit.transaction, diagnostics, size)?;
         if expected != *commit {
             return Err(Error::Corruption("durable receipt mismatch"));
         }
-        *self = next;
-        Ok(())
+        Ok(next)
     }
 }
 
+#[path = "reference_store.rs"]
+#[doc(hidden)]
+pub mod reference;
+
+/// The serialized canonical owner exposes current records and authenticated,
+/// fallible history reads. Complete State materialization is explicit archival
+/// work and is never an ordinary-read default.
 #[allow(async_fn_in_trait)]
 pub trait CanonicalStore {
-    fn state(&self) -> &State;
+    fn current(&self) -> crate::CurrentStateView<'_>;
+    async fn history_event_count(&self) -> Result<u64>;
+    async fn history_events(&self, after: Option<u64>, limit: usize) -> Result<Vec<EventEnvelope>>;
+    async fn history_commands(
+        &self,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, CommandReceipt)>>;
+    async fn history_artifact_events(
+        &self,
+        workspace: &WorkspaceId,
+        artifact: &ArtifactId,
+        after: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, EventEnvelope)>>;
+    async fn history_event_at(&self, ordinal: u64) -> Result<Option<EventEnvelope>>;
+    async fn history_event(&self, id: &EventId) -> Result<Option<EventEnvelope>>;
+    async fn command_receipt_by_id(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>>;
+    async fn command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+        digest: &str,
+    ) -> Result<Option<CommandReceipt>>;
+    async fn scoped_command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        session: &SessionId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>>;
+    async fn transaction_receipt(&self, id: &TransactionId) -> Result<Option<Receipt>>;
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt>;
+    /// Explicit complete legacy archival DTO; implementations enforce its
+    /// capacity and fail rather than synthesize partial historical state.
+    async fn archive_state(&self) -> Result<State>;
 }
+
+#[cfg(test)]
+#[path = "replay_owned_tests.rs"]
+mod replay_owned_tests;
+
+#[cfg(test)]
+#[path = "search_contract_tests.rs"]
+mod search_contract_tests;
 
 #[cfg(test)]
 mod size_tests {
     use super::*;
+
+    #[test]
+    fn validation_observations_preserve_error_and_stop_at_failed_phase() {
+        let mut state = State::default();
+        state
+            .records
+            .insert("wrong-key".into(), record(serde_json::json!({})));
+        let mut phases = crate::ValidationPhases::default();
+        let error = state
+            .validate_observed(None, Some(&mut phases))
+            .unwrap_err();
+        assert_eq!(error.to_string(), state.validate().unwrap_err().to_string());
+        assert!(matches!(error, Error::Corruption("canonical key")));
+        assert_eq!(phases.capacity.completed, 1);
+        assert_eq!(phases.capacity.failed, 0);
+        assert_eq!(phases.records.completed, 1);
+        assert_eq!(phases.records.failed, 1);
+        assert_eq!(phases.events.completed, 0);
+        assert_eq!(phases.redaction.completed, 0);
+        assert_eq!(phases.accounting.completed, 0);
+        assert_eq!(phases.ingestion.completed, 0);
+        assert_eq!(phases.search.completed, 0);
+        assert_eq!(phases.agents.completed, 0);
+    }
 
     fn record(value: serde_json::Value) -> Record {
         Record {

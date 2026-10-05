@@ -2,20 +2,40 @@
 #[cfg(test)]
 extern crate self as vcp_store;
 mod accounting_contract;
+mod admitted_history;
 pub mod artifact;
 mod backend;
+mod canonical_history;
+mod canonical_lock;
 pub mod contract;
+mod current_size;
+mod current_state;
+mod diagnostics;
+mod durable_owner;
 pub mod export_contract;
 mod forecast_contract;
 mod fork_contract;
+mod historical_facts;
+mod history;
+mod history_blob;
+mod history_catalog;
+mod history_index;
+mod history_predicate_reuse;
+mod history_publication;
+mod journal_frame;
 pub mod keys;
+mod legacy_state_stream;
+#[cfg(test)]
+mod legacy_store_fixture;
 mod memory_review_contract;
 pub mod migration;
+mod observer_contract;
+mod original_commits;
 pub mod portable_snapshot;
 mod private_paths;
 mod redaction_contract;
-mod observer_contract;
 mod replay_base;
+mod resolved_history;
 mod restore_authority;
 pub mod restore_import;
 pub mod restore_stage;
@@ -23,10 +43,19 @@ pub mod rewrite;
 pub mod snapshot_inputs;
 pub mod snapshot_jobs;
 mod store;
+mod store_format;
+mod store_history_reader;
 pub mod trust_store;
 pub mod vault_crypto;
 pub mod vault_publish;
 pub use backend::{BackendKind, Barrier};
+pub use canonical_history::CanonicalHistory;
+pub use current_state::{CurrentState, CurrentStateView};
+pub use diagnostics::{
+    EventValidationWork, HistoryReadPhases, HistoryReads, StoreDiagnostics, StorePhase,
+    ValidationPhases,
+};
+pub use history::{CommandHistoryPage, EventHistoryPage};
 pub use store::{snapshot_pin_active, Snapshot, Store};
 
 #[derive(Debug, thiserror::Error)]

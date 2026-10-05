@@ -1,12 +1,73 @@
 // SPDX-License-Identifier: Apache-2.0
 #[path = "../../vcp-store/tests/common/mod.rs"]
 mod common;
+#[path = "accounting/current.rs"]
+mod current;
+#[path = "accounting/unknown_estimates.rs"]
+mod unknown_estimates;
 use std::collections::BTreeMap;
 use vcp_budget::{arithmetic::*, *};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, task::*, workspace::*};
 use vcp_store::{artifact::ArtifactWriter, contract::*, BackendKind, Store};
 fn currency() -> Currency {
     "USD".to_owned().try_into().unwrap()
+}
+
+#[tokio::test]
+async fn explicit_unbounded_ledger_preserves_history_and_attempt_identity() {
+    for kind in [BackendKind::Files, BackendKind::Sqlite] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut store = setup(temporary.path(), kind, 100, 0).await;
+        let scope = common::task().scope;
+        let original =
+            vcp_protocol::canonical_bytes(&store.archive_state().await.unwrap().events).unwrap();
+        let count = store.archive_state().await.unwrap().events.len();
+        let unlimited = suspend_constraints(&mut store, &scope, &actor())
+            .await
+            .unwrap();
+        assert!(unlimited.cap.is_unbounded());
+        assert_eq!(
+            vcp_protocol::canonical_bytes(&&store.archive_state().await.unwrap().events[..count])
+                .unwrap(),
+            original
+        );
+        let watermark = store.current().watermark;
+        assert_eq!(
+            suspend_constraints(&mut store, &scope, &actor())
+                .await
+                .unwrap(),
+            unlimited
+        );
+        assert_eq!(store.current().watermark, watermark);
+
+        let request = capture(&mut store, &scope, b"identity protected request").await;
+        let input = admission(&store, &scope, &request, 500);
+        let (mut corrupt, _) = prepare_admission(store.current(), &input, &actor()).unwrap();
+        corrupt.mutations.retain(|mutation| !matches!(mutation, Mutation::Put {record,..} if record.collection == Collection::Reservation));
+        assert!(store.transact(corrupt).await.is_err());
+        let admitted = reserve(&mut store, input.clone(), &actor()).await.unwrap();
+        let watermark = store.current().watermark;
+        assert_eq!(
+            reserve(&mut store, input, &actor()).await.unwrap(),
+            admitted
+        );
+        assert_eq!(store.current().watermark, watermark);
+        let released = release_before_send(&mut store, &admitted.id, &scope, &actor())
+            .await
+            .unwrap();
+        let watermark = store.current().watermark;
+        assert_eq!(
+            release_before_send(&mut store, &admitted.id, &scope, &actor())
+                .await
+                .unwrap(),
+            released
+        );
+        assert_eq!(store.current().watermark, watermark);
+        assert_eq!(
+            ledger(store.current(), &scope).unwrap().active,
+            Micros::ZERO
+        );
+    }
 }
 
 #[tokio::test]
@@ -29,9 +90,9 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
         let prior = observe(&mut store, original.clone(), &actor())
             .await
             .unwrap();
-        let accounting = ledger(store.state(), &scope).unwrap();
+        let accounting = ledger(store.current(), &scope).unwrap();
         let mut task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, scope.task.as_str(), &scope.workspace)
             .unwrap()
             .decode()
@@ -40,7 +101,7 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
         task.revision = task.revision.next().unwrap();
         task.state = TaskState::Cancelled;
         let mut workspace: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 scope.workspace.as_str(),
@@ -55,7 +116,7 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(task_revision),
@@ -90,22 +151,25 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
             key(Collection::Settlement, original.id.as_str()),
         ]);
         let events = store
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .map(|event| event.event.id.clone())
             .collect();
         let candidate = store
             .retention_candidate(&records, &events, &BTreeSet::from([scope.task.clone()]))
+            .await
             .unwrap();
         store.rewrite_base(candidate, &[]).await.unwrap();
-        assert!(
-            !String::from_utf8(serde_json::to_vec(store.state()).unwrap())
-                .unwrap()
-                .contains(MARKER)
-        );
-        assert_eq!(ledger(store.state(), &scope).unwrap(), accounting);
-        let watermark = store.state().watermark;
+        assert!(!String::from_utf8(
+            serde_json::to_vec(&store.archive_state().await.unwrap()).unwrap()
+        )
+        .unwrap()
+        .contains(MARKER));
+        assert_eq!(ledger(store.current(), &scope).unwrap(), accounting);
+        let watermark = store.current().watermark;
         let retry = observe(&mut store, original.clone(), &actor())
             .await
             .unwrap();
@@ -114,17 +178,17 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
             (retry.total, retry.adjustment),
             (prior.total, prior.adjustment)
         );
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         let mut changed = original.clone();
         changed.correction.as_mut().unwrap().reason.push('!');
         assert!(observe(&mut store, changed, &actor()).await.is_err());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         // A later bill is new evidence. Purging historical narrative must not
         // erase a newly discovered liability or prevent actual cost settlement.
         let partial = usage(&mut store, &started, 60, 2, false).await;
         observe(&mut store, partial, &actor()).await.unwrap();
         assert_eq!(
-            attempt(store.state(), &started.id, &scope.workspace)
+            attempt(store.current(), &started.id, &scope.workspace)
                 .unwrap()
                 .phase,
             ReservationState::ReconciliationPending
@@ -142,10 +206,10 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
             .await
             .unwrap();
         assert_eq!(
-            ledger(store.state(), &scope).unwrap().settled,
+            ledger(store.current(), &scope).unwrap().settled,
             Micros::new(70)
         );
-        assert!(attempt(store.state(), &started.id, &scope.workspace)
+        assert!(attempt(store.current(), &started.id, &scope.workspace)
             .unwrap()
             .redaction
             .is_some());
@@ -153,17 +217,19 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
             observe(&mut store, original, &actor()).await.unwrap(),
             retry
         );
-        assert!(
-            !String::from_utf8(serde_json::to_vec(store.state()).unwrap())
-                .unwrap()
-                .contains(MARKER)
-        );
+        assert!(!String::from_utf8(
+            serde_json::to_vec(&store.archive_state().await.unwrap()).unwrap()
+        )
+        .unwrap()
+        .contains(MARKER));
         let second_records = BTreeSet::from([
             key(Collection::Attempt, started.id.as_str()),
             key(Collection::Settlement, final_bill.id.as_str()),
         ]);
         let events = store
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .filter(|event| event.redaction.is_none())
@@ -175,13 +241,16 @@ async fn purged_accounting_preserves_exact_retry_and_new_late_usage() {
                 &events,
                 &BTreeSet::from([scope.task.clone()]),
             )
+            .await
             .unwrap();
         store.rewrite_base(candidate, &[]).await.unwrap();
-        let bytes = String::from_utf8(serde_json::to_vec(store.state()).unwrap()).unwrap();
+        let bytes =
+            String::from_utf8(serde_json::to_vec(&store.archive_state().await.unwrap()).unwrap())
+                .unwrap();
         assert!(!bytes.contains("fresh late accounting explanation"));
         assert!(!bytes.contains("fresh reconciled uncertainty"));
         assert_eq!(
-            ledger(store.state(), &scope).unwrap().settled,
+            ledger(store.current(), &scope).unwrap().settled,
             Micros::new(70)
         );
         assert!(observe(&mut store, final_bill, &actor())
@@ -200,7 +269,7 @@ async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocati
         let scope = common::task().scope;
         let request = capture(&mut store, &scope, b"protected request").await;
         let input = admission(&store, &scope, &request, 10);
-        let (mut forged, _) = prepare_admission(store.state(), &input, &actor()).unwrap();
+        let (mut forged, _) = prepare_admission(store.current(), &input, &actor()).unwrap();
         for mutation in &mut forged.mutations {
             if let Mutation::Put { record, .. } = mutation {
                 if record.collection == Collection::Ledger {
@@ -210,9 +279,9 @@ async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocati
                 }
             }
         }
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(store.transact(forged).await.is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         let mut child = common::task();
         child.scope.task = TaskId::new();
         child.parent = Some(scope.task.clone());
@@ -220,7 +289,7 @@ async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocati
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record: Record::typed(
@@ -237,7 +306,7 @@ async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocati
             })
             .await
             .unwrap();
-        let current = ledger(store.state(), &scope).unwrap();
+        let current = ledger(store.current(), &scope).unwrap();
         configure(
             &mut store,
             &scope,
@@ -253,7 +322,7 @@ async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocati
         let child_request = capture(&mut store, &child.scope, b"child request").await;
         // An untrusted adapter fabricates a snapshot with the ceiling removed.
         // Canonical admission must independently enforce the stored policy.
-        let mut snapshot = store.state().clone();
+        let mut snapshot = store.archive_state().await.unwrap();
         let root_record = snapshot
             .records
             .get_mut(&key(Collection::Ledger, scope.task.as_str()))
@@ -273,9 +342,9 @@ async fn direct_transactions_cannot_spend_protected_funds_or_skip_child_allocati
                 }
             }
         }
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(store.transact(forged).await.is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
     }
 }
 
@@ -302,9 +371,9 @@ async fn combined_capture_task_reservation_event_and_receipt_survive_process_kil
             drop(writer);
             let input = admission(&store, &scope, &captured, 100);
             let (mut transaction, _) =
-                prepare_captured_admission(store.state(), &input, &captured, &actor()).unwrap();
+                prepare_captured_admission(store.current(), &input, &captured, &actor()).unwrap();
             let mut task: Task = store
-                .state()
+                .current()
                 .record(Collection::Task, scope.task.as_str(), &scope.workspace)
                 .unwrap()
                 .decode()
@@ -336,7 +405,7 @@ async fn combined_capture_task_reservation_event_and_receipt_survive_process_kil
                     revision: task.revision,
                 },
             });
-            let original = store.state().clone();
+            let original = store.archive_state().await.unwrap();
             let transaction_path = temporary.path().join("transaction.json");
             std::fs::write(
                 &transaction_path,
@@ -377,21 +446,35 @@ async fn combined_capture_task_reservation_event_and_receipt_survive_process_kil
             let mut store = Store::open(&root, kind, &[]).await.unwrap();
             let committed = matches!(barrier, "after_commit" | "before_reply");
             if !committed {
-                assert_eq!(store.state(), &original);
+                assert_eq!(&store.archive_state().await.unwrap(), &original);
             } else {
-                assert_eq!(ledger(store.state(), &scope).unwrap().active.get(), 100);
-                assert_eq!(store.state().events.len(), original.events.len() + 1);
-                assert_eq!(store.state().commands.len(), original.commands.len() + 1);
+                assert_eq!(
+                    ledger(store.current(), &scope)
+                        .unwrap()
+                        .active
+                        .known()
+                        .unwrap()
+                        .get(),
+                    100
+                );
+                assert_eq!(
+                    store.archive_state().await.unwrap().events.len(),
+                    original.events.len() + 1
+                );
+                assert_eq!(
+                    store.archive_state().await.unwrap().commands.len(),
+                    original.commands.len() + 1
+                );
                 assert_eq!(
                     store
-                        .state()
+                        .current()
                         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
                         .unwrap()
                         .revision,
                     task.revision
                 );
                 assert!(store
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         captured.spec.id.as_str(),
@@ -401,7 +484,15 @@ async fn combined_capture_task_reservation_event_and_receipt_survive_process_kil
             }
             let receipt = store.transact(transaction.clone()).await.unwrap();
             assert_eq!(store.transact(transaction).await.unwrap(), receipt);
-            assert_eq!(ledger(store.state(), &scope).unwrap().active.get(), 100);
+            assert_eq!(
+                ledger(store.current(), &scope)
+                    .unwrap()
+                    .active
+                    .known()
+                    .unwrap()
+                    .get(),
+                100
+            );
             let other = if kind == BackendKind::Sqlite {
                 BackendKind::Files
             } else {
@@ -411,7 +502,10 @@ async fn combined_capture_task_reservation_event_and_receipt_survive_process_kil
                 .convert(&temporary.path().join("converted"), other, &[])
                 .await
                 .unwrap();
-            assert_eq!(store.state(), converted.state());
+            assert_eq!(
+                store.archive_state().await.unwrap(),
+                converted.archive_state().await.unwrap()
+            );
             let mut bytes = Vec::new();
             converted.spool().read(&captured, &mut bytes).unwrap();
             assert_eq!(bytes, b"full request before admission");
@@ -499,13 +593,17 @@ async fn capture(store: &mut Store, scope: &Scope, bytes: &[u8]) -> ArtifactDesc
     let artifact = writer.finalize().unwrap();
     drop(writer);
     store
-        .transact(common::attach(store.state(), artifact.clone(), None))
+        .transact(common::attach(
+            &store.archive_state().await.unwrap(),
+            artifact.clone(),
+            None,
+        ))
         .await
         .unwrap();
     artifact
 }
 fn admission(store: &Store, scope: &Scope, artifact: &ArtifactDescriptor, cost: u64) -> Admission {
-    let root = ledger(store.state(), scope).unwrap();
+    let root = ledger(store.current(), scope).unwrap();
     Admission {
         transaction: TransactionId::new(),
         attempt: AttemptId::new(),
@@ -609,7 +707,10 @@ fn rounding_overflow_units_unknown_prices_and_disjoint_subtotals() {
     assert!(add(Micros::new(u64::MAX), Micros::new(1)).is_err());
     let mut prices = price(1);
     prices.rates.remove(&ChargeCategory::CacheRead);
-    assert!(quote(prices, Usage::default(), actor().now).is_err());
+    let unpriced = quote(prices, Usage::default(), actor().now).unwrap();
+    assert!(unpriced.amount.micros.known().is_none());
+    assert_eq!(unpriced.amount.micros.unknown_components(), Units::new(1));
+    assert!(!unpriced.amount.micros.is_zero());
     let usage = Usage {
         input: Units::new(100),
         cache_read: Units::new(40),
@@ -690,7 +791,15 @@ async fn reserve_submit_lost_reply_unknown_reopen_migration_and_late_overrun() {
         )
         .await
         .unwrap();
-        assert_eq!(ledger(store.state(), &scope).unwrap().unresolved.get(), 60);
+        assert_eq!(
+            ledger(store.current(), &scope)
+                .unwrap()
+                .unresolved
+                .known()
+                .unwrap()
+                .get(),
+            60
+        );
         drop(store);
         let mut store = Store::open(&root, kind, &[]).await.unwrap();
         let target = temporary.path().join("converted");
@@ -707,7 +816,12 @@ async fn reserve_submit_lost_reply_unknown_reopen_migration_and_late_overrun() {
             .await
             .unwrap();
         assert_eq!(
-            ledger(converted.state(), &scope).unwrap().unresolved.get(),
+            ledger(converted.current(), &scope)
+                .unwrap()
+                .unresolved
+                .known()
+                .unwrap()
+                .get(),
             60
         );
         drop(converted);
@@ -719,9 +833,9 @@ async fn reserve_submit_lost_reply_unknown_reopen_migration_and_late_overrun() {
             observe(&mut store, observation, &actor()).await.unwrap(),
             settlement
         );
-        let root = ledger(store.state(), &scope).unwrap();
+        let root = ledger(store.current(), &scope).unwrap();
         assert_eq!(root.settled.get(), 120);
-        assert_eq!(root.unresolved.get(), 0);
+        assert_eq!(root.unresolved.known().unwrap().get(), 0);
         assert!(root.overrun);
         let blocked = admission(&store, &scope, &request, 1);
         assert!(reserve(&mut store, blocked, &actor()).await.is_err());
@@ -743,20 +857,20 @@ async fn root_race_accounts_for_settled_active_unknown_and_protected_money_once(
         hold_uncertain(&mut store, &unknown.id, &scope, &actor(), "lost stream")
             .await
             .unwrap();
-        let root = ledger(store.state(), &scope).unwrap();
+        let root = ledger(store.current(), &scope).unwrap();
         assert_eq!(
             (
                 root.settled.get(),
-                root.active.get(),
-                root.unresolved.get(),
+                root.active.known().unwrap().get(),
+                root.unresolved.known().unwrap().get(),
                 root.protected.get()
             ),
             (400_000, 300_000, 200_000, 100_000)
         );
         let a = admission(&store, &scope, &request, 650_000);
         let b = admission(&store, &scope, &request, 650_000);
-        let (ta, _) = prepare_admission(store.state(), &a, &actor()).unwrap();
-        let (tb, _) = prepare_admission(store.state(), &b, &actor()).unwrap();
+        let (ta, _) = prepare_admission(store.current(), &a, &actor()).unwrap();
+        let (tb, _) = prepare_admission(store.current(), &b, &actor()).unwrap();
         let shared = std::sync::Arc::new(tokio::sync::Mutex::new(store));
         let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
         let mut jobs = Vec::new();
@@ -776,7 +890,15 @@ async fn root_race_accounts_for_settled_active_unknown_and_protected_money_once(
         let mut store = shared.lock().await;
         let retry = admission(&store, &scope, &request, 650_000);
         assert!(reserve(&mut *store, retry, &actor()).await.is_err());
-        assert_eq!(ledger(store.state(), &scope).unwrap().active.get(), 950_000);
+        assert_eq!(
+            ledger(store.current(), &scope)
+                .unwrap()
+                .active
+                .known()
+                .unwrap()
+                .get(),
+            950_000
+        );
     }
 }
 #[tokio::test]
@@ -792,7 +914,7 @@ async fn cumulative_corrections_and_incremental_coverage_cannot_double_charge() 
     observe(&mut store, two, &actor()).await.unwrap();
     let stale = usage(&mut store, &first, 40, 1, true).await;
     assert!(!observe(&mut store, stale, &actor()).await.unwrap().applied);
-    assert_eq!(ledger(store.state(), &scope).unwrap().settled.get(), 50);
+    assert_eq!(ledger(store.current(), &scope).unwrap().settled.get(), 50);
     let mut correction = usage(&mut store, &first, 30, 3, true).await;
     assert!(observe(&mut store, correction.clone(), &actor())
         .await
@@ -810,7 +932,7 @@ async fn cumulative_corrections_and_incremental_coverage_cannot_double_charge() 
             .direction,
         AdjustmentDirection::Credit
     );
-    assert_eq!(ledger(store.state(), &scope).unwrap().settled.get(), 30);
+    assert_eq!(ledger(store.current(), &scope).unwrap().settled.get(), 30);
     let second = start(&mut store, &scope, &request, 100).await;
     let mut incremental = usage(&mut store, &second, 20, 1, false).await;
     incremental.mode = UsageMode::Incremental {
@@ -833,7 +955,7 @@ async fn cumulative_corrections_and_incremental_coverage_cannot_double_charge() 
         end: Units::new(2),
     };
     observe(&mut store, next, &actor()).await.unwrap();
-    assert_eq!(ledger(store.state(), &scope).unwrap().settled.get(), 80);
+    assert_eq!(ledger(store.current(), &scope).unwrap().settled.get(), 80);
 }
 #[tokio::test]
 async fn protected_draw_is_not_double_counted_and_policy_reduction_preserves_liability() {
@@ -847,13 +969,19 @@ async fn protected_draw_is_not_double_counted_and_policy_reduction_preserves_lia
     assert!(reserve(&mut store, input.clone(), &actor()).await.is_err());
     input.role = RequestRole::Verification;
     let admitted = reserve(&mut store, input, &actor()).await.unwrap();
-    let root = ledger(store.state(), &scope).unwrap();
-    assert_eq!((root.active.get(), root.protected.get()), (80, 20));
+    let root = ledger(store.current(), &scope).unwrap();
+    assert_eq!(
+        (root.active.known().unwrap().get(), root.protected.get()),
+        (80, 20)
+    );
     release_before_send(&mut store, &admitted.id, &scope, &actor())
         .await
         .unwrap();
-    let root = ledger(store.state(), &scope).unwrap();
-    assert_eq!((root.active.get(), root.protected.get()), (0, 100));
+    let root = ledger(store.current(), &scope).unwrap();
+    assert_eq!(
+        (root.active.known().unwrap().get(), root.protected.get()),
+        (0, 100)
+    );
     configure(
         &mut store,
         &scope,
@@ -867,7 +995,7 @@ async fn protected_draw_is_not_double_counted_and_policy_reduction_preserves_lia
     .await
     .unwrap();
     let next = start(&mut store, &scope, &request, 80).await;
-    let root = ledger(store.state(), &scope).unwrap();
+    let root = ledger(store.current(), &scope).unwrap();
     configure(
         &mut store,
         &scope,
@@ -883,8 +1011,8 @@ async fn protected_draw_is_not_double_counted_and_policy_reduction_preserves_lia
     hold_uncertain(&mut store, &next.id, &scope, &actor(), "owner closed")
         .await
         .unwrap();
-    let root = ledger(store.state(), &scope).unwrap();
-    assert_eq!(root.unresolved.get(), 80);
+    let root = ledger(store.current(), &scope).unwrap();
+    assert_eq!(root.unresolved.known().unwrap().get(), 80);
     assert!(root.overrun);
 }
 
@@ -900,7 +1028,7 @@ async fn child_allocations_subdivide_one_root_and_all_roles_require_admission() 
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -917,7 +1045,7 @@ async fn child_allocations_subdivide_one_root_and_all_roles_require_admission() 
         })
         .await
         .unwrap();
-    let current = ledger(store.state(), &scope).unwrap();
+    let current = ledger(store.current(), &scope).unwrap();
     configure(
         &mut store,
         &scope,
@@ -934,7 +1062,15 @@ async fn child_allocations_subdivide_one_root_and_all_roles_require_admission() 
     let mut first = admission(&store, &child.scope, &request, 100);
     first.role = RequestRole::Child;
     reserve(&mut store, first, &actor()).await.unwrap();
-    assert_eq!(ledger(store.state(), &scope).unwrap().active.get(), 100);
+    assert_eq!(
+        ledger(store.current(), &scope)
+            .unwrap()
+            .active
+            .known()
+            .unwrap()
+            .get(),
+        100
+    );
     let denied = admission(&store, &child.scope, &request, 100);
     assert!(reserve(&mut store, denied, &actor()).await.is_err());
     assert!(initialize(
@@ -961,8 +1097,16 @@ async fn child_allocations_subdivide_one_root_and_all_roles_require_admission() 
         input.role = role;
         reserve(&mut store, input, &actor()).await.unwrap();
     }
-    assert_eq!(ledger(store.state(), &scope).unwrap().active.get(), 800);
-    let before = ledger(store.state(), &scope).unwrap();
+    assert_eq!(
+        ledger(store.current(), &scope)
+            .unwrap()
+            .active
+            .known()
+            .unwrap()
+            .get(),
+        800
+    );
+    let before = ledger(store.current(), &scope).unwrap();
     let local = LocalResources {
         schema_version: 1,
         id: ObservationId::new(),
@@ -979,7 +1123,7 @@ async fn child_allocations_subdivide_one_root_and_all_roles_require_admission() 
     record_local_resources(&mut store, local, &actor())
         .await
         .unwrap();
-    assert_eq!(ledger(store.state(), &scope).unwrap(), before);
+    assert_eq!(ledger(store.current(), &scope).unwrap(), before);
 }
 
 #[tokio::test]
@@ -1034,7 +1178,15 @@ async fn daily_scope_is_explicit_and_midnight_does_not_erase_open_liabilities() 
     assert!(reserve(&mut store, tomorrow, &tomorrow_actor)
         .await
         .is_err());
-    assert_eq!(ledger(store.state(), &scope).unwrap().unresolved.get(), 60);
+    assert_eq!(
+        ledger(store.current(), &scope)
+            .unwrap()
+            .unresolved
+            .known()
+            .unwrap()
+            .get(),
+        60
+    );
 }
 
 #[tokio::test]
@@ -1054,8 +1206,18 @@ async fn uncertain_retry_explicit_resolution_and_currency_conflicts_keep_provena
     assert_eq!(second.previous, Some(first.id.clone()));
     assert_eq!(
         (
-            ledger(store.state(), &scope).unwrap().unresolved.get(),
-            ledger(store.state(), &scope).unwrap().active.get()
+            ledger(store.current(), &scope)
+                .unwrap()
+                .unresolved
+                .known()
+                .unwrap()
+                .get(),
+            ledger(store.current(), &scope)
+                .unwrap()
+                .active
+                .known()
+                .unwrap()
+                .get()
         ),
         (100, 100)
     );
@@ -1067,17 +1229,17 @@ async fn uncertain_retry_explicit_resolution_and_currency_conflicts_keep_provena
         remaining_uncertainty: "provider invoice unavailable".into(),
     });
     observe(&mut store, resolution, &actor()).await.unwrap();
-    let resolved = attempt(store.state(), &first.id, &scope.workspace).unwrap();
+    let resolved = attempt(store.current(), &first.id, &scope.workspace).unwrap();
     assert_eq!(resolved.phase, ReservationState::ExplicitlyResolved);
     assert!(resolved.uncertain.is_some());
-    assert_eq!(ledger(store.state(), &scope).unwrap().settled.get(), 80);
+    assert_eq!(ledger(store.current(), &scope).unwrap().settled.get(), 80);
     let mut wrong = usage(&mut store, &first, 90, 2, true).await;
     wrong.amount.currency = "EUR".to_owned().try_into().unwrap();
     assert!(observe(&mut store, wrong, &actor()).await.is_err());
     let actual = usage(&mut store, &first, 90, 3, true).await;
     observe(&mut store, actual, &actor()).await.unwrap();
-    let observed = attempt(store.state(), &first.id, &scope.workspace).unwrap();
+    let observed = attempt(store.current(), &first.id, &scope.workspace).unwrap();
     assert_eq!(observed.phase, ReservationState::Settled);
     assert!(observed.uncertain.is_none());
-    assert_eq!(ledger(store.state(), &scope).unwrap().settled.get(), 90);
+    assert_eq!(ledger(store.current(), &scope).unwrap().settled.get(), 90);
 }

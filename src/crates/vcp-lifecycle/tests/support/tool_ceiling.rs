@@ -162,7 +162,7 @@ async fn canonical_tool_ceiling_filters_provider_and_preserves_host_analysis_com
                 operating: "Inspect only; final integrity completion is host-owned.".into(),
                 affected_paths: vec!["file.txt".into()],
                 max_requests: 2,
-                deadline: Timestamp::new(now + 300_000),
+                deadline: Timestamp::new(now + 300_000).into(),
             };
             assert!(host.configure_coding(thread, coding.clone()).is_err());
             coding.canonical_tools = read_tools();
@@ -198,7 +198,7 @@ async fn canonical_tool_ceiling_filters_provider_and_preserves_host_analysis_com
             // absent for ceilings without vcp_read.
             assert_eq!(
                 names,
-                BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill"])
+                BTreeSet::from(["vcp_read", "vcp_list", "vcp_search", "vcp_skill", "vcp_artifact_read"])
             );
             assert!(!requests[0]
                 .to_string()
@@ -282,7 +282,7 @@ async fn canonical_tool_ceiling_missing_marker_fails_closed_for_root_and_child_h
             store
                 .transact(Transaction {
                     id: TransactionId::new(),
-                    expected_watermark: store.state().watermark,
+                    expected_watermark: store.current().watermark,
                     mutations: vec![Mutation::Put {
                         record: Record::typed(
                             Collection::Artifact,

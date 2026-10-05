@@ -19,7 +19,14 @@ use vcp_domain::{ActorId, CommandId, Timestamp, TransactionId, WorkspaceId};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 const MAX_ENTRIES: usize = 32;
-const MAX_CIPHERTEXT: usize = 65 * 1024 * 1024;
+#[path = "restore_acquisition.rs"]
+mod acquisition;
+#[path = "restore_stream.rs"]
+pub(crate) mod stream;
+#[path = "restore_validated.rs"]
+mod validated;
+pub(crate) use validated::Data;
+pub use validated::Validated;
 
 #[cfg(feature = "qualification")]
 thread_local! {
@@ -94,22 +101,7 @@ pub struct Restore {
     status: Status,
     digest: String,
     _owner: File,
-}
-/// An authenticated archive and its independent local trust proof. Neither
-/// serialized status nor extracted files can construct this capability.
-pub struct Validated {
-    pub(crate) archive: Archive,
-    pub(crate) proof: VerifiedRestore,
-    operation: CommandId,
-    trust_revision: u64,
-}
-impl Validated {
-    pub fn archive(&self) -> &Archive {
-        &self.archive
-    }
-    pub fn proof(&self) -> &VerifiedRestore {
-        &self.proof
-    }
+    forbidden: Vec<PathBuf>,
 }
 fn hash(value: &str) -> bool {
     value.len() == 64
@@ -194,6 +186,7 @@ impl Restore {
             status: prior.ok_or(Error::Corruption("restore journal missing"))?,
             digest: previous,
             _owner: owner,
+            forbidden: forbidden.to_vec(),
         })
     }
     pub fn begin(
@@ -238,6 +231,7 @@ impl Restore {
             status,
             digest: digest_bytes(&entry),
             _owner: owner,
+            forbidden: forbidden.to_vec(),
         })
     }
     fn owner(directory: &Directory) -> Result<File> {
@@ -274,7 +268,6 @@ impl Restore {
             || !hash(&status.ciphertext)
             || !hash(&status.trust_digest)
             || status.bytes == 0
-            || status.bytes > MAX_CIPHERTEXT as u64
             || status.canonical_imported != (status.stage == Stage::Imported)
             || status.search_ready
             || status.manifest.as_ref().is_some_and(|s| !hash(s))
@@ -356,20 +349,14 @@ impl Restore {
         if self.status.stage != Stage::Pending {
             return Err(Error::Conflict("restore acquisition stage"));
         }
-        let bytes = private_paths::read_public_ciphertext(source, self.status.bytes as usize)?;
-        if bytes.len() as u64 != self.status.bytes || digest_bytes(&bytes) != self.status.ciphertext
-        {
-            return Err(Error::Corruption("restore ciphertext identity"));
-        }
-        if cancelled() {
-            return Err(Error::Unavailable("restore cancelled"));
-        }
-        immutable(&self.directory.path.join("ciphertext.age"), &bytes)?;
+        acquisition::acquire(&self.directory.path, source, &self.status, cancelled)?;
         let mut next = self.status.clone();
         next.stage = Stage::Acquired;
         self.advance(next)
     }
-    pub fn authenticate(
+    /// Legacy allocation limits govern signed-age/1. Signed-age/2 is bounded by
+    /// the exact acquired object size and its independently fixed frame bounds.
+    pub async fn authenticate(
         &mut self,
         trust: &LocalTrust,
         recovery: &RecoveryCopy,
@@ -384,16 +371,31 @@ impl Restore {
             Stage::Acquired | Stage::Validated | Stage::Importing | Stage::Imported
         ) || trust.configuration().revision != self.status.trust_revision
             || trust.configuration().workspace != self.status.workspace
+            || digest_bytes(&canonical_bytes(trust.configuration())?) != self.status.trust_digest
         {
             return Err(Error::Conflict("restore trust or stage changed"));
         }
         let path = self.directory.path.join("ciphertext.age");
-        let bytes = read_bounded(&path, self.status.bytes as usize)?;
-        if bytes.len() as u64 != self.status.bytes || digest_bytes(&bytes) != self.status.ciphertext
-        {
-            return Err(Error::Corruption("restore acquired ciphertext changed"));
+        if let Some(stream) = self.authenticate_stream(trust, recovery, cancelled).await? {
+            let manifest = digest_bytes(&canonical_bytes(stream.proof.manifest())?);
+            let inventory = stream.proof.manifest().archive_root.sha256.clone();
+            self.accept_validation(&manifest, &inventory)?;
+            return Ok(Validated {
+                data: Data::Stream(Box::new(stream)),
+                operation: self.status.operation.clone(),
+                trust_revision: self.status.trust_revision,
+                trust_digest: self.status.trust_digest.clone(),
+            });
         }
-        let proof = trust.verify_restore(&path, recovery, limits)?;
+        let proof = trust.verify_restore_exact(
+            &path,
+            recovery,
+            limits,
+            &crate::vault_crypto::Object {
+                bytes: self.status.bytes,
+                sha256: self.status.ciphertext.clone(),
+            },
+        )?;
         if cancelled() {
             return Err(Error::Unavailable("restore cancelled"));
         }
@@ -413,23 +415,27 @@ impl Restore {
             return Err(Error::Access);
         }
         let manifest = digest_bytes(&canonical_bytes(&restored.manifest)?);
+        self.accept_validation(&manifest, &inventory)?;
+        Ok(Validated {
+            data: Data::Legacy { archive, proof },
+            operation: self.status.operation.clone(),
+            trust_revision: self.status.trust_revision,
+            trust_digest: self.status.trust_digest.clone(),
+        })
+    }
+    fn accept_validation(&mut self, manifest: &str, inventory: &str) -> Result<()> {
         if self.status.stage == Stage::Acquired {
             let mut next = self.status.clone();
-            next.manifest = Some(manifest.clone());
-            next.inventory = Some(inventory.clone());
+            next.manifest = Some(manifest.to_owned());
+            next.inventory = Some(inventory.to_owned());
             next.stage = Stage::Validated;
             self.advance(next)?;
-        } else if self.status.manifest.as_ref() != Some(&manifest)
-            || self.status.inventory.as_ref() != Some(&inventory)
+        } else if self.status.manifest.as_deref() != Some(manifest)
+            || self.status.inventory.as_deref() != Some(inventory)
         {
             return Err(Error::Corruption("restore validation receipt differs"));
         }
-        Ok(Validated {
-            archive,
-            proof,
-            operation: self.status.operation.clone(),
-            trust_revision: self.status.trust_revision,
-        })
+        Ok(())
     }
     /// Persist the exact destination and sanitizer facts before materializing
     /// any plaintext canonical files. Restart repeats only this same import.
@@ -453,6 +459,9 @@ impl Restore {
             Stage::Validated | Stage::Importing | Stage::Imported
         ) || validated.operation != self.status.operation
             || validated.trust_revision != self.status.trust_revision
+            || validated.trust_digest != self.status.trust_digest
+            || self.status.manifest.as_deref()
+                != Some(digest_bytes(&canonical_bytes(&validated.manifest())?).as_str())
             || digest_bytes(&canonical_bytes(trust.configuration())?) != self.status.trust_digest
             || trust.configuration().revision != self.status.trust_revision
             || trust.configuration().workspace != self.status.workspace

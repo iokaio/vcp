@@ -27,12 +27,91 @@ pub(crate) struct Directory {
     // entire lifetime. Child content may still change; file handles fence it.
     _ancestors: Vec<File>,
 }
+#[cfg(test)]
+#[path = "canonical_child_tests.rs"]
+mod canonical_child_tests;
 impl Directory {
+    pub(crate) fn locked_root(owner: &crate::canonical_lock::CanonicalLock) -> Result<Self> {
+        let root = Self::hold(owner.root(), false)?;
+        owner.verify()?;
+        Ok(root)
+    }
+    pub(crate) fn locked_child(
+        owner: &crate::canonical_lock::CanonicalLock,
+        name: &str,
+    ) -> Result<Self> {
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+        {
+            return Err(Error::Access);
+        }
+        let parent = Self::locked_root(owner)?;
+        let path = parent.path.join(name);
+        owner.verify_child(&path)?;
+        match fs::create_dir(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let child = Self::hold(&path, false)?;
+        owner.verify_child(&child.path)?;
+        Ok(child)
+    }
+    /// Pin the admitted physical root for a read-only snapshot. This does not
+    /// grant writes to arbitrary descendants or bypass child-path restrictions.
+    #[cfg(test)]
+    pub(crate) fn canonical_root(store: &crate::Store) -> Result<Self> {
+        store.validate_canonical_owner()?;
+        Self::locked_root(store.canonical_lock())
+    }
+    /// Derive a fixed child from an actual locked Store, not from an arbitrary
+    /// trusted path. Archive/cloud directory admission rules remain unchanged.
+    pub(crate) fn canonical_child(store: &crate::Store, name: &str) -> Result<Self> {
+        store.validate_canonical_owner()?;
+        Self::locked_child(store.canonical_lock(), name)
+    }
     pub(crate) fn open(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Self::open_policy(path, forbidden, false)
     }
+    /// Hold an existing direct child of an already admitted directory. This
+    /// grants no creation authority and rechecks every no-follow native handle.
+    pub(crate) fn existing_child(&self, name: &str) -> Result<Self> {
+        if name.is_empty()
+            || name.len() > 256
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(Error::Access);
+        }
+        let child = Self::hold(&self.path.join(name), false)?;
+        if child.path.parent() != Some(self.path.as_path()) {
+            return Err(Error::Access);
+        }
+        Ok(child)
+    }
     pub(crate) fn open_cloud(path: &Path, forbidden: &[PathBuf]) -> Result<Self> {
         Self::open_policy(path, forbidden, true)
+    }
+    pub(crate) fn existing_child_excluding(
+        &self,
+        name: &str,
+        forbidden: &[PathBuf],
+    ) -> Result<Self> {
+        if forbidden.len() > 128 {
+            return Err(Error::Access);
+        }
+        let child = self.existing_child(name)?;
+        for root in forbidden {
+            let root = root.canonicalize()?;
+            if child.path.starts_with(&root) || root.starts_with(&child.path) {
+                return Err(Error::Access);
+            }
+        }
+        Ok(child)
     }
     fn open_policy(path: &Path, forbidden: &[PathBuf], cloud: bool) -> Result<Self> {
         if !path.is_absolute() || forbidden.is_empty() || forbidden.len() > 128 {
@@ -176,6 +255,83 @@ pub(crate) fn read_public_ciphertext(path: &Path, limit: usize) -> Result<Vec<u8
     Ok(bytes)
 }
 
+/// Streaming public ciphertext keeps the exact no-follow file and its ancestors
+/// pinned until the consumer has verified authenticated EOF. No plaintext is
+/// associated with this capability.
+pub(crate) struct PublicCiphertext {
+    file: File,
+    bytes: u64,
+    read: u64,
+    digest: sha2::Sha256,
+    _parent: Directory,
+}
+impl PublicCiphertext {
+    pub(crate) fn open(path: &Path, limit: usize) -> Result<Self> {
+        Self::open_stream(path, limit as u64)
+    }
+    pub(crate) fn open_stream(path: &Path, limit: u64) -> Result<Self> {
+        let absolute = std::path::absolute(path)?;
+        let parent = Directory::hold(absolute.parent().ok_or(Error::Access)?, true)?;
+        if fs::symlink_metadata(&absolute)?.file_type().is_symlink() {
+            return Err(Error::Access);
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.share_mode(1).custom_flags(0x0020_0000);
+        }
+        let file = options.open(&absolute)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || !allowed_handle(&file, true)? {
+            return Err(Error::Access);
+        }
+        if metadata.len() > limit {
+            return Err(Error::Limit("snapshot ciphertext input"));
+        }
+        Ok(Self {
+            file,
+            bytes: metadata.len(),
+            read: 0,
+            digest: <sha2::Sha256 as sha2::Digest>::new(),
+            _parent: parent,
+        })
+    }
+    pub(crate) fn finish(&self) -> Result<()> {
+        if self.read != self.bytes
+            || self.file.metadata()?.len() != self.bytes
+            || !allowed_handle(&self.file, true)?
+        {
+            return Err(Error::Corruption(
+                "snapshot ciphertext changed or incomplete",
+            ));
+        }
+        Ok(())
+    }
+    pub(crate) fn finish_identity(&self, bytes: u64, sha256: &str) -> Result<()> {
+        use sha2::Digest;
+        self.finish()?;
+        if self.bytes != bytes || format!("{:x}", self.digest.clone().finalize()) != sha256 {
+            return Err(Error::Corruption("held ciphertext commitment differs"));
+        }
+        Ok(())
+    }
+}
+impl std::io::Read for PublicCiphertext {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        use sha2::Digest;
+        let count = self.file.read(bytes)?;
+        self.read = self
+            .read
+            .checked_add(count as u64)
+            .filter(|read| *read <= self.bytes)
+            .ok_or_else(|| std::io::Error::other("ciphertext input changed"))?;
+        self.digest.update(&bytes[..count]);
+        Ok(count)
+    }
+}
+
 /// Errors expose no protected file contents. An unsuccessful owner-created
 /// write is marked for deletion using its owned handle before it closes.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -189,6 +345,33 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     drop(file);
     result.map_err(|_| Error::Unavailable("secret write failed"))
 }
+
+/// Stream into one create-only owner file. A failed producer or sync removes
+/// only that owned handle; no partial result can be published by the caller.
+pub(crate) fn write_private_with(
+    path: &Path,
+    produce: impl FnOnce(&mut File) -> Result<()>,
+) -> Result<()> {
+    let mut file = private_file(path)?;
+    let result = produce(&mut file).and_then(|()| file.sync_all().map_err(Error::from));
+    if result.is_err() {
+        remove_owned(&file, path).map_err(|_| {
+            Error::Unavailable("stream write failed; owned recovery cleanup pending")
+        })?;
+    }
+    drop(file);
+    result
+}
+
+/// Create a private, exclusive, create-only stream file. The async caller must
+/// sync it before publication; a failed prefix carries no completion authority.
+pub(crate) fn create_private(path: &Path) -> Result<File> {
+    private_file(path)
+}
+
+#[cfg(test)]
+#[path = "private_stream_tests.rs"]
+mod stream_tests;
 
 /// Mark only the already-owned file for deletion, without a path-based race.
 #[cfg(windows)]

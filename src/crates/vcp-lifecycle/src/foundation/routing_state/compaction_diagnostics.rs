@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Descriptive transitions around submitted contexts that consumed a compacted
 //! summary. Creating a projection or manifest alone is not consumption.
-use super::{err, transitions, HistoryWindow, Result};
+use super::{err, transitions, HistoryPages, HistoryWindow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use vcp_context::{compaction::Projection, manifest::Manifest};
@@ -16,7 +16,7 @@ use vcp_memory::{
 };
 use vcp_protocol::{canonical_bytes, digest_bytes, event::EventKind};
 use vcp_store::{
-    contract::{key, Collection},
+    contract::{key, CanonicalStore, Collection},
     Store,
 };
 
@@ -94,14 +94,14 @@ struct Submitted {
 
 fn available(store: &Store, access: &Access, collection: Collection, id: &str) -> Result<bool> {
     recall_allowed(
-        store.state(),
+        store.current(),
         &access.workspace,
         &Target::Record(key(collection, id)),
     )
     .map_err(err)
 }
 
-fn read(
+async fn read(
     store: &Store,
     access: &Access,
     descriptor: &ArtifactDescriptor,
@@ -131,6 +131,7 @@ fn read(
         &descriptor.spec.id,
         &mut bytes,
     )
+    .await
     .is_err()
         || digest_bytes(&bytes) != descriptor.sha256
     {
@@ -148,17 +149,17 @@ fn pin(descriptor: &ArtifactDescriptor) -> ArtifactPin {
 
 /// Rebuild from authorized artifacts and canonical submission intents. This is
 /// a read-only description, not evidence that a provider received the request.
-pub fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
-    observe_with_check(store, access, window, &|| Ok(()))
+pub async fn observe(store: &Store, access: &Access, window: HistoryWindow) -> Result<Report> {
+    observe_with_check(store, access, window, &|| Ok(())).await
 }
-pub fn observe_with_check(
+pub async fn observe_with_check(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
     cooperate: &dyn Fn() -> Result<()>,
 ) -> Result<Report> {
     cooperate()?;
-    let source = transitions::observe_with_check(store, access, window.clone(), cooperate)?;
+    let source = transitions::observe_with_check(store, access, window.clone(), cooperate).await?;
     let mut report = Report {
         schema_version: 1, id: String::new(), workspace: source.workspace.clone(), authority: source.authority,
         deletion: source.deletion, window, cutoff: source.cutoff, source_tasks: source.source_tasks.clone(), transition_evidence: source.id.clone(),
@@ -174,100 +175,100 @@ pub fn observe_with_check(
     let mut manifests = Vec::new();
     let mut total = 0usize;
     let mut seen = BTreeSet::new();
-    for envelope in &store.state().events {
+    let mut history = HistoryPages::new(store).await?;
+    let mut event_ids = BTreeSet::new();
+    while let Some(page) = history.next(store).await? {
         cooperate()?;
-        let event = &envelope.event;
-        if event.workspace != access.workspace
-            || event.timestamp >= report.window.until
-            || report
-                .window
-                .from
-                .is_some_and(|from| event.timestamp < from)
-            || event.task.as_ref().is_none_or(|t| !access.allows_task(t))
-            || event.kind != EventKind::ArtifactAttached
-            || envelope.redaction.is_some()
-            || !recall_allowed(
-                store.state(),
-                &access.workspace,
-                &Target::Event(event.id.clone()),
-            )
-            .map_err(err)?
-        {
-            continue;
-        }
-        for id in &event.artifacts {
+        for envelope in page {
             cooperate()?;
-            let Ok(record) =
-                store
-                    .state()
-                    .record(Collection::Artifact, id.as_str(), &access.workspace)
-            else {
-                continue;
-            };
-            let descriptor: ArtifactDescriptor = record.decode().map_err(err)?;
-            if !matches!(
-                descriptor.spec.schema.as_str(),
-                "canonical-compaction-projection/1" | "context-manifest/1"
-            ) || event.task.as_ref() != Some(&descriptor.spec.scope.task)
-                || event.session != descriptor.spec.scope.session
-                || !available(
-                    store,
-                    access,
-                    Collection::Task,
-                    descriptor.spec.scope.task.as_str(),
-                )?
+            if !event_ids.insert(envelope.event.id.clone()) {
+                return Err("duplicate canonical event identity".into());
+            }
+            let event = &envelope.event;
+            if event.workspace != access.workspace
+                || event.timestamp >= report.window.until
+                || report
+                    .window
+                    .from
+                    .is_some_and(|from| event.timestamp < from)
+                || event.task.as_ref().is_none_or(|t| !access.allows_task(t))
+                || event.kind != EventKind::ArtifactAttached
+                || envelope.redaction.is_some()
+                || !recall_allowed(
+                    store.current(),
+                    &access.workspace,
+                    &Target::Event(event.id.clone()),
+                )
+                .map_err(err)?
             {
                 continue;
             }
-            if !seen.insert(id.clone()) {
-                return Err("duplicate compaction artifact attachment".into());
-            }
-            if seen.len() > MAX_ARTIFACTS {
-                return Err(
-                    "compaction inspection exceeds 128 artifacts; narrow the window".into(),
-                );
-            }
-            report.source_events.push(event.id.clone());
-            report.source_artifacts.push(pin(&descriptor));
-            let Some(bytes) = read(store, access, &descriptor, &mut total)? else {
-                report.unavailable_artifacts += 1;
-                continue;
-            };
-            if descriptor.spec.schema == "context-manifest/1" {
-                match serde_json::from_slice::<Manifest>(&bytes) {
-                    Ok(value)
-                        if value.version == 1 && value.revisions.scope == descriptor.spec.scope =>
-                    {
-                        manifests.push(Captured {
-                            descriptor,
-                            value,
-                            watermark: envelope.watermark,
-                        })
-                    }
-                    _ => report.unavailable_artifacts += 1,
+            for id in &event.artifacts {
+                cooperate()?;
+                let Ok(record) =
+                    store
+                        .current()
+                        .record(Collection::Artifact, id.as_str(), &access.workspace)
+                else {
+                    continue;
+                };
+                let descriptor: ArtifactDescriptor = record.decode().map_err(err)?;
+                if !matches!(
+                    descriptor.spec.schema.as_str(),
+                    "canonical-compaction-projection/1" | "context-manifest/1"
+                ) || event.task.as_ref() != Some(&descriptor.spec.scope.task)
+                    || event.session != descriptor.spec.scope.session
+                    || !available(
+                        store,
+                        access,
+                        Collection::Task,
+                        descriptor.spec.scope.task.as_str(),
+                    )?
+                {
+                    continue;
                 }
-            } else {
-                projections.push(Captured {
-                    descriptor,
-                    value: serde_json::from_slice::<serde_json::Value>(&bytes).map_err(err)?,
-                    watermark: envelope.watermark,
-                });
+                if !seen.insert(id.clone()) {
+                    return Err("duplicate compaction artifact attachment".into());
+                }
+                if seen.len() > MAX_ARTIFACTS {
+                    return Err(
+                        "compaction inspection exceeds 128 artifacts; narrow the window".into(),
+                    );
+                }
+                report.source_events.push(event.id.clone());
+                report.source_artifacts.push(pin(&descriptor));
+                let Some(bytes) = read(store, access, &descriptor, &mut total).await? else {
+                    report.unavailable_artifacts += 1;
+                    continue;
+                };
+                if descriptor.spec.schema == "context-manifest/1" {
+                    match serde_json::from_slice::<Manifest>(&bytes) {
+                        Ok(value)
+                            if value.version == 1
+                                && value.revisions.scope == descriptor.spec.scope =>
+                        {
+                            manifests.push(Captured {
+                                descriptor,
+                                value,
+                                watermark: envelope.watermark,
+                            })
+                        }
+                        _ => report.unavailable_artifacts += 1,
+                    }
+                } else {
+                    projections.push(Captured {
+                        descriptor,
+                        value: serde_json::from_slice::<serde_json::Value>(&bytes).map_err(err)?,
+                        watermark: envelope.watermark,
+                    });
+                }
             }
         }
     }
     let mut submitted = Vec::new();
-    let events: BTreeMap<_, _> = store
-        .state()
-        .events
-        .iter()
-        .map(|e| (&e.event.id, e))
-        .collect();
-    if events.len() != store.state().events.len() {
-        return Err("duplicate canonical event identity".into());
-    }
     let mut attempts = Vec::new();
     for record in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.collection == Collection::Attempt && r.workspace == access.workspace)
@@ -302,7 +303,7 @@ pub fn observe_with_check(
             let Some(send) = attempt.send_intent.as_ref() else {
                 continue;
             };
-            let Some(envelope) = events.get(send) else {
+            let Some(envelope) = store.history_event(send).await.map_err(err)? else {
                 continue;
             };
             if envelope.redaction.is_some()
@@ -313,7 +314,7 @@ pub fn observe_with_check(
                 || envelope.event.workspace != access.workspace
                 || !envelope.event.artifacts.contains(&attempt.request)
                 || !recall_allowed(
-                    store.state(),
+                    store.current(),
                     &access.workspace,
                     &Target::Event(send.clone()),
                 )
@@ -328,7 +329,7 @@ pub fn observe_with_check(
                 continue;
             }
             let request: ArtifactDescriptor = store
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     attempt.request.as_str(),
@@ -339,7 +340,7 @@ pub fn observe_with_check(
                 .map_err(err)?;
             if request.sha256 != attempt.request_digest
                 || request.spec.scope != attempt.scope
-                || read(store, access, &request, &mut total)?.is_none()
+                || read(store, access, &request, &mut total).await?.is_none()
             {
                 continue;
             }
@@ -412,7 +413,7 @@ pub fn observe_with_check(
                     .chain(std::iter::once((&summary, &summary_digest)))
                 {
                     let descriptor = store
-                        .state()
+                        .current()
                         .record(Collection::Artifact, id.as_str(), &access.workspace)
                         .ok()
                         .and_then(|r| r.decode::<ArtifactDescriptor>().ok());
@@ -428,7 +429,8 @@ pub fn observe_with_check(
                                         .into(),
                                 );
                             }
-                            sources_complete &= read(store, access, &d, &mut total)?.is_some();
+                            sources_complete &=
+                                read(store, access, &d, &mut total).await?.is_some();
                         }
                         _ => sources_complete = false,
                     }

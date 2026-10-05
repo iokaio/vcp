@@ -18,6 +18,11 @@ pub struct Call {
 pub struct ObservedUsage {
     pub raw: Value,
     pub tokens: Option<Usage>,
+    /// Explicit provider output count, independently useful for allocation even
+    /// when missing cache/reasoning counts prevent complete accounting usage.
+    /// Absence stays unknown; this never substitutes for `tokens` or cost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<Units>,
     pub cost: Option<Money>,
 }
 /// A final charge observed on a response whose tool arguments were rejected.
@@ -37,12 +42,81 @@ pub enum Status {
     Incomplete,
     Failed,
 }
+/// Only enumerated terminal causes cross into task/accounting status. Error
+/// messages, metadata and unknown codes remain in the captured raw response.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "termination", rename_all = "snake_case")]
+pub enum TerminalDiagnostic {
+    Failed { code: Option<TerminalErrorCode> },
+    Incomplete { reason: Option<IncompleteReason> },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalErrorCode {
+    ServerError,
+    RateLimitExceeded,
+    InvalidPrompt,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IncompleteReason {
+    MaxOutputTokens,
+    ContentFilter,
+}
+impl TerminalDiagnostic {
+    fn observe(status: &Status, response: &Value) -> Option<Self> {
+        match status {
+            Status::Completed => None,
+            Status::Failed => Some(Self::Failed {
+                code: match response.pointer("/error/code").and_then(Value::as_str) {
+                    Some("server_error") => Some(TerminalErrorCode::ServerError),
+                    Some("rate_limit_exceeded") => Some(TerminalErrorCode::RateLimitExceeded),
+                    Some("invalid_prompt") => Some(TerminalErrorCode::InvalidPrompt),
+                    _ => None,
+                },
+            }),
+            Status::Incomplete => Some(Self::Incomplete {
+                reason: match response
+                    .pointer("/incomplete_details/reason")
+                    .and_then(Value::as_str)
+                {
+                    Some("max_output_tokens") => Some(IncompleteReason::MaxOutputTokens),
+                    Some("content_filter") => Some(IncompleteReason::ContentFilter),
+                    _ => None,
+                },
+            }),
+        }
+    }
+    pub fn summary(&self) -> &'static str {
+        match self {
+            Self::Failed {
+                code: Some(TerminalErrorCode::ServerError),
+            } => "provider response.failed (server_error)",
+            Self::Failed {
+                code: Some(TerminalErrorCode::RateLimitExceeded),
+            } => "provider response.failed (rate_limit_exceeded)",
+            Self::Failed {
+                code: Some(TerminalErrorCode::InvalidPrompt),
+            } => "provider response.failed (invalid_prompt)",
+            Self::Failed { code: None } => "provider response.failed (cause unknown)",
+            Self::Incomplete {
+                reason: Some(IncompleteReason::MaxOutputTokens),
+            } => "provider response.incomplete (max_output_tokens)",
+            Self::Incomplete {
+                reason: Some(IncompleteReason::ContentFilter),
+            } => "provider response.incomplete (content_filter)",
+            Self::Incomplete { reason: None } => "provider response.incomplete (cause unknown)",
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResultBody {
     pub response_id: String,
     pub served_model: Option<String>,
     pub served_provider: Option<String>,
     pub status: Status,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_diagnostic: Option<TerminalDiagnostic>,
     pub usage: Option<ObservedUsage>,
     pub calls: Vec<Call>,
     /// Non-whitespace visible text from completed assistant items. Deltas and
@@ -76,6 +150,59 @@ struct Pending {
     done: bool,
 }
 
+/// Identity from a completely framed provider event, not a completion or charge.
+#[derive(Clone, Debug)]
+pub struct ObservedGeneration {
+    pub request_id: String,
+    pub frame_sha256: String,
+}
+
+/// Recover only an identity from retained, bounded SSE bytes. Reuses the live
+/// framing/identity checks without interpreting tool arguments or granting
+/// completion. An unframed final tail cannot supply an identity. Malformed or
+/// conflicting completed frames invalidate the entire observation.
+pub fn retained_generation(bytes: &[u8]) -> Result<Option<ObservedGeneration>> {
+    let mut stream = Stream::new(Tools::parse(&serde_json::json!([]))?);
+    stream.identity_only = true;
+    for chunk in bytes.chunks(65_536) {
+        stream.push(chunk)?;
+    }
+    Ok(stream.observed_generation().cloned())
+}
+
+/// Exact completed terminal identity for diagnostic joins, without imposing a
+/// provider billing-receipt ID format or exposing executable tool proposals.
+pub fn retained_completed_terminal(bytes: &[u8]) -> Result<Option<ObservedGeneration>> {
+    let mut stream = Stream::new(Tools::parse(&serde_json::json!([]))?);
+    stream.identity_only = true;
+    for chunk in bytes.chunks(65_536) {
+        stream.push(chunk)?;
+    }
+    let Some(terminal) = stream.terminal_data.as_deref() else {
+        return Ok(None);
+    };
+    let clean_tail =
+        stream.line.is_empty() && stream.data.is_empty() && stream.event_type.is_none();
+    let optional_done_prefix = !stream.done
+        && stream.event_type.is_none()
+        && ((stream.data.is_empty()
+            && [b"data: [DONE]".as_slice(), b"data:[DONE]".as_slice()]
+                .iter()
+                .any(|sentinel| sentinel.starts_with(&stream.line)))
+            || (stream.line.is_empty() && stream.data == b"[DONE]\n"));
+    if !clean_tail && !optional_done_prefix {
+        return Err(Error::Protocol("truncated retained terminal tail"));
+    }
+    let value = crate::decision::unique_json::parse_sse(terminal.as_bytes())?;
+    if value["type"] != "response.completed" || value["response"]["status"] != "completed" {
+        return Ok(None);
+    }
+    Ok(Some(ObservedGeneration {
+        request_id: identity(&value["response"], "id")?,
+        frame_sha256: vcp_protocol::digest_bytes(terminal.as_bytes()),
+    }))
+}
+
 /// One parser per admitted attempt. Raw bytes must be captured before push.
 /// Bounded framing operates on bytes so arbitrary UTF-8 transport splits work.
 pub struct Stream {
@@ -94,8 +221,15 @@ pub struct Stream {
     terminal_data: Option<String>,
     done: bool,
     failed: bool,
+    generation: Option<ObservedGeneration>,
+    identity_only: bool,
 }
 impl Stream {
+    pub fn observed_generation(&self) -> Option<&ObservedGeneration> {
+        self.generation.as_ref().filter(|generation| {
+            !self.failed && crate::reconciliation::valid_request_id(&generation.request_id)
+        })
+    }
     pub fn rejected_usage(&self) -> Option<&RejectedResponseUsage> {
         // A partial or contradictory frame after the terminal cannot establish
         // an accounting observation, even if tool validation already failed.
@@ -130,6 +264,8 @@ impl Stream {
             terminal_data: None,
             done: false,
             failed: false,
+            generation: None,
+            identity_only: false,
         }
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<Event>> {
@@ -229,7 +365,9 @@ impl Stream {
             return Err(Error::Limit("SSE events"));
         }
         if text == "[DONE]" {
-            if self.terminal.is_none() || self.done {
+            if (self.terminal.is_none() && !(self.identity_only && self.terminal_data.is_some()))
+                || self.done
+            {
                 return Err(Error::Protocol("premature/duplicate DONE"));
             }
             self.done = true;
@@ -238,18 +376,60 @@ impl Stream {
         if self.done {
             return Err(Error::Protocol("payload after DONE"));
         }
-        let value: Value = serde_json::from_str(text)?;
+        let value = crate::decision::unique_json::parse_sse(text.as_bytes())?;
         let kind = value["type"]
             .as_str()
             .ok_or(Error::Protocol("event type missing"))?;
         if event_type.is_some_and(|event| event != "message" && event != kind) {
             return Err(Error::Protocol("SSE/payload type mismatch"));
         }
-        if self.terminal.is_some() {
+        if self.terminal.is_some() || (self.identity_only && self.terminal_data.is_some()) {
             if self.terminal_data.as_deref() == Some(text) {
                 return Ok(None);
             }
             return Err(Error::Protocol("conflicting event after terminal"));
+        }
+        if matches!(
+            kind,
+            "response.created"
+                | "response.in_progress"
+                | "response.completed"
+                | "response.incomplete"
+                | "response.failed"
+        ) {
+            // Only structured response identity fields may identify a charge.
+            // Duplicate keys must not let a billing identity differ from the
+            // captured frame's other interpretation. Unknown provider ID forms
+            // remain unavailable for OpenRouter receipt retrieval.
+            if let Some(id) = value.pointer("/response/id").and_then(Value::as_str) {
+                if self
+                    .generation
+                    .as_ref()
+                    .is_some_and(|prior| prior.request_id != id)
+                {
+                    return Err(Error::Protocol(
+                        "conflicting provider generation identities",
+                    ));
+                }
+                if id.len() > 256 {
+                    return Err(Error::Limit("provider generation identity"));
+                }
+                if self.generation.is_none() {
+                    self.generation = Some(ObservedGeneration {
+                        request_id: id.to_owned(),
+                        frame_sha256: vcp_protocol::digest_bytes(text.as_bytes()),
+                    });
+                }
+            }
+        }
+        if self.identity_only {
+            if matches!(
+                kind,
+                "response.completed" | "response.incomplete" | "response.failed"
+            ) {
+                self.terminal_data = Some(text.to_owned());
+            }
+            return Ok(None);
         }
         match kind {
             "response.output_item.done" if value["item"]["type"] == "message" => {
@@ -413,6 +593,7 @@ impl Stream {
                     response_id: identity(response, "id")?,
                     served_model: optional_identity(response, "model")?,
                     served_provider: optional_identity(response, "provider")?,
+                    terminal_diagnostic: TerminalDiagnostic::observe(&status, response),
                     status,
                     usage,
                     calls,
@@ -572,6 +753,14 @@ pub fn normalize_usage(raw: &Value) -> Result<ObservedUsage> {
     let total = numeric(&raw["total_tokens"])?;
     let cached = numeric(&raw["input_tokens_details"]["cached_tokens"])?;
     let reasoning = numeric(&raw["output_tokens_details"]["reasoning_tokens"])?;
+    if input
+        .zip(output)
+        .is_some_and(|(i, o)| i.checked_add(o).is_none())
+        || input.zip(total).is_some_and(|(i, t)| i > t)
+        || output.zip(total).is_some_and(|(o, t)| o > t)
+    {
+        return Err(Error::Protocol("inconsistent cumulative usage"));
+    }
     if let (Some(i), Some(o), Some(t)) = (input, output, total) {
         if i.checked_add(o) != Some(t) {
             return Err(Error::Protocol("inconsistent cumulative usage"));
@@ -616,6 +805,7 @@ pub fn normalize_usage(raw: &Value) -> Result<ObservedUsage> {
     Ok(ObservedUsage {
         raw: raw.clone(),
         tokens,
+        output_tokens: output.map(Units::new),
         cost,
     })
 }

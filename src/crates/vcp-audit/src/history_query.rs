@@ -11,7 +11,10 @@ use vcp_domain::{
     *,
 };
 use vcp_protocol::{canonical_bytes, digest_bytes, event::EventEnvelope};
-use vcp_store::contract::{Collection, State};
+use vcp_store::{
+    contract::{Collection, State},
+    CurrentStateView,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,137 +91,316 @@ fn query_scoped(
     query: &Query,
     session: Option<&SessionId>,
 ) -> Result<Page> {
-    let session_tasks = session.map(|session| {
-        state
-            .records
-            .values()
-            .filter(|row| {
-                row.collection == Collection::Task
-                    && row.workspace == access.workspace
-                    && row.value["scope"]["session"].as_str() == Some(session.as_str())
-                    && row.value["redaction"].is_null()
-            })
-            .map(|row| row.id.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-    });
-    let workspace = history::authorize(state, access)?;
-    let selector = query.selector.clone().normalized()?;
-    // Reject unsupported capabilities across the whole tree, including a branch
-    // an OR could otherwise short-circuit. Missing facts are not invented.
-    fn unsupported(tree: &Tree) -> Option<&'static str> {
-        match tree {
-            Tree::Match(Criterion::Root(_)) => Some("source roots"),
-            Tree::Match(Criterion::Claim(_)) => Some("claim kinds"),
-            Tree::Match(Criterion::Status(Status::Claim(_))) => Some("claim status"),
-            Tree::Match(Criterion::Superseded(_)) => Some("supersession"),
-            Tree::All(items) | Tree::Any(items) => items.iter().find_map(unsupported),
-            Tree::Not(item) => unsupported(item),
-            _ => None,
+    let count = state.events.len() as u64;
+    let end = query.cursor.as_ref().map_or(count, |cursor| cursor.end);
+    let boundary = end
+        .checked_sub(1)
+        .and_then(|index| state.events.get(index as usize))
+        .map(|event| event.event.id.clone());
+    let mut projection = Projection::new(state.into(), access, query, session, count, boundary)?;
+    let first = projection.cursor.after;
+    let stop = projection
+        .cursor
+        .end
+        .min(first.saturating_add(projection.scan_limit()));
+    for event in &state.events[first as usize..stop as usize] {
+        if projection.push(event)? {
+            break;
         }
     }
-    if let Some(capability) = unsupported(&selector.tree) {
-        return Err(Error::UnsupportedFilter(capability));
-    }
-    if !(1..=128).contains(&query.limit)
-        || query
-            .text
-            .as_ref()
-            .is_some_and(|s| s.is_empty() || s.len() > 512 || s.contains('\0'))
-    {
-        return Err(Error::Limit);
-    }
-    let query_digest = digest_bytes(&canonical_bytes(&(
-        &selector,
-        &query.text,
-        query.limit,
-        &query.artifact,
-        query.expand_compacted,
-    ))?);
-    let query_digest = match session {
-        Some(session) => digest_bytes(&canonical_bytes(&(&query_digest, session))?),
-        None => query_digest,
-    };
-    let access_digest = digest_bytes(&canonical_bytes(&(
-        &access.workspace,
-        access.authority,
-        &access.tasks,
-    ))?);
-    let access_digest = match &session_tasks {
-        Some(tasks) => digest_bytes(&canonical_bytes(&(&access_digest, tasks))?),
-        None => access_digest,
-    };
-    // Current task status is mutable metadata, unlike event facts. If requested,
-    // bind its projection so a transition cannot silently skip an older match.
-    fn task_status(tree: &Tree) -> bool {
-        match tree {
-            Tree::Match(Criterion::Status(Status::Task(_))) => true,
-            Tree::All(items) | Tree::Any(items) => items.iter().any(task_status),
-            Tree::Not(item) => task_status(item),
-            _ => false,
-        }
-    }
-    let metadata_digest = if task_status(&selector.tree) {
-        let rows: Vec<_> = state
-            .records
-            .values()
-            .filter(|r| r.workspace == access.workspace && r.collection == Collection::Task)
-            .filter(|r| {
-                access
-                    .tasks
-                    .as_ref()
-                    .is_none_or(|tasks| tasks.iter().any(|id| id.as_str() == r.id))
-            })
-            .map(|r| (&r.id, &r.value["state"]))
-            .collect();
-        digest_bytes(&canonical_bytes(&rows)?)
-    } else {
-        String::new()
-    };
-    let mut cursor = query.cursor.clone().unwrap_or(Cursor {
-        version: 1,
-        workspace: access.workspace.clone(),
-        watermark: state.watermark,
-        authority: workspace.authority,
-        deletion: workspace.deletion,
-        query_digest: query_digest.clone(),
-        access_digest: access_digest.clone(),
-        metadata_digest: metadata_digest.clone(),
-        after: 0,
-        end: state.events.len() as u64,
-        boundary_digest: digest_bytes(&canonical_bytes(&state.events.last().map(|e| &e.event.id))?),
-    });
-    if cursor.version != 1
-        || cursor.workspace != access.workspace
-        || cursor.authority != workspace.authority
-        || cursor.deletion != workspace.deletion
-        || cursor.query_digest != query_digest
-        || cursor.access_digest != access_digest
-        || cursor.metadata_digest != metadata_digest
-        || cursor.after > cursor.end
-        || cursor.end > state.events.len() as u64
-        || cursor.watermark > state.watermark
-        || cursor.boundary_digest
-            != digest_bytes(&canonical_bytes(
-                &cursor
-                    .end
-                    .checked_sub(1)
-                    .and_then(|i| state.events.get(i as usize))
-                    .map(|e| &e.event.id),
-            )?)
-    {
+    let newer = state
+        .events
+        .iter()
+        .skip(end as usize)
+        .filter(|event| projection.visible(event))
+        .count() as u64;
+    projection.finish(newer)
+}
+
+/// Live-owner history reads use authenticated ordinal pages, never a synthetic State.
+pub async fn query_store<S: vcp_store::CanonicalHistory>(
+    store: &S,
+    access: &Access,
+    query: &Query,
+) -> Result<Page> {
+    query_store_scoped(store, access, query, None, &|| Ok(())).await
+}
+pub async fn query_store_session<S: vcp_store::CanonicalHistory>(
+    store: &S,
+    access: &Access,
+    query: &Query,
+    session: &SessionId,
+) -> Result<Page> {
+    query_store_session_with_check(store, access, query, session, &|| Ok(())).await
+}
+/// Cooperatively preserve the caller's cancellation/deadline budget between
+/// bounded reads, including the exact newer-visible count. Failure returns no page.
+pub async fn query_store_session_with_check<S: vcp_store::CanonicalHistory>(
+    store: &S,
+    access: &Access,
+    query: &Query,
+    session: &SessionId,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<Page> {
+    query_store_scoped(store, access, query, Some(session), check).await
+}
+async fn query_store_scoped<S: vcp_store::CanonicalHistory, F: Fn() -> Result<()> + ?Sized>(
+    store: &S,
+    access: &Access,
+    query: &Query,
+    session: Option<&SessionId>,
+    check: &F,
+) -> Result<Page> {
+    check()?;
+    let current = store.current();
+    history::authorize(current, access)?;
+    let count = store.history_event_count().await?;
+    check()?;
+    let end = query.cursor.as_ref().map_or(count, |cursor| cursor.end);
+    if end > count {
         return Err(Error::Restart(
             "history scope, retention or ordering changed",
         ));
     }
-    let masks = history::masks(state, &access.workspace)?;
-    let mut rows = Vec::new();
-    let mut gaps = Vec::new();
-    let mut bytes = 0usize;
-    for envelope in
-        state.events.iter().skip(cursor.after as usize).take(
-            (cursor.end - cursor.after).min(if session.is_some() { 64 } else { 512 }) as usize,
-        )
+    let boundary = match end.checked_sub(1) {
+        Some(index) => Some(
+            store
+                .history_event_at(index)
+                .await?
+                .ok_or(Error::Integrity("history boundary missing"))?
+                .event
+                .id,
+        ),
+        None => None,
+    };
+    let mut projection = Projection::new(current, access, query, session, count, boundary)?;
+    let stop = end.min(
+        projection
+            .cursor
+            .after
+            .saturating_add(projection.scan_limit()),
+    );
+    while projection.cursor.after < stop {
+        check()?;
+        let rows = read_page(store, projection.cursor.after, stop).await?;
+        let mut done = false;
+        for event in &rows {
+            check()?;
+            if projection.push(event)? {
+                done = true;
+                break;
+            }
+        }
+        if done {
+            break;
+        }
+    }
+    let mut newer = 0u64;
+    let mut next = end;
+    while next < count {
+        check()?;
+        let rows = read_page(store, next, count).await?;
+        newer += rows
+            .iter()
+            .filter(|event| projection.visible(event))
+            .count() as u64;
+        next += rows.len() as u64;
+    }
+    if store.current().watermark != current.watermark {
+        return Err(Error::Restart("history owner changed during read"));
+    }
+    check()?;
+    projection.finish(newer)
+}
+pub(crate) async fn read_page<S: vcp_store::CanonicalHistory>(
+    store: &S,
+    next: u64,
+    end: u64,
+) -> Result<Vec<EventEnvelope>> {
+    let limit = (end - next).min(4096) as usize;
+    let rows = store.history_events(next.checked_sub(1), limit).await?;
+    if rows.is_empty()
+        || rows.len() > limit
+        || rows
+            .iter()
+            .any(|event| event.watermark > store.current().watermark)
     {
+        return Err(Error::Integrity("history page incomplete or outside owner"));
+    }
+    Ok(rows)
+}
+
+struct Projection<'a> {
+    state: CurrentStateView<'a>,
+    access: &'a Access,
+    query: &'a Query,
+    session: Option<&'a SessionId>,
+    session_tasks: Option<std::collections::BTreeSet<String>>,
+    selector: Selector,
+    masks: Vec<history::RetentionMask>,
+    cursor: Cursor,
+    rows: Vec<Row>,
+    gaps: Vec<history::RetainedGap>,
+    bytes: usize,
+}
+impl<'a> Projection<'a> {
+    fn new(
+        state: CurrentStateView<'a>,
+        access: &'a Access,
+        query: &'a Query,
+        session: Option<&'a SessionId>,
+        count: u64,
+        boundary: Option<EventId>,
+    ) -> Result<Self> {
+        let session_tasks = session.map(|session| {
+            state
+                .records
+                .values()
+                .filter(|row| {
+                    row.collection == Collection::Task
+                        && row.workspace == access.workspace
+                        && row.value["scope"]["session"].as_str() == Some(session.as_str())
+                        && row.value["redaction"].is_null()
+                })
+                .map(|row| row.id.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        });
+        let workspace = history::authorize(state, access)?;
+        let selector = query.selector.clone().normalized()?;
+        // Reject unsupported capabilities across the whole tree, including a branch
+        // an OR could otherwise short-circuit. Missing facts are not invented.
+        fn unsupported(tree: &Tree) -> Option<&'static str> {
+            match tree {
+                Tree::Match(Criterion::Root(_)) => Some("source roots"),
+                Tree::Match(Criterion::Claim(_)) => Some("claim kinds"),
+                Tree::Match(Criterion::Status(Status::Claim(_))) => Some("claim status"),
+                Tree::Match(Criterion::Superseded(_)) => Some("supersession"),
+                Tree::All(items) | Tree::Any(items) => items.iter().find_map(unsupported),
+                Tree::Not(item) => unsupported(item),
+                _ => None,
+            }
+        }
+        if let Some(capability) = unsupported(&selector.tree) {
+            return Err(Error::UnsupportedFilter(capability));
+        }
+        if !(1..=128).contains(&query.limit)
+            || query
+                .text
+                .as_ref()
+                .is_some_and(|s| s.is_empty() || s.len() > 512 || s.contains('\0'))
+        {
+            return Err(Error::Limit);
+        }
+        let query_digest = digest_bytes(&canonical_bytes(&(
+            &selector,
+            &query.text,
+            query.limit,
+            &query.artifact,
+            query.expand_compacted,
+        ))?);
+        let query_digest = match session {
+            Some(session) => digest_bytes(&canonical_bytes(&(&query_digest, session))?),
+            None => query_digest,
+        };
+        let access_digest = digest_bytes(&canonical_bytes(&(
+            &access.workspace,
+            access.authority,
+            &access.tasks,
+        ))?);
+        let access_digest = match &session_tasks {
+            Some(tasks) => digest_bytes(&canonical_bytes(&(&access_digest, tasks))?),
+            None => access_digest,
+        };
+        // Current task status is mutable metadata, unlike event facts. If requested,
+        // bind its projection so a transition cannot silently skip an older match.
+        fn task_status(tree: &Tree) -> bool {
+            match tree {
+                Tree::Match(Criterion::Status(Status::Task(_))) => true,
+                Tree::All(items) | Tree::Any(items) => items.iter().any(task_status),
+                Tree::Not(item) => task_status(item),
+                _ => false,
+            }
+        }
+        let metadata_digest = if task_status(&selector.tree) {
+            let rows: Vec<_> = state
+                .records
+                .values()
+                .filter(|r| r.workspace == access.workspace && r.collection == Collection::Task)
+                .filter(|r| {
+                    access
+                        .tasks
+                        .as_ref()
+                        .is_none_or(|tasks| tasks.iter().any(|id| id.as_str() == r.id))
+                })
+                .map(|r| (&r.id, &r.value["state"]))
+                .collect();
+            digest_bytes(&canonical_bytes(&rows)?)
+        } else {
+            String::new()
+        };
+        let cursor = query.cursor.clone().unwrap_or(Cursor {
+            version: 1,
+            workspace: access.workspace.clone(),
+            watermark: state.watermark,
+            authority: workspace.authority,
+            deletion: workspace.deletion,
+            query_digest: query_digest.clone(),
+            access_digest: access_digest.clone(),
+            metadata_digest: metadata_digest.clone(),
+            after: 0,
+            end: count,
+            boundary_digest: digest_bytes(&canonical_bytes(&boundary)?),
+        });
+        if cursor.version != 1
+            || cursor.workspace != access.workspace
+            || cursor.authority != workspace.authority
+            || cursor.deletion != workspace.deletion
+            || cursor.query_digest != query_digest
+            || cursor.access_digest != access_digest
+            || cursor.metadata_digest != metadata_digest
+            || cursor.after > cursor.end
+            || cursor.end > count
+            || cursor.watermark > state.watermark
+            || cursor.boundary_digest != digest_bytes(&canonical_bytes(&boundary)?)
+        {
+            return Err(Error::Restart(
+                "history scope, retention or ordering changed",
+            ));
+        }
+        let masks = history::masks(state, &access.workspace)?;
+        Ok(Self {
+            state,
+            access,
+            query,
+            session,
+            session_tasks,
+            selector,
+            masks,
+            cursor,
+            rows: Vec::new(),
+            gaps: Vec::new(),
+            bytes: 0,
+        })
+    }
+    fn scan_limit(&self) -> u64 {
+        if self.session.is_some() {
+            64
+        } else {
+            512
+        }
+    }
+    fn push(&mut self, envelope: &EventEnvelope) -> Result<bool> {
+        let state = self.state;
+        let access = self.access;
+        let query = self.query;
+        let session = self.session;
+        let session_tasks = &self.session_tasks;
+        let selector = &self.selector;
+        let masks = &self.masks;
+        let cursor = &mut self.cursor;
+        let rows = &mut self.rows;
+        let gaps = &mut self.gaps;
+        let bytes = &mut self.bytes;
         cursor.after += 1;
         let e = &envelope.event;
         if e.workspace != access.workspace
@@ -230,7 +412,7 @@ fn query_scoped(
             })
             || !history::allows(access, e.task.as_ref())
         {
-            continue;
+            return Ok(false);
         }
         if let Some(mask) = masks.iter().find(|m| {
             m.session == e.session && envelope.sequence >= m.first && envelope.sequence <= m.last
@@ -244,7 +426,7 @@ fn query_scoped(
             if !gaps.contains(&gap) {
                 gaps.push(gap);
             }
-            continue;
+            return Ok(false);
         }
         let target = serde_json::json!({"kind":"event","id":e.id});
         let decision_id = format!("recall-{}", digest_bytes(&canonical_bytes(&target)?));
@@ -266,7 +448,7 @@ fn query_scoped(
                 last: envelope.sequence,
                 reason: "purged by current retention".into(),
             });
-            continue;
+            return Ok(false);
         }
         let compacted = decision.is_some_and(|r| r.value["compacted"] == true);
         let recall_excluded = decision.is_some_and(|r| r.value["recall_excluded"] == true);
@@ -306,13 +488,13 @@ fn query_scoped(
                 .as_ref()
                 .is_some_and(|a| !event.event.artifacts.contains(a))
         {
-            continue;
+            return Ok(false);
         }
         let serialized = serde_json::to_vec(&event)?;
         if query.text.as_ref().is_some_and(|text| {
             event.redaction.is_some() || !String::from_utf8_lossy(&serialized).contains(text)
         }) {
-            continue;
+            return Ok(false);
         }
         let mut shown = event;
         let truncated = serialized.len() > 8192
@@ -396,35 +578,44 @@ fn query_scoped(
             artifact_links,
         };
         let size = serde_json::to_vec(&row)?.len();
-        if bytes + size > 256 * 1024 {
+        if *bytes + size > 256 * 1024 {
             if rows.is_empty() {
                 return Err(Error::Limit);
             }
             cursor.after -= 1;
-            break;
+            return Ok(true);
         }
-        bytes += size;
+        *bytes += size;
         rows.push(row);
         if rows.len() == query.limit as usize {
-            break;
+            return Ok(true);
         }
+        Ok(false)
     }
-    let newer_events = state
-        .events
-        .iter()
-        .skip(cursor.end as usize)
-        .filter(|e| {
-            e.event.workspace == access.workspace
-                && session.is_none_or(|session| session == &e.event.session)
-                && session_tasks.as_ref().is_none_or(|tasks| {
-                    e.event
-                        .task
-                        .as_ref()
-                        .is_none_or(|task| tasks.contains(task.as_str()))
-                })
-                && history::allows(access, e.event.task.as_ref())
-        })
-        .count() as u64;
-    Ok(Page{workspace:access.workspace.clone(),selector,kind:"raw_history".into(),source_watermark:cursor.watermark,newer_events,rows,gaps,
+    fn visible(&self, e: &EventEnvelope) -> bool {
+        let access = self.access;
+        let session = self.session;
+        let session_tasks = &self.session_tasks;
+        e.event.workspace == access.workspace
+            && session.is_none_or(|session| session == &e.event.session)
+            && session_tasks.as_ref().is_none_or(|tasks| {
+                e.event
+                    .task
+                    .as_ref()
+                    .is_none_or(|task| tasks.contains(task.as_str()))
+            })
+            && history::allows(access, e.event.task.as_ref())
+    }
+    fn finish(self, newer_events: u64) -> Result<Page> {
+        let Self {
+            access,
+            selector,
+            cursor,
+            rows,
+            gaps,
+            ..
+        } = self;
+        Ok(Page{workspace:access.workspace.clone(),selector,kind:"raw_history".into(),source_watermark:cursor.watermark,newer_events,rows,gaps,
         next_cursor:(cursor.after<cursor.end).then_some(cursor),search_scope:"retained event facts; artifact bytes are available through explicit bounded inspection, not searched implicitly".into()})
+    }
 }

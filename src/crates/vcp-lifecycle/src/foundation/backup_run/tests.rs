@@ -36,7 +36,7 @@ fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendK
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }.into(),
         protected: Micros::ZERO,
         price: PriceSnapshot {
             id: "a".repeat(64),
@@ -329,7 +329,7 @@ async fn public_backup_fences_capture_and_every_fresh_job_stage() {
             let fence = PublicFence::new(
                 move |context| {
                     let store = context.engine.store();
-                    if store.state().records.values().any(|row| {
+                    if store.current().records.values().any(|row| {
                         row.collection == Collection::SnapshotPin
                             && row.id == check_operation.as_str()
                     }) {

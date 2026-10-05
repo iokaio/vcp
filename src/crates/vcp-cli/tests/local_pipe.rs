@@ -10,6 +10,7 @@ use vcp_domain::{
     controller::{Lease, Reason},
     revision::Revision,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 fn launch(fixture: &Fixture, role: &str) -> (Client, Value) {
@@ -199,7 +200,7 @@ async fn released(client: &mut Client, fixture: &Fixture) -> Value {
 }
 fn lease(store: &Store) -> Lease {
     store
-        .state()
+        .current()
         .records
         .values()
         .find(|row| {
@@ -301,17 +302,20 @@ async fn compiled_pipe_competing_controllers_observers_and_reconnect_share_one_w
         assert_eq!(state.reason, Reason::ConnectionLost);
         assert_eq!(
             store
-                .state()
+                .current()
                 .records
                 .values()
                 .filter(|row| row.collection == Collection::Session)
                 .count(),
             1
         );
-        assert!(!store.state().commands.values().any(|receipt| matches!(
-            receipt.command.as_str(),
-            "competing-owner" | "observer-escalation" | "reconnect-needs-acquire"
-        )));
+        assert!(!(&store.archive_state().await.unwrap())
+            .commands
+            .values()
+            .any(|receipt| matches!(
+                receipt.command.as_str(),
+                "competing-owner" | "observer-escalation" | "reconnect-needs-acquire"
+            )));
         store.close().await.unwrap();
     }
 }
@@ -388,7 +392,7 @@ async fn compiled_pipe_observer_launch_has_no_controller_grant_and_dead_attachme
     let store = fixture.reopen_within(Duration::from_secs(45)).await;
     assert_offline_paused(&store, &fixture.config);
     assert!(!store
-        .state()
+        .current()
         .records
         .values()
         .any(|row| row.collection == Collection::Access

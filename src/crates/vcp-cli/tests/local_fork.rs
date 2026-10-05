@@ -20,6 +20,7 @@ use vcp_protocol::{
     command::{Command, CommandEnvelope},
     event::EventKind,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{
     artifact::ArtifactWriter,
     contract::{Collection, State},
@@ -223,7 +224,7 @@ async fn completed_boundary(fixture: &Fixture) -> (TaskId, TurnId, State) {
         1,
     )
     .await;
-    let state = engine.store().state().clone();
+    let state = engine.store().archive_state().await.unwrap();
     engine.into_store().close().await.unwrap();
     (task, turn, state)
 }
@@ -437,9 +438,15 @@ async fn compiled_session_fork_is_atomic_metadata_and_replays_only_for_current_c
             .is_none());
         assert!(client.finish().await.0.success());
         let store = fixture.reopen().await;
-        assert_metadata_only(store.state(), &fixture, &source, &through, &before);
+        assert_metadata_only(
+            &store.archive_state().await.unwrap(),
+            &fixture,
+            &source,
+            &through,
+            &before,
+        );
         let forked = store
-            .state()
+            .current()
             .record(Collection::Task, "forked-root", &fixture.config.workspace)
             .unwrap()
             .clone();
@@ -463,10 +470,16 @@ async fn compiled_session_fork_is_atomic_metadata_and_replays_only_for_current_c
         assert_eq!(read_task(&mut restarted, &fixture, &source, 7), source_view);
         assert!(restarted.finish().await.0.success());
         let store = fixture.reopen().await;
-        assert_metadata_only(store.state(), &fixture, &source, &through, &before);
+        assert_metadata_only(
+            &store.archive_state().await.unwrap(),
+            &fixture,
+            &source,
+            &through,
+            &before,
+        );
         assert_eq!(
             store
-                .state()
+                .current()
                 .record(Collection::Task, "forked-root", &fixture.config.workspace)
                 .unwrap(),
             &forked

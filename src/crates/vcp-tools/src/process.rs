@@ -66,9 +66,15 @@ impl Profile {
             "PATHEXT",
             "TEMP",
             "TMP",
+            // .NET/NuGet resolves machine configuration from Program Files and
+            // user settings/cache from these explicit bootstrap directories.
+            // Hosts should supply dedicated application-data/CLI-home paths,
+            // not copy the account's ambient credential-bearing configuration.
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
             "APPDATA",
             "LOCALAPPDATA",
-            "PROGRAMFILES(X86)",
+            "DOTNET_CLI_HOME",
             "LANG",
             "LC_ALL",
             "TERM",
@@ -205,7 +211,7 @@ pub struct Request {
     pub input: Option<String>,
 }
 pub fn definition() -> serde_json::Value {
-    serde_json::json!({"type":"function","name":"vcp_exec","strict":true,"description":"Run a profile listed in the configured process profiles; never invent a profile name. Use directory:\"\" for the workspace root, otherwise a workspace-relative directory (not . or /). Direct profiles take literal argument strings; shell profiles take one script. Use input:null for nonterminal profiles. Terminal profiles accept bounded initial input and produce merged output. Respect the listed timeout ceiling and remaining task deadline. Configured profiles grant no execution authority; processes are opaque effects requiring current policy and approval.","parameters":{"type":"object","properties":{"profile":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"directory":{"type":"string"},"timeout_ms":{"type":"integer"},"output_bytes":{"type":"integer"},"input":{"type":["string","null"]}},"required":["profile","arguments","directory","timeout_ms","output_bytes","input"],"additionalProperties":false}})
+    serde_json::json!({"type":"function","name":"vcp_exec","strict":true,"description":"Include all six required arguments: profile, arguments, directory, timeout_ms, output_bytes, and input. The profile field is required and must name one of the listed configured process profiles; never omit it or invent a profile name. For the workspace root the directory value must contain zero characters, not quote or backslash characters. Example JSON (replace the profile with a configured name and supply its arguments): {\"profile\":\"configured-name\",\"arguments\":[],\"directory\":\"\",\"timeout_ms\":1000,\"output_bytes\":4096,\"input\":null}. Otherwise use a workspace-relative directory (not . or /). Direct profiles take literal argument strings; shell profiles take one script. Use input:null for nonterminal profiles. Terminal profiles accept bounded initial input and produce merged output. Respect the listed timeout ceiling and remaining task deadline. Configured profiles grant no execution authority; processes are opaque effects requiring current policy and approval.","parameters":{"type":"object","properties":{"profile":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"directory":{"type":"string"},"timeout_ms":{"type":"integer"},"output_bytes":{"type":"integer"},"input":{"type":["string","null"]}},"required":["profile","arguments","directory","timeout_ms","output_bytes","input"],"additionalProperties":false}})
 }
 impl Request {
     pub fn from_arguments(arguments: &str) -> Result<Self> {

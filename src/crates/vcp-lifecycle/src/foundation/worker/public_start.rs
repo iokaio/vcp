@@ -71,53 +71,55 @@ impl PublicConnection {
         let runtime = host.runtime.clone();
         let bindings = host.bindings.clone();
         let scheduler = host.scheduler.clone();
-        let result = host
-            .worker
-            .run(move |context| {
-                Ok(
-                    (|| -> std::result::Result<PublicStartAdmission, PublicError> {
-                        context
-                            .check_public_controller(&access, &connection, &token)
-                            .map_err(|_| PublicError::Access)?;
-                        let prepared = match context.engine.prepare_public_start(
-                            request,
-                            &access,
-                            &connection,
-                            &token,
-                        )? {
-                            vcp_engine::public_start::PublicStartAdmission::Replay(receipt) => {
-                                return Ok(PublicStartAdmission::Replay(receipt))
-                            }
-                            vcp_engine::public_start::PublicStartAdmission::Ready(prepared) => {
-                                prepared
-                            }
-                        };
-                        context.check_start_selection(prepared.request())?;
-                        let state = runtime
-                            .0
-                            .state
-                            .lock()
-                            .map_err(|_| PublicError::OutcomeUnknown)?;
-                        if !startup::available(&state)
-                            || state.root_startup.is_some()
-                            || scheduler.busy()
-                            || !bindings
+        let result =
+            host.worker
+                .run(move |context| {
+                    Ok(
+                        (|| -> std::result::Result<PublicStartAdmission, PublicError> {
+                            context
+                                .check_public_controller(&access, &connection, &token)
+                                .map_err(|_| PublicError::Access)?;
+                            let prepared = match context.runtime.block_on(
+                                context.engine.prepare_public_start(
+                                    request,
+                                    &access,
+                                    &connection,
+                                    &token,
+                                ),
+                            )? {
+                                vcp_engine::public_start::PublicStartAdmission::Replay(receipt) => {
+                                    return Ok(PublicStartAdmission::Replay(receipt))
+                                }
+                                vcp_engine::public_start::PublicStartAdmission::Ready(prepared) => {
+                                    prepared
+                                }
+                            };
+                            context.check_start_selection(prepared.request())?;
+                            let state = runtime
+                                .0
+                                .state
                                 .lock()
-                                .map_err(|_| PublicError::OutcomeUnknown)?
-                                .is_empty()
-                        {
-                            return Err(PublicError::StaleState);
-                        }
-                        Ok(PublicStartAdmission::Ready(PublicStartPreparation {
-                            prepared,
-                            access,
-                            connection,
-                            token,
-                        }))
-                    })(),
-                )
-            })
-            .map_err(|_| error(PublicError::OutcomeUnknown))?;
+                                .map_err(|_| PublicError::OutcomeUnknown)?;
+                            if !startup::available(&state)
+                                || state.root_startup.is_some()
+                                || scheduler.busy()
+                                || !bindings
+                                    .lock()
+                                    .map_err(|_| PublicError::OutcomeUnknown)?
+                                    .is_empty()
+                            {
+                                return Err(PublicError::StaleState);
+                            }
+                            Ok(PublicStartAdmission::Ready(PublicStartPreparation {
+                                prepared,
+                                access,
+                                connection,
+                                token,
+                            }))
+                        })(),
+                    )
+                })
+                .map_err(|_| error(PublicError::OutcomeUnknown))?;
         result.map_err(error)
     }
 
@@ -164,17 +166,22 @@ impl PublicConnection {
                         .check_public_controller(&access, &connection, &token)
                         .map_err(|_| PublicError::Access)?;
                     let request = prepared.request().clone();
-                    let prepared = match context.engine.prepare_public_start(
-                        request.clone(),
-                        &access,
-                        &connection,
-                        &token,
-                    )? {
-                        vcp_engine::public_start::PublicStartAdmission::Replay(receipt) => {
-                            return Ok(PublicStartOutcome::Replay(receipt))
-                        }
-                        vcp_engine::public_start::PublicStartAdmission::Ready(prepared) => prepared,
-                    };
+                    let prepared =
+                        match context
+                            .runtime
+                            .block_on(context.engine.prepare_public_start(
+                                request.clone(),
+                                &access,
+                                &connection,
+                                &token,
+                            ))? {
+                            vcp_engine::public_start::PublicStartAdmission::Replay(receipt) => {
+                                return Ok(PublicStartOutcome::Replay(receipt))
+                            }
+                            vcp_engine::public_start::PublicStartAdmission::Ready(prepared) => {
+                                prepared
+                            }
+                        };
                     context.check_start_selection(&request)?;
                     let root = context.tool_root().map_err(|_| PublicError::Unavailable)?;
                     let _root_pin = root
@@ -199,7 +206,7 @@ impl PublicConnection {
                         required_checks,
                         protected: context.config.protected,
                         policy: vcp_engine::policy::optional(
-                            context.engine.store().state(),
+                            context.engine.store().current(),
                             &access.workspace,
                         )
                         .map_err(|_| PublicError::Unavailable)?
@@ -459,7 +466,6 @@ impl Context {
         if request.task.as_str() != self.config.root_task.as_str()
             || request.scope.workspace.as_str() != self.config.workspace.as_str()
             || request.scope.session.as_str() != self.config.session.as_str()
-            || request.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
             || request.budget.currency != vcp_protocol::methods::Currency::Usd
             || self.config.cap.currency.code() != "USD"
         {
@@ -480,9 +486,10 @@ impl Context {
     ) -> Result<AcceptedPublicStart> {
         self.check_public_controller(access, connection, token)?;
         self.check_start_selection(request)?;
-        let accepted = self
-            .engine
-            .check_accepted_public_start(request, receipt, access, connection, token)?;
+        let accepted = self.runtime.block_on(
+            self.engine
+                .check_accepted_public_start(request, receipt, access, connection, token),
+        )?;
         self.check_public_start_budget()?;
         Ok(accepted)
     }

@@ -2,7 +2,10 @@
 //! A bounded maintenance step, called only by an admitted canonical owner.
 use crate::{access::Access, extractors, ingest, repository, Error, Result};
 use vcp_domain::{ingestion::*, memory::ProposalRecord, workspace::Scope, *};
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 pub fn specification() -> ExtractorSpec {
     ExtractorSpec {
@@ -69,7 +72,7 @@ pub struct Status {
 pub fn status(store: &Store, access: &Access) -> Result<Status> {
     let jobs = ingest::inspect(store, access)?;
     let mut status = Status {
-        watermark: store.state().watermark,
+        watermark: store.current().watermark,
         pending: 0,
         leased: 0,
         deferred: 0,
@@ -102,7 +105,7 @@ pub fn status(store: &Store, access: &Access) -> Result<Status> {
     }
     for id in results {
         let result: vcp_domain::memory::ProposalResult = store
-            .state()
+            .current()
             .record(Collection::Projection, id.as_str(), &access.workspace)?
             .decode()?;
         match result.resolution.outcome {
@@ -123,7 +126,7 @@ pub async fn step(
     scope: &Scope,
     now: Timestamp,
 ) -> Result<Progress> {
-    let through = store.state().watermark;
+    let through = store.current().watermark;
     let spec = specification();
     let queued = ingest::enqueue(store, access, scope, &spec, through, limits()).await?;
     let mut progress = Progress {
@@ -197,7 +200,7 @@ pub async fn step(
     }
     // Processing may attach evidence or resolve proposals after enqueue's fixed
     // cut. Do not report fresh progress while those observations remain unqueued.
-    progress.caught_up &= queued.cursor.after.get() == store.state().events.len() as u64;
+    progress.caught_up &= queued.cursor.after.get() == store.history_event_count().await?;
     Ok(progress)
 }
 
@@ -208,14 +211,11 @@ async fn process(
     now: Timestamp,
 ) -> Result<(Vec<CommandId>, String)> {
     let event = store
-        .state()
-        .events
-        .iter()
-        .find(|event| event.event.id == *origin)
-        .cloned()
+        .history_event(origin)
+        .await?
         .ok_or(Error::Conflict("ingestion origin missing"))?;
     let preference = crate::preferences::materialize(store, access, &event).await?;
-    let mut extraction = extractors::extract(store, access, &event)?;
+    let mut extraction = extractors::extract(store, access, &event).await?;
     if let Some(proposal) = preference {
         extraction.proposals.push(proposal);
         extraction
@@ -228,7 +228,7 @@ async fn process(
         .into_iter()
         .map(|proposal| (proposal.id.clone(), proposal))
         .collect();
-    for row in store.state().records.values().filter(|row| {
+    for row in store.current().records.values().filter(|row| {
         row.workspace == access.workspace
             && row.collection == Collection::Claim
             && row.value["document_type"] == "vcp_memory_proposal_v1"
@@ -243,7 +243,7 @@ async fn process(
         // epochs or evidence based on today's state. Recheck the original
         // proposal through the same repository retry/retention/access boundary.
         let previous = store
-            .state()
+            .current()
             .records
             .get(&vcp_store::contract::key(
                 Collection::Claim,

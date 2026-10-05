@@ -32,7 +32,7 @@ impl worker::Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| {
@@ -47,12 +47,13 @@ impl worker::Context {
             let mut note = format!("Untrusted unstamped child transcript; artifact={} sha256={}. No examined revision or defect is inferred. ", descriptor.spec.id, descriptor.sha256);
             if descriptor.state == CaptureState::Complete && descriptor.length.get() <= 64 * 1024 {
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &descriptor.spec.id,
-                    &mut bytes,
-                )?;
+                self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &descriptor.spec.id,
+                        &mut bytes,
+                    ))?;
                 if let Ok(text) = std::str::from_utf8(&bytes) {
                     let mut end = text.len().min(4096);
                     while !text.is_char_boundary(end) {
@@ -76,7 +77,7 @@ impl worker::Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, child.as_str(), &self.config.workspace)?
             .decode()?;
         if !matches!(
@@ -91,7 +92,7 @@ impl worker::Context {
         for row in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.workspace == self.config.workspace)
@@ -112,7 +113,7 @@ impl worker::Context {
             if row.collection == Collection::Reservation {
                 let reservation: Reservation = row.decode()?;
                 if &reservation.scope.task == child
-                    && (reservation.liability != Micros::ZERO
+                    && (!reservation.liability.is_zero()
                         || matches!(
                             reservation.phase,
                             ReservationState::Created
@@ -175,13 +176,13 @@ impl CanonicalHost {
             let Some(result) = graph.results.get(&child).and_then(|results| results.last()) else {
                 return Ok(serde_json::json!({"child":child,"findings":transcripts,"observation":"up to eight untrusted unstamped transcript previews in canonical record order; no retained review packet or correctness claim"}));
             };
-            let descriptor: ArtifactDescriptor = context.engine.store().state()
+            let descriptor: ArtifactDescriptor = context.engine.store().current()
                 .record(Collection::Artifact, result.packet.as_str(), &binding.scope.workspace)?.decode()?;
             if descriptor.state != CaptureState::Complete || descriptor.length.get() > 1024 * 1024 {
                 return Err("retained child review packet is unavailable or exceeds bounds".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(context.engine.store(), &context.history_access(), &result.packet, &mut bytes)?;
+            context.runtime.block_on(vcp_audit::history::History::read_artifact(context.engine.store(), &context.history_access(), &result.packet, &mut bytes))?;
             let packet: ChildPacket = serde_json::from_slice(&bytes)?;
             packet.validate_findings()?;
             Ok(serde_json::json!({"child":child,"packet":result.packet,"plan":result.plan,
@@ -262,7 +263,7 @@ impl CanonicalHost {
             let descriptor: ArtifactDescriptor = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     spec.snapshot.as_str(),
@@ -276,12 +277,13 @@ impl CanonicalHost {
                 return Err("child base artifact differs".into());
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                context.engine.store(),
-                &context.history_access(),
-                &spec.snapshot,
-                &mut bytes,
-            )?;
+            context.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    context.engine.store(),
+                    &context.history_access(),
+                    &spec.snapshot,
+                    &mut bytes,
+                ))?;
             let base: WorkspaceSnapshot = serde_json::from_slice(&bytes)?;
             Ok((
                 source,
@@ -409,7 +411,7 @@ impl CanonicalHost {
                 let descriptor: ArtifactDescriptor = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         spec.snapshot.as_str(),
@@ -423,12 +425,13 @@ impl CanonicalHost {
                     return Err("child base artifact differs".into());
                 }
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    context.engine.store(),
-                    &context.history_access(),
-                    &spec.snapshot,
-                    &mut bytes,
-                )?;
+                context.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        context.engine.store(),
+                        &context.history_access(),
+                        &spec.snapshot,
+                        &mut bytes,
+                    ))?;
                 let base: WorkspaceSnapshot = serde_json::from_slice(&bytes)?;
                 Ok(Some((
                     source,
@@ -581,7 +584,7 @@ impl CanonicalHost {
             let parent: Task = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Task,
                     binding.scope.task.as_str(),

@@ -56,9 +56,14 @@ impl Notices {
 async fn observe_pump(
     mut pump: tokio::task::JoinHandle<std::result::Result<(), String>>,
     mut receiver: tokio::sync::mpsc::Receiver<String>,
-    deadline: Duration,
+    deadline: Option<Duration>,
 ) -> Result<(std::result::Result<(), String>, Notices)> {
-    let timeout = tokio::time::sleep(deadline);
+    let timeout = async move {
+        match deadline {
+            Some(duration) => tokio::time::sleep(duration).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
     tokio::pin!(timeout);
     let mut notices = Notices::default();
     let mut open = true;
@@ -133,7 +138,8 @@ async fn main() -> Result<()> {
                     .as_deref()
                     .ok_or("exact arm cap required")?,
             )?,
-        },
+        }
+        .into(),
         protected: Micros::ZERO,
         price: prepared.profile.provider.price.clone(),
         input_ceiling: prepared.profile.provider.max_input,
@@ -194,7 +200,7 @@ async fn main() -> Result<()> {
             operating.push('\n');
             operating.push_str(helper.guidance()?);
         }
-        host.configure_coding(parent.id,vcp_lifecycle::foundation::coding::CodingConfig {canonical_tools: prepared.profile.canonical_tools.clone(),operating,affected_paths:prepared.profile.affected_paths.clone(),max_requests:prepared.profile.max_requests,deadline:Timestamp::new(vcp_cli::settings::now().get()+u64::from(prepared.profile.deadline_seconds)*1000)})?;
+        host.configure_coding(parent.id,vcp_lifecycle::foundation::coding::CodingConfig {canonical_tools: prepared.profile.canonical_tools.clone(),operating,affected_paths:prepared.profile.affected_paths.clone(),max_requests:prepared.profile.max_requests,deadline:prepared.profile.deadline_seconds.map(|seconds| Timestamp::new(vcp_cli::settings::now().get()+u64::from(seconds)*1000))})?;
         let child=if let Some(delegation)=&spec.delegation {
             vcp_cli::delegation::prepare(&host,&parent,&scope,delegation).await?
         } else {
@@ -206,7 +212,7 @@ async fn main() -> Result<()> {
         if let Some(note)=&spec.human_note {fs::write(workspace.join("notes.txt"),note)?;}
         let (notices,receiver)=tokio::sync::mpsc::channel(8);
         let pump=vcp_cli::delegation::run(host.clone(),&child,&scope,notices).await?;
-        let (pump_result, diagnostics)=observe_pump(pump,receiver,Duration::from_secs(u64::from(prepared.profile.deadline_seconds)+30)).await?;
+        let (pump_result, diagnostics)=observe_pump(pump,receiver,prepared.profile.deadline_seconds.finite().map(|seconds| Duration::from_secs(u64::from(*seconds)+30))).await?;
         // Paused changed children can still be inspected/integrated; their check
         // limitations never become evidence that the parent passed.
         let mut integration=None;
@@ -283,9 +289,7 @@ mod tests {
             }
             Ok(())
         });
-        let (result, notices) = observe_pump(pump, receiver, Duration::from_secs(2))
-            .await
-            .unwrap();
+        let (result, notices) = observe_pump(pump, receiver, None).await.unwrap();
         assert!(result.is_ok());
         assert_eq!(notices.messages.len(), 128);
         assert_eq!(notices.omitted, 72);
@@ -300,9 +304,11 @@ mod tests {
             Ok(())
         });
         let aborted = pump.abort_handle();
-        assert!(observe_pump(pump, receiver, Duration::from_millis(10))
-            .await
-            .is_err());
+        assert!(
+            observe_pump(pump, receiver, Some(Duration::from_millis(10)))
+                .await
+                .is_err()
+        );
         assert!(aborted.is_finished());
     }
 }

@@ -46,6 +46,7 @@ switch ($Mode) {
     'noisy' { while ($true) { [Console]::Out.WriteLine('still running') } }
     'closed' { [Console]::OpenStandardOutput().Dispose(); Start-Sleep -Seconds 30 }
     'quiet' { Start-Sleep -Seconds 30 }
+    'unbounded' { Start-Sleep -Milliseconds 1250; 'completed without a deadline'; exit 0 }
     'credential' {
         if ($env:OPENROUTER_API_KEY -or ($env:VCP_SCENARIO_CREDENTIAL_ENV -and [Environment]::GetEnvironmentVariable($env:VCP_SCENARIO_CREDENTIAL_ENV))) { exit 9 }
         'no inherited provider credential'
@@ -64,6 +65,10 @@ switch ($Mode) {
         Check ($result.TimedOut -and $result.ExitCode -eq -1) "$mode evaded timeout"
         Check ($result.DurationSeconds -lt 15) "$mode timeout was not bounded"
     }
+    $result = Invoke-NativeLogged -FilePath $pwsh -ArgumentList @('-NoProfile', '-File', $probe, 'unbounded') `
+        -StdoutPath (Join-Path $temporary 'unbounded.out') -StderrPath (Join-Path $temporary 'unbounded.err') -TimeoutSeconds $null
+    Check ($result.ExitCode -eq 0 -and -not $result.TimedOut -and $result.DurationSeconds -ge 1.2) 'Explicit unbounded supervision ended early'
+    Check ((Get-Content $result.StdoutPath -Raw).Trim() -eq 'completed without a deadline') 'Unbounded supervisor lost output'
     $ctx = New-TestContext
     $savedCredential = $env:OPENROUTER_API_KEY
     $savedCredentialName = $env:VCP_SCENARIO_CREDENTIAL_ENV
@@ -108,6 +113,29 @@ switch ($Mode) {
     $page = Cost-Page; $page.next_cursor = @{ after = 'more' }
     Check ($null -eq (Get-VcpTaskCost @($page)).Usd) 'Partial pagination accepted'
     Check ($null -eq (Get-VcpTaskCost @()).Usd) 'Empty costs accepted'
+    $partial = Get-VcpTaskCost @(Cost-Page -Settled '1250000' -Unresolved '500000')
+    Check ($null -eq $partial.Usd -and $partial.ObservedUsd -eq [decimal]1.25 -and $partial.UnresolvedUsd -eq [decimal]0.5) 'Partial billing was hidden or reported complete'
+
+    foreach ($asObject in $false,$true) {
+        $page = Cost-Page -Settled '1250000'
+        $estimate = @{kind='unknown';version=1;known_component='500000';unknown_components='2'}
+        $page.items[0].record.unresolved = if ($asObject) { $estimate | ConvertTo-Json | ConvertFrom-Json } else { $estimate }
+        $unknown = Get-VcpTaskCost @($page)
+        Check ($null -eq $unknown.Usd -and $null -eq $unknown.UnresolvedUsd -and $unknown.ObservedUsd -eq [decimal]1.25) 'Unknown estimate concealed settlement or fabricated a total'
+        Check ($unknown.UnresolvedKnownComponentUsd -eq [decimal]0.5 -and $unknown.UnresolvedUnknownComponents -eq 2) 'Unknown estimate terms were lost'
+    }
+    foreach ($invalid in @(
+        @{kind='unknown';version=1;known_component='0';unknown_components='0'},
+        @{kind='unknown';version=2;known_component='0';unknown_components='1'},
+        @{kind='unknown';version=$true;known_component='0';unknown_components='1'},
+        @{kind='unknown';version=1;known_component='0';unknown_components='1';extra='no'},
+        @{kind='unknown';version=1;known_component='18446744073709551616';unknown_components='1'},
+        '18446744073709551616'
+    )) {
+        $page = Cost-Page; $page.items[0].record.active = $invalid
+        $unknown = Get-VcpTaskCost @($page)
+        Check ($null -eq $unknown.Usd -and $null -eq $unknown.ObservedUsd) 'Malformed estimate was accepted as accounting evidence'
+    }
 
     $ctx = New-TestContext
     $pages = & $module {
@@ -125,6 +153,27 @@ switch ($Mode) {
     Check ($pages.Count -eq 2 -and $pages[1].gaps.Count -eq 1) 'Failed second inspect page lost completeness marker'
     Check ((Get-FailedGates $ctx 'test').Count -eq 1) 'Inspection failure did not fail evidence gate'
 
+    foreach ($mode in 'valid', 'missing-result', 'invalid-jsonl', 'scoped', 'accepted', 'wrong-condition', 'timed-out') {
+        $ctx = New-TestContext
+        & $module {
+            param($context, $mode)
+            $frame = @{ type = 'result'; schema_version = 1; correlation = 'guardrail'; scope = $null; receipt = $null;
+                exit_code = 2; conditions = [pscustomobject]@{ invalid_configuration = $true } }
+            $run = @{ ExitCode = 2; TimedOut = $false; InvalidLines = 0; Accepted = $null; Scope = $null; Frames = @($frame) }
+            switch ($mode) {
+                'missing-result' { $run.Frames = @() }
+                'invalid-jsonl' { $run.InvalidLines = 1 }
+                'scoped' { $run.Scope = @{ task = 'unexpected' }; $frame.scope = $run.Scope }
+                'accepted' { $run.Accepted = @{ type = 'accepted' } }
+                'wrong-condition' { $frame.conditions = [pscustomobject]@{ provider_failure = $true } }
+                'timed-out' { $run.TimedOut = $true }
+            }
+            function Invoke-Vcp { return $run }
+            Invoke-GuardrailRun $context 'G0-guardrail' $mode 'rejected before task acceptance' @('run') 'unused.json'
+        } $ctx $mode
+        Check (((Get-FailedGates $ctx 'G0-guardrail').Count -eq 0) -eq ($mode -eq 'valid')) "$mode guardrail evidence was misclassified"
+    }
+
     $message = & $module {
         param($context)
         $sse = 'data: {"type":"response.completed","response":{"output":[{"content":[{"type":"output_text","text":"latest response"}]}]}}' + "`n`n"
@@ -133,6 +182,7 @@ switch ($Mode) {
         function Invoke-Vcp {
             param($Ctx, $Stage, $Label, $TimeoutSeconds, $Arguments)
             if ($Arguments[1] -ne 'a-latest') { throw 'Selected response by canonical key instead of event order' }
+            if ($TimeoutSeconds -lt 130) { return @{ ExitCode = 124; InvalidLines = 0; TimedOut = $true; Result = $null } }
             return @{ ExitCode = 0; InvalidLines = 0; Result = @{ data = @{ gaps = @(@{ visibility = 'redacted'; omissions = @('authentication_headers') }); items = @(@{
                 bytes = $bytes; artifact = 'a-latest'; descriptor = $descriptor; visibility = 'available'
                 range = @{ start = 0; end = $bytes.Length }; next_offset = $null
@@ -160,11 +210,11 @@ switch ($Mode) {
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' ([decimal]2) $r } $ctx $record
     Check ($ctx.SpentUsd -eq 2 -and $record.cost_usd -eq 0.75) 'Resume ledger double counted'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' $null $r } $ctx $record
-    Check ($ctx.SpentUsd -eq 3 -and $null -eq $record.cost_usd) 'Unknown cost did not reserve task cap'
+    Check ($ctx.SpentUsd -eq 2 -and $null -eq $record.cost_usd -and $ctx.CostUnknown) 'Unknown cost erased prior observation or uncertainty'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-a' $null $r } $ctx $record
-    Check ($ctx.SpentUsd -eq 3) 'Repeated missing evidence double counted task cap'
+    Check ($ctx.SpentUsd -eq 2) 'Repeated missing evidence fabricated spend'
     & $module { param($c, $r) Update-ScenarioCost $c 'task-b' ([decimal]0.5) $r } $ctx $record
-    Check ($ctx.SpentUsd -eq 3.5) 'Distinct task not counted'
+    Check ($ctx.SpentUsd -eq 2.5) 'Distinct task not counted'
     $ctx.TurnBudgetUsd = 3
     $ctx.SkipPaidStages = $false
     [void](Invoke-Gate $ctx 'P1-profiles' 'bad' 'fixture invalid profile' { $false })

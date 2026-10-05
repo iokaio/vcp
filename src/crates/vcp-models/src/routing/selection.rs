@@ -22,18 +22,18 @@ fn empty(identity: ModelEndpoint) -> CandidateDecision {
         assumptions: vec![],
     }
 }
-fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<Micros, Exclusion> {
+fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<EstimatedMicros, Exclusion> {
     if !validation::valid_usage(usage) {
         return Err(Exclusion::InvalidCost);
     }
     let categories = usage.disjoint().map_err(|_| Exclusion::InvalidCost)?;
     let mut total = 0u64;
+    let mut unknown = 0u64;
     for (category, units) in categories {
-        let rate = snapshot
-            .price
-            .rates
-            .get(&category)
-            .ok_or(Exclusion::UnknownCost)?;
+        let Some(rate) = snapshot.price.rates.get(&category) else {
+            unknown += 1;
+            continue;
+        };
         if rate.per_units == Units::ZERO {
             return Err(Exclusion::InvalidCost);
         }
@@ -44,25 +44,34 @@ fn cost(snapshot: &Snapshot, usage: &Usage) -> std::result::Result<Micros, Exclu
         let amount = u64::try_from(amount).map_err(|_| Exclusion::InvalidCost)?;
         total = total.checked_add(amount).ok_or(Exclusion::InvalidCost)?;
     }
-    Ok(Micros::new(total))
+    if unknown == 0 {
+        Ok(Micros::new(total).into())
+    } else {
+        EstimatedMicros::unknown(Micros::new(total), Units::new(unknown))
+            .map_err(|_| Exclusion::InvalidCost)
+    }
 }
 fn estimate_cost(
     snapshot: &Snapshot,
     estimate: &CostEstimate,
-    input: &RoutingInput,
+    input_tokens: Units,
+    output_tokens: Units,
 ) -> std::result::Result<CostBreakdown, Exclusion> {
     if estimate.first_attempt.requests == Units::ZERO
-        || estimate.first_attempt.input < input.input_tokens
-        || estimate.first_attempt.output < input.output_tokens
+        || estimate.first_attempt.input < input_tokens
+        || estimate.first_attempt.output < output_tokens
     {
         return Err(Exclusion::InvalidCost);
     }
     let fixed = |value: &Option<Money>| {
-        let value = value.as_ref().ok_or(Exclusion::UnknownCost)?;
+        let Some(value) = value.as_ref() else {
+            return EstimatedMicros::unknown(Micros::ZERO, Units::new(1))
+                .map_err(|_| Exclusion::InvalidCost);
+        };
         if value.currency != snapshot.price.currency {
             return Err(Exclusion::CurrencyMismatch);
         }
-        Ok(value.micros)
+        Ok(EstimatedMicros::from(value.micros))
     };
     let first_attempt = cost(snapshot, &estimate.first_attempt)?;
     let retries = cost(snapshot, &estimate.retries)?;
@@ -79,8 +88,8 @@ fn estimate_cost(
         verification,
     ]
     .into_iter()
-    .try_fold(0u64, |sum, part| {
-        sum.checked_add(part.get()).ok_or(Exclusion::InvalidCost)
+    .try_fold(EstimatedMicros::ZERO, |sum, part| {
+        sum.checked_add(part).map_err(|_| Exclusion::InvalidCost)
     })?;
     Ok(CostBreakdown {
         first_attempt,
@@ -89,9 +98,9 @@ fn estimate_cost(
         support,
         children,
         verification,
-        total: Money {
+        total: EstimatedMoney {
             currency: snapshot.price.currency.clone(),
-            micros: Micros::new(total),
+            micros: total,
         },
     })
 }
@@ -168,6 +177,21 @@ fn evaluate(
     owner_selected: bool,
 ) -> CandidateDecision {
     let mut row = empty(candidate.identity.clone());
+    let Some((input_tokens, output_tokens)) = input.request_for(&candidate.identity) else {
+        row.exclusions.push(Exclusion::ContextCapacity);
+        row.assumptions
+            .push("No valid request encoding/allocation for this candidate.".into());
+        return row;
+    };
+    if policy
+        .input_tokens
+        .is_some_and(|limit| input_tokens > limit)
+        || policy
+            .output_tokens
+            .is_some_and(|limit| output_tokens > limit)
+    {
+        row.exclusions.push(Exclusion::ContextCapacity);
+    }
     if input
         .retry_pin
         .as_ref()
@@ -223,7 +247,7 @@ fn evaluate(
         // ordinary input and both cache categories. Check that immediate bound
         // separately from the configured expected task cost used for ranking.
         row.assumptions.push("Input byte estimate is unqualified; immediate admission reserves the full endpoint input capacity for ordinary input, cache read and cache write.".into());
-        let bound = snapshot.reservation_input(input.input_tokens);
+        let bound = snapshot.reservation_input(input_tokens);
         let maximum = bound
             .get()
             .checked_mul(3)
@@ -235,13 +259,16 @@ fn evaluate(
                         input: Units::new(inclusive),
                         cache_read: bound,
                         cache_write: bound,
-                        output: input.output_tokens,
+                        output: output_tokens,
                         requests: Units::new(1),
                         ..Usage::default()
                     },
                 )
             });
         match maximum {
+            Err(Exclusion::UnknownCost) if input.available.micros.is_unbounded() => row
+                .assumptions
+                .push("Immediate monetary bound unavailable; cost remains unknown.".into()),
             Err(reason) => row.exclusions.push(reason),
             Ok(maximum) => {
                 let protected = if input.role == RequestRole::Verification {
@@ -249,12 +276,19 @@ fn evaluate(
                 } else {
                     input.protected_verification.get()
                 };
-                if maximum
-                    .get()
-                    .checked_add(protected)
-                    .is_none_or(|amount| amount > input.available.micros.get())
-                {
-                    row.exclusions.push(Exclusion::Budget);
+                if !input.available.micros.is_unbounded() {
+                    if let Some(maximum) = maximum.known() {
+                        if maximum.get().checked_add(protected).is_none_or(|amount| {
+                            input.available.micros.exceeds(&Micros::new(amount))
+                        }) {
+                            row.exclusions.push(Exclusion::Budget);
+                        }
+                    } else {
+                        row.exclusions.push(Exclusion::UnknownCost);
+                    }
+                } else if maximum.known().is_none() {
+                    row.assumptions
+                        .push("Immediate monetary bound unavailable; cost remains unknown.".into());
                 }
             }
         }
@@ -296,12 +330,11 @@ fn evaluate(
     {
         row.exclusions.push(Exclusion::DataPolicy);
     }
-    if input.input_tokens > snapshot.max_input
-        || input.output_tokens > snapshot.max_output
-        || input
-            .input_tokens
+    if input_tokens > snapshot.max_input
+        || output_tokens > snapshot.max_output
+        || input_tokens
             .get()
-            .checked_add(input.output_tokens.get())
+            .checked_add(output_tokens.get())
             .is_none_or(|total| total > snapshot.context.get())
     {
         row.exclusions.push(Exclusion::ContextCapacity);
@@ -332,30 +365,49 @@ fn evaluate(
         .iter()
         .find(|estimate| estimate.candidate == candidate.identity)
     {
+        None if input.available.micros.is_unbounded() => row
+            .assumptions
+            .push("Cost estimate unavailable; cost remains unknown.".into()),
         None => row.exclusions.push(Exclusion::MissingCostEstimate),
         Some(estimate) => {
             row.assumptions.extend(estimate.assumptions.clone());
             row.evidence_refs.extend(estimate.evidence_refs.clone());
-            match estimate_cost(snapshot, estimate, input) {
+            match estimate_cost(snapshot, estimate, input_tokens, output_tokens) {
+                Err(Exclusion::UnknownCost) if input.available.micros.is_unbounded() => row
+                    .assumptions
+                    .push("Cost estimate incomplete; cost remains unknown.".into()),
                 Err(reason) => row.exclusions.push(reason),
                 Ok(cost) => {
                     if cost.total.currency != input.available.currency {
                         row.exclusions.push(Exclusion::CurrencyMismatch);
                     }
-                    if cost.verification > input.protected_verification {
-                        row.exclusions
-                            .push(Exclusion::InsufficientVerificationReserve);
-                    }
-                    let protected = if input.role == RequestRole::Verification {
-                        0
-                    } else {
-                        input.protected_verification.get()
-                    };
-                    let without_verification = cost.total.micros.get() - cost.verification.get();
-                    let required =
-                        without_verification.checked_add(protected.max(cost.verification.get()));
-                    if required.is_none_or(|amount| amount > input.available.micros.get()) {
-                        row.exclusions.push(Exclusion::Budget);
+                    if !input.available.micros.is_unbounded() {
+                        if let (Some(total), Some(verification)) =
+                            (cost.total.micros.known(), cost.verification.known())
+                        {
+                            if verification > input.protected_verification {
+                                row.exclusions
+                                    .push(Exclusion::InsufficientVerificationReserve);
+                            }
+                            let protected = if input.role == RequestRole::Verification {
+                                0
+                            } else {
+                                input.protected_verification.get()
+                            };
+                            let required = (total.get() - verification.get())
+                                .checked_add(protected.max(verification.get()));
+                            if required.is_none_or(|amount| {
+                                input.available.micros.exceeds(&Micros::new(amount))
+                            }) {
+                                row.exclusions.push(Exclusion::Budget);
+                            }
+                        } else {
+                            row.exclusions.push(Exclusion::UnknownCost);
+                        }
+                    } else if cost.total.micros.known().is_none() {
+                        row.assumptions.push(
+                            "Cost estimate incomplete; unpriced components remain unknown.".into(),
+                        );
                     }
                     row.total_estimate = Some(cost);
                 }
@@ -386,11 +438,21 @@ fn compare(a: &CandidateDecision, b: &CandidateDecision, ordering: &[Preference]
             Preference::Quality => b.quality_bps.cmp(&a.quality_bps),
             Preference::Latency => a.latency_p95_ms.cmp(&b.latency_p95_ms),
             Preference::Capability => a.group.cmp(&b.group),
-            Preference::TotalCost => a
-                .total_estimate
-                .as_ref()
-                .map(|cost| cost.total.micros)
-                .cmp(&b.total_estimate.as_ref().map(|cost| cost.total.micros)),
+            // Unpriced totals have no numeric order; they must not become the
+            // cheapest candidate by treating absence as zero.
+            Preference::TotalCost => match (
+                a.total_estimate
+                    .as_ref()
+                    .and_then(|cost| cost.total.micros.known()),
+                b.total_estimate
+                    .as_ref()
+                    .and_then(|cost| cost.total.micros.known()),
+            ) {
+                (Some(a), Some(b)) => a.cmp(&b),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            },
         };
         if order != Ordering::Equal {
             return order;
@@ -436,17 +498,19 @@ fn select_inner(
     if input.catalog != catalog.id || input.policy != policy.id {
         return Err(Error::Stale);
     }
-    if policy
-        .input_tokens
-        .is_some_and(|limit| input.input_tokens > limit)
+    if input.candidate_requests.is_empty()
+        && policy
+            .input_tokens
+            .is_some_and(|limit| input.input_tokens > limit)
     {
         return Err(Error::Capability(
             "routing input exceeds selected policy limit",
         ));
     }
-    if policy
-        .output_tokens
-        .is_some_and(|limit| input.output_tokens > limit)
+    if input.candidate_requests.is_empty()
+        && policy
+            .output_tokens
+            .is_some_and(|limit| input.output_tokens > limit)
     {
         return Err(Error::Capability(
             "routing output exceeds selected policy limit",

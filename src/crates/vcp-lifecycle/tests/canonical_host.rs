@@ -53,6 +53,8 @@ mod coding;
 #[cfg(windows)]
 #[path = "support/coding_verification.rs"]
 mod coding_verification;
+#[path = "support/coding_artifacts.rs"]
+mod coding_artifacts;
 #[cfg(windows)]
 #[path = "support/content_authority.rs"]
 mod content_authority;
@@ -146,6 +148,9 @@ mod portable_vectors;
 #[path = "support/process_broker.rs"]
 mod process_broker;
 #[cfg(windows)]
+#[path = "support/dotnet_bootstrap.rs"]
+mod dotnet_bootstrap;
+#[cfg(windows)]
 #[path = "support/hooks.rs"]
 mod hooks;
 #[cfg(all(windows, feature = "qualification"))]
@@ -153,6 +158,8 @@ mod hooks;
 mod observers;
 #[path = "support/provider_retries.rs"]
 mod provider_retries;
+#[path = "support/provider_reconciliation.rs"]
+mod provider_reconciliation;
 #[path = "support/public_connection.rs"]
 mod public_connection;
 #[path = "support/public_controller.rs"]
@@ -163,7 +170,7 @@ mod public_events;
 mod public_export;
 #[path = "support/public_resume.rs"]
 mod public_resume;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "qualification"))]
 #[path = "support/public_resume_mcp.rs"]
 mod public_resume_mcp;
 #[path = "support/public_rpc.rs"]
@@ -204,6 +211,8 @@ mod seeded_provider;
 mod seeded_traces;
 #[path = "support/selected_reopen.rs"]
 mod selected_reopen;
+#[path = "support/history_reader.rs"]
+mod history_reader;
 #[cfg(windows)]
 #[path = "support/skills.rs"]
 mod skills;
@@ -322,6 +331,27 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
         assert!(matches!(read.decision, vcp_policy::Decision::Allow { .. }));
         let output = host.dispatch_tool(read).unwrap();
         assert_eq!(output.result["text"], "before\r\n");
+        let nested = host.prepare_tool(id, Request::Patch { patch:
+            "*** Begin Patch\n*** Add File: generated/Data/one.cs\n+one\n*** Add File: GENERATED/data/two.cs\n+two\n*** End Patch".into()
+        }).unwrap();
+        assert!(!workspace.join("generated").exists());
+        let nested = host.dispatch_tool(nested).unwrap();
+        assert_eq!(nested.result["complete"], true, "{}", nested.result);
+        assert_eq!(
+            std::fs::read(workspace.join("generated/Data/one.cs")).unwrap(),
+            b"one\n"
+        );
+        assert_eq!(
+            std::fs::read(workspace.join("generated/Data/two.cs")).unwrap(),
+            b"two\n"
+        );
+        assert_eq!(
+            nested.result["files"][0]["created_directories"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         let patch="*** Begin Patch\n*** Update File: file.txt\n@@\n-before\n+after\n*** Add File: new.txt\n+created\n*** End Patch";
         let prepared = host
             .prepare_tool(
@@ -375,6 +405,18 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
             .unwrap();
         assert!(matches!(denied.decision, vcp_policy::Decision::Deny { .. }));
         assert!(host.dispatch_tool(denied).is_err());
+        let denied_nested = host
+            .prepare_tool(
+                id,
+                Request::Patch {
+                    patch:
+                        "*** Begin Patch\n*** Add File: denied/Data/one.cs\n+never\n*** End Patch"
+                            .into(),
+                },
+            )
+            .unwrap();
+        assert!(host.dispatch_tool(denied_nested).is_err());
+        assert!(!workspace.join("denied").exists());
         policy.revision = PolicyRevision::new(2);
         policy.mode = Autonomy::Ask;
         host.command(
@@ -518,8 +560,11 @@ async fn native_file_broker_enforces_current_policy_approvals_and_source_version
     }
 }
 fn provider_snapshot() -> (vcp_models::catalog::Snapshot, Vec<u8>) {
+    provider_snapshot_capacity(32_000, 24_000)
+}
+fn provider_snapshot_capacity(context: u64, input: u64) -> (vcp_models::catalog::Snapshot, Vec<u8>) {
     use vcp_models::catalog::*;
-    let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":"gpt-5.1","endpoints":[{"tag":"fixture/region","status":0,"context_length":32000,"max_prompt_tokens":24000,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();
+    let raw=serde_json::to_vec(&serde_json::json!({"data":{"id":"gpt-5.1","endpoints":[{"tag":"fixture/region","status":0,"context_length":context,"max_prompt_tokens":input,"max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],"pricing":{"prompt":"0","completion":"0","request":"0.0001"}}]}})).unwrap();
     let compatibility = Compatibility {
         id: "synthetic-responses/1".into(),
         model: "gpt-5.1".into(),
@@ -1009,7 +1054,7 @@ async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and
             .await
             .unwrap();
         let mutations = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Projection)
@@ -1020,7 +1065,7 @@ async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and
             .collect();
         let tx = Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![],
             command: None,
@@ -1057,7 +1102,7 @@ async fn fresh_process_history_preserves_actual_unknown_process_paused_child_and
     }
 }
 use vcp_protocol::command::Command;
-use vcp_store::{contract::Collection, BackendKind};
+use vcp_store::{contract::{CanonicalStore, Collection}, BackendKind};
 fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendKind) -> Config {
     let currency: Currency = "USD".to_owned().try_into().unwrap();
     Config {
@@ -1077,7 +1122,7 @@ fn config(root: &std::path::Path, workspace: &std::path::Path, backend: BackendK
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }.into(),
         protected: Micros::ZERO,
         price: PriceSnapshot {
             id: "a".repeat(64),
@@ -1206,7 +1251,7 @@ async fn root_helper_compaction_and_child_transport_require_one_shared_reservati
         &workspace,
         BackendKind::Sqlite,
     );
-    config.cap.micros = Micros::new(500);
+    config.cap.micros = Micros::new(500).into();
     let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
     let root_binding = task(&host, &config, config.root_task.clone(), None);
     let server = start_mock_server().await;
@@ -1728,7 +1773,7 @@ async fn real_capture_capacity_failure_fences_transport_and_preserves_exact_pref
                 vcp_budget::ledger(&state, &binding.scope)
                     .unwrap()
                     .unresolved
-                    .get(),
+                    .known().unwrap().get(),
                 100
             );
             let response_artifact = state

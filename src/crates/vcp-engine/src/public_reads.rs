@@ -36,7 +36,7 @@ impl<S: CanonicalStore> Engine<S> {
     ) -> Result<Task, QueryError> {
         // query also validates workspace/session records and current authority.
         let task_id = TaskId::parse(task.as_str()).map_err(|_| QueryError::Unavailable)?;
-        let result = self.query(access, &Query::Task { task: task_id })?;
+        let result = self.query_current(access, &Query::Task { task: task_id })?;
         if scope.workspace.as_str() != access.workspace.as_str()
             || scope.session.as_str() != access.session.as_str()
         {
@@ -76,7 +76,7 @@ impl<S: CanonicalStore> Engine<S> {
         }
         let ledger: Ledger = self
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Ledger,
                 root.scope.task.as_str(),
@@ -94,10 +94,10 @@ impl<S: CanonicalStore> Engine<S> {
             task: request.task.clone(),
             root: id(root.scope.task.as_str())?,
             currency: methods::Currency::Usd,
-            cap_micros: ledger.cap.get().into(),
+            cap_micros: ledger.cap.map(|cap| cap.get().into()),
             settled_micros: ledger.settled.get().into(),
-            reserved_micros: ledger.active.get().into(),
-            unresolved_micros: ledger.unresolved.get().into(),
+            reserved_micros: ledger.active.into(),
+            unresolved_micros: ledger.unresolved.into(),
             overrun: ledger.overrun,
         })
     }
@@ -109,7 +109,7 @@ impl Engine<Store> {
     /// sha256 identifies the entire canonical retained artifact, not this page.
     /// complete means both final range and complete capture; an aborted/pending
     /// prefix can reach total_bytes without claiming a complete observation.
-    pub fn public_artifact(
+    pub async fn public_artifact(
         &self,
         access: &Access,
         request: &methods::ArtifactRead,
@@ -121,7 +121,7 @@ impl Engine<Store> {
         if task.redaction.is_some() {
             return Err(QueryError::Unavailable);
         }
-        let state = self.store().state();
+        let state = self.store().current();
         let artifact: ArtifactDescriptor = state
             .record(
                 Collection::Artifact,
@@ -148,8 +148,14 @@ impl Engine<Store> {
             .map_err(|_| QueryError::Access)?
             .decode()
             .map_err(|_| QueryError::InvalidData)?;
-        vcp_store::export_contract::validate_read(state, access.authority, None, &artifact)
-            .map_err(|_| QueryError::Unavailable)?;
+        vcp_store::export_contract::validate_read_store(
+            self.store(),
+            access.authority,
+            None,
+            &artifact,
+        )
+        .await
+        .map_err(|_| QueryError::Unavailable)?;
         for row in state.records.values().filter(|row| {
             row.collection == Collection::Tombstone && row.workspace == access.workspace
         }) {
@@ -362,7 +368,7 @@ mod tests {
     ) {
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: engine.store().state().watermark,
+            expected_watermark: engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(collection, name, access().workspace, Revision::ZERO, value)
@@ -452,22 +458,25 @@ mod tests {
                 revision: Revision::ZERO,
                 policy: PolicyRevision::ZERO,
                 currency: "USD".to_owned().try_into().unwrap(),
-                cap: Micros::new(u64::MAX),
+                cap: vcp_domain::Limit::Finite(Micros::new(u64::MAX)),
                 protected: Micros::ZERO,
                 settled: Micros::ZERO,
-                active: Micros::ZERO,
-                unresolved: Micros::ZERO,
+                active: Micros::ZERO.into(),
+                unresolved: Micros::ZERO.into(),
                 allocations: Default::default(),
                 daily: None,
                 overrun: false,
             };
             put(&mut engine, Collection::Ledger, "task", &ledger).await;
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             let view = engine.public_usage(&access(), &request).unwrap();
-            assert_eq!(view.cap_micros.as_str(), "18446744073709551615");
+            assert_eq!(
+                view.cap_micros.finite().unwrap().as_str(),
+                "18446744073709551615"
+            );
             assert_eq!(view.settled_micros.as_str(), "0");
-            assert_eq!(view.reserved_micros.as_str(), "0");
-            assert_eq!(view.unresolved_micros.as_str(), "0");
+            assert_eq!(view.reserved_micros.0.known(), Some(Micros::ZERO));
+            assert_eq!(view.unresolved_micros.0.known(), Some(Micros::ZERO));
             assert!(!view.overrun);
             request.target = Some(id("other").unwrap());
             assert_eq!(
@@ -487,7 +496,7 @@ mod tests {
                 engine.public_usage(&revoked, &request),
                 Err(QueryError::Access)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
             let engine =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
@@ -505,6 +514,7 @@ mod tests {
             let descriptor = artifact(&mut engine, "binary", &bytes, false).await;
             let first = engine
                 .public_artifact(&access(), &range("binary", 0, 65_536))
+                .await
                 .unwrap();
             assert_eq!(first.content, "/".repeat(65_536));
             assert_eq!(first.sha256, vcp_protocol::digest_bytes(&bytes));
@@ -512,38 +522,47 @@ mod tests {
             assert!(!first.complete);
             let last = engine
                 .public_artifact(&access(), &range("binary", 49_152, 65_536))
+                .await
                 .unwrap();
             assert_eq!(last.content.len(), 27_800);
             assert!(last.content.ends_with("/w=="));
             assert!(last.complete);
             let eof = engine
                 .public_artifact(&access(), &range("binary", 70_000, 1))
+                .await
                 .unwrap();
             assert!(eof.content.is_empty() && eof.complete);
             assert_eq!(
-                engine.public_artifact(&access(), &range("binary", u64::MAX, 1)),
+                engine
+                    .public_artifact(&access(), &range("binary", u64::MAX, 1))
+                    .await,
                 Err(QueryError::Limit)
             );
             assert_eq!(
-                engine.public_artifact(&access(), &range("binary", 0, 0)),
+                engine
+                    .public_artifact(&access(), &range("binary", 0, 0))
+                    .await,
                 Err(QueryError::Limit)
             );
             let mut foreign = range("binary", 0, 8);
             foreign.task = id("other").unwrap();
             assert_eq!(
-                engine.public_artifact(&access(), &foreign),
+                engine.public_artifact(&access(), &foreign).await,
                 Err(QueryError::Unavailable)
             );
             let mut denied = access();
             denied.read = false;
             denied.write = false;
             assert_eq!(
-                engine.public_artifact(&denied, &range("binary", 0, 8)),
+                engine
+                    .public_artifact(&denied, &range("binary", 0, 8))
+                    .await,
                 Err(QueryError::Access)
             );
             artifact(&mut engine, "partial", b"retained prefix", true).await;
             let partial = engine
                 .public_artifact(&access(), &range("partial", 0, 64))
+                .await
                 .unwrap();
             assert_eq!(partial.content, "cmV0YWluZWQgcHJlZml4");
             assert!(!partial.complete);
@@ -562,7 +581,9 @@ mod tests {
             // damage to a later chunk outside this requested range.
             std::fs::write(&corrupt_chunk, [0]).unwrap();
             assert_eq!(
-                engine.public_artifact(&access(), &range("corrupt", 0, 1)),
+                engine
+                    .public_artifact(&access(), &range("corrupt", 0, 1))
+                    .await,
                 Err(QueryError::Unavailable)
             );
             std::fs::write(&corrupt_chunk, &bytes[65_536..]).unwrap();
@@ -578,19 +599,24 @@ mod tests {
             };
             put(&mut engine, Collection::Tombstone, "mask", &mask).await;
             assert_eq!(
-                engine.public_artifact(&access(), &range("binary", 0, 8)),
+                engine
+                    .public_artifact(&access(), &range("binary", 0, 8))
+                    .await,
                 Err(QueryError::Unavailable)
             );
             engine.into_store().close().await.unwrap();
             let engine =
                 Engine::new(Store::open(temp.path(), backend, &[]).await.unwrap()).unwrap();
             assert_eq!(
-                engine.public_artifact(&access(), &range("binary", 0, 8)),
+                engine
+                    .public_artifact(&access(), &range("binary", 0, 8))
+                    .await,
                 Err(QueryError::Unavailable)
             );
             assert_eq!(
                 engine
                     .public_artifact(&access(), &range("partial", 0, 64))
+                    .await
                     .unwrap(),
                 partial
             );

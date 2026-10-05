@@ -12,7 +12,7 @@ use vcp_domain::{
     workspace::{Session, Workspace},
 };
 use vcp_protocol::command::CommandReceipt;
-use vcp_store::contract::{command_key, CanonicalStore, Collection};
+use vcp_store::contract::{CanonicalStore, Collection};
 
 pub const MAX_PAGE_LIMIT: u32 = 128;
 pub const MAX_RESULT_BYTES: usize = 256 * 1024;
@@ -88,9 +88,43 @@ pub enum QueryError {
 }
 
 impl<S: CanonicalStore> Engine<S> {
-    pub fn query(&self, access: &Access, query: &Query) -> Result<QueryResult, QueryError> {
+    pub async fn query(&self, access: &Access, query: &Query) -> Result<QueryResult, QueryError> {
+        let Query::Command { command } = query else {
+            return self.query_current(access, query);
+        };
+        // Authorize the current session before any historical read.
+        self.query_current(
+            access,
+            &Query::Session {
+                session: access.session.clone(),
+            },
+        )?;
+        let watermark = self.store().current().watermark;
+        let receipt = self
+            .store()
+            .scoped_command_receipt(&access.workspace, &access.session, command)
+            .await
+            .map_err(|error| match error {
+                vcp_store::Error::Access => QueryError::Unavailable,
+                _ => QueryError::InvalidData,
+            })?
+            .ok_or(QueryError::Unavailable)?;
+        if let vcp_protocol::command::CommandResult::Inspection { task: Some(task) } =
+            &receipt.result
+        {
+            if task.scope.workspace != access.workspace || task.scope.session != access.session {
+                return Err(QueryError::Unavailable);
+            }
+        }
+        let result = QueryResult::Command { watermark, receipt };
+        check_size(&result)?;
+        Ok(result)
+    }
+    /// Current projections require no historical I/O. Receipt queries must use
+    /// the fallible asynchronous `query` boundary instead.
+    pub fn query_current(&self, access: &Access, query: &Query) -> Result<QueryResult, QueryError> {
         self.authorize(access).map_err(|_| QueryError::Access)?;
-        let state = self.store().state();
+        let state = self.store().current();
         // Bootstrap permits command initialization only, never reads of an
         // unbound workspace/session even when authorize accepts that bootstrap.
         let workspace: Workspace = state
@@ -168,42 +202,7 @@ impl<S: CanonicalStore> Engine<S> {
                 }
                 QueryResult::Task { watermark, task }
             }
-            Query::Command { command } => {
-                let receipt = state
-                    .commands
-                    .get(&command_key(&access.workspace, command))
-                    .ok_or(QueryError::Unavailable)?;
-                // Receipts predate public queries and carry no session. Prove
-                // their scope using the retained commit's correlated events;
-                // pruned evidence makes this lookup unavailable, never global.
-                let mut found = false;
-                for event in state.events.iter().filter(|event| {
-                    event.watermark == receipt.watermark && event.event.correlation == *command
-                }) {
-                    if event.event.workspace != access.workspace
-                        || event.event.session != access.session
-                    {
-                        return Err(QueryError::Unavailable);
-                    }
-                    found = true;
-                }
-                if !found || receipt.workspace != access.workspace || receipt.command != *command {
-                    return Err(QueryError::Unavailable);
-                }
-                if let vcp_protocol::command::CommandResult::Inspection { task: Some(task) } =
-                    &receipt.result
-                {
-                    if task.scope.workspace != access.workspace
-                        || task.scope.session != access.session
-                    {
-                        return Err(QueryError::Unavailable);
-                    }
-                }
-                QueryResult::Command {
-                    watermark,
-                    receipt: receipt.clone(),
-                }
-            }
+            Query::Command { .. } => return Err(QueryError::Unavailable),
         };
         check_size(&result)?;
         Ok(result)
@@ -235,6 +234,218 @@ mod tests {
     use vcp_protocol::command::{Command, CommandEnvelope};
     use vcp_store::{BackendKind, Store};
 
+    struct CurrentOnly(std::sync::Arc<vcp_store::CurrentState>);
+    impl vcp_store::contract::reference::ReferenceStore for CurrentOnly {
+        fn state(&self) -> &vcp_store::contract::State {
+            panic!("current query attempted complete historical materialization")
+        }
+        fn current(&self) -> vcp_store::CurrentStateView<'_> {
+            self.0.as_ref().into()
+        }
+        async fn transact(
+            &mut self,
+            _: vcp_store::contract::Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            panic!("current query attempted a write")
+        }
+    }
+
+    struct ResidentHistory(vcp_store::contract::State);
+    impl vcp_store::contract::reference::ReferenceStore for ResidentHistory {
+        fn state(&self) -> &vcp_store::contract::State {
+            &self.0
+        }
+        async fn transact(
+            &mut self,
+            _: vcp_store::contract::Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            panic!("read-only history fixture")
+        }
+    }
+    struct FailedHistory {
+        current: std::sync::Arc<vcp_store::CurrentState>,
+        reads: std::sync::atomic::AtomicUsize,
+    }
+    impl vcp_store::contract::reference::ReferenceStore for FailedHistory {
+        fn state(&self) -> &vcp_store::contract::State {
+            panic!("history query bypassed fallible reader")
+        }
+        fn current(&self) -> vcp_store::CurrentStateView<'_> {
+            self.current.as_ref().into()
+        }
+        async fn scoped_command_receipt(
+            &self,
+            _: &WorkspaceId,
+            _: &SessionId,
+            _: &CommandId,
+        ) -> vcp_store::Result<Option<CommandReceipt>> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(vcp_store::Error::Corruption(
+                "missing authenticated history page",
+            ))
+        }
+        async fn transact(
+            &mut self,
+            _: vcp_store::contract::Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            panic!("read-only history fixture")
+        }
+    }
+
+    #[tokio::test]
+    async fn receipt_queries_require_full_scope_proof_but_exact_replay_survives_event_retention() {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            let temporary = tempfile::tempdir().unwrap();
+            let mut engine =
+                Engine::new(Store::open(temporary.path(), backend, &[]).await.unwrap()).unwrap();
+            let access = access();
+            let receipt = initialize(&mut engine, &access).await;
+            let current = engine.store().current_state();
+            let mut retained = ResidentHistory(engine.store().archive_state().await.unwrap());
+            engine.into_store().close().await.unwrap();
+            assert_eq!(
+                retained
+                    .scoped_command_receipt(&access.workspace, &access.session, &receipt.command)
+                    .await
+                    .unwrap(),
+                Some(receipt.clone())
+            );
+            let mut conflict = retained
+                .0
+                .events
+                .iter()
+                .find(|event| event.event.correlation == receipt.command)
+                .unwrap()
+                .clone();
+            conflict.event.session = SessionId::new();
+            retained.0.events.push(conflict);
+            assert!(
+                retained
+                    .scoped_command_receipt(&access.workspace, &access.session, &receipt.command)
+                    .await
+                    .is_err(),
+                "a matching earlier event cannot hide a conflicting later event"
+            );
+            retained.0.events.clear();
+            assert_eq!(
+                retained
+                    .command_receipt(&access.workspace, &receipt.command, &receipt.digest)
+                    .await
+                    .unwrap(),
+                Some(receipt.clone())
+            );
+            assert!(retained
+                .command_receipt(&access.workspace, &receipt.command, &"0".repeat(64))
+                .await
+                .is_err());
+            assert!(retained
+                .scoped_command_receipt(&access.workspace, &access.session, &receipt.command)
+                .await
+                .unwrap()
+                .is_none());
+            let engine = Engine::new(FailedHistory {
+                current,
+                reads: Default::default(),
+            })
+            .unwrap();
+            let query = Query::Command {
+                command: receipt.command,
+            };
+            let mut denied = access.clone();
+            denied.read = false;
+            assert_eq!(engine.query(&denied, &query).await, Err(QueryError::Access));
+            assert_eq!(
+                engine
+                    .store()
+                    .reads
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                0
+            );
+            assert_eq!(
+                engine.query(&access, &query).await,
+                Err(QueryError::InvalidData)
+            );
+            assert_eq!(
+                engine
+                    .store()
+                    .reads
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn current_queries_and_controller_reads_never_request_complete_history() {
+        for backend in [BackendKind::Files, BackendKind::Sqlite] {
+            let temporary = tempfile::tempdir().unwrap();
+            let store = Store::open(temporary.path(), backend, &[]).await.unwrap();
+            let mut engine = Engine::new(store).unwrap();
+            let access = access();
+            initialize(&mut engine, &access).await;
+            let (task, _) = create_task(&mut engine, &access, "Current-only fixture".into()).await;
+            let queries = [
+                Query::Sessions {
+                    limit: 10,
+                    cursor: None,
+                },
+                Query::Session {
+                    session: access.session.clone(),
+                },
+                Query::Task { task },
+            ];
+            let expected: Vec<_> = queries
+                .iter()
+                .map(|query| engine.query_current(&access, query).unwrap())
+                .collect();
+            let current = engine.store().current_state();
+            engine.into_store().close().await.unwrap();
+            let engine = Engine::new(CurrentOnly(current)).unwrap();
+            for (query, expected) in queries.iter().zip(expected) {
+                assert_eq!(engine.query(&access, query).await.unwrap(), expected);
+            }
+            let Query::Task { task } = &queries[2] else {
+                unreachable!()
+            };
+            let scope = vcp_protocol::methods::Scope {
+                workspace: access.workspace.to_string().try_into().unwrap(),
+                session: access.session.to_string().try_into().unwrap(),
+            };
+            let selected = engine
+                .editor_task(&access, &scope, &task.to_string().try_into().unwrap())
+                .unwrap();
+            assert_eq!(&selected.scope.task, task);
+            assert!(
+                crate::editor::buffer_status(engine.store().current(), &selected.scope).is_ok()
+            );
+            assert_eq!(
+                engine
+                    .editor_read(
+                        &access,
+                        &vcp_protocol::editor::EditorChangeRead {
+                            scope,
+                            task: task.to_string().try_into().unwrap(),
+                            change: "missing-editor-change".to_owned().try_into().unwrap(),
+                        }
+                    )
+                    .err(),
+                Some(crate::public::PublicError::Unavailable)
+            );
+            assert!(engine.read_controller(&access).unwrap().is_none());
+            assert!(
+                crate::policy::optional(engine.store().current(), &access.workspace)
+                    .unwrap()
+                    .is_none()
+            );
+            let mut stale = access.clone();
+            stale.authority = stale.authority.next().unwrap();
+            assert!(engine.query(&stale, &queries[0]).await.is_err());
+            let mut foreign = access.clone();
+            foreign.session = SessionId::new();
+            assert!(engine.query(&foreign, &queries[0]).await.is_err());
+        }
+    }
+
     fn access() -> Access {
         Access {
             actor: ActorId::new(),
@@ -258,7 +469,7 @@ mod tests {
             .and_then(|id| {
                 engine
                     .store()
-                    .state()
+                    .current()
                     .record(Collection::Task, id.as_str(), &access.workspace)
                     .ok()
             })
@@ -345,7 +556,7 @@ mod tests {
             session: access.session.clone(),
             authority: access.authority,
             deletion: DeletionEpoch::ZERO,
-            watermark: engine.store().state().watermark,
+            watermark: engine.store().current().watermark,
             after: access.session.clone(),
             limit: 1,
         }
@@ -359,13 +570,15 @@ mod tests {
             let mut engine = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
             let mut owner = access();
             assert_eq!(
-                engine.query(
-                    &owner,
-                    &Query::Sessions {
-                        limit: 1,
-                        cursor: None
-                    }
-                ),
+                engine
+                    .query(
+                        &owner,
+                        &Query::Sessions {
+                            limit: 1,
+                            cursor: None
+                        }
+                    )
+                    .await,
                 Err(QueryError::Access)
             );
             let initialized = initialize(&mut engine, &owner).await;
@@ -390,8 +603,9 @@ mod tests {
             let foreign_init = initialize(&mut engine, &foreign_workspace).await;
             owner.write = false;
             owner.bootstrap = false;
-            let before = serde_json::to_vec(engine.store().state()).unwrap();
-            let watermark = engine.store().state().watermark;
+            let before =
+                serde_json::to_vec(&engine.store().archive_state().await.unwrap()).unwrap();
+            let watermark = engine.store().current().watermark;
             let QueryResult::Sessions { sessions, next, .. } = engine
                 .query(
                     &owner,
@@ -400,6 +614,7 @@ mod tests {
                         cursor: None,
                     },
                 )
+                .await
                 .unwrap()
             else {
                 panic!("wrong result")
@@ -408,16 +623,20 @@ mod tests {
             assert_eq!(sessions[0].id, owner.session);
             assert!(next.is_none());
             assert!(matches!(
-                engine.query(
-                    &owner,
-                    &Query::Session {
-                        session: owner.session.clone()
-                    }
-                ),
+                engine
+                    .query(
+                        &owner,
+                        &Query::Session {
+                            session: owner.session.clone()
+                        }
+                    )
+                    .await,
                 Ok(QueryResult::Session { .. })
             ));
             assert!(matches!(
-                engine.query(&owner, &Query::Task { task: task.clone() }),
+                engine
+                    .query(&owner, &Query::Task { task: task.clone() })
+                    .await,
                 Ok(QueryResult::Task { .. })
             ));
             assert_eq!(
@@ -428,6 +647,7 @@ mod tests {
                             command: receipt.command.clone()
                         }
                     )
+                    .await
                     .unwrap(),
                 QueryResult::Command {
                     watermark,
@@ -441,6 +661,7 @@ mod tests {
                         command: initialized.command
                     }
                 )
+                .await
                 .is_ok());
             for denied in [
                 Query::Session {
@@ -457,9 +678,15 @@ mod tests {
                     command: CommandId::new(),
                 },
             ] {
-                assert_eq!(engine.query(&owner, &denied), Err(QueryError::Unavailable));
+                assert_eq!(
+                    engine.query(&owner, &denied).await,
+                    Err(QueryError::Unavailable)
+                );
             }
-            assert_eq!(before, serde_json::to_vec(engine.store().state()).unwrap());
+            assert_eq!(
+                before,
+                serde_json::to_vec(&engine.store().archive_state().await.unwrap()).unwrap()
+            );
             engine.into_store().close().await.unwrap();
             let reopened = Engine::new(Store::open(&root, backend, &[]).await.unwrap()).unwrap();
             assert_eq!(
@@ -470,6 +697,7 @@ mod tests {
                             command: receipt.command.clone()
                         }
                     )
+                    .await
                     .unwrap(),
                 QueryResult::Command {
                     watermark,
@@ -478,23 +706,27 @@ mod tests {
             );
             owner.read = false;
             assert_eq!(
-                reopened.query(
-                    &owner,
-                    &Query::Command {
-                        command: receipt.command.clone()
-                    }
-                ),
+                reopened
+                    .query(
+                        &owner,
+                        &Query::Command {
+                            command: receipt.command.clone()
+                        }
+                    )
+                    .await,
                 Err(QueryError::Access)
             );
             owner.read = true;
             owner.authority = AuthorityRevision::new(1);
             assert_eq!(
-                reopened.query(
-                    &owner,
-                    &Query::Command {
-                        command: receipt.command
-                    }
-                ),
+                reopened
+                    .query(
+                        &owner,
+                        &Query::Command {
+                            command: receipt.command
+                        }
+                    )
+                    .await,
                 Err(QueryError::Access)
             );
             reopened.into_store().close().await.unwrap();
@@ -511,7 +743,7 @@ mod tests {
             initialize(&mut engine, &owner).await;
             let original = cursor(&engine, &owner);
             assert!(
-                matches!(engine.query(&owner, &Query::Sessions { limit: 1, cursor: Some(original.clone()) }), Ok(QueryResult::Sessions { sessions, .. }) if sessions.is_empty())
+                matches!(engine.query(&owner, &Query::Sessions { limit: 1, cursor: Some(original.clone()) }).await, Ok(QueryResult::Sessions { sessions, .. }) if sessions.is_empty())
             );
             let mut variants = Vec::new();
             let mut changed = original.clone();
@@ -540,37 +772,43 @@ mod tests {
             variants.push(changed);
             for cursor in variants {
                 assert_eq!(
-                    engine.query(
-                        &owner,
-                        &Query::Sessions {
-                            limit: 1,
-                            cursor: Some(cursor)
-                        }
-                    ),
+                    engine
+                        .query(
+                            &owner,
+                            &Query::Sessions {
+                                limit: 1,
+                                cursor: Some(cursor)
+                            }
+                        )
+                        .await,
                     Err(QueryError::StaleCursor)
                 );
             }
             for limit in [0, MAX_PAGE_LIMIT + 1, u32::MAX] {
                 assert_eq!(
-                    engine.query(
-                        &owner,
-                        &Query::Sessions {
-                            limit,
-                            cursor: None
-                        }
-                    ),
+                    engine
+                        .query(
+                            &owner,
+                            &Query::Sessions {
+                                limit,
+                                cursor: None
+                            }
+                        )
+                        .await,
                     Err(QueryError::Limit)
                 );
             }
             create_task(&mut engine, &owner, "advance snapshot".into()).await;
             assert_eq!(
-                engine.query(
-                    &owner,
-                    &Query::Sessions {
-                        limit: 1,
-                        cursor: Some(original)
-                    }
-                ),
+                engine
+                    .query(
+                        &owner,
+                        &Query::Sessions {
+                            limit: 1,
+                            cursor: Some(original)
+                        }
+                    )
+                    .await,
                 Err(QueryError::StaleCursor)
             );
             engine.into_store().close().await.unwrap();
@@ -603,12 +841,12 @@ mod tests {
                 )
                 .await;
             }
-            let watermark = engine.store().state().watermark;
+            let watermark = engine.store().current().watermark;
             assert_eq!(
-                engine.query(&owner, &Query::Task { task }),
+                engine.query(&owner, &Query::Task { task }).await,
                 Err(QueryError::Limit)
             );
-            assert_eq!(engine.store().state().watermark, watermark);
+            assert_eq!(engine.store().current().watermark, watermark);
             engine.into_store().close().await.unwrap();
         }
     }

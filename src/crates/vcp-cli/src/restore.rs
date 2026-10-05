@@ -6,6 +6,7 @@ use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use vcp_domain::{CommandId, WorkspaceId};
+use vcp_store::contract::CanonicalStore;
 type Result<T> = std::result::Result<T, String>;
 fn barrier(stage: &str) {
     #[cfg(feature = "qualification")]
@@ -49,6 +50,7 @@ pub struct Restore {
     pub staging: PathBuf,
     #[arg(long, value_enum, default_value = "sqlite")]
     pub backend: Backend,
+    /// Validate without activation; requires private staging for authenticated scratch data.
     #[arg(long)]
     pub preview: bool,
     #[arg(long)]
@@ -84,7 +86,7 @@ struct Activation {
     version: u32,
     intent: String,
     manifest: String,
-    manifest_body: vcp_store::vault_crypto::Manifest,
+    manifest_body: vcp_store::vault_crypto::ManifestEnvelope,
     sequence: u64,
     deletion: u64,
     state_digest: String,
@@ -107,31 +109,32 @@ fn limits() -> vcp_store::vault_crypto::Limits {
         objects: 4096,
     }
 }
-fn preview_sizes(
+async fn preview_sizes(
     trust: &vcp_store::vault_publish::LocalTrust,
     recovery: &vcp_store::keys::RecoveryCopy,
     source: &Path,
+    staging: &Path,
+    forbidden: &[PathBuf],
+    object: &vcp_store::vault_crypto::Object,
 ) -> Result<(u64, u64)> {
-    let verified = trust
-        .verify_restore(source, recovery, limits())
+    let operation = CommandId::new();
+    let (_staging_guard, path) = preview_directory(staging, forbidden, &operation)?;
+    let mut preview = vcp_store::restore_stage::Restore::begin(
+        &path,
+        forbidden,
+        operation,
+        trust,
+        object.sha256.clone(),
+        object.bytes,
+    )
+    .map_err(|e| e.to_string())?;
+    preview
+        .acquire(source, &|| false)
         .map_err(|e| e.to_string())?;
-    let restored = verified.restored();
-    let inventory: Vec<_> = restored
-        .payloads
-        .iter()
-        .filter_map(|(id, bytes)| {
-            serde_json::from_slice::<serde_json::Value>(bytes)
-                .ok()
-                .filter(|value| value["format"] == "vcp-neutral-history/1")
-                .map(|_| id.clone())
-        })
-        .collect();
-    if inventory.len() != 1 {
-        return Err("restore inventory is missing or ambiguous".into());
-    }
-    let archive =
-        vcp_store::portable_snapshot::Archive::decode(restored.payloads.clone(), &inventory[0])
-            .map_err(|e| e.to_string())?;
+    let archive = preview
+        .authenticate(trust, recovery, limits(), &|| false)
+        .await
+        .map_err(|e| e.to_string())?;
     let checkpoint = archive
         .inputs()
         .checkpoint
@@ -140,11 +143,11 @@ fn preview_sizes(
     let mut source_bytes = 0u64;
     for id in checkpoint.sources.values() {
         let descriptor: vcp_domain::artifact::ArtifactDescriptor = archive
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Artifact,
                 id.as_str(),
-                archive.workspace(),
+                &trust.configuration().workspace,
             )
             .and_then(|row| row.decode())
             .map_err(|e| e.to_string())?;
@@ -152,12 +155,50 @@ fn preview_sizes(
             .checked_add(descriptor.length.get())
             .ok_or("checkpoint size overflow")?;
     }
-    let canonical_bytes = restored.payloads.values().try_fold(0u64, |total, bytes| {
-        total
-            .checked_add(bytes.len() as u64)
-            .ok_or("archive size overflow")
-    })?;
+    let canonical_bytes = archive.archive_bytes().map_err(|e| e.to_string())?;
     Ok((source_bytes, canonical_bytes))
+}
+
+fn preview_directory(
+    staging: &Path,
+    forbidden: &[PathBuf],
+    operation: &CommandId,
+) -> Result<(vcp_store::vault_crypto::PrivateStaging, PathBuf)> {
+    // Admit the original spelling and pin its ancestors before creating any
+    // scratch directory. Canonicalization alone would discard reparse evidence.
+    let guard = vcp_store::vault_crypto::PrivateStaging::open(staging, forbidden)
+        .map_err(|e| e.to_string())?;
+    let path = staging
+        .canonicalize()
+        .map_err(|_| "private preview staging unavailable")?
+        .join(format!("preview-{operation}"));
+    std::fs::create_dir(&path).map_err(|_| "private preview staging unavailable")?;
+    Ok((guard, path))
+}
+
+#[cfg(test)]
+mod preview_path_tests {
+    use super::*;
+
+    #[test]
+    fn excluded_preview_staging_creates_no_child() {
+        let temp = tempfile::tempdir().unwrap();
+        let excluded = temp.path().join("data");
+        let nested = excluded.join("staging");
+        std::fs::create_dir_all(&nested).unwrap();
+        for path in [&excluded, &nested] {
+            let before: Vec<_> = std::fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert!(preview_directory(path, &[excluded.clone()], &CommandId::new()).is_err());
+            let after: Vec<_> = std::fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert_eq!(before, after);
+        }
+    }
 }
 async fn rebuild(
     data: &Path,
@@ -227,10 +268,10 @@ pub async fn execute(
     if !crate::selection::operation_id(id.as_str()) {
         return Err("opaque restore operation UUID required".into());
     }
-    let source = crate::settings::read_bounded(&request.source, 65 * 1024 * 1024)?;
-    let ciphertext = vcp_protocol::digest_bytes(&source);
-    let bytes = source.len() as u64;
-    drop(source);
+    let source = vcp_store::vault_crypto::inspect_ciphertext(&request.source, &|| Ok(()))
+        .map_err(|e| e.to_string())?;
+    let ciphertext = source.sha256.clone();
+    let bytes = source.bytes;
     let mut forbidden = vec![data.clone()];
     if destination.exists() {
         forbidden.push(destination.clone());
@@ -276,8 +317,15 @@ pub async fn execute(
     }
     let expected = selected.as_ref().map(|(_, digest)| digest.clone());
     if request.preview {
-        let (source_bytes, canonical_bytes) =
-            preview_sizes(trust.trust(), &recovery, &request.source)?;
+        let (source_bytes, canonical_bytes) = preview_sizes(
+            trust.trust(),
+            &recovery,
+            &request.source,
+            &request.staging,
+            &forbidden,
+            &source,
+        )
+        .await?;
         let staging_space = crate::disk_space::observe(&request.staging, bytes)?;
         let canonical_space = crate::disk_space::observe(&directory, canonical_bytes)?;
         let destination_space = crate::disk_space::observe(&parent, source_bytes)?;
@@ -405,9 +453,9 @@ pub async fn execute(
             || activation.intent != intent_digest
             || activation.entry.config.canonical_root != target
             || activation.entry.config.workspace != workspace
-            || activation.manifest_body.workspace != workspace
-            || activation.sequence != activation.manifest_body.sequence
-            || activation.deletion != activation.manifest_body.deletion
+            || activation.manifest_body.workspace() != &workspace
+            || activation.sequence != activation.manifest_body.sequence()
+            || activation.deletion != activation.manifest_body.deletion()
             || vcp_protocol::digest_bytes(
                 &vcp_protocol::canonical_bytes(&activation.manifest_body)
                     .map_err(|e| e.to_string())?,
@@ -430,6 +478,7 @@ pub async fn execute(
             }
             let validated = staged
                 .authenticate(trust.trust(), &recovery, limits, &stopped)
+                .await
                 .map_err(|e| e.to_string())?;
             let imported = staged
                 .import(
@@ -480,6 +529,7 @@ pub async fn execute(
         .map_err(|e| e.to_string())?;
         if store
             .prefix_digest(activation.watermark)
+            .await
             .map_err(|e| e.to_string())?
             != activation.prefix_digest
         {
@@ -505,12 +555,11 @@ pub async fn execute(
             }
             let validated = staged
                 .authenticate(trust.trust(), &recovery, limits, &stopped)
+                .await
                 .map_err(|e| e.to_string())?;
             let revision = trust.trust().configuration().revision;
             trust
-                .update(revision, |local| {
-                    local.advance_after_restore(validated.proof(), revision)
-                })
+                .update(revision, |local| validated.advance_trust(local, revision))
                 .map_err(|e| e.to_string())?;
             barrier("trust");
         }
@@ -542,6 +591,7 @@ pub async fn execute(
     }
     let validated = staged
         .authenticate(trust.trust(), &recovery, limits, &stopped)
+        .await
         .map_err(|e| e.to_string())?;
     let imported = staged
         .import(
@@ -582,7 +632,8 @@ pub async fn execute(
         intent.actor.clone(),
         vcp_domain::HostId::new(),
         selected.as_ref().map(|(entry, _)| &entry.config),
-    )?;
+    )
+    .await?;
     let identity = crate::binding::capture(materialized.root())?;
     let next = crate::settings::WorkspaceEntry {
         version: 2,
@@ -590,19 +641,20 @@ pub async fn execute(
         config,
         identity: Some(identity),
     };
-    let manifest = &validated.proof().restored().manifest;
+    let manifest = validated.manifest();
     let activation = Activation {
         version: 1,
         intent: intent_digest,
         manifest: imported.source_manifest().into(),
         manifest_body: manifest.clone(),
-        sequence: manifest.sequence,
-        deletion: manifest.deletion,
+        sequence: manifest.sequence(),
+        deletion: manifest.deletion(),
         state_digest: imported.state_digest().into(),
         prefix_digest: store
-            .prefix_digest(store.state().watermark)
+            .prefix_digest(store.current().watermark)
+            .await
             .map_err(|e| e.to_string())?,
-        watermark: store.state().watermark,
+        watermark: store.current().watermark,
         entry: next,
     };
     immutable(
@@ -618,9 +670,7 @@ pub async fn execute(
     barrier("descriptor");
     let revision = trust.trust().configuration().revision;
     trust
-        .update(revision, |local| {
-            local.advance_after_restore(validated.proof(), revision)
-        })
+        .update(revision, |local| validated.advance_trust(local, revision))
         .map_err(|e| e.to_string())?;
     barrier("trust");
     store.close().await.map_err(|e| e.to_string())?;

@@ -32,8 +32,8 @@ pub async fn rebuild(
     access: &Access,
     now: Timestamp,
 ) -> Result<Option<Receipt>> {
-    access::authorize(store.state(), access, true)?;
-    let state = store.state();
+    access::authorize(store.current(), access, true)?;
+    let state = store.current();
     let mut versions = Vec::<RebuildVersion>::new();
     let mut results = Vec::<RebuildResult>::new();
     for record in state
@@ -50,7 +50,10 @@ pub async fn rebuild(
             }
             Some(vcp_domain::redaction::VERSION) => {
                 let value: vcp_domain::redaction::RedactedVersion = record.decode()?;
-                access::redacted_scope(state, access, &value.scope, &value.sources)?;
+                access::redacted_scope_store(store, access, &value.scope, &value.sources, &|| {
+                    Ok(())
+                })
+                .await?;
                 versions.push(RebuildVersion {
                     id: value.id,
                     proposal: value.proposal,
@@ -80,28 +83,15 @@ pub async fn rebuild(
                 }
                 // A rejected proposal can name a missing origin. Existing
                 // origins still cannot expose a hidden task during repair.
-                for event in state
-                    .events
-                    .iter()
-                    .filter(|event| proposal.proposal.origins.contains(&event.event.id))
-                {
-                    if event.event.workspace != access.workspace
-                        || event
-                            .event
-                            .task
-                            .as_ref()
-                            .is_some_and(|task| !access.allows_task(task))
-                    {
-                        return Err(Error::Access);
-                    }
-                }
+                access::origins_scope_store(store, access, &proposal.proposal.origins, &|| Ok(()))
+                    .await?;
             }
             Some("vcp_memory_version_v1") if record.collection == Collection::Claim => {
                 let version: Version = record.decode()?;
                 if !access.allows_task(&version.scope.task) {
                     return Err(Error::Access);
                 }
-                access::version_scope(state, access, &version)?;
+                access::version_scope_store(store, access, &version, &|| Ok(())).await?;
                 versions.push(RebuildVersion {
                     id: version.id,
                     proposal: version.proposal.id,

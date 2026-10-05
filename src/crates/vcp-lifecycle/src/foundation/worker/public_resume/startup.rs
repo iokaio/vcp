@@ -108,13 +108,15 @@ fn check(
         may_execute: context.owner_alive,
     };
     if matches!(
-        context.engine.prepare_controlled_public(
-            Call::SessionResume(request.clone()),
-            access,
-            &facts,
-            connection,
-            token
-        )?,
+        context
+            .runtime
+            .block_on(context.engine.prepare_controlled_public(
+                Call::SessionResume(request.clone()),
+                access,
+                &facts,
+                connection,
+                token
+            ))?,
         PublicAdmission::Replay(_)
     ) {
         return Err("resume already accepted; constructor cannot repeat".into());

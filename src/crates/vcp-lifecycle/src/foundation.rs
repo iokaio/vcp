@@ -9,12 +9,14 @@ pub mod backup_manager;
 pub mod backup_run;
 pub mod canonical_tools;
 pub mod history_retention;
+pub mod execution_diagnostics;
 #[cfg(windows)]
 pub mod restore_search;
 #[cfg(windows)]
 pub mod restore_workspace;
 mod scheduler;
 use scheduler::{EffectLease, Scheduler};
+pub mod history_reader;
 #[cfg(windows)]
 pub mod coding;
 pub mod conformance;
@@ -47,6 +49,7 @@ pub mod openrouter;
 mod process;
 #[cfg(windows)]
 mod provider_pacing;
+pub mod reconciliation;
 pub mod routing;
 pub mod routing_state;
 pub mod skills;
@@ -80,7 +83,7 @@ pub use tools::FileDispatchPoint;
 pub use tools::{ToolOutcome, ToolProposal};
 use vcp_domain::{accounting::*, artifact::*, ids::*, revision::*, workspace::*};
 use vcp_protocol::command::{Command, CommandReceipt};
-use vcp_store::{contract::State, BackendKind};
+use vcp_store::{contract::{State, CanonicalStore}, BackendKind};
 #[cfg(windows)]
 pub use worker::agents_cleanup::ChildCleanupPreview;
 #[cfg(windows)]
@@ -112,7 +115,7 @@ pub struct Config {
     pub binding: Binding,
     pub actor: ActorId,
     pub root_task: TaskId,
-    pub cap: Money,
+    pub cap: vcp_domain::accounting::MonetaryLimit,
     pub protected: Micros,
     pub price: PriceSnapshot,
     pub input_ceiling: Units,
@@ -137,6 +140,7 @@ pub struct ThreadBinding {
 }
 #[derive(Clone)]
 pub struct CanonicalHost {
+    receipt_source: Arc<Mutex<Option<Arc<reconciliation::ReceiptRuntime>>>>,
     #[cfg(windows)]
     provider_pacing: Arc<Mutex<Option<(provider_pacing::Gate, Duration)>>>,
     local_memory_only: bool,
@@ -174,6 +178,12 @@ impl CanonicalOwner {
         }
         #[cfg(windows)]
         self.mcp.shutdown().await?;
+        // Stop/drain has already completed. Diagnostic retention cannot prevent
+        // cancellation or turn a verified application result into a failure.
+        // Missing evidence remains visible in stderr and subsequent inspection.
+        if let Err(error) = self.worker.run_cleanup(|context| context.retain_execution_diagnostics()) {
+            eprintln!("execution diagnostics were not retained: {error}");
+        }
         Ok(())
     }
 }
@@ -254,10 +264,35 @@ impl Drop for OutputCapture {
     }
 }
 impl CanonicalHost {
+    /// Read-only phase counters from this owner's already validated store.
+    pub fn store_diagnostics(&self) -> Result<vcp_store::StoreDiagnostics, String> {
+        self.worker
+            .run_cleanup(|context| Ok(context.engine.store().diagnostics().clone()))
+    }
+    pub fn execution_diagnostics(&self, scope: Scope) -> Result<execution_diagnostics::Snapshot, String> {
+        self.worker.run_cleanup(move |context| {
+            let task: vcp_domain::task::Task = context.engine.store().current().record(vcp_store::contract::Collection::Task, scope.task.as_str(), &context.config.workspace)?.decode()?;
+            if task.scope != scope || task.redaction.is_some() { return Err("diagnostic scope unavailable".into()); }
+            Ok(context.diagnostics.snapshot().for_scope(&scope))
+        })
+    }
+    fn diagnostic_span(&self, thread: ThreadId, phase: execution_diagnostics::Phase) -> Result<execution_diagnostics::Span, String> {
+        let binding = self.binding(thread)?;
+        self.worker.run_cleanup(move |context| Ok(context.begin_diagnostic(&binding, phase, None)))
+    }
     /// Persist the explicitly admitted root cap before a CLI can detach or
     /// select another task. Reopening never replaces an existing ledger cap.
     pub fn initialize_root_budget(&self) -> Result<(), String> {
         self.worker.run(|context| context.initialize_root_budget())
+    }
+    /// Record this intentional execution's effective constraints and executable
+    /// identity. Historical accepted requests remain unchanged.
+    pub fn configure_execution_constraints(
+        &self,
+        deadline: vcp_domain::Limit<Timestamp>,
+    ) -> Result<(), String> {
+        self.worker
+            .run(move |context| context.configure_execution_constraints(deadline))
     }
     /// Enable the explicit OpenRouter contract for every retained request.
     /// Reopening an enabled store requires fresh configuration and context.
@@ -308,6 +343,23 @@ impl CanonicalHost {
         expected: Option<Revision>,
     ) -> Result<(Self, CanonicalOwner), String> {
         let worker = worker::Worker::open(config, expected)?;
+        Self::from_worker(worker)
+    }
+    /// Transfer the already validated selection store without releasing its
+    /// exclusive lock or replaying history. Recovery uses the normal owner path.
+    pub fn open_owned_selected(
+        config: Config,
+        store: vcp_store::Store,
+        expected: Revision,
+    ) -> Result<(Self, CanonicalOwner), String> {
+        Self::from_worker(worker::Worker::open_owned_selected(
+            config, store, expected,
+        )?)
+    }
+    fn from_worker(worker: worker::Worker) -> Result<(Self, CanonicalOwner), String> {
+        // Opening an owner does not perform billing maintenance. Retained
+        // receipts and unresolved attempts remain available to explicit
+        // reconciliation; recovery keeps its independent dispatch fences.
         let (runtime, owner) = Lifecycle::new(Duration::from_secs(5));
         let memory_owner_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         #[cfg(windows)]
@@ -321,6 +373,7 @@ impl CanonicalHost {
         };
         Ok((
             Self {
+                receipt_source: Arc::new(Mutex::new(None)),
                 #[cfg(windows)]
                 provider_pacing: Arc::new(Mutex::new(None)),
                 local_memory_only: false,
@@ -345,9 +398,17 @@ impl CanonicalHost {
     pub fn lifecycle(&self) -> &Lifecycle {
         &self.runtime
     }
+    /// Explicit complete legacy archival DTO for diagnostic/export callers.
+    /// Ordinary live reads use current_state and bounded owner query APIs.
     pub fn snapshot(&self) -> Result<State, String> {
         self.worker
-            .run_cleanup(|context| Ok(context.engine.store().state().clone()))
+            .run_cleanup(|context| Ok(context.runtime.block_on(context.engine.store().archive_state())?))
+    }
+    /// Current records only. This read does not dispatch work or copy retained
+    /// event/receipt payloads; its watermark is not an admission capability.
+    pub fn current_state(&self) -> Result<Arc<vcp_store::CurrentState>, String> {
+        self.worker
+            .run_cleanup(|context| Ok(context.engine.store().current_state()))
     }
     /// Explicit bounded local maintenance, never called by read-only inspection.
     pub fn maintain_memory(&self) -> Result<vcp_memory::runner::Progress, String> {
@@ -415,24 +476,33 @@ impl CanonicalHost {
         query: vcp_audit::inspection::InspectionQuery,
     ) -> Result<vcp_audit::inspection::InspectionPage, String> {
         self.worker.run_cleanup(move |context| {
-            Ok(vcp_audit::inspection::inspect(
+            Ok(context.runtime.block_on(vcp_audit::inspection::inspect(
                 context.engine.store(),
                 &context.history_access(),
                 &query,
-            )?)
+            ))?)
         })
     }
     pub fn read_artifact(&self, id: ArtifactId) -> Result<Vec<u8>, String> {
         self.worker.run_cleanup(move |context| {
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                context.engine.store(),
-                &context.history_access(),
-                &id,
-                &mut bytes,
-            )?;
+            context
+                .runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    context.engine.store(),
+                    &context.history_access(),
+                    &id,
+                    &mut bytes,
+                ))?;
             Ok(bytes)
         })
+    }
+
+    /// Reporting-only proof that a pending charge belongs to a validated complete
+    /// response. Missing evidence never authorizes execution or resolves billing.
+    pub fn completed_financial_uncertainty(&self, attempt: Attempt) -> Result<bool, String> {
+        self.worker
+            .run_cleanup(move |context| context.completed_financial_uncertainty(&attempt))
     }
     pub fn project(&self) -> Result<vcp_audit::projection::View, String> {
         self.worker.run(|context| {
@@ -511,6 +581,7 @@ impl TurnStartAdmission for CanonicalHost {
     }
 }
 struct ModelPermit {
+    diagnostic: Option<execution_diagnostics::Span>,
     #[cfg(windows)]
     provider_slot: Option<provider_pacing::Slot>,
     host: CanonicalHost,
@@ -527,6 +598,12 @@ struct ModelPermit {
     deadline: Option<std::time::Instant>,
 }
 impl HostWorkPermit for ModelPermit {
+    fn response_generation_identity(&mut self, identity: &str) -> Result<(), String> {
+        let attempt = self.attempt.clone();
+        let identity = identity.to_owned();
+        self.worker
+            .run(move |context| context.record_failed_generation_header(&attempt, identity))
+    }
     fn retry_delay(
         &mut self,
         failure: codex_extension_api::HostModelFailure,
@@ -537,33 +614,12 @@ impl HostWorkPermit for ModelPermit {
         {
             return Ok(None);
         }
-        let Some(deadline) = self.deadline else {
-            return Ok(None);
-        };
+        if let Some(span) = self.diagnostic.take() { span.finish(&Err::<(), ()>(())); }
+        let deadline = self.deadline;
         let http_status = match &failure {
             codex_extension_api::HostModelFailure::Http(status) => Some(*status),
             _ => None,
         };
-        #[cfg(windows)]
-        let cooldown = if http_status == Some(429) {
-            self.provider_slot.as_ref().map_or(Ok(()), |slot| {
-                // The transport uses MAX as an unsupported/overflowing hint.
-                // The retry policy rejects it; share the ordinary cooldown
-                // rather than losing HTTP failure evidence to an overflow.
-                slot.cooldown(Duration::from_millis(
-                    retry_after_ms
-                        .filter(|ms| *ms != u64::MAX)
-                        .unwrap_or(5_000)
-                        .max(5_000),
-                ))
-            })
-        } else {
-            Ok(())
-        };
-        // Headers have ended this transport attempt. Release shared capacity
-        // before waiting; its canonical billing liability remains independent.
-        #[cfg(windows)]
-        self.provider_slot.take();
         let failure = match failure {
             codex_extension_api::HostModelFailure::Http(status) => {
                 vcp_models::retry::http_failure(status)
@@ -574,11 +630,48 @@ impl HostWorkPermit for ModelPermit {
             }
             codex_extension_api::HostModelFailure::Protocol => vcp_models::retry::Failure::Protocol,
         };
+        #[cfg(windows)]
+        let cooldown = {
+            let attempt = self.attempt.clone();
+            let binding = self.binding.clone();
+            let (source, route) = self.worker.run(move |context| {
+                Ok((
+                    context.provider_limit_source(&attempt),
+                    context.provider_attempt_endpoint(&binding, &attempt)?,
+                ))
+            })?;
+            if let Some(slot) = self.provider_slot.as_mut() {
+                slot.bind_failed_route(route)?;
+            }
+            self.provider_slot.as_ref().map_or(Ok(()), |slot| {
+                slot.failed(
+                    failure,
+                    source,
+                    Duration::from_millis(
+                        retry_after_ms
+                            .filter(|ms| *ms != u64::MAX)
+                            .unwrap_or(5_000)
+                            .max(5_000),
+                    ),
+                )
+            })
+        };
+        // Availability leases and canonical billing uncertainty are independent.
+        #[cfg(windows)]
+        self.provider_slot.take();
         let binding = self.binding.clone();
         let attempt = self.attempt.clone();
         let count = self.retries;
         let delay = self.worker.run(move |context| {
-            context.schedule_retry(&binding, attempt, count, deadline, failure, retry_after_ms)
+            context.schedule_retry(
+                &binding,
+                attempt,
+                count,
+                deadline,
+                failure,
+                http_status,
+                retry_after_ms,
+            )
         })?;
         if delay.is_some() {
             self.runtime.complete()?;
@@ -626,7 +719,7 @@ impl HostWorkPermit for ModelPermit {
             {
                 let slot = self
                     .host
-                    .acquire_provider_slot(self.thread, self.deadline)
+                    .acquire_provider_slot(self.thread, Some(self.purpose), self.deadline)
                     .await?;
                 if !self.retry_current() {
                     return Err("provider retry cancelled by current owner/context/deadline".into());
@@ -663,6 +756,9 @@ impl HostWorkPermit for ModelPermit {
         let worker = self.worker.clone();
         let attempt = self.attempt.clone();
         Some(Arc::new(move |bytes| {
+            // Qualify metadata from the complete bounded HTTP body, never from
+            // artifact chunks that could hide an invalid prefix or suffix.
+            let limit_source = vcp_models::retry::error_limit_source(bytes);
             for chunk in bytes.chunks(vcp_store::artifact::CHUNK_BYTES) {
                 let bytes = chunk.to_vec();
                 let attempt = attempt.clone();
@@ -670,6 +766,10 @@ impl HostWorkPermit for ModelPermit {
                     .run(move |context| context.response_error_chunk(&attempt, &bytes))
                     .inspect_err(|_| worker.fence())?;
             }
+            let attempt = attempt.clone();
+            worker
+                .run(move |context| context.response_http_error_source(&attempt, limit_source))
+                .inspect_err(|_| worker.fence())?;
             Ok(())
         }))
     }
@@ -678,17 +778,37 @@ impl HostWorkPermit for ModelPermit {
         usage: Option<&TokenUsage>,
         response_id: &str,
     ) -> Result<(), String> {
+        #[cfg(windows)]
+        let scheduling_usage = usage.and_then(|usage| {
+            Some(Usage {
+                input: vcp_domain::Units::new(u64::try_from(usage.input_tokens).ok()?),
+                output: vcp_domain::Units::new(u64::try_from(usage.output_tokens).ok()?),
+                cache_read: vcp_domain::Units::new(u64::try_from(usage.cached_input_tokens).ok()?),
+                cache_write: vcp_domain::Units::new(
+                    u64::try_from(usage.cache_write_input_tokens).ok()?,
+                ),
+                requests: vcp_domain::Units::new(1),
+                ..Usage::default()
+            })
+        });
         let usage = usage.cloned();
         let response_id = response_id.to_owned();
         let attempt = self.attempt.clone();
         let binding = self.binding.clone();
-        self.worker
+        let result = self.worker
             .run(move |context| context.complete(&binding, &attempt, usage, response_id))
-            .inspect_err(|_| self.worker.fence())?;
+            .inspect_err(|_| self.worker.fence());
+        if let Some(span) = self.diagnostic.take() { span.finish(&result); }
+        result?;
         self.runtime.complete()?;
         self.finished = true;
         #[cfg(windows)]
-        self.provider_slot.take();
+        {
+            if let Some(slot) = &self.provider_slot {
+                slot.succeeded(scheduling_usage.as_ref())?;
+            }
+            self.provider_slot.take();
+        }
         Ok(())
     }
 }
@@ -823,7 +943,23 @@ impl HostWorkAdmission for CanonicalHost {
         Box::pin(async move {
             #[cfg(windows)]
             {
-                let slot = self.acquire_provider_slot(thread, None).await?;
+                let deadline = if self
+                    .provider_pacing
+                    .lock()
+                    .map_err(|_| "provider pacing poisoned")?
+                    .is_some()
+                {
+                    let binding = self.binding(thread)?;
+                    let remaining = self
+                        .worker
+                        .run(move |context| context.provider_queue_remaining(&binding))?;
+                    remaining.map(|remaining| std::time::Instant::now() + remaining)
+                } else {
+                    None
+                };
+                let slot = self
+                    .acquire_provider_slot(thread, Some(purpose), deadline)
+                    .await?;
                 return self.admit_model_with_slot(thread, body, purpose, slot);
             }
             #[cfg(not(windows))]
@@ -853,6 +989,7 @@ impl CanonicalHost {
     async fn acquire_provider_slot(
         &self,
         thread: ThreadId,
+        purpose: Option<HostModelPurpose>,
         deadline: Option<std::time::Instant>,
     ) -> Result<Option<provider_pacing::Slot>, String> {
         let configured = self
@@ -863,13 +1000,33 @@ impl CanonicalHost {
         let Some((gate, timeout)) = configured else {
             return Ok(None);
         };
-        let binding = self.binding(thread)?;
+        let mut binding = self.binding(thread)?;
+        if purpose == Some(HostModelPurpose::Compaction) {
+            binding.role = RequestRole::Compaction;
+        }
         let generation = self
             .runtime
             .admission_generation(thread)
             .map_err(|e| format!("{e:?}"))?;
-        let deadline = deadline.unwrap_or_else(|| std::time::Instant::now() + timeout);
-        gate.acquire(deadline, || {
+        let remaining = self.worker.run({
+            let binding = binding.clone();
+            move |context| context.provider_queue_remaining(&binding)
+        })?;
+        let queue_deadline =
+            remaining.map(|remaining| std::time::Instant::now() + timeout.min(remaining));
+        let deadline = match (deadline, queue_deadline) {
+            (Some(one), Some(two)) => Some(one.min(two)),
+            (one, two) => one.or(two),
+        };
+        let routes = if purpose.is_some() {
+            self.worker.run({
+                let binding = binding.clone();
+                move |context| context.prepare_rotation_routes(&binding)
+            })?
+        } else {
+            None
+        };
+        let current = || {
             self.runtime.admission_generation(thread).ok() == Some(generation)
                 && self
                     .worker
@@ -878,9 +1035,37 @@ impl CanonicalHost {
                         move |context| context.can_start(&binding)
                     })
                     .is_ok()
-        })
-        .await
-        .map(Some)
+        };
+        let queued = std::time::Instant::now();
+        let mut slot = if let Some(mut routes) = routes {
+            routes.deadline = deadline;
+            loop {
+                let sweep = std::time::Instant::now() + Duration::from_secs(2);
+                let sweep_deadline = deadline.map_or(sweep, |deadline| sweep.min(deadline));
+                match gate.acquire_routes(&routes, sweep_deadline, &current).await {
+                    Ok(mut slot) => {
+                        slot.deadline = deadline;
+                        break slot;
+                    }
+                    Err(error)
+                        if error == "provider rotation deadline expired before submission"
+                            && deadline.is_none_or(|deadline| std::time::Instant::now() < deadline) =>
+                    {
+                        // Renew the cancellable queue observation without
+                        // polling or replaying financial receipts.
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        } else {
+            gate.acquire(deadline, current).await?
+        };
+        slot.queued_for(queued.elapsed())?;
+        if let Some(selection) = slot.selection() {
+            self.worker
+                .run(move |context| context.select_rotation_route(&binding, selection))?;
+        }
+        Ok(Some(slot))
     }
     #[cfg(windows)]
     fn admit_model_with_slot(
@@ -928,18 +1113,34 @@ impl CanonicalHost {
         )?;
         let input = body.clone();
         let admitted = binding.clone();
-        let admission = self
-            .worker
-            .run(move |context| context.admit(&admitted, input));
-        let (attempt, prepared, deadline, retries) = match admission {
+        #[cfg(windows)]
+        let queue_deadline = slot.as_ref().and_then(|slot| slot.deadline);
+        #[cfg(not(windows))]
+        let queue_deadline = None;
+        let admission = self.worker.run(move |context| {
+            context.set_provider_queue_deadline(&admitted, queue_deadline)?;
+            context.admit(&admitted, input)
+        });
+        let (attempt, prepared, mut deadline, retries) = match admission {
             Ok(value) => value,
             Err(error) => {
                 runtime.complete()?;
                 return Err(error);
             }
         };
+        #[cfg(windows)]
+        if let Some(slot) = &slot {
+            slot.mark_admitted();
+            if let Some(queued) = slot.deadline {
+                deadline = Some(deadline.map_or(queued, |value| value.min(queued)));
+            }
+        }
         *body = prepared;
+        let diagnostic_binding = binding.clone();
+        let diagnostic_attempt = attempt.clone();
+        let diagnostic = self.worker.run_cleanup(move |context| Ok(context.begin_diagnostic(&diagnostic_binding, execution_diagnostics::Phase::ProviderExchange, Some(diagnostic_attempt)))).ok();
         Ok(Box::new(ModelPermit {
+            diagnostic,
             #[cfg(windows)]
             provider_slot: slot,
             host: self.clone(),

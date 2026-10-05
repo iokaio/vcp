@@ -24,7 +24,7 @@ impl Context {
         for record in self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -47,7 +47,7 @@ impl Context {
                 let task: Task = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Task,
                         descriptor.spec.scope.task.as_str(),
@@ -109,7 +109,7 @@ impl Context {
         let current: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, task.as_str(), &self.config.workspace)?
             .decode()?;
         if current.root != self.config.root_task || current.scope.session != self.config.session {

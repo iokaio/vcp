@@ -65,14 +65,19 @@ impl PublicConnection {
                             Ok(())
                         }
                     };
-                    inspect(context.engine.store(), &access, &request, &check)
+                    context.runtime.block_on(inspect(
+                        context.engine.store(),
+                        &access,
+                        &request,
+                        &check,
+                    ))
                 })())
             })
             .map_err(|_| unavailable())?
     }
 }
 
-fn inspect(
+async fn inspect(
     store: &Store,
     access: &Access,
     request: &methods::MemoryInspect,
@@ -86,7 +91,7 @@ fn inspect(
         return Err(error(Code::PolicyDenied));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, request.task.as_str(), &access.workspace)
         .map_err(|_| unavailable())?
         .decode()
@@ -100,7 +105,7 @@ fn inspect(
     }
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)
@@ -131,6 +136,7 @@ fn inspect(
         Some(&task.fingerprint),
         check,
     )
+    .await
     .map_err(memory_error)?;
     let sequence = history
         .versions
@@ -179,7 +185,7 @@ fn inspect(
                     .find(|source| source.artifact == observed.artifact)
                     .ok_or_else(unavailable)?;
                 let descriptor: ArtifactDescriptor = store
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         observed.artifact.as_str(),

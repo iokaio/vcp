@@ -50,7 +50,7 @@ fn model_dispatch_fault_process() {
         let phase = std::env::var("VCP_MODEL_KILL_PHASE").unwrap();
         let observed_root = root.clone();
         f.host.qualification_observe_model_dispatch(move |point, attempt, state| {
-            let name = match point { Point::BeforeTransport => "before_transport", Point::BeforeSettlement => "before_settlement" };
+            let name = match point { Point::BeforeSendIntent => "before_send_intent", Point::BeforeTransport => "before_transport", Point::BeforeSettlement => "before_settlement" };
             durable(&observed_root.join(format!("{name}-state.json")), state);
             durable(&observed_root.join(format!("{name}.json")), &serde_json::json!({"point":name,"attempt":attempt,"watermark":state.watermark}));
             if phase == name {
@@ -215,7 +215,7 @@ async fn root_and_child_model_dispatch_process_kills_preserve_liability_without_
                 assert_eq!(attempt.phase, ReservationState::Submitted);
                 assert!(attempt.send_intent.is_some());
                 assert_eq!(attempt.charged, Micros::ZERO);
-                assert!(attempt.quote.amount.micros > Micros::ZERO);
+                assert!(attempt.quote.amount.micros.known().unwrap() > Micros::ZERO);
                 assert_eq!(
                     before
                         .records

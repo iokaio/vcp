@@ -7,6 +7,8 @@ use vcp_domain::{
 };
 use vcp_memory::{access::Access, retention::Action, retention_policy::*};
 use vcp_store::{contract::CanonicalStore, BackendKind, Store};
+#[path = "retention_policy/bounded.rs"]
+mod bounded;
 fn access() -> Access {
     Access {
         workspace: common::workspace().id,
@@ -40,11 +42,11 @@ async fn startup_driver_records_protection_and_reads_do_not_apply_policy() {
         set(&mut store, &access, None, 7, Some(mode), now)
             .await
             .unwrap();
-        let before = store.state().watermark;
+        let before = store.current().watermark;
         assert!(latest_run(&store, &access).unwrap().is_none());
         assert!(show(&store, &access).unwrap().automatic.is_some());
-        assert!(aging(&store, &access, now).unwrap().due);
-        assert_eq!(store.state().watermark, before);
+        assert!(aging(&store, &access, now).await.unwrap().due);
+        assert_eq!(store.current().watermark, before);
         let run = run_due(&mut store, &access, now).await.unwrap().unwrap();
         assert_eq!(run.status, "blocked");
         assert_eq!(
@@ -53,7 +55,7 @@ async fn startup_driver_records_protection_and_reads_do_not_apply_policy() {
         );
         assert!(run.receipt.is_none());
         let workspace: vcp_domain::workspace::Workspace = store
-            .state()
+            .current()
             .record(
                 vcp_store::contract::Collection::Workspace,
                 access.workspace.as_str(),
@@ -65,9 +67,9 @@ async fn startup_driver_records_protection_and_reads_do_not_apply_policy() {
         assert_eq!(workspace.deletion, DeletionEpoch::ZERO);
         store.close().await.unwrap();
         let mut store = Store::open(dir.path(), backend, &[]).await.unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(run_due(&mut store, &access, now).await.unwrap().is_none());
-        assert_eq!(store.state().watermark, watermark);
+        assert_eq!(store.current().watermark, watermark);
         assert_eq!(
             latest_run(&store, &access).unwrap().unwrap().status,
             "blocked"
@@ -81,34 +83,37 @@ async fn aging_boundary_repeat_and_notification_only_preserve_retained_history()
         let mut store = Store::open(dir.path(), backend, &[]).await.unwrap();
         store.transact(common::initial()).await.unwrap();
         let access = access();
-        let original = store.state().events[0].clone();
+        let original = (&store.archive_state().await.unwrap()).events[0].clone();
         assert!(show(&store, &access).unwrap().automatic.is_none());
         assert!(
             !aging(&store, &access, Timestamp::new(100 + 30 * DAY_MS))
+                .await
                 .unwrap()
                 .due
         );
         let now = Timestamp::new(100 + 31 * DAY_MS);
-        let notice = aging(&store, &access, now).unwrap();
+        let notice = aging(&store, &access, now).await.unwrap();
         assert!(notice.due);
         assert_eq!(notice.oldest, Some(Timestamp::new(100)));
-        assert!(queue(&store, &access, now).unwrap().is_none());
+        assert!(queue(&store, &access, now).await.unwrap().is_none());
         acknowledge_notice(&mut store, &access, now).await.unwrap();
-        assert!(!aging(&store, &access, now).unwrap().due);
+        assert!(!aging(&store, &access, now).await.unwrap().due);
         assert!(
             !aging(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS - 1))
+                .await
                 .unwrap()
                 .due
         );
         assert!(
             aging(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS))
+                .await
                 .unwrap()
                 .due
         );
-        assert_eq!(store.state().events[0], original);
+        assert_eq!((&store.archive_state().await.unwrap()).events[0], original);
         store.close().await.unwrap();
         let store = Store::open(dir.path(), backend, &[]).await.unwrap();
-        assert!(!aging(&store, &access, now).unwrap().due);
+        assert!(!aging(&store, &access, now).await.unwrap().due);
         assert!(show(&store, &access).unwrap().automatic.is_none());
     }
 }
@@ -123,16 +128,16 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
         let policy = set(&mut store, &access, None, 7, Some(automatic()), now)
             .await
             .unwrap();
-        let queued = queue(&store, &access, now).unwrap().unwrap();
+        let queued = queue(&store, &access, now).await.unwrap().unwrap();
         let disabled = set(&mut store, &access, Some(policy.revision), 7, None, now)
             .await
             .unwrap();
-        let watermark = store.state().watermark;
+        let watermark = store.current().watermark;
         assert!(apply_queued(&mut store, &access, &queued, now)
             .await
             .is_err());
-        assert_eq!(store.state().watermark, watermark);
-        assert!(queue(&store, &access, now).unwrap().is_none());
+        assert_eq!(store.current().watermark, watermark);
+        assert!(queue(&store, &access, now).await.unwrap().is_none());
         set(
             &mut store,
             &access,
@@ -143,12 +148,12 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
         )
         .await
         .unwrap();
-        let queued = queue(&store, &access, now).unwrap().unwrap();
+        let queued = queue(&store, &access, now).await.unwrap().unwrap();
         let receipt = apply_queued(&mut store, &access, &queued, now)
             .await
             .unwrap();
         assert_eq!(receipt.preview.action, Action::Exclude);
-        assert!(queue(&store, &access, now).unwrap().is_none());
+        assert!(queue(&store, &access, now).await.unwrap().is_none());
         let repeat = apply_queued(&mut store, &access, &queued, now)
             .await
             .unwrap();
@@ -157,11 +162,13 @@ async fn disabling_or_editing_policy_revokes_queued_work_and_cadence_is_durable(
         let store = Store::open(dir.path(), backend, &[]).await.unwrap();
         assert!(
             queue(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS - 1))
+                .await
                 .unwrap()
                 .is_none()
         );
         assert!(
             queue(&store, &access, Timestamp::new(now.get() + 7 * DAY_MS))
+                .await
                 .unwrap()
                 .is_some()
         );

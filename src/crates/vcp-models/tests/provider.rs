@@ -4,8 +4,62 @@ use std::collections::BTreeSet;
 use vcp_domain::{AttemptId, Timestamp, Units};
 use vcp_models::{catalog::*, request::*, retry::*, stream::*, Error};
 
+#[path = "support/context_capacity.rs"]
+mod context_capacity;
+#[path = "support/unknown_prices.rs"]
+mod unknown_prices;
+
 fn tools() -> Value {
     json!([{"type":"function","name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}])
+}
+#[test]
+fn completed_terminal_proof_is_independent_of_billing_id_and_rejects_partial_tails() {
+    let terminal = json!({"type":"response.completed","response":{"id":"local-response-1","status":"completed","output":[]}}).to_string();
+    let raw = format!("data: {terminal}\n\n");
+    assert!(
+        retained_generation(raw.as_bytes()).unwrap().is_none(),
+        "not a billing receipt identity"
+    );
+    let observed = retained_completed_terminal(raw.as_bytes())
+        .unwrap()
+        .unwrap();
+    assert_eq!(observed.request_id, "local-response-1");
+    assert_eq!(
+        observed.frame_sha256,
+        vcp_protocol::digest_bytes(terminal.as_bytes())
+    );
+    for tail in ["", "data: [DO", "data: [DONE]\n", "data: [DONE]\n\n"] {
+        assert!(
+            retained_completed_terminal(format!("{raw}{tail}").as_bytes())
+                .unwrap()
+                .is_some()
+        );
+    }
+    for tail in [
+        "garbage",
+        "data: unexpected",
+        "data: [DONE]\n\ndata: [DO",
+        "data: {}\n\n",
+    ] {
+        assert!(retained_completed_terminal(format!("{raw}{tail}").as_bytes()).is_err());
+    }
+    assert!(
+        retained_completed_terminal(format!("data: {terminal}\n").as_bytes())
+            .unwrap()
+            .is_none()
+    );
+    for state in ["failed", "incomplete"] {
+        let terminal = json!({"type":format!("response.{state}"),"response":{"id":"local-response-1","status":state}});
+        assert!(
+            retained_completed_terminal(format!("data: {terminal}\n\n").as_bytes())
+                .unwrap()
+                .is_none()
+        );
+    }
+    let conflicting = format!(
+        "data: {{\"type\":\"response.created\",\"response\":{{\"id\":\"other\"}}}}\n\n{raw}"
+    );
+    assert!(retained_completed_terminal(conflicting.as_bytes()).is_err());
 }
 #[test]
 fn nullable_tool_input_accepts_only_explicit_string_or_null() {
@@ -65,6 +119,59 @@ fn sse(value: Value) -> Vec<u8> {
         value
     )
     .into_bytes()
+}
+
+#[test]
+fn interrupted_sse_identity_requires_a_complete_structured_frame() {
+    let bytes = sse(json!({"type":"response.created","response":{"id":"gen-interrupted"}}));
+    let mut parser = stream();
+    parser.push(&bytes[..bytes.len() - 2]).unwrap();
+    assert!(parser.observed_generation().is_none());
+    parser.push(&bytes[bytes.len() - 2..]).unwrap();
+    let observed = parser.observed_generation().unwrap();
+    assert_eq!(observed.request_id, "gen-interrupted");
+    assert_eq!(observed.frame_sha256.len(), 64);
+    assert!(parser.terminal_identity().is_none());
+    assert_eq!(
+        retained_generation(&bytes).unwrap().unwrap().request_id,
+        observed.request_id
+    );
+    assert!(retained_generation(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"gen-partial\"}}\n").unwrap().is_none());
+    assert!(retained_generation(b"id: gen-comment\n: gen-comment\n\n")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn retained_sse_identity_survives_large_output_and_partial_tail_without_tool_admission() {
+    let mut bytes = sse(json!({"type":"response.created","response":{"id":"gen-large"}}));
+    bytes.extend(sse(
+        json!({"type":"response.output_text.delta","delta":"x".repeat(90_000)}),
+    ));
+    bytes.extend(sse(json!({"type":"response.output_item.done","item":{"type":"function_call","name":"unregistered","arguments":"untrusted"}})));
+    bytes.extend_from_slice(
+        b"data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"gen-partial",
+    );
+    assert_eq!(
+        retained_generation(&bytes).unwrap().unwrap().request_id,
+        "gen-large"
+    );
+}
+
+#[test]
+fn sse_identity_conflicts_duplicates_and_event_mismatch_fail_closed() {
+    let first = sse(json!({"type":"response.created","response":{"id":"gen-first"}}));
+    for second in [
+        sse(json!({"type":"response.in_progress","response":{"id":"gen-second"}})),
+        b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"gen-first\",\"id\":\"gen-second\"}}\n\n".to_vec(),
+        b"event: response.created\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"gen-first\"}}\n\n".to_vec(),
+    ] {
+        let mut parser = stream();
+        parser.push(&first).unwrap();
+        assert!(parser.push(&second).is_err());
+        assert!(parser.observed_generation().is_none());
+        assert!(retained_generation(&[first.clone(), second].concat()).is_err());
+    }
 }
 fn call(id: &str, path: &str) -> Value {
     json!({"type":"function_call","id":format!("item_{id}"),"call_id":id,"name":"read_file","arguments":serde_json::to_string(&json!({"path":path})).unwrap()})
@@ -761,6 +868,111 @@ fn retained_terminal_boundary_rejects_contradictions_truncated_payloads_and_dupl
     assert!(parser.finish_observed_terminal().is_err());
 }
 #[test]
+fn terminal_diagnostics_allowlist_causes_without_promoting_provider_prose_or_cost() {
+    for (status, field, cause, expected) in [
+        (
+            "failed",
+            "error",
+            "server_error",
+            "provider response.failed (server_error)",
+        ),
+        (
+            "failed",
+            "error",
+            "rate_limit_exceeded",
+            "provider response.failed (rate_limit_exceeded)",
+        ),
+        (
+            "failed",
+            "error",
+            "invalid_prompt",
+            "provider response.failed (invalid_prompt)",
+        ),
+        (
+            "incomplete",
+            "incomplete_details",
+            "max_output_tokens",
+            "provider response.incomplete (max_output_tokens)",
+        ),
+        (
+            "incomplete",
+            "incomplete_details",
+            "content_filter",
+            "provider response.incomplete (content_filter)",
+        ),
+        (
+            "failed",
+            "error",
+            "secret\nforged status",
+            "provider response.failed (cause unknown)",
+        ),
+        (
+            "incomplete",
+            "incomplete_details",
+            "secret\nforged status",
+            "provider response.incomplete (cause unknown)",
+        ),
+    ] {
+        let mut end = terminal(json!([call("failed-call", "unused")]));
+        end["type"] = json!(format!("response.{status}"));
+        end["response"]["status"] = json!(status);
+        end["response"]["usage"] = Value::Null;
+        end["response"][field] = json!({
+            "code": cause, "reason": cause,
+            "message": "Upstream error from Google: undefined; secret\nforged status",
+            "metadata": {"token": "private-fixture", "remedy_hint": "replay all tools"},
+        });
+        let mut parser = stream();
+        for chunk in sse(end.clone()).chunks(7) {
+            parser.push(chunk).unwrap();
+        }
+        let result = parser.finish_observed_terminal().unwrap();
+        assert_eq!(
+            result.terminal_diagnostic.as_ref().unwrap().summary(),
+            expected
+        );
+        assert_eq!(result.usage, None);
+        assert!(result.calls.is_empty());
+        let normalized = serde_json::to_string(&result).unwrap();
+        for suppressed in [
+            "secret",
+            "forged",
+            "private-fixture",
+            "replay",
+            "undefined",
+            "Google",
+        ] {
+            assert!(!normalized.contains(suppressed));
+        }
+        end["response"][field] = Value::Null;
+        let mut parser = stream();
+        parser.push(&sse(end)).unwrap();
+        assert!(parser
+            .finish()
+            .unwrap()
+            .terminal_diagnostic
+            .unwrap()
+            .summary()
+            .contains("cause unknown"));
+    }
+    let mut end = terminal(json!([]));
+    end["response"]["error"] = json!({"code":"server_error"});
+    let mut parser = stream();
+    parser.push(&sse(end)).unwrap();
+    let result = parser.finish().unwrap();
+    assert_eq!(result.terminal_diagnostic, None);
+    // Older normalized artifacts remain readable without the new optional field.
+    let mut legacy = serde_json::to_value(&result).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("terminal_diagnostic");
+    assert_eq!(
+        serde_json::from_value::<ResultBody>(legacy).unwrap(),
+        result
+    );
+}
+#[test]
 fn incomplete_terminal_argument_placeholder_preserves_usage_without_eligible_calls() {
     for status in ["incomplete", "failed", "completed"] {
         for change in ["arguments", "name", "call_id", "usage"] {
@@ -917,6 +1129,51 @@ fn invalid_tool_arguments_keep_only_validated_final_accounting_evidence() {
     assert!(stream.rejected_usage().is_none());
 }
 #[test]
+fn partial_usage_retains_only_explicit_consistent_output_observation() {
+    for raw in [
+        json!({"output_tokens":30}),
+        json!({"input_tokens":100,"output_tokens":30,"total_tokens":130}),
+        json!({"output_tokens":0,"output_tokens_details":{"reasoning_tokens":0}}),
+    ] {
+        let observed = normalize_usage(&raw).unwrap();
+        assert_eq!(
+            observed.output_tokens.unwrap().get(),
+            raw["output_tokens"].as_u64().unwrap()
+        );
+        assert_eq!(observed.raw, raw);
+        assert!(observed.tokens.is_none());
+        assert!(observed.cost.is_none());
+        let retained = serde_json::to_vec(&observed).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ObservedUsage>(&retained).unwrap(),
+            observed
+        );
+    }
+    for raw in [
+        json!({}),
+        json!({"output_tokens":null}),
+        json!({"input_tokens":100,"total_tokens":130}),
+    ] {
+        assert!(normalize_usage(&raw).unwrap().output_tokens.is_none());
+    }
+    // Old normalized captures remain decodable without inventing an observation.
+    let old: ObservedUsage =
+        serde_json::from_value(json!({"raw":{"output_tokens":30},"tokens":null,"cost":null}))
+            .unwrap();
+    assert!(old.output_tokens.is_none());
+    for raw in [
+        json!({"output_tokens":-1}),
+        json!({"output_tokens":1.5}),
+        json!({"output_tokens":"30"}),
+        json!({"output_tokens":30,"total_tokens":29}),
+        json!({"input_tokens":100,"total_tokens":99}),
+        json!({"output_tokens":30,"output_tokens_details":{"reasoning_tokens":31}}),
+        json!({"input_tokens":u64::MAX,"output_tokens":1}),
+    ] {
+        assert!(normalize_usage(&raw).is_err(), "{raw}");
+    }
+}
+#[test]
 fn cumulative_usage_preserves_unknown_cost_and_rejects_double_counted_subtotals() {
     let raw = json!({"input_tokens":100,"output_tokens":30,"total_tokens":130,"input_tokens_details":{"cached_tokens":20},"output_tokens_details":{"reasoning_tokens":10},"cost":"0.0001234"});
     let observed = normalize_usage(&raw).unwrap();
@@ -953,7 +1210,7 @@ fn retries_require_fresh_admission_keep_submitted_liability_and_cancel_on_owner_
         max_retries: 2,
         base_delay_ms: 100,
         max_delay_ms: 1000,
-        deadline: Timestamp::new(3000),
+        deadline: Timestamp::new(3000).into(),
     };
     let attempt = AttemptId::new();
     let retry = policy
@@ -1031,4 +1288,136 @@ fn retries_require_fresh_admission_keep_submitted_liability_and_cancel_on_owner_
         .unwrap()
         .unwrap();
     assert!(!pre.prior_liability_unresolved);
+}
+
+#[test]
+fn rate_limit_cooldown_honors_server_hint_and_original_deadline() {
+    let attempt = AttemptId::new();
+    let policy = Policy::for_failure(2, Timestamp::new(120_000), Failure::RateLimit);
+    for (count, hint, delay) in [
+        (0, None, 5_000),
+        (1, None, 10_000),
+        (0, Some(30_000), 30_000),
+    ] {
+        let retry = policy
+            .next(
+                attempt.clone(),
+                count,
+                Timestamp::new(100),
+                Failure::RateLimit,
+                true,
+                hint,
+                true,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(retry.not_before, Timestamp::new(100 + delay));
+        assert!(retry.prior_liability_unresolved);
+    }
+    for (now, count, hint) in [(115_000, 0, None), (100, 2, None), (100, 0, Some(60_001))] {
+        assert!(policy
+            .next(
+                attempt.clone(),
+                count,
+                Timestamp::new(now),
+                Failure::RateLimit,
+                true,
+                hint,
+                true
+            )
+            .unwrap()
+            .is_none());
+    }
+    let transient = Policy::for_failure(2, Timestamp::new(120_000), Failure::Transient);
+    assert_eq!(transient.base_delay_ms, 100);
+    assert_eq!(transient.max_delay_ms, 5_000);
+}
+
+#[test]
+fn unbounded_retry_time_retains_delay_count_owner_and_uncertain_predecessor_fences() {
+    let attempt = AttemptId::new();
+    let policy = Policy::for_failure(2, vcp_domain::Limit::Unbounded, Failure::RateLimit);
+    let late = Timestamp::new(9_000_000_000);
+    let retry = policy
+        .next(
+            attempt.clone(),
+            1,
+            late,
+            Failure::RateLimit,
+            true,
+            Some(30_000),
+            true,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(retry.predecessor, attempt);
+    assert_eq!(retry.not_before, Timestamp::new(late.get() + 30_000));
+    assert!(retry.prior_liability_unresolved);
+    for (count, owner, failure) in [
+        (2, true, Failure::RateLimit),
+        (0, false, Failure::RateLimit),
+        (0, true, Failure::Cancelled),
+    ] {
+        assert!(policy
+            .next(attempt.clone(), count, late, failure, true, None, owner)
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[test]
+fn provider_failure_diagnostics_allowlist_metadata_without_treating_errors_as_usage() {
+    let body = json!({"error":{"code":429,"message":"untrusted message", "metadata":{
+        "limit_source":"upstream_provider_shared_pool", "raw":"untrusted raw",
+        "remedy_hint":"untrusted instructions", "provider_name":"untrusted name"}},
+        "user_id":"private-account"});
+    let source = error_limit_source(&serde_json::to_vec(&body).unwrap());
+    assert_eq!(source, Some(LimitSource::UpstreamProviderSharedPool));
+    let failure = ProviderFailure {
+        failure: Failure::RateLimit,
+        http_status: Some(429),
+        limit_source: source,
+        retry_after_ms: None,
+    };
+    assert!(failure
+        .summary()
+        .contains("HTTP 429: upstream provider shared pool"));
+    let encoded = serde_json::to_string(&failure).unwrap();
+    assert!(!encoded.contains("private-account"));
+    assert!(!encoded.contains("untrusted"));
+    for (source, expected) in [
+        (
+            LimitSource::OpenrouterInFlightBudget,
+            "in-flight spending limit",
+        ),
+        (
+            LimitSource::OpenrouterKeyLimit,
+            "API key credit limit exhausted",
+        ),
+        (
+            LimitSource::OpenrouterCredits,
+            "credits cannot cover this request",
+        ),
+    ] {
+        let specific = ProviderFailure {
+            limit_source: Some(source),
+            ..failure.clone()
+        };
+        assert!(
+            specific.summary().contains(expected),
+            "{}",
+            specific.summary()
+        );
+        assert!(!specific.summary().contains("provider rate limit"));
+    }
+    assert_eq!(error_limit_source(b"not json"), None);
+    assert_eq!(
+        error_limit_source(br#"{"error":{"metadata":{"limit_source":"openrouter_in_flight_budget","limit_source":"upstream_provider_shared_pool"}}}"#),
+        None
+    );
+    assert_eq!(error_limit_source(&vec![b' '; 65537]), None);
+    assert_eq!(
+        error_limit_source(br#"{"error":{"metadata":{"limit_source":"invented"}}}"#),
+        None
+    );
 }

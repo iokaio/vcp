@@ -25,7 +25,8 @@ fn config(root: &std::path::Path, backend: BackendKind) -> Config {
         cap: Money {
             currency: currency.clone(),
             micros: Micros::new(1000),
-        },
+        }
+        .into(),
         protected: Micros::ZERO,
         price: PriceSnapshot {
             id: "a".repeat(64),
@@ -80,7 +81,7 @@ async fn conversion_reopens_exact_state_and_reconciles_lost_ack_without_changing
         let store = Store::open(&original, source_backend, std::slice::from_ref(&workspace))
             .await
             .unwrap();
-        let state = store.state().clone();
+        let state = store.archive_state().await.unwrap();
         store.close().await.unwrap();
         let entry = WorkspaceEntry {
             rebind_pending: false,
@@ -131,12 +132,12 @@ async fn conversion_reopens_exact_state_and_reconciles_lost_ack_without_changing
         )
         .await
         .unwrap();
-        assert_eq!(reopened.state(), &state);
+        assert_eq!(&reopened.archive_state().await.unwrap(), &state);
         reopened.close().await.unwrap();
         let old = Store::open(&original, source_backend, std::slice::from_ref(&workspace))
             .await
             .unwrap();
-        assert_eq!(old.state(), &state);
+        assert_eq!(&old.archive_state().await.unwrap(), &state);
         old.close().await.unwrap();
         let altered = Storage::Migrate {
             backend: target_backend,

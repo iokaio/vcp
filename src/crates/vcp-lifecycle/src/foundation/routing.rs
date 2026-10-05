@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use vcp_domain::{CommandId, Revision, Timestamp};
 use vcp_models::{
-    catalog::Snapshot,
     routing::{CatalogRevision, CostEstimate, Policy},
 };
 
@@ -76,44 +75,51 @@ pub async fn execute(
             return Err("owner declaration requires the retained host capture boundary".into())
         }
         Request::EscalationDeclarations { task } => {
-            routing_state::declarations::inspect(store, access, &task)?
+            routing_state::declarations::inspect(store, access, &task).await?
         }
-        Request::Transitions { from, until } => {
-            serde_json::to_value(routing_state::transitions::observe(
+        Request::Transitions { from, until } => serde_json::to_value(
+            routing_state::transitions::observe(
                 store,
                 access,
                 routing_state::HistoryWindow { from, until },
-            )?)
-            .map_err(|e| e.to_string())?
-        }
-        Request::Observations { from, until } => {
-            serde_json::to_value(routing_state::observations::observe(
-                store,
-                access,
-                routing_state::HistoryWindow { from, until },
-            )?)
-            .map_err(|e| e.to_string())?
-        }
-        Request::Cycles { from, until } => serde_json::to_value(routing_state::cycles::observe(
-            store,
-            access,
-            routing_state::HistoryWindow { from, until },
-        )?)
+            )
+            .await?,
+        )
         .map_err(|e| e.to_string())?,
-        Request::Forecasts { from, until } => {
-            serde_json::to_value(routing_state::forecasts::observe(
+        Request::Observations { from, until } => serde_json::to_value(
+            routing_state::observations::observe(
                 store,
                 access,
                 routing_state::HistoryWindow { from, until },
-            )?)
-            .map_err(|e| e.to_string())?
-        }
+            )
+            .await?,
+        )
+        .map_err(|e| e.to_string())?,
+        Request::Cycles { from, until } => serde_json::to_value(
+            routing_state::cycles::observe(
+                store,
+                access,
+                routing_state::HistoryWindow { from, until },
+            )
+            .await?,
+        )
+        .map_err(|e| e.to_string())?,
+        Request::Forecasts { from, until } => serde_json::to_value(
+            routing_state::forecasts::observe(
+                store,
+                access,
+                routing_state::HistoryWindow { from, until },
+            )
+            .await?,
+        )
+        .map_err(|e| e.to_string())?,
         Request::Compare { baseline, current } => {
-            let mut value = serde_json::to_value(routing_state::compare_reports(
-                store, access, &baseline, &current,
-            )?)
+            let mut value = serde_json::to_value(
+                routing_state::compare_reports(store, access, &baseline, &current).await?,
+            )
             .map_err(|e| e.to_string())?;
-            let drift = routing_state::forecast_drift::saved(store, access, &baseline, &current)?;
+            let drift =
+                routing_state::forecast_drift::saved(store, access, &baseline, &current).await?;
             value["forecast_drift"] = serde_json::to_value(&drift).map_err(|e| e.to_string())?;
             if drift.is_none() {
                 value["forecast_drift_unavailable"] = serde_json::json!(
@@ -135,7 +141,7 @@ pub async fn execute(
             )
             .await?;
             let interview = routing_state::interview(store, access)?;
-            let saved = routing_state::forecast_reports::load_saved(store, access, &report)?;
+            let saved = routing_state::forecast_reports::load_saved(store, access, &report).await?;
             serde_json::json!({"next_question":routing_state::next_question_for_report(&interview, &report),"report":report,"interview":interview,
                 "forecast":saved.as_ref().map(|value| &value.forecast),"compaction":saved.as_ref().map(|value| &value.compaction)})
         }
@@ -148,13 +154,16 @@ pub async fn execute(
                 routing_state::answer(store, access, expected, question, value, now).await?;
             serde_json::json!({"next_question":routing_state::next_question(&interview),"interview":interview})
         }
-        Request::Preview { report, selected } => serde_json::to_value(routing_state::preview(
-            store,
-            access,
-            &report,
-            selected,
-            ceilings.ok_or("configure trusted routing ceilings before preview")?,
-        )?)
+        Request::Preview { report, selected } => serde_json::to_value(
+            routing_state::preview(
+                store,
+                access,
+                &report,
+                selected,
+                ceilings.ok_or("configure trusted routing ceilings before preview")?,
+            )
+            .await?,
+        )
         .map_err(|e| e.to_string())?,
         Request::Apply { command, preview } => serde_json::to_value(
             routing_state::apply(
@@ -195,6 +204,9 @@ pub struct Configuration {
     /// Explicit owner assignments, distinct from empirical optimizer rankings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owner_assignments: Vec<OwnerAssignment>,
+    /// Explicit three-choice rotation; absence preserves legacy routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<vcp_models::rotation::Policy>,
     /// Explicit local policy only; absence preserves ordinary fixed selection.
     #[serde(default)]
     pub escalation: Option<vcp_models::escalation::Policy>,
@@ -216,6 +228,30 @@ pub struct OwnerAssignment {
 }
 impl Configuration {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(rotation) = &self.rotation {
+            rotation.validate().map_err(|error| error.to_string())?;
+            if self.escalation.is_some() || self.policy.pin.is_some() {
+                return Err("model rotation cannot override escalation or a strict pin".into());
+            }
+            for assignment in &rotation.roles {
+                let owner = self
+                    .owner_assignments
+                    .iter()
+                    .find(|owner| owner.role == assignment.role)
+                    .ok_or("rotation needs an explicit owner role assignment")?;
+                if assignment
+                    .sets
+                    .iter()
+                    .flat_map(|set| &set.members)
+                    .any(|identity| {
+                        !owner.candidates.contains(identity)
+                            || self.catalog.snapshot(identity).is_none()
+                    })
+                {
+                    return Err("rotation membership exceeds captured owner endpoints".into());
+                }
+            }
+        }
         if !self.owner_assignments.is_empty() && self.escalation.is_some() {
             return Err("owner model assignments cannot use empirical optimizer escalation".into());
         }
@@ -266,13 +302,9 @@ impl Configuration {
                     .raw_catalogs
                     .get(&snapshot.id)
                     .ok_or("routing snapshot needs its original endpoint catalog")?;
-                let verified = Snapshot::from_endpoints(
-                    raw.as_bytes(),
-                    snapshot.observed_at,
-                    snapshot.valid_until,
-                    snapshot.compatibility.clone(),
-                )
-                .map_err(|e| e.to_string())?;
+                let verified = snapshot
+                    .rebuild_captured(raw.as_bytes())
+                    .map_err(|e| e.to_string())?;
                 if &verified != snapshot {
                     return Err("routing snapshot differs from captured endpoint catalog".into());
                 }

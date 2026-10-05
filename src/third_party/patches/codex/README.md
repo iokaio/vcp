@@ -1,5 +1,7 @@
 # Codex compatibility patch series
 
+Patch `0052-explicit-limit-schema-lock.patch` records the EE-01b `vcp-domain` dependency on the already-pinned `schemars 0.8.22` for explicit-limit schemas. It repairs provenance for the existing lockfile change and precedes the automatic product-version patch; it adds no dependency version or runtime behavior.
+
 Original base: `openai/codex@3d3ae4965ab370217e871b3a7f0d15589557ee4b`.
 The current selection uses `openai/codex@8b78600dc85cc265d7e7e827f6aa903875405287`;
 all 36 patches replay unchanged, without conflicts, in the
@@ -215,7 +217,11 @@ already include these changes; normal builds never apply patches.
     package to `0.2.5`, matching the installer, SDK and VSIX candidate containing
     the scenario runtime fixes. External dependencies remain unchanged.
 
-48. `0048-windows-cli-codegen.patch` adds an original VCP package override of
+48. `0048-cli-tests-product-version.patch` advances the local `vcp-cli` package
+    to `0.2.6`, matching the installer, SDK and VSIX candidate containing the
+    independent CLI scenario and runtime fixes. External dependencies remain unchanged.
+
+    `0048-windows-cli-codegen.patch` adds an original VCP package override of
     sixteen release codegen units for `vcp-cli`. BETA-08's measured `0.2.10`
     production build spent 517.1 seconds in the final engine compilation unit;
     the `0.2.11` candidate reduced that unit to 443.51 seconds and the complete
@@ -231,9 +237,10 @@ already include these changes; normal builds never apply patches.
     retry admission hooks, allowing shared provider pacing without holding a
     canonical store lock. Default hosts retain their synchronous behavior.
 
-50. `0050-dotnet-verification-lock.patch` records the existing workspace
-    quick-xml dependency for VCP's bounded .slnx solution discovery. Its selected
-    version and upstream source remain unchanged.
+50. `0050-failed-generation-identity.patch` passes the allowlisted failed-response
+    generation identity to the host for authoritative charge reconciliation.
+    Authentication headers stay inside the transport; other hosts retain their
+    existing behavior.
 
 The unmodified 1.98.0 failure is retained as qualification evidence. Any future
 upstream update should check whether the attribute remains necessary and whether
@@ -244,8 +251,12 @@ Use [the reconstruction procedure](../../../../docs/development/codex-source.md#
 in a fresh disposable directory. Original and resulting per-file hashes remain
 separate, and unchanged files retain their prior transformation labels.
 
-Candidate preparation maintains the final `local-candidate-product-version.patch`
-to synchronize only the VCP CLI Cargo.lock package version. The `0.2.10` candidate
-reserves the next version after locally recorded `0.2.9` for Windows build timing
-verification. Its destination version, selection digest and resulting lock
-inventory advance together; original upstream acquisition evidence is retained.
+Candidate preparation maintains the final
+`local-candidate-product-version.patch` to synchronize only
+the VCP CLI Cargo.lock package version. Its destination version, selection
+digest and resulting lock inventory are refreshed together before each
+new local candidate; original upstream acquisition evidence is retained.
+
+`0051-dotnet-verification-lock.patch` restores the P2-06 native .NET verification dependency from VCP commit 2f77ebb4; it adds the already-pinned workspace quick-xml 0.41.0 dependency to vcp-tools without changing upstream versions.
+
+Main's `0050-dotnet-verification-lock.patch` has identical bytes to `0051-dotnet-verification-lock.patch`; the merged series applies that dependency change once, retaining the latter name. The historical `0.2.10` timing candidate reserved the version after locally recorded `0.2.9`.

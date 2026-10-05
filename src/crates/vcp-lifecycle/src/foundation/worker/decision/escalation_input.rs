@@ -39,7 +39,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 seed.binding.scope.task.as_str(),
@@ -55,7 +55,7 @@ impl Context {
         let mut sequences = BTreeSet::new();
         for id in &plan.trigger.evidence {
             if !vcp_memory::retention::recall_allowed(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &seed.binding.scope.workspace,
                 &vcp_memory::retention::Target::Record(key(Collection::Artifact, id.as_str())),
             )? {
@@ -64,7 +64,7 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Artifact,
                     id.as_str(),
@@ -81,12 +81,13 @@ impl Context {
                 );
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    &mut bytes,
+                ))?;
             let (pair, name, result) = observed_pair(&bytes, &seed.binding.scope)?;
             if !sequences.insert(pair.sequence) {
                 return Err("duplicate escalation advisory evidence sequence".into());
@@ -94,7 +95,7 @@ impl Context {
             let attempt: Attempt = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Attempt,
                     pair.attempt.as_str(),
@@ -106,7 +107,7 @@ impl Context {
             }
             match kind {
                 ObservationKind::Check => {
-                    if name != "vcp_verify" {
+                    if !matches!(name.as_str(), "vcp_verify" | "vcp_verify_focused") {
                         return Err("escalation advisory verification tool mismatch".into());
                     }
                     let verification: vcp_domain::verification::Verification =
@@ -114,7 +115,7 @@ impl Context {
                     let canonical: vcp_domain::verification::Verification = self
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Verification,
                             verification.id.as_str(),
@@ -139,7 +140,8 @@ impl Context {
                     }
                 }
                 ObservationKind::Error => {
-                    if (name == "vcp_verify" && result.get("verification").is_some())
+                    if (matches!(name.as_str(), "vcp_verify" | "vcp_verify_focused")
+                        && result.get("verification").is_some())
                         || result["complete"] != false
                         || !result["error"].is_string()
                         || result["stale"] == true

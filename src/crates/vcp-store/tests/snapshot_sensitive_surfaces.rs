@@ -64,7 +64,11 @@ async fn private_snapshot_staging_excludes_key_material_but_retains_scoped_ordin
         let descriptor = capture.finalize().unwrap();
         drop(capture);
         store
-            .transact(attach(store.state(), descriptor, None))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                descriptor,
+                None,
+            ))
             .await
             .unwrap();
         let operation = CommandId::new();
@@ -72,7 +76,7 @@ async fn private_snapshot_staging_excludes_key_material_but_retains_scoped_ordin
             .begin(&mut store, operation.clone(), &workspace().id, &trust)
             .await
             .unwrap();
-        let prepared = jobs.prepare(&store, captured, &|| false).unwrap();
+        let prepared = jobs.prepare(&store, captured, &|| false).await.unwrap();
         let staged = std::fs::read(stage.join(format!("{operation}.archive"))).unwrap();
         assert!(!staged.is_empty());
         // The staging file encodes bytes as JSON arrays: searching only its raw
@@ -103,7 +107,7 @@ async fn private_snapshot_staging_excludes_key_material_but_retains_scoped_ordin
             accepted.archive_digest,
             Some(vcp_protocol::digest_bytes(&staged))
         );
-        let serialized = serde_json::to_vec(store.state()).unwrap();
+        let serialized = serde_json::to_vec((&store.archive_state().await.unwrap())).unwrap();
         for secret in [age, writer] {
             assert!(
                 !serialized

@@ -21,6 +21,16 @@ use vcp_domain::{
 use vcp_protocol::{canonical_bytes, digest_bytes};
 
 pub const FORMAT: &str = "vcp-neutral-history/1";
+#[path = "portable_snapshot_artifacts.rs"]
+pub(crate) mod artifacts;
+#[path = "portable_snapshot_canonical.rs"]
+pub(crate) mod canonical;
+#[path = "portable_snapshot_complete.rs"]
+pub(crate) mod complete;
+#[path = "portable_snapshot_inputs.rs"]
+pub(crate) mod inputs;
+#[path = "portable_snapshot_wire.rs"]
+pub(crate) mod wire;
 const MAX_PARTS: usize = 4096;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,7 +161,7 @@ impl Archive {
         }
         Ok(())
     }
-    pub fn capture(
+    pub async fn capture(
         store: &Store,
         snapshot: &Snapshot,
         workspace: &WorkspaceId,
@@ -164,29 +174,30 @@ impl Archive {
             &crate::snapshot_inputs::Inputs::default(),
             cancelled,
         )
+        .await
     }
-    pub fn capture_with_inputs(
+    pub async fn capture_with_inputs(
         store: &Store,
         snapshot: &Snapshot,
         workspace: &WorkspaceId,
         inputs: &crate::snapshot_inputs::Inputs,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Self> {
-        Self::capture_with_spool(store.spool(), snapshot, workspace, inputs, cancelled)
+        Self::capture_with_spool(store.spool(), snapshot, workspace, inputs, cancelled).await
     }
-    pub(crate) fn capture_with_spool(
+    pub(crate) async fn capture_with_spool(
         spool: &crate::artifact::Spool,
         snapshot: &Snapshot,
         workspace: &WorkspaceId,
         inputs: &crate::snapshot_inputs::Inputs,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Self> {
-        let coverage = inputs.validate_with(snapshot.state(), workspace, &|id| {
+        let state = snapshot.archive_state().await?;
+        let coverage = inputs.validate_with(&state, workspace, &|id| {
             if cancelled() {
                 return Err(Error::Unavailable("snapshot cancelled"));
             }
-            let descriptor: ArtifactDescriptor = snapshot
-                .state()
+            let descriptor: ArtifactDescriptor = state
                 .record(Collection::Artifact, id.as_str(), workspace)?
                 .decode()?;
             if descriptor.length.get() > MAX_BYTES as u64 {
@@ -196,12 +207,11 @@ impl Archive {
             spool.read(&descriptor, &mut bytes)?;
             Ok(bytes)
         })?;
-        scoped(snapshot.state(), workspace)?;
+        scoped(&state, workspace)?;
         let mut objects = BTreeMap::new();
-        let canonical = add(&mut objects, canonical_bytes(snapshot.state())?)?;
+        let canonical = add(&mut objects, crate::legacy_state_stream::bytes(&state)?)?;
         let mut parts = Vec::new();
-        for row in snapshot
-            .state()
+        for row in state
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -272,7 +282,7 @@ impl Archive {
             coverage,
             format: FORMAT.into(),
             workspace: workspace.clone(),
-            watermark: snapshot.state().watermark,
+            watermark: state.watermark,
             canonical,
             parts,
             authority: "historical_only_rebind_required".into(),
@@ -289,7 +299,7 @@ impl Archive {
         };
         let archive = Self {
             inventory,
-            state: snapshot.state().clone(),
+            state: state.clone(),
             objects,
         };
         archive.validate()?;
@@ -423,7 +433,11 @@ impl Archive {
         if coverage != inventory.coverage {
             return Err(Error::Corruption("archive coverage differs"));
         }
-        if self.objects.get(&inventory.canonical) != Some(&canonical_bytes(&self.state)?) {
+        let canonical = self
+            .objects
+            .get(&inventory.canonical)
+            .ok_or(Error::Corruption("canonical archive bytes"))?;
+        if !crate::legacy_state_stream::matches(&self.state, canonical)? {
             return Err(Error::Corruption("canonical archive bytes"));
         }
         let mut referenced = BTreeSet::from([inventory.canonical.clone()]);
@@ -538,7 +552,7 @@ impl Archive {
         let directory = crate::private_paths::Directory::open(&root, forbidden)?;
         crate::private_paths::write_private(
             &root.join("canonical-history.json"),
-            &canonical_bytes(&self.state)?,
+            &crate::legacy_state_stream::bytes(&self.state)?,
         )?;
         if cancelled() {
             return Err(Error::Unavailable(

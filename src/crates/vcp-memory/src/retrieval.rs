@@ -19,7 +19,10 @@ use vcp_domain::{
     workspace::Scope,
     *,
 };
-use vcp_store::{contract::Collection, Store};
+use vcp_store::{
+    contract::{CanonicalStore, Collection},
+    Store,
+};
 
 pub const FUSION_VERSION: &str = "rrf-equal-k60-id-ascending-overlay-terms/2";
 pub const TOKEN_ACCOUNTING: &str = "serialized-passage-array-utf8-byte-upper-bound/1";
@@ -291,8 +294,8 @@ impl Capture {
         }
         Ok(())
     }
-    pub(crate) fn captured_state(&self) -> &vcp_store::contract::State {
-        self._snapshot.state()
+    pub(crate) fn captured_current(&self) -> vcp_store::CurrentStateView<'_> {
+        self._snapshot.current()
     }
 }
 /// Opaque candidate IDs and scores; only finish() can turn these into passages.
@@ -320,7 +323,7 @@ fn narrow_tasks(access: &Access, request: &Request) -> Option<BTreeSet<TaskId>> 
 }
 /// Owner-only stage: resolve present-day access and bounded retained source bytes.
 /// No component lookup, lexical search, vector search or model work occurs here.
-pub fn capture(
+pub async fn capture(
     store: &Store,
     access: &Access,
     request: &Request,
@@ -332,7 +335,7 @@ pub fn capture(
     request.validate()?;
     chunker.validate()?;
     checkpoint(start, request, cancelled)?;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if request.workspace != access.workspace {
         return Err(Error::Access);
     }
@@ -352,14 +355,17 @@ pub fn capture(
     let inventory = if request.historical.is_some() {
         None
     } else {
-        Some(search_record::inventory_with_check(
-            store,
-            &narrowed,
-            bindings,
-            chunker,
-            search_record::Limits::default(),
-            &|| checkpoint(start, request, cancelled),
-        )?)
+        Some(
+            search_record::inventory_with_check(
+                store,
+                &narrowed,
+                bindings,
+                chunker,
+                search_record::Limits::default(),
+                &|| checkpoint(start, request, cancelled),
+            )
+            .await?,
+        )
     };
     checkpoint(start, request, cancelled)?;
     Ok(Capture {
@@ -388,7 +394,7 @@ pub fn search(
     let mut response = Response {
         fusion: FUSION_VERSION,
         token_accounting: TOKEN_ACCOUNTING,
-        canonical_watermark: capture._snapshot.state().watermark,
+        canonical_watermark: capture._snapshot.current().watermark,
         generation: None,
         generation_watermark: None,
         indexed_sequence: MemorySeq::ZERO,
@@ -631,7 +637,7 @@ pub fn search(
 }
 /// Owner-only return fence. Recompute authorized bytes from current canonical
 /// state after native search; changed/hidden sources cannot reuse old snippets.
-pub fn finish(
+pub async fn finish(
     store: &Store,
     access: &Access,
     selection: Selection,
@@ -648,7 +654,7 @@ pub fn finish(
     let request = &capture.request;
     let bindings = &capture.bindings;
     let chunker = &capture.chunker;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     checkpoint(start, request, cancelled)?;
     if workspace.id != capture.workspace.id
         || access.actor != capture.actor
@@ -658,13 +664,13 @@ pub fn finish(
     {
         return Err(Error::Access);
     }
-    response.canonical_watermark = store.state().watermark;
+    response.canonical_watermark = store.current().watermark;
     if !materialize {
         return Ok(response);
     }
     if response
         .generation_watermark
-        .is_some_and(|watermark| watermark < store.state().watermark)
+        .is_some_and(|watermark| watermark < store.current().watermark)
         && !response.degraded.contains(&"generation_lag")
     {
         response.degraded.push("generation_lag");
@@ -691,7 +697,8 @@ pub fn finish(
         chunker,
         search_record::Limits::default(),
         &|| checkpoint(start, request, cancelled),
-    )?;
+    )
+    .await?;
     if fresh.exclusions.iter().any(|e| e.reason.contains("limit")) {
         response.rebuild_required = true;
         if !response.degraded.contains(&"canonical_inventory_bounded") {
@@ -731,10 +738,13 @@ pub fn finish(
             TextSource::Artifact { id } => vec![id.clone()],
             TextSource::Claim { version, .. } => {
                 let value: Version = store
-                    .state()
+                    .current()
                     .record(Collection::Claim, version.as_str(), &access.workspace)?
                     .decode()?;
-                access::proposal_scope(store.state(), &narrowed, &value.proposal)?;
+                access::proposal_scope_store(store, &narrowed, &value.proposal, &|| {
+                    checkpoint(start, request, cancelled)
+                })
+                .await?;
                 value
                     .proposal
                     .evidence
@@ -776,7 +786,7 @@ pub fn finish(
         }
     }
     checkpoint(start, request, cancelled)?;
-    let latest = access::authorize(store.state(), access, false)?;
+    let latest = access::authorize(store.current(), access, false)?;
     if latest.authority != workspace.authority
         || latest.deletion != workspace.deletion
         || latest.binding.revision != workspace.binding.revision
@@ -804,7 +814,7 @@ pub fn finish(
         authority: workspace.authority,
         deletion: workspace.deletion,
         binding: workspace.binding.revision,
-        canonical_watermark: store.state().watermark,
+        canonical_watermark: store.current().watermark,
         generation: response
             .generation
             .clone()
@@ -816,10 +826,10 @@ pub fn finish(
     Ok(response)
 }
 
-/// Synchronous qualification/inspection wrapper. Production hosts run search()
+/// Qualification/inspection wrapper. Production hosts run search()
 /// on an admitted blocking worker and finish() on their canonical owner.
 #[allow(clippy::too_many_arguments)]
-pub fn query(
+pub async fn query(
     store: &Store,
     access: &Access,
     view: Option<&View>,
@@ -829,26 +839,27 @@ pub fn query(
     query_vector: Option<QueryVector<'_>>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Response> {
-    let captured = capture(store, access, request, bindings, chunker, cancelled)?;
+    let captured = capture(store, access, request, bindings, chunker, cancelled).await?;
     finish(
         store,
         access,
         search(captured, view, query_vector, cancelled)?,
         cancelled,
     )
+    .await
 }
 /// Invoke again at the controller's send-admission fence after refreshing local
 /// source observations. Epoch equality alone is insufficient: recompute retained
 /// bytes, source bindings, claim eligibility and every selected chunk identity.
-pub fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result<()> {
-    let workspace = access::authorize(store.state(), access, false)?;
+pub async fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result<()> {
+    let workspace = access::authorize(store.current(), access, false)?;
     if fence.workspace != workspace.id
         || fence.authority != workspace.authority
         || fence.deletion != workspace.deletion
         || fence.binding != workspace.binding.revision
         || fence.sources.len() > 64
         || fence.bindings.len() > 64
-        || fence.canonical_watermark > store.state().watermark
+        || fence.canonical_watermark > store.current().watermark
     {
         return Err(Error::Access);
     }
@@ -858,7 +869,8 @@ pub fn revalidate_fence(store: &Store, access: &Access, fence: &Fence) -> Result
         &fence.bindings,
         &fence.chunker,
         search_record::Limits::default(),
-    )?;
+    )
+    .await?;
     for selected in &fence.sources {
         if !inventory
             .records
@@ -887,12 +899,12 @@ impl SourceBindings {
         }
     }
 }
-pub fn source_bindings(store: &Store, access: &Access) -> Result<SourceBindings> {
-    source_bindings_with_check(store, access, &|| Ok(()))
+pub async fn source_bindings(store: &Store, access: &Access) -> Result<SourceBindings> {
+    source_bindings_with_check(store, access, &|| Ok(())).await
 }
 /// All bounds cover authorized inputs only. No hidden source IDs/paths are
 /// returned in deficit explanations, and the helper never opens workspace files.
-pub fn source_bindings_with_check(
+pub async fn source_bindings_with_check(
     store: &Store,
     access: &Access,
     check: &dyn Fn() -> Result<()>,
@@ -900,7 +912,7 @@ pub fn source_bindings_with_check(
     use vcp_domain::{artifact::ArtifactDescriptor, task::Task};
     const ARTIFACT_BYTES: u64 = 256 * 1024;
     const READ_BYTES: u64 = 4 * 1024 * 1024;
-    fn read(
+    async fn read(
         store: &Store,
         access: &Access,
         artifact: &ArtifactDescriptor,
@@ -925,7 +937,8 @@ pub fn source_bindings_with_check(
             &access.history(),
             &artifact.spec.id,
             &mut bytes,
-        );
+        )
+        .await;
         check()?;
         match read {
             Ok(_) => Ok(Some(bytes)),
@@ -933,7 +946,7 @@ pub fn source_bindings_with_check(
         }
     }
     check()?;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     let mut result = SourceBindings {
         bindings: vec![],
         complete: true,
@@ -942,7 +955,7 @@ pub fn source_bindings_with_check(
     let mut total = 0u64;
     let mut manifests = 0usize;
     let mut unique = BTreeSet::new();
-    'manifests: for row in store.state().records.values() {
+    'manifests: for row in store.current().records.values() {
         check()?;
         if row.workspace != access.workspace || row.collection != Collection::Artifact {
             continue;
@@ -965,7 +978,7 @@ pub fn source_bindings_with_check(
             break;
         }
         manifests += 1;
-        let bytes = match read(store, access, &manifest, &mut total, check) {
+        let bytes = match read(store, access, &manifest, &mut total, check).await {
             Ok(Some(bytes)) => bytes,
             Ok(None) => {
                 result.deficit("source_manifest_unavailable");
@@ -991,7 +1004,7 @@ pub fn source_bindings_with_check(
             _ => continue,
         };
         let task: Task = store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 manifest.spec.scope.task.as_str(),
@@ -1038,7 +1051,7 @@ pub fn source_bindings_with_check(
                 continue;
             };
             let Some(row) = store
-                .state()
+                .current()
                 .records
                 .get(&vcp_store::contract::key(Collection::Artifact, id.as_str()))
             else {
@@ -1097,7 +1110,7 @@ pub fn source_bindings_with_check(
                     result.deficit("source_binding_limit");
                     break 'manifests;
                 }
-                match read(store, access, &source, &mut total, check) {
+                match read(store, access, &source, &mut total, check).await {
                     Ok(Some(_)) => (),
                     Ok(None) => {
                         result.deficit("source_unavailable");

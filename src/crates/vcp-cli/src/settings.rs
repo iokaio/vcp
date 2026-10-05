@@ -15,6 +15,10 @@ use vcp_domain::{
 };
 use vcp_models::catalog::Snapshot;
 
+#[cfg(test)]
+#[path = "settings_provider_estimates_tests.rs"]
+mod provider_estimates_tests;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
@@ -50,7 +54,7 @@ pub struct Profile {
     pub provider_timeout_seconds: Option<u32>,
     #[serde(default = "vcp_lifecycle::foundation::default_max_transport_retries")]
     pub max_transport_retries: u32,
-    pub deadline_seconds: u32,
+    pub deadline_seconds: vcp_domain::Limit<u32>,
     pub processes: Vec<ProcessProfile>,
     /// Executable hooks are explicit trusted owner configuration, never imports.
     #[serde(default)]
@@ -150,7 +154,7 @@ pub fn local_path(path: &Path, workspace: &Path) -> Result<PathBuf, String> {
                 _ => {
                     return Err(
                         "local drive required; network and device roots are rejected".into(),
-                    )
+                    );
                 }
             },
             _ => return Err("local drive required".into()),
@@ -294,13 +298,12 @@ fn startup_output_ceiling(
 
 fn startup_provider_timeout(
     selected: Option<u32>,
-    deadline_seconds: u32,
+    _legacy_deadline_seconds: u32,
 ) -> Result<Duration, String> {
     match selected {
-        Some(seconds) if seconds == 0 || seconds > 360 || seconds > deadline_seconds => Err(
-            "explicit provider timeout must be 1..360 seconds and not exceed the task deadline"
-                .into(),
-        ),
+        Some(seconds) if seconds == 0 || seconds > 360 => {
+            Err("explicit provider transport timeout must be 1..360 seconds".into())
+        }
         Some(seconds) => Ok(Duration::from_secs(u64::from(seconds))),
         // Preserve legacy profiles, including tasks shorter than 120 seconds;
         // the task deadline remains an independent cancellation boundary.
@@ -338,11 +341,8 @@ mod request_limit_tests {
         );
         let extended = profile.with_max_timeout_ms(180_000).unwrap();
         assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 600).is_ok());
-        assert!(
-            validate_check_durations(&[check.clone()], &[extended.clone()], 120)
-                .unwrap_err()
-                .contains("task deadline")
-        );
+        // Authorized process ceilings remain; task deadlines do not constrain checks.
+        assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 120).is_ok());
         for invalid in [0, vcp_tools::process::MAX_TIMEOUT_MS + 1, u64::MAX] {
             check.timeout_ms = Some(invalid);
             assert!(validate_check_durations(&[check.clone()], &[extended.clone()], 3600).is_err());
@@ -405,10 +405,10 @@ mod request_limit_tests {
         for seconds in [0, 361, u32::MAX] {
             assert!(startup_provider_timeout(Some(seconds), 3600).is_err());
         }
-        assert!(startup_provider_timeout(Some(61), 60).is_err());
-        assert!(startup_provider_timeout(Some(180), 179).is_err());
-        assert!(startup_provider_timeout(Some(360), 359).is_err());
-        assert!(startup_provider_timeout(Some(1), 0).is_err());
+        assert!(startup_provider_timeout(Some(61), 60).is_ok());
+        assert!(startup_provider_timeout(Some(180), 179).is_ok());
+        assert!(startup_provider_timeout(Some(360), 359).is_ok());
+        assert!(startup_provider_timeout(Some(1), 0).is_ok());
     }
 
     #[test]
@@ -494,14 +494,55 @@ mod request_limit_tests {
         assert_eq!(configured.output_ceiling().unwrap(), Units::new(16384));
         assert_eq!(configured.max_transport_retries, 0);
         selected["provider_timeout_seconds"] = serde_json::json!(360);
+        // Transport configuration remains readable independently of the legacy
+        // elapsed task limit; prepared execution explicitly suspends that limit.
+        let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
+        assert_eq!(
+            configured.provider_timeout().unwrap(),
+            Duration::from_secs(360)
+        );
+        selected["provider_timeout_seconds"] = serde_json::json!(361);
         let invalid: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert!(invalid.provider_timeout().is_err());
         assert!(
-            matches!(invalid.prepare(Autonomy::Autonomous), Err(reason) if reason.contains("explicit provider timeout"))
+            matches!(invalid.prepare(Autonomy::Autonomous), Err(reason) if reason.contains("explicit provider transport timeout"))
         );
+        selected["provider_timeout_seconds"] = serde_json::json!(360);
         selected["deadline_seconds"] = serde_json::json!(900);
         let configured: Profile = serde_json::from_value(selected.clone()).unwrap();
         assert_eq!(configured.provider_timeout_seconds, Some(360));
+        assert_eq!(configured.deadline_seconds, vcp_domain::Limit::Finite(900));
+        let mut effective: Profile = serde_json::from_value(selected.clone()).unwrap();
+        // Preparation validates the real workspace and captured provider bytes
+        // before adopting effective limits; deserialization fixtures cannot
+        // stand in for that boundary.
+        let workspace = tempfile::tempdir().unwrap();
+        let configuration = tempfile::tempdir().unwrap();
+        effective.workspace = workspace.path().canonicalize().unwrap();
+        effective.catalog = configuration.path().join("catalog.json");
+        let raw = serde_json::to_vec(
+            &serde_json::json!({"data":{"id":"fixture/model","endpoints":[{
+                "tag":"fixture/provider","status":0,"context_length":10000,"max_prompt_tokens":9000,
+                "max_completion_tokens":8000,"supported_parameters":["tools","max_tokens"],
+                "pricing":{"prompt":"0","completion":"0","request":"0"}
+            }]}}),
+        )
+        .unwrap();
+        std::fs::write(&effective.catalog, &raw).unwrap();
+        let observed = now();
+        let expires = Timestamp::new(observed.get() + 60_000);
+        let mut compatibility = effective.provider.compatibility.clone();
+        compatibility.qualified_at = observed;
+        compatibility.valid_until = expires;
+        effective.provider =
+            Snapshot::from_endpoints(&raw, observed, expires, compatibility).unwrap();
+        assert!(effective
+            .prepare(Autonomy::Autonomous)
+            .unwrap()
+            .profile
+            .deadline_seconds
+            .is_unbounded());
+        assert_eq!(selected["deadline_seconds"], serde_json::json!(900));
         assert_eq!(
             configured.provider_timeout().unwrap(),
             Duration::from_secs(360)
@@ -520,10 +561,10 @@ impl Profile {
     }
 
     pub fn provider_timeout(&self) -> Result<Duration, String> {
-        startup_provider_timeout(self.provider_timeout_seconds, self.deadline_seconds)
+        startup_provider_timeout(self.provider_timeout_seconds, 0)
     }
 
-    pub fn prepare(self, requested: Autonomy) -> Result<PreparedProfile, String> {
+    pub fn prepare(mut self, requested: Autonomy) -> Result<PreparedProfile, String> {
         self.output_ceiling()?;
         self.provider_timeout()?;
         if self.max_transport_retries > 2 {
@@ -537,9 +578,10 @@ impl Profile {
         }
         if self.max_requests == 0
             || self.max_requests > 128
-            || self.deadline_seconds == 0
-            || self.deadline_seconds > 3600
-            || (!self.checks.is_empty() && self.deadline_seconds <= 120)
+            || self
+                .deadline_seconds
+                .finite()
+                .is_some_and(|seconds| *seconds == 0 || *seconds > 3600)
             || self.affected_paths.is_empty()
             || self.affected_paths.len() > 256
             || self.checks.len() > 32
@@ -564,16 +606,13 @@ impl Profile {
             4 * 1024 * 1024,
         )?;
         self.provider.current(now()).map_err(|e| e.to_string())?;
-        let expected = Snapshot::from_endpoints(
-            &raw_catalog,
-            self.provider.observed_at,
-            self.provider.valid_until,
-            self.provider.compatibility.clone(),
-        )
-        .map_err(|e| e.to_string())?;
-        if expected != self.provider {
-            return Err("provider snapshot does not match captured catalog".into());
-        }
+        // Verify the exact captured interpretation before deriving the current
+        // owner's unbounded estimate policy. Missing tariffs remain unknown;
+        // malformed prices, changed capabilities and identities still fail.
+        self.provider = self
+            .provider
+            .for_execution(&raw_catalog, vcp_domain::Limit::Unbounded)
+            .map_err(|e| e.to_string())?;
         if let Some(routing) = &self.routing {
             routing.validate()?;
         }
@@ -627,7 +666,10 @@ impl Profile {
                 return Err("hook requires an explicit executable profile".into());
             }
         }
-        validate_check_durations(&self.checks, &processes, self.deadline_seconds)?;
+        validate_check_durations(&self.checks, &processes, 0)?;
+        // EE-01: legacy profile values remain readable evidence; this branch
+        // executes with elapsed-time enforcement explicitly suspended.
+        self.deadline_seconds = vcp_domain::Limit::Unbounded;
         crate::mcp::validate(&self.mcp, &names)?;
         crate::mcp::validate_http(&self.mcp_http, &self.mcp)?;
         Ok(PreparedProfile {
@@ -641,7 +683,7 @@ impl Profile {
 fn validate_check_durations(
     checks: &[vcp_tools::verification::Requirement],
     processes: &[vcp_tools::process::Profile],
-    deadline_seconds: u32,
+    _legacy_deadline_seconds: u32,
 ) -> Result<(), String> {
     for check in checks {
         check
@@ -658,12 +700,6 @@ fn validate_check_durations(
             return Err(format!(
                 "check {} duration exceeds profile {} ceiling",
                 check.manifest, check.profile
-            ));
-        }
-        if requested > u64::from(deadline_seconds) * 1000 {
-            return Err(format!(
-                "check {} duration exceeds configured task deadline",
-                check.manifest
             ));
         }
     }
@@ -692,7 +728,7 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
     let _base_pin = match root.hold(Some(Path::new("workspaces")), true) {
         Ok(pin) => pin,
         Err(vcp_repository::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(None)
+            return Ok(None);
         }
         Err(_) => return Err("workspace registry is unavailable or redirected".into()),
     };
@@ -723,7 +759,7 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
             Err(vcp_repository::Error::Io(error))
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                continue
+                continue;
             }
             Err(_) => return Err("workspace descriptor is unavailable or redirected".into()),
         };
@@ -744,7 +780,9 @@ pub fn workspace_directory(data: &Path, workspace: &Path) -> Result<Option<PathB
     }
     if found.is_none() {
         if let Some(id) = moved {
-            return Err(format!("workspace root moved; run vcp rebind {id} at this root to reconcile its retained history"));
+            return Err(format!(
+                "workspace root moved; run vcp rebind {id} at this root to reconcile its retained history"
+            ));
         }
     }
     Ok(found)

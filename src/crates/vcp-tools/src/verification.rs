@@ -68,6 +68,167 @@ pub struct Plan {
     pub rationale: String,
     pub not_run: Option<String>,
 }
+
+/// Owner-selected diagnostic checks. Missing or ambiguous project coverage
+/// deliberately falls back to the complete configured requirement set.
+pub fn focused_requirements(
+    requirements: &[Requirement],
+    affected_paths: &[String],
+    failed_checks: &[String],
+) -> Result<Vec<Requirement>> {
+    Ok(select_focused_requirements(requirements, affected_paths, failed_checks)?.requirements)
+}
+
+pub struct FocusedRequirements {
+    pub requirements: Vec<Requirement>,
+    pub full_fallback: bool,
+}
+
+pub fn select_focused_requirements(
+    requirements: &[Requirement],
+    affected_paths: &[String],
+    failed_checks: &[String],
+) -> Result<FocusedRequirements> {
+    let fallback = || FocusedRequirements {
+        requirements: requirements.to_vec(),
+        full_fallback: true,
+    };
+    if affected_paths.len() > 256 || failed_checks.len() > 32 {
+        return Err(Error::Invalid("focused verification selector ceiling"));
+    }
+    if affected_paths.is_empty() && failed_checks.is_empty() {
+        return Ok(fallback());
+    }
+    let mut selected = BTreeSet::new();
+    for path in affected_paths {
+        let normalized = vcp_repository::path::relative(Path::new(path))?;
+        if normalized != *path {
+            return Err(Error::Invalid("normalized affected path required"));
+        }
+        let matches: Vec<_> = requirements
+            .iter()
+            .enumerate()
+            .filter(|(_, requirement)| {
+                let directory = requirement
+                    .manifest
+                    .rsplit_once('/')
+                    .map_or("", |(directory, _)| directory);
+                directory.is_empty() || path.starts_with(&format!("{directory}/"))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if matches.len() != 1 {
+            return Ok(fallback());
+        }
+        selected.insert(matches[0]);
+    }
+    for specification in failed_checks {
+        let matches: Vec<_> = requirements
+            .iter()
+            .enumerate()
+            .filter(|(_, requirement)| format!("{}#test", requirement.manifest) == *specification)
+            .map(|(index, _)| index)
+            .collect();
+        if matches.len() != 1 {
+            return Ok(fallback());
+        }
+        selected.insert(matches[0]);
+    }
+    Ok(FocusedRequirements {
+        requirements: requirements
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| selected.contains(index))
+            .map(|(_, requirement)| requirement.clone())
+            .collect(),
+        full_fallback: false,
+    })
+}
+
+#[cfg(test)]
+mod focused_tests {
+    use super::*;
+    fn requirement(manifest: &str) -> Requirement {
+        Requirement {
+            manifest: manifest.into(),
+            runner: Runner::Node,
+            profile: "node".into(),
+            timeout_ms: None,
+            expected_tests: vec!["acceptance".into()],
+            rationale: "owner check".into(),
+        }
+    }
+    #[test]
+    fn exact_projects_and_failed_checks_form_a_stable_union() {
+        let requirements = vec![
+            requirement("api/package.json"),
+            requirement("ui/package.json"),
+        ];
+        let selected = focused_requirements(&requirements, &["ui/src/app.ts".into()], &[]).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].manifest, "ui/package.json");
+        assert!(
+            !select_focused_requirements(&requirements, &["ui/src/app.ts".into()], &[])
+                .unwrap()
+                .full_fallback
+        );
+        let selected = focused_requirements(
+            &requirements,
+            &["ui/src/app.ts".into()],
+            &["api/package.json#test".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            selected
+                .iter()
+                .map(|r| r.manifest.as_str())
+                .collect::<Vec<_>>(),
+            vec!["api/package.json", "ui/package.json"]
+        );
+        assert!(
+            !select_focused_requirements(
+                &requirements,
+                &["ui/src/app.ts".into()],
+                &["api/package.json#test".into()]
+            )
+            .unwrap()
+            .full_fallback,
+            "selecting every requirement explicitly is not a fallback"
+        );
+    }
+    #[test]
+    fn unknown_or_ambiguous_coverage_falls_back_and_invalid_paths_reject() {
+        let requirements = vec![
+            requirement("api/package.json"),
+            requirement("ui/package.json"),
+        ];
+        for (paths, failed) in [
+            (vec![], vec![]),
+            (vec!["shared/types.ts".into()], vec![]),
+            (vec![], vec!["unknown#test".into()]),
+        ] {
+            assert!(
+                select_focused_requirements(&requirements, &paths, &failed)
+                    .unwrap()
+                    .full_fallback
+            );
+            assert_eq!(
+                focused_requirements(&requirements, &paths, &failed)
+                    .unwrap()
+                    .len(),
+                2
+            );
+        }
+        let overlap = vec![requirement("package.json"), requirement("ui/package.json")];
+        assert_eq!(
+            focused_requirements(&overlap, &["ui/app.ts".into()], &[])
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(focused_requirements(&requirements, &["../private".into()], &[]).is_err());
+    }
+}
 /// Discover only qualified command forms. Shell syntax and pre/post hooks are
 /// not silently discarded. Unsupported configurations remain visible as not run.
 pub fn discover(observation: &Observation, requirements: &[Requirement]) -> Result<Vec<Plan>> {
@@ -337,8 +498,13 @@ pub fn evaluate(
                 }
                 if row == "Test Run Failed."
                     || row == "Test Run Aborted."
-                    || row.starts_with("Failed ")
-                    || row.starts_with("Skipped ")
+                    || ["Failed ", "Skipped "].iter().any(|prefix| {
+                        row.strip_prefix(*prefix)
+                            .and_then(|result| result.rsplit_once(" ["))
+                            .is_some_and(|(name, duration)| {
+                                !name.is_empty() && duration_pattern.is_match(duration)
+                            })
+                    })
                 {
                     return fail(".NET runner reports failed or skipped tests");
                 }
@@ -524,6 +690,65 @@ mod tests {
         ));
         assert!(matches!(
             evaluate(&plan, Some(0), output.as_bytes(), b"", Some("timeout")),
+            CheckOutcome::Failed { .. }
+        ));
+    }
+    #[test]
+    fn dotnet_application_warning_is_not_a_test_result() {
+        // Retained B T2 stdout dc8ad34b-7269-4ae0-a5d4-c2de2265de9b:
+        // all twelve results passed; HTTPS redirection logged this warning.
+        let names = [
+            "Inventory.Tests.UnitTest1.Test1",
+            "Inventory.Tests.DomainValidationTests.Supplier_requires_valid_email",
+            "Inventory.Tests.DomainValidationTests.StockMovement_requires_nonzero_quantity",
+            "Inventory.Tests.DomainValidationTests.Product_rejects_invalid_sku",
+            "Inventory.Tests.ApiContractTests.Sale_requires_negative_quantity",
+            "Inventory.Tests.ApiContractTests.Duplicate_supplier_name_returns_conflict",
+            "Inventory.Tests.ApiContractTests.Low_stock_report_is_ordered_by_sku",
+            "Inventory.Tests.ApiContractTests.Suppliers_are_ordered_by_name",
+            "Inventory.Tests.ApiContractTests.Product_creation_returns_location",
+            "Inventory.Tests.ApiContractTests.Unknown_supplier_returns_validation_error",
+            "Inventory.Tests.ApiContractTests.Invalid_product_page_returns_bad_request",
+            "Inventory.Tests.ApiContractTests.Products_support_search_and_paging",
+        ];
+        let mut plan = plan(Runner::Dotnet);
+        plan.expected_tests = names.iter().map(|name| (*name).into()).collect();
+        let mut output = String::from(
+            "warn: Microsoft.AspNetCore.HttpsPolicy.HttpsRedirectionMiddleware[3]\r\n      Failed to determine the https port for redirect.\r\n",
+        );
+        for name in names {
+            output.push_str(&format!("  Passed {name} [2 ms]\r\n"));
+        }
+        output.push_str("Test Run Successful.\r\nTotal tests: 12\r\n     Passed: 12\r\n");
+        assert_eq!(
+            evaluate(&plan, Some(0), output.as_bytes(), b"", None),
+            CheckOutcome::Passed
+        );
+        // A conflicting actual result still fails even with success counts.
+        for failure in [
+            "  Failed Inventory.Tests.AdditionalTest [< 1 ms]\r\n",
+            "  Skipped Inventory.Tests.AdditionalTest [1 ms]\r\n",
+            "Test Run Failed.\r\n",
+            "Test Run Aborted.\r\n",
+            "Failed: 1\r\n",
+            "Skipped: 1\r\n",
+        ] {
+            for (stdout, stderr) in [
+                (format!("{output}{failure}"), String::new()),
+                (output.clone(), failure.into()),
+            ] {
+                assert!(matches!(
+                    evaluate(&plan, Some(0), stdout.as_bytes(), stderr.as_bytes(), None),
+                    CheckOutcome::Failed { .. }
+                ));
+            }
+        }
+        let omitted = output.replace(
+            "  Passed Inventory.Tests.UnitTest1.Test1 [2 ms]\r\n",
+            "  Skipped Inventory.Tests.UnitTest1.Test1\r\n",
+        );
+        assert!(matches!(
+            evaluate(&plan, Some(0), omitted.as_bytes(), b"", None),
             CheckOutcome::Failed { .. }
         ));
     }

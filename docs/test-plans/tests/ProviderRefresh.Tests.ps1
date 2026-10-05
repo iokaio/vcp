@@ -38,6 +38,7 @@ function Invoke-NativeLogged {
     elseif (($ArgumentList[-3..-1] -join ' ') -eq 'setup credential status') { $data = @{ environment = 'VCP_REFRESH_KEY' } }
     elseif ($index -ge 0 -and $ArgumentList[$index + 1] -in 'provider-refresh', 'provider-metadata') {
         if ($Environment.VCP_DENY_PROVIDER_CREDENTIALS -ne '1') { throw 'Metadata refresh must deny provider credentials' }
+        if ($env:VCP_SCENARIO_CREDENTIAL_ENV -eq 'VCP_REFRESH_KEY' -and (-not $Environment.ContainsKey('VCP_REFRESH_KEY') -or $null -ne $Environment.VCP_REFRESH_KEY)) { throw 'Metadata refresh inherited its configured credential alias' }
         $command = $ArgumentList[$index + 1]
         $generation = $ArgumentList[-1]
         if (Test-Path -LiteralPath $generation) { throw 'Refresh must create a unique new directory' }
@@ -62,6 +63,7 @@ function Invoke-NativeLogged {
         else {
             $endpoint = switch ($env:VCP_REFRESH_CASE) {
                 'wrong-endpoint' { 'different/endpoint' }
+                'case-different-endpoint' { 'Fixture/endpoint' }
                 'adapter-wrong-endpoint' { 'different/endpoint' }
                 default { 'fixture/endpoint' }
             }
@@ -133,7 +135,7 @@ exit 0
     Check ($renewal.status -eq 'refreshed' -and $renewal.model_calls -eq 0) 'Metadata-only refresh evidence incomplete'
     $reuse = Invoke-Fixture 'reuse' -Case 'failure' -Root $success.RunRoot
     Check ($reuse.Code -eq 0 -and @($reuse.Commands | Where-Object label -like 'refresh-provider*').Count -eq 0) 'Fresh same-provider generation unnecessarily renewed'
-    foreach ($case in 'failure', 'unsupported', 'wrong-endpoint') {
+    foreach ($case in 'failure', 'unsupported', 'wrong-endpoint', 'case-different-endpoint') {
         $run = Invoke-Fixture $case -Case $case
         Check ($run.Code -ne 0) "Unexpected outcome for ${case}: $($run.Output)"
         Check (-not $run.Output.Contains('REFRESH_CHILD_STARTED')) "$case started an invalid scenario"
@@ -147,18 +149,24 @@ exit 0
     $dry = Invoke-Fixture 'dry' -Mode 'DryRun'
     Check ($dry.Code -eq 0 -and $dry.Output.Contains('REFRESH_CHILD_STARTED')) 'DryRun could not refresh metadata without inference'
     Check (@($dry.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'DryRun omitted logged metadata refresh'
-    Check (@($dry.Commands | Where-Object label -eq 'credential-status').Count -eq 0) 'DryRun metadata refresh accessed credentials'
+    Check (@($dry.Commands | Where-Object label -eq 'credential-status').Count -eq 1) 'DryRun metadata refresh omitted credential alias discovery'
     # A newer cached generation at another endpoint cannot replace this provider.
     $otherRoot = Join-Path $temporary 'other-endpoint-cache'
     New-Metadata (Join-Path $otherRoot 'launch-previous/setup/provider-other') 60 'other/endpoint'
     $other = Invoke-Fixture 'other-endpoint' -Root $otherRoot
     Check ($other.Code -eq 0 -and @($other.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Another cached endpoint replaced selected provider instead of refreshing exact identity'
     New-Metadata $connection 10
+    # EE-01 suspends task elapsed-time enforcement. Catalog freshness is a
+    # separate five-minute admission margin, not the legacy 30-minute task cap.
+    $fresh = Invoke-Fixture 'outside-admission-margin' -Case 'failure'
+    Check ($fresh.Code -eq 0 -and $fresh.Output.Contains('REFRESH_CHILD_STARTED') -and
+        @($fresh.Commands | Where-Object label -like 'refresh-provider*').Count -eq 0) 'Current metadata outside the admission margin was unnecessarily renewed'
+    New-Metadata $connection 2
     $near = Invoke-Fixture 'near-expiry'
-    Check ($near.Code -eq 0 -and @($near.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Metadata expiring within next task window was reused'
+    Check ($near.Code -eq 0 -and @($near.Commands | Where-Object label -eq 'refresh-provider-metadata').Count -eq 1) 'Metadata expiring within the five-minute admission margin was reused'
     # Expiration renewal can reveal that the installed CLI has a newer adapter.
     # Recovery constructs fresh metadata from the same retained identity only.
-    foreach ($minutes in -60, 10) {
+    foreach ($minutes in -60, 2) {
         New-Metadata $connection $minutes
         $retainedHashes = @{}; foreach ($path in $completion, (Join-Path $connection 'snapshot.json'), (Join-Path $connection 'endpoints.json')) { $retainedHashes[$path] = (Get-FileHash -LiteralPath $path).Hash }
         $adapter = Invoke-Fixture "adapter-success-$minutes" -Case 'adapter-success'

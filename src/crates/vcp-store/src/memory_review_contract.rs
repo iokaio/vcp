@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Immutable manual-review evidence, distinct from automatically governed proposals.
-use crate::{contract::*, Error, Result};
+use crate::{
+    contract::*,
+    historical_facts::{EventFacts, StateEventFacts},
+    CurrentStateView, Error, Result,
+};
 use std::collections::BTreeSet;
 use vcp_domain::{
     memory::*,
@@ -160,15 +164,23 @@ pub(crate) fn references(row: &Record) -> Result<BTreeSet<String>> {
     Ok(refs)
 }
 pub(crate) fn validate(state: &State, row: &Record) -> Result<()> {
+    validate_with_history(state.into(), row, &mut StateEventFacts::new(state))
+}
+
+pub(crate) fn validate_with_history(
+    state: CurrentStateView<'_>,
+    row: &Record,
+    history: &mut impl EventFacts,
+) -> Result<()> {
     match kind(row)? {
         Some(SUBMISSION) => {
             let v: Submission = row.decode()?;
             for origin in &v.candidate.origins {
-                if !state.events.iter().any(|e| {
-                    e.event.id == *origin
-                        && e.event.workspace == v.scope.workspace
-                        && e.event.session == v.scope.session
-                }) {
+                if !history.any(origin, &|event| {
+                    event.id == *origin
+                        && event.workspace == v.scope.workspace
+                        && event.session == v.scope.session
+                })? {
                     return Err(Error::Corruption("manual submission origin scope"));
                 }
             }
@@ -247,7 +259,7 @@ pub(crate) fn validate(state: &State, row: &Record) -> Result<()> {
     Ok(())
 }
 fn current(
-    state: &State,
+    state: CurrentStateView<'_>,
     scope: &Scope,
     revision: Revision,
     steering: SteeringRevision,
@@ -306,7 +318,11 @@ struct Marker {
     id: String,
     record_digest: String,
 }
-pub(crate) fn transaction(state: &State, tx: &Transaction) -> Result<()> {
+pub(crate) fn transaction<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    tx: &Transaction,
+) -> Result<()> {
+    let state = state.into();
     let records: Vec<_> = tx
         .mutations
         .iter()
@@ -574,11 +590,12 @@ pub(crate) fn transaction(state: &State, tx: &Transaction) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn redact(
-    state: &State,
+pub(crate) fn redact<'a>(
+    state: impl Into<CurrentStateView<'a>>,
     row: &Record,
     deletion: DeletionEpoch,
 ) -> Result<serde_json::Value> {
+    let state = state.into();
     match kind(row)? {
         Some(SUBMISSION) => Ok(serde_json::to_value(
             vcp_protocol::redaction::review_submission(&row.decode::<Submission>()?, deletion)

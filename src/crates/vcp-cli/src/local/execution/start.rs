@@ -30,9 +30,7 @@ impl Supervisor {
         let profile = &prepared.profile;
         if self.config.cap.currency.code() != "USD"
             || request.budget.currency != methods::Currency::Usd
-            || request.budget.cap_micros.as_str() != self.config.cap.micros.get().to_string()
             || request.budget.max_requests != profile.max_requests
-            || request.budget.deadline_seconds != profile.deadline_seconds
         {
             return Err(failure(Code::PolicyDenied, Some(operation)));
         }
@@ -72,7 +70,9 @@ impl Supervisor {
                 request.turn,
             )
             .await;
-        if launched.is_err() {
+        if let Err(error) = &launched {
+            #[cfg(feature = "qualification")]
+            eprintln!("qualification startup error: {error}");
             pause(&self.host, &scope);
         }
         Ok(receipt)
@@ -90,6 +90,8 @@ impl Supervisor {
         turn: methods::Id,
     ) -> Result<(), String> {
         let scope = ticket.scope().clone();
+        self.host
+            .configure_execution_constraints(vcp_domain::Limit::Unbounded)?;
         let credential = vcp_engine::capture::ProviderCredential::from_config(
             self.configuration.provider_credential.clone(),
         );
@@ -105,6 +107,7 @@ impl Supervisor {
             &self.config,
             prepared,
             http,
+            &credential,
             |name| self.configuration.credentials.get(name).cloned().ok_or(()),
         )?;
         let startup = connection.authorize_start_startup(&mut ticket, current)?;
@@ -129,7 +132,7 @@ impl Supervisor {
         crate::execution_profile::install_thread(&self.host, session.id, &profile)?;
         state.configured = true;
         let expires = self.execution_expiry(&profile)?;
-        state.deadline = Some(expires);
+        state.deadline = expires;
         let turn = TurnId::parse(turn.as_str()).map_err(|_| "invalid accepted turn")?;
         state.pump = Some(pump(
             self.host.clone(),

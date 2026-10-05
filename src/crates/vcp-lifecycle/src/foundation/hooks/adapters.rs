@@ -361,7 +361,7 @@ impl CanonicalHost {
     }
 }
 
-fn gate_decision(outcomes: &[HookOutcome]) -> Result<(), String> {
+pub(crate) fn gate_decision(outcomes: &[HookOutcome]) -> Result<(), String> {
     if let Some(blocked) = outcomes
         .iter()
         .find(|o| o.receipt.status == HookStatus::Blocked)

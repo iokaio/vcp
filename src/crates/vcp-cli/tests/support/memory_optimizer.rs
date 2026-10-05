@@ -7,7 +7,7 @@ async fn state(fixture: &Fixture) -> State {
     let store = Store::open(&fixture.config.canonical_root, fixture.config.backend, &[])
         .await
         .unwrap();
-    let result = store.state().clone();
+    let result = store.archive_state().await.unwrap();
     store.close().await.unwrap();
     result
 }

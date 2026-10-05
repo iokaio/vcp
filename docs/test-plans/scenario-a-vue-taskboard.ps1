@@ -41,6 +41,9 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 $ctx = Initialize-VcpScenario -Name 'a-vue-taskboard' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
+# Finalize initialized runs even when toolchain discovery or fixture setup fails.
+$exitCode = 1
+try {
 $ws = $ctx.Workspace
 $base = "http://127.0.0.1:$ApiPort"
 
@@ -183,7 +186,7 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  test: { environment: 'jsdom', include: ['src/**/*.spec.ts'] },
+  test: { environment: 'jsdom', include: ['src/**/*.spec.ts'], maxWorkers: 2 },
 })
 '@
 $seed['vite.config.ts'] = $seed['vite.config.ts'].Replace('127.0.0.1:41731', "127.0.0.1:$ApiPort")
@@ -366,6 +369,11 @@ $environmentBlock = @'
 ## Environment and rules (applies to every task in this project)
 
 - Work only inside the current workspace. Read README.md and the existing code first.
+- Work in small, complete steps: read the relevant component, implement its change, and
+  run a focused check before moving on. Avoid repeatedly rereading the whole application.
+  After a patch mismatch, reread the exact affected lines and use a smaller literal hunk.
+  Call `vcp_verify` early enough to use its outstanding issues as a completion checklist;
+  reserve requests for fixing failures and verifying again after the final edit.
 - The exception for test runtime data is a unique `mkdtemp` directory under `os.tmpdir()`.
   Pass its `tasks.json` path to `createApp`, await server shutdown, and remove the directory
   in cleanup. Do not create or recreate test data under `tests/`, `src/` or `server/`:
@@ -377,20 +385,36 @@ $environmentBlock = @'
     `["{{NPM_CLI}}", "run", "typecheck"]`, `["{{NPM_CLI}}", "test"]`, `["{{NPM_CLI}}", "run", "test:unit"]`,
     `["{{NPM_CLI}}", "run", "build"]`. Run single tools directly, for example
     `["--test", "tests/tasks.api.test.ts"]`.
+- VCP limits each process tree to 32 processes. Keep `maxWorkers: 2` in
+  `vitest.config.ts`; add that setting when reusing an older project. Vitest's default
+  worker count follows the host CPU count and can exceed this limit on large machines.
 - Dependencies are already installed. Add a dependency only when essential, with
   `["{{NPM_CLI}}", "install", "--save-exact", "<package>@<version>"]`, and explain why.
-- `src/api`, `src/composables`, and `src/components` already exist. The patch tool requires
-  existing parent directories. For another directory, use profile `node` with arguments
-  `["-e", "require('node:fs').mkdirSync('src/another-directory',{recursive:true})"]` first.
-  Do not pass `mkdir` as a Node script filename. An `*** Add File: path` patch contains
+- `src/api`, `src/composables`, and `src/components` already exist. For other new files,
+  `vcp_patch` creates missing parent directories as part of the authorized Add File operation.
+  An `*** Add File: path` patch contains
   `+`-prefixed file lines directly; `@@` belongs to update hunks, never Add File sections.
 - Server and test TypeScript must remain runnable by Node type stripping: erasable syntax
   only and explicit `.ts` extensions on relative imports.
+- Node's fetch response `json()` returns `unknown` under this project's server TypeScript
+  configuration. Narrow or explicitly type parsed JSON before accessing fields in API tests
+  and server code; keep strict typechecking and every behavioral assertion.
 - The `npm test` script must stay in the form `node --test <explicit test files>`; add every
   new API test file to it.
 - Protected files (never edit, rename or delete): `tests/health.test.ts`{{PROTECTED}}.
 - Before finishing, run typecheck, `npm test`, `npm run test:unit` and `npm run build` and
-  fix any failure. Finish with a short summary of changed files and command results.
+  fix any failure. After the final edit, call `vcp_verify` with `{"citations":[]}` to
+  run the configured checks. For unchanged analysis, cite relevant same-task artifact
+  UUIDs from the `evidence` field of successful read/list/search results; never use
+  the `effect` UUID or a file path as a citation. Resolve its
+  `verification.outstanding_issues` and rerun it after any correction. Direct process
+  test results alone do not register VCP completion evidence. The tool's `complete:false`
+  is expected: it records evidence, and the host decides task completion.
+  If it returns `executed:false` after an instruction-scope refresh, review the refreshed
+  context and call `vcp_verify` again. That response has not run verification; require a
+  result containing `verification` with an empty `outstanding_issues` list.
+  Finish only after current verification has no outstanding issues, with a short
+  summary of changed files and command results.
 '@
 $environmentBlock = $environmentBlock.Replace('{{NODE_VERSION}}', [string]$nodeVersion).Replace('{{NPM_CLI}}', $npmCli.Replace('\', '\\'))
 
@@ -433,6 +457,10 @@ signature; the file is `options.dataFile`, else environment variable `TASKBOARD_
 `data/tasks.json`. Create missing directories, write atomically (temporary file then rename) and
 reload existing data on start so tasks survive a restart. `server/index.ts` listens on `PORT`
 (default 41731) at 127.0.0.1.
+`createApp` must return the Express app synchronously because the protected health test calls
+`createApp(...).listen(...)`. Do not put `await` in this factory or change its return type to a
+Promise. Load persistence synchronously during construction, or await initialization inside
+async request handlers before reading or changing tasks.
 
 Tests: add `tests/tasks.api.test.ts` using `node:test`, starting the app on port 0. Each test uses a
 unique `mkdtemp` directory under `os.tmpdir()` for its data file, awaits server shutdown, then
@@ -481,7 +509,12 @@ Extend the API and the UI together:
 - UI: show labels as chips on cards (`data-testid="label-chip"`), allow entering labels in the
   create form, filter by clicking a chip, and a sort selector (`data-testid="sort-select"`).
 - Tests: add API tests named exactly `POST /api/tasks validates labels` and
-  `GET /api/tasks sorts by priority`, plus Vitest coverage for the sort selector.
+  `GET /api/tasks sorts by priority`. Add Vitest tests named exactly
+  `sort selector emits selected order` and `label chip requests filtering` that
+  mount the actual components, interact with the selector/chip and assert the
+  resulting emitted value. Add an API regression for loading a persisted task
+  without labels and filtering it without an error; use a unique OS temporary
+  data file. Verify these behaviors even when labels already appear implemented.
 - All earlier behavior and tests must keep passing.
 '@
 
@@ -564,6 +597,11 @@ function Test-UnitAndBuild([string]$Stage, [string[]]$TestIds, [int]$MinUnitTest
             Assert-That ($cases.Count -ge $MinUnitTests) "only $($cases.Count) test cases"
             Assert-That ($skipped.Count -eq 0) "$($skipped.Count) skipped tests"
             Assert-That (([int]$suite.failures + [int]$suite.errors) -eq 0) "$($suite.failures) failures, $($suite.errors) errors"
+            if ('sort-select' -in $TestIds) {
+                foreach ($requiredName in 'sort selector emits selected order', 'label chip requests filtering') {
+                    Assert-That (@($cases | Where-Object { ($_.name -split ' > ')[-1] -ceq $requiredName }).Count -eq 1) "missing or duplicate required Vitest test: $requiredName"
+                }
+            }
             $true
         })
     [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'build' -Description 'npm run build emits dist/client with a JS bundle' -Test {
@@ -677,8 +715,13 @@ function Test-ApiContract([string]$Stage) {
 
 function Test-LabelsAndSort([string]$Stage) {
     $server = $null
+    $legacyId = [guid]::NewGuid().ToString()
     try {
-        $server = Start-Api $Stage 'api-labels' (New-DataFile $Stage 'labels')
+        $dataFile = New-DataFile $Stage 'labels'
+        Write-JsonFile $dataFile @{ tasks = @(@{ id = $legacyId; title = 'Legacy task without labels'; description = '';
+                    status = 'todo'; priority = 'medium'; dueDate = $null;
+                    createdAt = '2026-01-01T00:00:00.000Z'; updatedAt = '2026-01-01T00:00:00.000Z' }) }
+        $server = Start-Api $Stage 'api-labels' $dataFile
         [void](Add-GateResult -Ctx $ctx -Stage $Stage -Id 'labels.start' -Description 'API starts' -Outcome 'pass' -Required $true)
     }
     catch {
@@ -686,6 +729,16 @@ function Test-LabelsAndSort([string]$Stage) {
         return
     }
     try {
+        [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'labels.legacy-default' -Description 'persisted tasks without labels load as [] and remain filterable' -Test {
+                $list = Invoke-Http GET "$base/api/tasks"
+                $item = Invoke-Http GET "$base/api/tasks/$legacyId"
+                $filtered = Invoke-Http GET "$base/api/tasks?label=ui"
+                Assert-That ($list.Status -eq 200 -and $item.Status -eq 200 -and $filtered.Status -eq 200) "legacy list/item/filter status: $($list.Status)/$($item.Status)/$($filtered.Status)"
+                $legacy = @($list.Json.items | Where-Object { $_.id -eq $legacyId })
+                Assert-That ($legacy.Count -eq 1 -and $legacy[0].labels -is [array] -and $legacy[0].labels.Count -eq 0) 'legacy list task must contain labels: []'
+                Assert-That ($item.Json.labels -is [array] -and $item.Json.labels.Count -eq 0) 'legacy item must contain labels: []'
+                Assert-That (@($filtered.Json.items).Count -eq 0) 'an unlabeled legacy task must not match label=ui'
+                $true })
         [void](Invoke-Gate -Ctx $ctx -Stage $Stage -Id 'labels.validation' -Description 'labels accepted when valid; uppercase, duplicate and >5 rejected' -Test {
                 $ok = Invoke-Http POST "$base/api/tasks" @{ title = 'Labelled'; labels = @('ui', 'backend') }
                 Assert-That ($ok.Status -eq 201 -and (@($ok.Json.labels) -join ',') -eq 'ui,backend') "valid: $($ok.Status) $($ok.Content)"
@@ -780,8 +833,6 @@ $namesT4 = $namesT3 + @('POST /api/tasks trims title whitespace', 'POST /api/tas
 $namesT5 = $namesT4 + @('GET /api/stats counts tasks by status')
 $uiIds = @('column-todo', 'column-doing', 'column-done', 'task-card', 'task-form', 'search-input')
 
-$exitCode = 1
-try {
     Invoke-CommonPreflight $ctx
 
     # --- B0: seed and baseline (no VCP) ---------------------------------
@@ -810,7 +861,12 @@ try {
     Test-Typecheck $stage
     Test-NodeTests $stage @('GET /api/health returns ok')
     Test-UnitAndBuild $stage @() 1
-    if ((Get-FailedGates $ctx $stage).Count) { throw 'Baseline scaffold does not build; fix the toolchain before spending on VCP turns.' }
+    if ((Get-FailedGates $ctx $stage).Count) {
+        if ($ctx.ReuseProject) {
+            throw "The retained TaskBoard project failed baseline checks: $ws. Inspect $($ctx.Logs)\B0-baseline and repair the existing source or tests before rerunning, or select a new empty project directory for a fresh scenario. Existing files were preserved; no paid VCP turns started."
+        }
+        throw "The fresh TaskBoard scaffold failed baseline checks. Inspect $($ctx.Logs)\B0-baseline for source, dependency or toolchain errors before spending on VCP turns."
+    }
     Initialize-GitCheckpoint $ctx
     $protected = @{ 'tests/health.test.ts' = (Get-Sha256 (Join-Path $ws 'tests\health.test.ts')) }
     if (Test-Path -LiteralPath (Join-Path $ws 'tests/regressions.test.ts')) {
@@ -820,20 +876,19 @@ try {
     # --- Profiles ---------------------------------------------------------
     $stage = 'P1-profiles'
     $nodeProcess = New-ProcessProfile -Name 'node' -Executable $node -Ctx $ctx -MaxTimeoutMs 900000
-    $affected = @('README.md', 'package.json', 'server', 'src', 'tests', 'vite.config.ts')
+    $affected = @('README.md', 'package.json', 'server', 'src', 'tests', 'vite.config.ts', 'vitest.config.ts')
     function New-NodeCheck([string[]]$Names, [int]$DeadlineSeconds) {
-        return [ordered]@{ manifest = 'package.json'; runner = 'node'; profile = 'node'; timeout_ms = [math]::Min(300000, [long]$DeadlineSeconds * 1000)
+        return [ordered]@{ manifest = 'package.json'; runner = 'node'; profile = 'node'; timeout_ms = 300000
             expected_tests = $Names; rationale = 'Owner acceptance: named TaskBoard API tests must pass under node --test.' }
     }
     $profiles = @{}
     foreach ($pair in @(@('T1', $namesT1), @('T2', $namesT1), @('T3', $namesT3), @('T4', $namesT4), @('T5', $namesT5))) {
         $profiles[$pair[0]] = New-ScenarioProfile -Ctx $ctx -Name "profile-$($pair[0])" -AffectedPaths $affected -Processes @($nodeProcess) -Checks @(New-NodeCheck $pair[1] $ctx.DeadlineSeconds)
     }
-    $profiles['T5-short'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-T5-short' -AffectedPaths $affected -Processes @($nodeProcess) `
-        -Checks @(New-NodeCheck $namesT5 $ctx.ShortDeadlineSeconds) -DeadlineSeconds $ctx.ShortDeadlineSeconds
     $profiles['review'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-review' -AffectedPaths $affected -MaximumAutonomy 'plan' -AutomaticEffects @('read')
     $profiles['guardrail'] = New-ScenarioProfile -Ctx $ctx -Name 'profile-guardrail' -AffectedPaths $affected -MaximumAutonomy 'workspace' -AutomaticEffects @('read', 'write') -Guardrail
-    foreach ($key in 'T1', 'T5-short', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    foreach ($key in 'T1', 'T5', 'review', 'guardrail') { [void](Test-ProfileCheck $ctx $stage $profiles[$key] $key) }
+    [void](Test-ProcessEnvironment $ctx $stage $nodeProcess 'node-typecheck' @($npmCli, 'run', 'typecheck'))
 
     # --- G0: zero-spend guardrail ----------------------------------------
     $guardPrompt = Join-Path $ctx.Logs 'G0-guardrail\prompt.md'
@@ -882,23 +937,29 @@ try {
     if ($t4) { Test-StageExit $ctx $t4 'T4-regressions'; & $gatesT4 'T4-regressions'; [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T4-regressions' -Config $profiles['T4'] -GateScript $gatesT4) }
     Save-Checkpoint $ctx 'T4: regression fixes'
 
-    # --- T5: production, under a short deadline, then resume --last --------
+    # --- T5: explicit acknowledged pause, then same-task resume -----------
+    $checkpointPrompt = New-ScenarioPauseCheckpoint $ctx
+    $protected[(Split-Path -Leaf $ctx.PauseCheckpoint.script)] = $ctx.PauseCheckpoint.sha256
+    $promptT5 = $checkpointPrompt + "`n`n" + $promptT5
+    Save-Checkpoint $ctx 'T5 setup: recorded native process pause checkpoint'
     $gatesT5 = { param($s) Test-Typecheck $s; Test-NodeTests $s $namesT5; Test-UnitAndBuild $s ($uiIds + @('stats-bar')) 5; Test-Production $s; Test-ProtectedUnchanged $s $protected }
-    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-production' -Title 'Production serving and stats (short deadline)' -Prompt $promptT5 `
-        -Config $profiles['T5-short'] -AcceptExit @(0, 3, 8)
+    $t5 = Invoke-VcpTask -Ctx $ctx -Stage 'T5-production' -Title 'Production serving and stats with explicit pause' -Prompt $promptT5 `
+        -Config $profiles['T5'] -PauseAfterProgress -AcceptExit @(8)
     if ($t5) {
         Test-StageExit $ctx $t5 'T5-production'
-        if ($t5.exit_code -eq 8) {
-            $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title 'resume --last after deadline pause' `
-                -Arguments @('resume', '--last') -Config $profiles['T5'] -AcceptExit @(0, 3)
-            if ($resumed) {
-                Test-StageExit $ctx $resumed 'T5-resume'
-                [void](Invoke-Gate -Ctx $ctx -Stage 'T5-resume' -Id 'resume-same-task' -Description 'resume --last continued the paused T5 task' -Test {
-                        Assert-That ($resumed.task -eq $t5.task) "resumed task '$($resumed.task)' != paused task '$($t5.task)'"; $true })
-            }
-        }
-        else {
-            [void](Skip-Gate $ctx 'T5-resume' 'resume-same-task' 'resume --last continued the paused T5 task' "T5 ended with exit $($t5.exit_code) before the short deadline; continuation not exercised")
+        [void](Invoke-Gate $ctx 'T5-production' 'explicit-pause' 'owner acknowledged pause and execution ended durably paused' {
+            Assert-That ($t5.explicit_pause.acknowledged -and $t5.exit_code -eq 8 -and
+                $t5.conditions -contains 'durably_paused' -and $ctx.PaidExecutionBlock.resume_same_task) 'Explicit pause lacks acknowledged, scoped terminal proof'
+            $true
+        })
+        if (@(Get-FailedGates $ctx 'T5-production').Count) { throw 'Explicit pause qualification failed; retained evidence requires diagnosis before continuation.' }
+        $resumed = Invoke-VcpContinuation -Ctx $ctx -Stage 'T5-resume' -Title 'resume --last after explicit pause' `
+            -Arguments @('resume', '--last') -Config $profiles['T5'] -AcceptExit @(0, 3)
+        if ($resumed) {
+            Test-StageExit $ctx $resumed 'T5-resume'
+            [void](Invoke-Gate $ctx 'T5-resume' 'resume-same-task' 'resume --last continued the explicitly paused task' {
+                Assert-That ($resumed.task -eq $t5.task) 'Resume selected a different task'; $true
+            })
         }
         & $gatesT5 'T5-production'
         [void](Invoke-RepairLoop -Ctx $ctx -Stage 'T5-production' -Config $profiles['T5'] -GateScript $gatesT5)

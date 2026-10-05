@@ -39,7 +39,7 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         let mut config = config(&temp.path().join("canonical"), &workspace, backend);
         // Each request costs exactly 100 micros. The two 125-micro allocations
         // fit the 250-micro ordinary root ceiling but do not reserve or spend it.
-        config.cap.micros = Micros::new(300);
+        config.cap.micros = Micros::new(300).into();
         config.protected = Micros::new(50);
         config.max_transport_retries = 0;
         let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
@@ -167,7 +167,7 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
                         write_paths: BTreeSet::new(),
                         untracked_inputs: BTreeSet::from(["file.txt".into()]),
                         allocation: Micros::new(125),
-                        deadline: Timestamp::new(u64::MAX),
+                        deadline: Timestamp::new(u64::MAX).into(),
                         required_checks: vec![],
                     },
                     &snapshotter,
@@ -225,8 +225,8 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get()
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get()
             ),
             (0, 0, 0)
         );
@@ -300,8 +300,8 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get(),
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get(),
                 ledger.protected.get()
             ),
             (100, 100, 0, 50)
@@ -383,8 +383,8 @@ async fn child_near_budget_race_admits_one_wire_request_and_preserves_shared_roo
         assert_eq!(
             (
                 ledger.settled.get(),
-                ledger.active.get(),
-                ledger.unresolved.get(),
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get(),
                 ledger.protected.get()
             ),
             (200, 0, 0, 50)

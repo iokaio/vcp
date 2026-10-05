@@ -212,7 +212,7 @@ struct Inner {
     runtime: tokio::runtime::Handle,
     deadline: Duration,
     #[cfg(windows)]
-    jobs: Mutex<HashMap<ThreadId, Vec<Arc<codex_utils_pty::JobObject>>>>,
+    jobs: Mutex<HashMap<ThreadId, Vec<process::OwnedJob>>>,
     #[cfg(windows)]
     process_observers: Mutex<HashMap<ThreadId, Vec<Arc<std::sync::atomic::AtomicBool>>>>,
     #[cfg(windows)]

@@ -112,7 +112,7 @@ impl PublicConnection {
                         let facts = HostFacts {
                             now: now(),
                             policy: vcp_engine::policy::optional(
-                                context.engine.store().state(),
+                                context.engine.store().current(),
                                 &context.config.workspace,
                             )
                             .map_err(|_| error(PublicError::Unavailable))?
@@ -121,14 +121,14 @@ impl PublicConnection {
                             may_execute: context.owner_alive,
                         };
                         let prepared = match context
-                            .engine
-                            .prepare_controlled_public(
+                            .runtime
+                            .block_on(context.engine.prepare_controlled_public(
                                 Call::SessionResume(request),
                                 &access,
                                 &facts,
                                 &connection,
                                 &token,
-                            )
+                            ))
                             .map_err(error)?
                         {
                             PublicAdmission::Replay(receipt) => {
@@ -142,7 +142,7 @@ impl PublicConnection {
                         let task: Task = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Task,
                                 prepared
@@ -302,7 +302,7 @@ impl Context {
         let facts = HostFacts {
             now: now(),
             policy: vcp_engine::policy::optional(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config.workspace,
             )?
             .map_or(PolicyRevision::ZERO, |policy| policy.revision),
@@ -310,13 +310,15 @@ impl Context {
             may_execute: self.owner_alive,
         };
         Ok(
-            match self.engine.prepare_controlled_public(
-                prepared.call().clone(),
-                access,
-                &facts,
-                connection,
-                token,
-            )? {
+            match self
+                .runtime
+                .block_on(self.engine.prepare_controlled_public(
+                    prepared.call().clone(),
+                    access,
+                    &facts,
+                    connection,
+                    token,
+                ))? {
                 PublicAdmission::Replay(receipt) => Some(receipt),
                 PublicAdmission::Ready(_) => {
                     if self.authority_pending {

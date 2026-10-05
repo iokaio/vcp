@@ -85,7 +85,7 @@ impl PublicConnection {
                     // as artifact/read. It does not publish or write a client path.
                     let disclosure = ExportDisclosure {
                         policy: vcp_engine::policy::optional(
-                            context.engine.store().state(),
+                            context.engine.store().current(),
                             &access.workspace,
                         )
                         .map_err(|_| error(Code::StoreUnavailable, &request))?
@@ -94,15 +94,15 @@ impl PublicConnection {
                         artifacts: access.read,
                     };
                     let admission = context
-                        .engine
-                        .prepare_public_export(
+                        .runtime
+                        .block_on(context.engine.prepare_public_export(
                             request.clone(),
                             &access,
                             &connection,
                             &token,
                             &disclosure,
                             &context.config.root_task,
-                        )
+                        ))
                         .map_err(|e| {
                             public_error(e, Some(request.mutation.command_id.clone()), false)
                         })?;
@@ -121,12 +121,12 @@ impl PublicConnection {
                         read: access.read,
                         tasks: Some(prepared.sources().tasks().clone()),
                     };
-                    let rendered = vcp_audit::session_export::render(
+                    let rendered = context.runtime.block_on(vcp_audit::session_export::render(
                         context.engine.store(),
                         &history,
                         prepared.sources(),
                         prepared.capture(),
-                    )
+                    ))
                     .map_err(|e| match e {
                         vcp_audit::Error::Access => error(Code::PolicyDenied, &request),
                         vcp_audit::Error::Limit => error(Code::ResourceLimit, &request),

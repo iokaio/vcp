@@ -27,6 +27,7 @@ try {
             $startedLog = Get-Content -LiteralPath $Ctx.CommandLog -Raw
             if ($startedLog -notmatch 'START id=' -or $startedLog -notmatch 'command: & ') { throw 'START/command must be durable before launch' }
             $script:CommandTestArgs = @($ArgumentList)
+            $script:CommandTestEnvironment = $Environment.Clone()
             if ($script:CommandTestMode -eq 'launch-failure') { throw [ComponentModel.Win32Exception]::new('fixture-sensitive-error-must-not-be-logged') }
             $output = @(
                 '{"type":"accepted","scope":{"task":"task-1","session":"session-1"}}',
@@ -99,6 +100,23 @@ try {
     [void](Invoke-Vcp -Ctx $ctx -Stage 'T5' -Label 'version' -Arguments @('--version') -NoGlobals)
     $record = (Get-Content -LiteralPath $auditPath | Select-Object -Last 1) | ConvertFrom-Json
     Check ($record.status -eq 'succeeded' -and $record.output_format -eq 'text' -and $null -eq $record.invalid_jsonl_lines) 'Plain-text --version was summarized as invalid JSONL'
+    $originalCredentialName = $env:VCP_SCENARIO_CREDENTIAL_ENV
+    try {
+        $env:VCP_SCENARIO_CREDENTIAL_ENV = 'VCP_TEST_CUSTOM_KEY'
+        foreach ($mode in 'dry-run', 'metadata-refresh', 'paid') {
+            $ctx.SkipPaidStages = $mode -eq 'dry-run'
+            [void](Invoke-Vcp -Ctx $ctx -Stage 'credentials' -Label $mode -Arguments @('--version') -NoGlobals -DenyProviderCredentials:($mode -eq 'metadata-refresh'))
+            $environment = & $module { $script:CommandTestEnvironment }
+            if ($mode -eq 'paid') {
+                Check (-not $environment.ContainsKey('VCP_TEST_CUSTOM_KEY') -and -not $environment.ContainsKey('VCP_DENY_PROVIDER_CREDENTIALS')) 'Paid command unexpectedly changed its credential environment'
+            }
+            else {
+                Check ($environment.ContainsKey('VCP_TEST_CUSTOM_KEY') -and $null -eq $environment['VCP_TEST_CUSTOM_KEY'] -and
+                    $null -eq $environment['OPENROUTER_API_KEY'] -and $environment['VCP_DENY_PROVIDER_CREDENTIALS'] -eq '1') 'Zero-inference command inherited a custom provider credential'
+            }
+        }
+    }
+    finally { $env:VCP_SCENARIO_CREDENTIAL_ENV = $originalCredentialName }
     Write-Host "Command log regressions passed ($checks checks)."
 }
 finally {

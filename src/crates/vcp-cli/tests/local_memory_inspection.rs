@@ -52,7 +52,7 @@ async fn seed(
 ) -> (ClaimId, ClaimVersionId, Option<ClaimId>, String) {
     let mut store = fixture.reopen().await;
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             fixture.config.root_task.as_str(),
@@ -61,8 +61,7 @@ async fn seed(
         .unwrap()
         .decode()
         .unwrap();
-    let origin = store
-        .state()
+    let origin = (&store.archive_state().await.unwrap())
         .events
         .iter()
         .find(|event| {
@@ -94,7 +93,7 @@ async fn seed(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -193,7 +192,7 @@ async fn seed(
     };
     if visibility != "retained" {
         let mut workspace: Workspace = store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 fixture.config.workspace.as_str(),
@@ -257,7 +256,7 @@ async fn seed(
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations,
                 events: vec![],
                 command: None,
@@ -265,7 +264,7 @@ async fn seed(
             .await
             .unwrap();
         if visibility == "purged" {
-            let mut state = store.state().clone();
+            let mut state = store.archive_state().await.unwrap();
             for row in state
                 .records
                 .values_mut()
@@ -309,7 +308,9 @@ async fn seed(
             store.rewrite_base(state, &[]).await.unwrap();
         }
     }
-    let digest = vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(store.state()).unwrap());
+    let digest = vcp_protocol::digest_bytes(
+        &vcp_protocol::canonical_bytes(&store.archive_state().await.unwrap()).unwrap(),
+    );
     store.close().await.unwrap();
     (
         proposal.claim,
@@ -389,7 +390,9 @@ async fn compiled_memory_inspection_preserves_governed_states_and_never_mutates_
             assert!(legacy.finish().await.0.success());
             let store = fixture.reopen().await;
             assert_eq!(
-                vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(store.state()).unwrap()),
+                vcp_protocol::digest_bytes(
+                    &vcp_protocol::canonical_bytes(&store.archive_state().await.unwrap()).unwrap()
+                ),
                 digest,
                 "observer inspection and refused legacy calls must not rewrite canonical memory"
             );

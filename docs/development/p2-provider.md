@@ -77,6 +77,15 @@ counts are subsets, and settlement uses observed cost rather than invented cost
 from a requested-model assumption. Missing cost retains liability. Raw terminal
 usage can reconcile even if cancellation wins the retained completion callback.
 
+Failed and incomplete terminals also retain a bounded diagnostic alongside their
+raw terminal hash. Only enumerated error codes (`server_error`,
+`rate_limit_exceeded`, `invalid_prompt`) and incomplete reasons
+(`max_output_tokens`, `content_filter`) enter normalized evidence and task status;
+unknown causes remain unknown. Provider messages and metadata remain raw evidence.
+The terminal cause survives into the paused task and uncertain accounting reason
+when cost is absent. A terminal with observed cost settles that observation and
+pauses with the cause, without granting tool execution or an automatic retry.
+
 One absolute deadline covers response headers and streamed body, so keepalives
 cannot extend it. The default is 120 seconds; callers may select a shorter bound.
 The explicit transport profile also has a 30-second idle limit. Timeouts after

@@ -25,7 +25,7 @@ pub(super) struct Locations<'a> {
 pub(super) async fn execute(
     cli: ValidatedCli,
     profile: settings::Profile,
-    cap: Option<Micros>,
+    _legacy_cap: Option<Micros>,
     entry: Option<WorkspaceEntry>,
     locations: Locations<'_>,
 ) -> Result<u8, String> {
@@ -43,23 +43,27 @@ pub(super) async fn execute(
         pipe,
         key,
     } = locations;
+    // Resume policy and task selection share the same validated store owner.
+    // Its exclusive owner is transferred to the canonical worker after setup.
+    let mut selection_store = None;
     let requested = match &cli.command {
         ValidatedCommand::Run(run) => settings::autonomy(run.autonomy),
         _ => {
             let entry = entry
                 .as_ref()
                 .ok_or("workspace has no session to resume or fork")?;
-            let store = Store::open(
+            let store = Store::open_with_artifact_limit(
                 &entry.config.canonical_root,
                 entry.config.backend,
                 std::slice::from_ref(&cli.workspace),
+                entry.config.artifact_limit.get(),
             )
             .await
             .map_err(|e| e.to_string())?;
-            let policy = vcp_engine::policy::optional(store.state(), &entry.config.workspace)
+            let policy = vcp_engine::policy::optional(store.current(), &entry.config.workspace)
                 .map_err(|e| e.to_string())?;
             let mode = policy.map_or(PolicyAutonomy::Ask, |p| p.mode);
-            store.close().await.map_err(|e| e.to_string())?;
+            selection_store = Some(store);
             mode
         }
     };
@@ -102,9 +106,9 @@ pub(super) async fn execute(
             },
             actor: ActorId::new(),
             root_task: TaskId::new(),
-            cap: Money {
+            cap: MonetaryLimit {
                 currency: prepared.profile.provider.price.currency.clone(),
-                micros: cap.unwrap_or(Micros::ZERO),
+                micros: vcp_domain::Limit::Unbounded,
             },
             protected: Micros::ZERO,
             price: prepared.profile.provider.price.clone(),
@@ -116,34 +120,30 @@ pub(super) async fn execute(
         }
     };
     if objective.is_none() {
-        let store = Store::open(
-            &config.canonical_root,
-            config.backend,
-            std::slice::from_ref(&cli.workspace),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+        let store = selection_store
+            .as_ref()
+            .ok_or("resume selection owner unavailable")?;
         let selected = match &cli.command {
             ValidatedCommand::Resume(resume) => match &resume.task {
-                Some(id) => task_from(store.state(), &config.workspace, id),
-                None => latest(store.state(), &config.workspace, None),
+                Some(id) => task_from(store.current(), &config.workspace, id),
+                None => latest(store, &config.workspace, None).await,
             },
             ValidatedCommand::Sessions(Sessions::Resume { session }) => {
-                latest(store.state(), &config.workspace, Some(session))
+                latest(store, &config.workspace, Some(session)).await
             }
             ValidatedCommand::Sessions(Sessions::Fork {
                 session,
                 through_turn,
             }) => {
                 let turn: Turn = store
-                    .state()
+                    .current()
                     .record(Collection::Turn, through_turn.as_str(), &config.workspace)
                     .and_then(|r| r.decode())
                     .map_err(|e| e.to_string())?;
                 if turn.scope.session != *session || turn.state != TurnState::Completed {
                     return Err("fork requires a completed turn in the selected session".into());
                 }
-                let source = task_from(store.state(), &config.workspace, &turn.scope.task)?;
+                let source = task_from(store.current(), &config.workspace, &turn.scope.task)?;
                 objective = Some(
                     source
                         .objectives
@@ -163,7 +163,8 @@ pub(super) async fn execute(
         let selected = selected?;
         if objective.is_none() {
             selected_revision = Some(selected.revision);
-            let summary = crate::continuation::candidates(store.state(), &config.workspace)?
+            let summary = crate::continuation::candidates_store(store, &config.workspace)
+                .await?
                 .into_iter()
                 .find(|row| row.task == selected.scope.task);
             if let Some(summary) = summary {
@@ -187,7 +188,7 @@ pub(super) async fn execute(
                 );
             }
             let ledger: Ledger = store
-                .state()
+                .current()
                 .record(
                     Collection::Ledger,
                     selected.scope.task.as_str(),
@@ -195,9 +196,9 @@ pub(super) async fn execute(
                 )
                 .and_then(|r| r.decode())
                 .map_err(|_| "task has no durable budget admission; start a new run")?;
-            config.cap.micros = ledger.cap;
+            let _original_cap = ledger.cap;
+            config.cap.micros = vcp_domain::Limit::Unbounded;
         }
-        store.close().await.map_err(|e| e.to_string())?;
         config.session = selected.scope.session;
         config.root_task = selected.scope.task;
     }
@@ -205,7 +206,7 @@ pub(super) async fn execute(
         config.root_task = TaskId::new();
         config.cap.micros = match &cli.command {
             ValidatedCommand::Run(run) => run.budget,
-            _ => cap.ok_or("fork requires persisted budget cap")?,
+            _ => vcp_domain::Limit::Unbounded,
         };
         crate::model_preferences::retain_task(directory, &config.root_task, &prepared.profile)?;
     }
@@ -255,7 +256,23 @@ pub(super) async fn execute(
         environment: digest_bytes(b"vcp-cli-explicit-user-profile/1"),
     };
     std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
-    let (mut host, mut owner) = CanonicalHost::open_selected(config.clone(), selected_revision)?;
+    let (mut host, mut owner) = match selected_revision {
+        Some(expected) => CanonicalHost::open_owned_selected(
+            config.clone(),
+            selection_store
+                .take()
+                .ok_or("resume selection owner unavailable")?,
+            expected,
+        )?,
+        None => {
+            // Fork creates a new session/task and retains its existing reopen
+            // semantics; only an unchanged resume selection uses the handoff.
+            if let Some(store) = selection_store.take() {
+                store.close().await.map_err(|error| error.to_string())?;
+            }
+            CanonicalHost::open(config.clone())?
+        }
+    };
     if let Some(boundary) = fork_boundary {
         let session = SessionId::new();
         host.command(
@@ -271,6 +288,12 @@ pub(super) async fn execute(
         config.session = session;
         (host, owner) = CanonicalHost::open(config.clone())?;
     }
+    // New invocations stream events from this invocation's start, not older
+    // session history. Concurrent authorized session events remain visible.
+    // Capture before exposing control or changing policy/admitting the new task.
+    // Resume retains its historical behavior until a separate acknowledgement
+    // contract exists; task revision is not a durable last-delivered cursor.
+    let mut after = invocation_event_start(&host, &config.session, objective.is_some())?;
     let _service = AbortOnDrop(control::serve(
         pipe,
         host.clone(),
@@ -310,7 +333,11 @@ pub(super) async fn execute(
             Revision::ZERO,
         )?
     } else {
-        let task = task_from(&host.snapshot()?, &config.workspace, &config.root_task)?;
+        let task = task_from(
+            host.current_state()?.as_ref(),
+            &config.workspace,
+            &config.root_task,
+        )?;
         crate::outcome::Outcome::read(&host, &task.scope)?.receipt
     };
     settings::save(
@@ -322,7 +349,7 @@ pub(super) async fn execute(
             identity: Some(registered_identity),
         },
     )?;
-    host.initialize_root_budget()?;
+    host.configure_execution_constraints(vcp_domain::Limit::Unbounded)?;
     let scope = Scope {
         workspace: config.workspace.clone(),
         session: config.session.clone(),
@@ -338,7 +365,6 @@ pub(super) async fn execute(
         owner,
     )
     .map_err(|e| e.to_string())?;
-    let mut after = SessionSeq::ZERO;
     let mut active_session = None;
     let automatic_backup = crate::backup::configuration_status(
         data,
@@ -381,14 +407,14 @@ pub(super) async fn execute(
                 let _ = host.history_retention(vcp_lifecycle::foundation::history_retention::Request::NoticeShown);
             }
         }
-        if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
+        if task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?.state.terminal(){return Ok::<(),String>(());}
         let profile = crate::execution_profile::install_host(
-            &host, &config, prepared, prepared_http,
+            &host, &config, prepared, prepared_http, &credential,
             |name| std::env::var(name).map_err(|_| ()),
         )?;
         active_session=Some(crate::session::Session::start(&host,retained,ThreadBinding{scope:scope.clone(),agent:AgentId::new(),role:RequestRole::Main}).await?);
         let session=active_session.as_ref().ok_or("retained session unavailable")?;
-        let current=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
+        let current=task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?;
         if !resuming && current.state!=TaskState::Pending {return Ok(());}
         if current.state==TaskState::Pending && !resuming {host.command(Command::Transition{next:TaskState::Running,reason:"explicit CLI run".into(),verification:None},Some(config.root_task.clone()),current.revision)?;}else{crate::terminal::prepare_resume(&host,session,&scope,current.revision)?;}
         crate::execution_profile::install_thread(&host, session.id, &profile)?;
@@ -408,7 +434,7 @@ pub(super) async fn execute(
             Some(AbortOnDrop(tokio::spawn(async move{while let Ok(Some(reply))=input.next(&host).await{if reply.result.is_err(){eprintln!("vcp: structured control rejected");}}})))
         }else{None};
         let mut tick=tokio::time::interval(Duration::from_millis(250));
-        let deadline=tokio::time::sleep(Duration::from_secs(u64::from(profile.deadline_seconds)));tokio::pin!(deadline);
+        let deadline=crate::execution::wait_deadline(crate::execution::deadline_after(profile.deadline_seconds));tokio::pin!(deadline);
         lifecycle_pending=Some(execution_owner.start_submission(None));
         let mut active_turn=None;
         loop{tokio::select!{
@@ -426,13 +452,13 @@ pub(super) async fn execute(
                         Ok(crate::execution::LifecycleResult::Submitted(turn))=>{active_turn=Some(turn);},
                         Ok(crate::execution::LifecycleResult::Completed(crate::execution::Completion::Rejected(error)))=>{
                             eprintln!("vcp: completion evidence rejected: {error}");
-                            let task=task_from(&host.snapshot()?,&config.workspace,&config.root_task)?;
+                            let task=task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?;
                             if task.state==TaskState::Running{host.command(Command::Transition{next:TaskState::Failed,reason:"retained turn ended without current completion evidence".into(),verification:None},Some(config.root_task.clone()),task.revision)?;}
                             break;
                         },
                         Ok(crate::execution::LifecycleResult::Completed(_))=>break,
                         Err(error)=>{
-                            if task_from(&host.snapshot()?,&config.workspace,&config.root_task)?.state==TaskState::Running{return Err(error);}
+                            if task_from(host.current_state()?.as_ref(),&config.workspace,&config.root_task)?.state==TaskState::Running{return Err(error);}
                             break;
                         },
                     }
@@ -454,13 +480,15 @@ pub(super) async fn execute(
         && crate::outcome::Outcome::read(&host, &scope)
             .is_ok_and(|outcome| outcome.conditions.required_input)
     {
-        eprintln!("vcp: approval required; one-shot execution will close this owner. Use an interactive terminal or local attachment for live hook approval and explicit resume; inspect durable evidence before recovery.");
+        eprintln!(
+            "vcp: approval required; one-shot execution will close this owner. Use an interactive terminal or local attachment for live hook approval and explicit resume; inspect durable evidence before recovery."
+        );
     }
     if let Some(mut job) = lifecycle_pending {
         drop(host.hold_execution());
         if host
-            .snapshot()
-            .and_then(|state| task_from(&state, &config.workspace, &config.root_task))
+            .current_state()
+            .and_then(|state| task_from(state.as_ref(), &config.workspace, &config.root_task))
             .is_ok_and(|task| task.state == TaskState::Running)
         {
             let _ = stop(&host, &config, TaskState::Paused);
@@ -470,8 +498,8 @@ pub(super) async fn execute(
     if execution.is_err() {
         eprintln!("vcp: execution stopped; inspect the durable task for recovery");
     }
-    if let Ok(state) = host.snapshot() {
-        if let Ok(task) = task_from(&state, &config.workspace, &config.root_task) {
+    if let Ok(state) = host.current_state() {
+        if let Ok(task) = task_from(state.as_ref(), &config.workspace, &config.root_task) {
             if let Some(message) = backup_triggers.observe(&host, task.state) {
                 eprintln!("vcp: {message}");
             }
@@ -488,6 +516,26 @@ pub(super) async fn execute(
     }
     Ok(result.unwrap_or(1))
 }
+
+fn invocation_event_start(
+    host: &CanonicalHost,
+    session: &SessionId,
+    new_task: bool,
+) -> Result<SessionSeq, String> {
+    if !new_task {
+        return Ok(SessionSeq::ZERO);
+    }
+    Ok(host
+        .current_state()?
+        .sequences
+        .get(session)
+        .copied()
+        .unwrap_or(SessionSeq::ZERO))
+}
+
+#[cfg(all(test, windows))]
+#[path = "execute_event_start_tests.rs"]
+mod event_start_tests;
 struct AbortOnDrop(tokio::task::JoinHandle<()>);
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
@@ -495,7 +543,11 @@ impl Drop for AbortOnDrop {
     }
 }
 fn stop(host: &CanonicalHost, config: &Config, next: TaskState) -> Result<(), String> {
-    let task = task_from(&host.snapshot()?, &config.workspace, &config.root_task)?;
+    let task = task_from(
+        host.current_state()?.as_ref(),
+        &config.workspace,
+        &config.root_task,
+    )?;
     host.stop(host.control_envelope(
         CommandId::new(),
         config.root_task.clone(),
@@ -515,7 +567,7 @@ fn setup_policy(
     mode: PolicyAutonomy,
 ) -> Result<(), String> {
     let workspace: Workspace = host
-        .snapshot()?
+        .current_state()?
         .record(
             Collection::Workspace,
             config.workspace.as_str(),
@@ -537,9 +589,9 @@ fn setup_policy(
     for profile in &prepared.profile.processes {
         roots.insert(RootId::parse(format!("exec-{}", profile.name)).map_err(|e| e.to_string())?);
     }
-    let state = host.snapshot()?;
-    let policy =
-        vcp_engine::policy::optional(&state, &config.workspace).map_err(|e| e.to_string())?;
+    let state = host.current_state()?;
+    let policy = vcp_engine::policy::optional(state.as_ref(), &config.workspace)
+        .map_err(|e| e.to_string())?;
     let previous = policy.map(|p| p.revision);
     let revision = previous
         .map_or(Ok(PolicyRevision::ZERO), PolicyRevision::next)

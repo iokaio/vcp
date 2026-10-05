@@ -11,11 +11,14 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     fs::{self, File, OpenOptions},
-    io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
 };
 use vcp_domain::{artifact::ArtifactDescriptor, *};
-use vcp_protocol::{canonical_bytes, digest_bytes};
+use vcp_protocol::{canonical_bytes, command::CommandReceipt, digest_bytes, event::EventEnvelope};
+#[path = "store_current_migration.rs"]
+pub(crate) mod current_migration;
 #[cfg(test)]
 #[path = "disk_exhaustion_tests.rs"]
 mod disk_exhaustion_tests;
@@ -32,30 +35,68 @@ struct Format {
 /// Owns a real OS lock for the entire canonical root, including accounting and
 /// activation. A PID/nonce is diagnostic only; stale file contents confer no lock.
 pub struct Store {
-    backend: Backend,
-    state: State,
-    base: State,
+    core: crate::backend::current_publication::open::Opened,
     prefixes: Vec<crate::replay_base::PrefixCommitment>,
     anchor: PathBuf,
-    anchors: Vec<File>,
-    commits: Vec<Commit>,
+    anchors: Vec<crate::canonical_lock::CanonicalLock>,
     root: PathBuf,
+    forbidden_roots: Vec<PathBuf>,
     kind: BackendKind,
-    spool: Spool,
-    artifact_limit: u64,
-    poisoned: bool,
     #[cfg(feature = "qualification")]
     observer: Option<crate::backend::Observer>,
-    _owner: File,
 }
 pub struct Snapshot {
-    state: State,
-    _pins: Vec<ArtifactPin>,
-    _root_pin: File,
+    inner: current_migration::snapshot::PinnedDurableSnapshot,
 }
 impl Snapshot {
-    pub fn state(&self) -> &State {
-        &self.state
+    pub fn current(&self) -> crate::CurrentStateView<'_> {
+        self.inner.current()
+    }
+    pub async fn archive_state(&self) -> Result<State> {
+        self.inner.archive_state().await
+    }
+    pub async fn logical_digest(&self) -> Result<String> {
+        self.inner.logical_digest().await
+    }
+    pub(crate) async fn capture_stream(
+        &mut self,
+        destination: &mut impl crate::history_index::Pages,
+        workspace: &WorkspaceId,
+        inputs: &crate::snapshot_inputs::Inputs,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<crate::portable_snapshot::complete::Archive> {
+        self.inner
+            .capture(destination, workspace, inputs, check)
+            .await
+    }
+    pub(crate) async fn verify_workspace(&self, workspace: &WorkspaceId) -> Result<()> {
+        self.inner.verify_workspace(workspace).await
+    }
+    pub async fn history_event_count(&self) -> Result<u64> {
+        self.inner.history_event_count().await
+    }
+    pub async fn history_event_at(&self, ordinal: u64) -> Result<Option<EventEnvelope>> {
+        self.inner.history_event_at(ordinal).await
+    }
+    pub async fn history_event(&self, id: &EventId) -> Result<Option<EventEnvelope>> {
+        self.inner.history_event(id).await
+    }
+    pub async fn command_receipt_by_id(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>> {
+        self.inner.command_receipt_by_id(workspace, command).await
+    }
+    pub async fn history_events(
+        &self,
+        after: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<EventEnvelope>> {
+        self.inner.history_events(after, limit).await
+    }
+    pub async fn close(self) -> Result<()> {
+        self.inner.close().await
     }
 }
 /// Unknown/legacy durable pins fail closed. A vault job may release source
@@ -71,11 +112,9 @@ impl Store {
     /// Callers requiring an immediate reopen must await this method: dropping a
     /// SQLite connection alone does not wait for its native worker to terminate.
     pub async fn close(self) -> Result<()> {
-        let Self {
-            backend, _owner, ..
-        } = self;
-        let result = backend.close().await;
-        drop(_owner);
+        let Self { core, anchors, .. } = self;
+        let result = core.close().await;
+        drop(anchors);
         result
     }
 
@@ -89,60 +128,79 @@ impl Store {
         forbidden_roots: &[PathBuf],
         artifact_limit: u64,
     ) -> Result<Self> {
+        Self::open_diagnosed_with_artifact_limit(root, kind, forbidden_roots, artifact_limit)
+            .await
+            .0
+    }
+
+    /// Return phase observations even when opening fails. Diagnostics contain
+    /// no paths, payloads or error text; the original error remains unchanged.
+    pub async fn open_with_diagnostics(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+    ) -> (Result<Self>, crate::StoreDiagnostics) {
+        Self::open_diagnosed_with_artifact_limit(
+            root,
+            kind,
+            forbidden_roots,
+            DEFAULT_ARTIFACT_LIMIT,
+        )
+        .await
+    }
+
+    async fn open_diagnosed_with_artifact_limit(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+        artifact_limit: u64,
+    ) -> (Result<Self>, crate::StoreDiagnostics) {
+        let open_started = Instant::now();
+        let mut diagnostics = crate::StoreDiagnostics::new(kind);
+        let mut result = Self::open_observed(
+            root,
+            kind,
+            forbidden_roots,
+            artifact_limit,
+            &mut diagnostics,
+        )
+        .await;
+        diagnostics.open.record(open_started, result.is_ok());
+        if let Ok(store) = &mut result {
+            store.core.diagnostics = diagnostics.clone();
+        }
+        (result, diagnostics)
+    }
+
+    async fn open_observed(
+        root: &Path,
+        kind: BackendKind,
+        forbidden_roots: &[PathBuf],
+        artifact_limit: u64,
+        diagnostics: &mut crate::StoreDiagnostics,
+    ) -> Result<Self> {
         if artifact_limit == 0 || artifact_limit > DEFAULT_ARTIFACT_LIMIT {
             return Err(Error::Limit("artifact capacity"));
         }
-        // Check the enclosing location before creating plaintext canonical bytes.
-        let absolute = std::path::absolute(root)?;
-        let ancestor = absolute
-            .ancestors()
-            .find(|p| p.exists())
-            .ok_or(Error::Access)?
-            .canonicalize()?;
-        for forbidden in forbidden_roots {
-            if ancestor.starts_with(forbidden.canonicalize()?) {
-                return Err(Error::Access);
-            }
-        }
-        fs::create_dir_all(root)?;
-        reject_link(root)?;
-        let root = root.canonicalize()?;
-        let owner_path = root.join("owner.lock");
-        if owner_path.exists() {
-            reject_link(&owner_path)?;
-        }
-        let mut owner = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&owner_path)?;
-        owner
-            .try_lock()
-            .map_err(|_| Error::Conflict("canonical root already has an owner"))?;
-        let diagnostic = canonical_bytes(
-            &serde_json::json!({"pid":std::process::id(),"nonce":ControllerId::new(),"format":1}),
-        )?;
-        owner.seek(SeekFrom::Start(0))?;
-        owner.write_all(&diagnostic)?;
-        owner.set_len(diagnostic.len() as u64)?;
-        owner.sync_all()?;
+        let owner = crate::canonical_lock::CanonicalLock::acquire(root, forbidden_roots)?;
+        let root = owner.root().to_path_buf();
         if let Some((destination, activation)) = crate::rewrite::resolve(&root)? {
             if activation.backend != kind {
                 return Err(Error::Incompatible);
             }
-            let mut active = Box::pin(Self::open_with_artifact_limit(
+            let mut active = Box::pin(Self::open_observed(
                 &destination,
                 kind,
                 forbidden_roots,
                 artifact_limit,
+                diagnostics,
             ))
             .await?;
             let activated_base = crate::replay_base::ReplayBase::load(&destination)?
                 .ok_or(Error::Corruption("activated replay base missing"))?;
             if activated_base.source_digest != activation.source_digest
                 || activated_base.state.watermark != activation.watermark
-                || active.prefix_digest(activation.watermark)? != activation.state_digest
+                || active.prefix_digest(activation.watermark).await? != activation.state_digest
             {
                 return Err(Error::Corruption("rewrite activation state"));
             }
@@ -156,17 +214,7 @@ impl Store {
             ));
         }
         let format_path = root.join("format.json");
-        if format_path.exists() {
-            let format: Format = serde_json::from_slice(&read_bounded(&format_path, 1024)?)?;
-            let expected_version = if root.join("replay-base.json").exists() {
-                2
-            } else {
-                FORMAT_VERSION
-            };
-            if format.version != expected_version || format.backend != kind {
-                return Err(Error::Incompatible);
-            }
-        } else {
+        if !format_path.exists() {
             // Never reinterpret an existing backend whose format marker is missing.
             for name in ["canonical.sqlite", "canonical.frames", "spool"] {
                 if root.join(name).exists() {
@@ -185,97 +233,141 @@ impl Store {
                 })?,
             )?;
         }
+        // Preserve the legacy admission fence before opening any native file;
+        // the current factory also rechecks these names under its held pins.
         for name in [
             "canonical.sqlite",
             "canonical.sqlite-wal",
             "canonical.sqlite-shm",
             "canonical.frames",
         ] {
-            let path = root.join(name);
-            match reject_link(&path) {
+            match reject_link(&root.join(name)) {
                 Ok(()) => {}
-                // SQLite's closing worker may remove WAL/SHM between metadata
-                // observations. Absence is normal; an observed link never is.
                 Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
             }
         }
-        let loaded_base = crate::replay_base::ReplayBase::load(&root)?;
-        let prefixes = loaded_base
-            .as_ref()
-            .map(|b| b.prefixes.clone())
-            .unwrap_or_default();
-        let base = loaded_base.map(|b| b.state).unwrap_or_default();
-        let (backend, state, commits) = Backend::open(&root, kind).await?;
-        let spool = Spool::open(&root.join("spool"), forbidden_roots, artifact_limit)?;
-        for record in state
-            .records
-            .values()
-            .filter(|record| record.collection == Collection::Artifact)
-        {
-            let descriptor: ArtifactDescriptor = record.decode()?;
-            if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
-                spool.verify(&descriptor)?;
+        let selection = crate::store_format::read(&owner, kind)?;
+        let forbidden_roots = owner.forbidden().to_vec();
+        let mut core = match selection {
+            crate::store_format::Selection::Current { origin } => {
+                crate::backend::current_publication::open::Opened::open_with_artifact_limit(
+                    owner,
+                    kind,
+                    &origin,
+                    artifact_limit,
+                    diagnostics,
+                )
+                .await?
             }
-        }
+            crate::store_format::Selection::Legacy(legacy) => {
+                let started = Instant::now();
+                let base = crate::replay_base::ReplayBase::load(&root);
+                diagnostics.replay_base.record(started, base.is_ok());
+                let base = base?;
+                let started = Instant::now();
+                let opened = Backend::open_observed(&root, kind, base.as_ref(), diagnostics).await;
+                diagnostics.backend_open.record(started, opened.is_ok());
+                let (backend, state, _) = opened?;
+                let core = crate::backend::current_publication::open::Opened::from_legacy(
+                    owner,
+                    backend,
+                    state,
+                    base,
+                    artifact_limit,
+                    diagnostics,
+                )
+                .await?;
+                if let Err(error) = crate::store_format::publish(&core, &legacy) {
+                    let _ = core.close().await;
+                    return Err(error);
+                }
+                core
+            }
+        };
+        let prefixes = std::mem::take(&mut core.prefixes);
+        core.diagnostics = diagnostics.clone();
         Ok(Self {
-            backend,
-            state,
-            base,
+            core,
             prefixes,
             anchor: root.clone(),
             anchors: Vec::new(),
-            commits,
             root,
+            forbidden_roots,
             kind,
-            spool,
-            artifact_limit,
-            poisoned: false,
             #[cfg(feature = "qualification")]
             observer: None,
-            _owner: owner,
         })
     }
     pub fn root(&self) -> &Path {
         &self.root
     }
+    /// Only a live admitted Store can derive a canonical child capability.
+    /// Recheck the held native owner identity rather than trusting a pathname.
+    pub(crate) fn validate_canonical_child(&self, child: &Path) -> Result<()> {
+        if self.core.poisoned {
+            return Err(Error::Access);
+        }
+        self.core.canonical_lock().verify_child(child)
+    }
+    pub(crate) fn validate_canonical_owner(&self) -> Result<()> {
+        if self.core.poisoned {
+            return Err(Error::Access);
+        }
+        self.core.canonical_lock().verify()
+    }
+    pub(crate) fn canonical_lock(&self) -> &crate::canonical_lock::CanonicalLock {
+        &self.core.canonical_lock()
+    }
     pub fn kind(&self) -> BackendKind {
         self.kind
     }
+    pub fn artifact_limit(&self) -> u64 {
+        self.core.artifact_limit
+    }
     pub fn spool(&self) -> &Spool {
-        &self.spool
+        &self.core.spool
     }
     pub fn healthy(&self) -> bool {
-        !self.poisoned
+        !self.core.poisoned
     }
-    pub fn state(&self) -> &State {
-        &self.state
+    /// Explicit complete archival DTO for bounded legacy export/rewrite APIs.
+    pub async fn archive_state(&self) -> Result<State> {
+        self.core.archive_state().await
     }
-    /// Verify retained canonical history at an exact cut. This read-only digest
-    /// cannot authorize an import or restore history before the retained base.
-    pub fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
-        if watermark > self.state.watermark {
-            return Err(Error::Corruption("snapshot beyond canonical watermark"));
-        }
-        if watermark < self.base.watermark {
-            return Err(Error::Unavailable("history precedes retained replay base"));
-        }
-        let mut state = self.base.clone();
-        for commit in self
-            .commits
-            .iter()
-            .take_while(|c| c.receipt.watermark <= watermark)
-        {
-            state.replay(commit)?;
-        }
-        if state.watermark != watermark {
-            return Err(Error::Corruption("snapshot prefix missing"));
-        }
-        Ok(digest_bytes(&canonical_bytes(&state)?))
+    /// Exact complete legacy encoding size, with no archival DTO or byte buffer.
+    /// Stops at the caller's byte budget; it does not grant archival authority.
+    pub async fn archive_size(&self, limit: usize) -> Result<usize> {
+        self.archive_size_with_check(limit, &|| Ok(())).await
+    }
+    pub async fn archive_size_with_check(
+        &self,
+        limit: usize,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<usize> {
+        self.core.archive_size(limit, check).await
+    }
+    /// Process-local diagnostics without reading payloads or changing durable state.
+    pub fn diagnostics(&self) -> &crate::StoreDiagnostics {
+        &self.core.diagnostics
+    }
+    /// Share a current-record snapshot without cloning historical payloads.
+    /// Successful commits invalidate this cache; existing readers retain their
+    /// immutable watermark. Admission must still check the canonical owner.
+    pub fn current_state(&self) -> Arc<crate::CurrentState> {
+        self.core.current_state()
+    }
+    /// Full native-byte replay at an exact retained cut.
+    pub async fn prefix_digest(&self, watermark: Watermark) -> Result<String> {
+        self.core.prefix_digest(watermark).await
     }
     /// Outer migration anchors retain opaque boundary commitments across an
     /// explicitly validated content rewrite. This never reconstructs old state.
-    pub(crate) fn remember_prefix(&mut self, watermark: Watermark, digest: &str) -> Result<()> {
+    pub(crate) async fn remember_prefix(
+        &mut self,
+        watermark: Watermark,
+        digest: &str,
+    ) -> Result<()> {
         let prefix = crate::replay_base::PrefixCommitment {
             watermark,
             digest: digest.to_owned(),
@@ -283,7 +375,7 @@ impl Store {
         if self.prefixes.contains(&prefix) {
             return Ok(());
         }
-        if self.prefix_digest(watermark)? != digest {
+        if self.prefix_digest(watermark).await? != digest {
             return Err(Error::Corruption("migration prefix differs"));
         }
         if self.prefixes.len() >= 4096 {
@@ -293,55 +385,17 @@ impl Store {
         Ok(())
     }
     pub async fn configuration(&mut self) -> Result<serde_json::Value> {
-        self.backend.configuration().await
+        self.core.backend.configuration().await
     }
     pub fn snapshot(&self) -> Result<Snapshot> {
-        self.snapshot_at(self.state.watermark)
-    }
-    /// A durable job may reconstruct an exact retained cut after restarting.
-    /// A cut predating a rewrite base is explicitly unavailable, never replaced
-    /// with a newer state under the old job identity.
-    pub(crate) fn snapshot_at(&self, watermark: Watermark) -> Result<Snapshot> {
-        if self.poisoned {
-            return Err(Error::Unavailable("reopen after indeterminate commit"));
-        }
-        if watermark < self.base.watermark || watermark > self.state.watermark {
-            return Err(Error::Unavailable(
-                "snapshot cut outside retained replay history",
-            ));
-        }
-        let state = if watermark == self.state.watermark {
-            self.state.clone()
-        } else {
-            let mut state = self.base.clone();
-            for commit in self
-                .commits
-                .iter()
-                .take_while(|c| c.receipt.watermark <= watermark)
-            {
-                state.replay(commit)?;
-            }
-            state
-        };
-        if state.watermark != watermark {
-            return Err(Error::Corruption("snapshot cut missing"));
-        }
-        let root_pin = snapshot_pin::acquire(&self.root)?;
-        let mut pins = Vec::new();
-        for record in state
-            .records
-            .values()
-            .filter(|r| r.collection == Collection::Artifact)
-        {
-            let descriptor: ArtifactDescriptor = record.decode()?;
-            if descriptor.state != vcp_domain::artifact::CaptureState::Purged {
-                pins.push(self.spool.pin(&descriptor.spec.id)?);
-            }
-        }
         Ok(Snapshot {
-            state,
-            _pins: pins,
-            _root_pin: root_pin,
+            inner: self.core.snapshot()?,
+        })
+    }
+    pub(crate) async fn snapshot_at(&self, watermark: Watermark) -> Result<Snapshot> {
+        Ok(Snapshot {
+            inner: current_migration::snapshot::PinnedDurableSnapshot::at(&self.core, watermark)
+                .await?,
         })
     }
     /// Excludes every snapshot of this physical root, including snapshots held
@@ -349,16 +403,13 @@ impl Store {
     /// None means a live snapshot/cleanup holds the lock; other I/O errors remain
     /// errors. New snapshots cannot start until the returned guard is dropped.
     pub fn try_snapshot_cleanup_guard(&self) -> Result<Option<File>> {
-        if self.poisoned {
+        if self.core.poisoned {
             return Err(Error::Unavailable("reopen after indeterminate commit"));
         }
         snapshot_pin::cleanup(&self.root)
     }
     pub fn checkpoint(&mut self) -> Result<()> {
-        if self.poisoned {
-            return Err(Error::Unavailable("reopen after indeterminate commit"));
-        }
-        self.backend.checkpoint(&self.state)
+        self.core.checkpoint()
     }
     #[cfg(feature = "qualification")]
     pub fn observe(&mut self, observer: crate::backend::Observer) {
@@ -367,25 +418,45 @@ impl Store {
     /// Deletes only objects absent from every canonical reference and durable pin.
     /// Historical descriptors stay canonical until an explicit retention migration;
     /// this method intentionally cannot turn retention into silent data loss.
-    pub fn collect_orphan(&self, id: &ArtifactId) -> Result<bool> {
-        if self.poisoned {
+    pub async fn collect_orphan(&self, id: &ArtifactId) -> Result<bool> {
+        if self.core.poisoned {
             return Err(Error::Unavailable("canonical state uncertain"));
         }
         let reference = key(Collection::Artifact, id.as_str());
-        for record in self.state.records.values() {
+        for record in self.current().records.values() {
             if record.key() == reference || record.required_references()?.contains(&reference) {
                 return Ok(false);
             }
         }
-        if self
-            .state
-            .events
-            .iter()
-            .any(|event| event.event.artifacts.contains(id))
+        for workspace in self
+            .current()
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Workspace)
         {
-            return Ok(false);
+            if !self
+                .history_artifact_events(&workspace.workspace, id, None, 1)
+                .await?
+                .is_empty()
+            {
+                return Ok(false);
+            }
         }
-        self.spool.collect_unreferenced(id)
+        self.core.spool.collect_unreferenced(id)
+    }
+    /// Replay one bounded original body through the existing complete semantic
+    /// preparation and native publication path. No import authority is granted.
+    pub(crate) async fn transact_original(&mut self, payload: &[u8]) -> Result<Receipt> {
+        #[cfg(feature = "qualification")]
+        let observer = self.observer.clone();
+        let observe = move |barrier| {
+            #[cfg(feature = "qualification")]
+            if let Some(observer) = &observer {
+                observer(barrier);
+            }
+            let _ = barrier;
+        };
+        self.core.transact_original(payload, &observe).await
     }
     /// Logical conversion replays immutable transactions in a newly created root.
     /// The source owner remains held and source bytes are never edited by conversion.
@@ -396,7 +467,7 @@ impl Store {
         kind: BackendKind,
         forbidden: &[PathBuf],
     ) -> Result<Store> {
-        if self.poisoned {
+        if self.core.poisoned {
             return Err(Error::Unavailable("canonical state uncertain"));
         }
         if destination.exists() {
@@ -404,13 +475,16 @@ impl Store {
         }
         validate_private_location(destination, forbidden)?;
         let snapshot = self.snapshot()?;
-        if self.base.watermark != Watermark::ZERO {
+        let base = self.core.verified_base().await?;
+        if let Some(base) = &base {
             fs::create_dir_all(destination)?;
-            crate::replay_base::ReplayBase::write(
-                destination,
-                &self.base,
-                &self.base,
-                &self.prefixes,
+            // The admitted legacy base is canonical. Preserve its original
+            // source commitment and exact encoding, not a newly invented base.
+            let bytes = canonical_bytes(base)?;
+            immutable_file(&destination.join("replay-base.json"), &bytes)?;
+            immutable_file(
+                &destination.join("replay-base.seal"),
+                digest_bytes(&bytes).as_bytes(),
             )?;
             immutable_file(
                 &destination.join("format.json"),
@@ -419,14 +493,14 @@ impl Store {
                     backend: kind,
                 })?,
             )?;
-            self.copy_retained_artifacts(destination, &self.base)?;
+            self.copy_retained_artifacts(destination, &base.state)?;
         }
         let mut target =
-            Store::open_with_artifact_limit(destination, kind, forbidden, self.artifact_limit)
+            Store::open_with_artifact_limit(destination, kind, forbidden, self.core.artifact_limit)
                 .await?;
         let mut copied = BTreeSet::new();
         for record in snapshot
-            .state
+            .current()
             .records
             .values()
             .filter(|r| r.collection == Collection::Artifact)
@@ -438,18 +512,18 @@ impl Store {
             if !copied.insert(descriptor.spec.id.clone()) {
                 continue;
             }
-            let current = self.spool.inspect(&descriptor.spec.id)?;
+            let current = self.core.spool.inspect(&descriptor.spec.id)?;
             // The original metadata is preserved by copying immutable files. This
             // includes interrupted captures and exact partial extents, not a new
             // successful capture invented by a conversion writer.
-            let source = self.spool.root().join(current.spec.id.as_str());
+            let source = self.core.spool.root().join(current.spec.id.as_str());
             let capture = OpenOptions::new()
                 .read(true)
                 .open(source.join("owner.lock"))?;
             capture
                 .try_lock_shared()
                 .map_err(|_| Error::Conflict("quiesce artifact writers before conversion"))?;
-            let destination = target.spool.root().join(current.spec.id.as_str());
+            let destination = target.core.spool.root().join(current.spec.id.as_str());
             if destination.exists() {
                 continue;
             }
@@ -467,19 +541,25 @@ impl Store {
             for name in ["owner.lock", "snapshot.lock"] {
                 File::create(destination.join(name))?.sync_all()?;
             }
-            target.spool.verify(&descriptor)?;
+            target.core.spool.verify(&descriptor)?;
         }
-        for commit in &self.commits {
-            let receipt = target.transact(commit.transaction.clone()).await?;
-            if receipt != commit.receipt {
+        let mut history = self.core.history().await?;
+        while let Some(original) = history.next_original().await? {
+            let receipt = target.transact_original(&original.bytes).await?;
+            if receipt != original.commit.receipt {
                 return Err(Error::Corruption("conversion changed receipt"));
             }
         }
-        if target.state != snapshot.state {
+        history.close().await?;
+        let source_watermark = snapshot.current().watermark;
+        let source_digest = self.prefix_digest(source_watermark).await?;
+        if target.current().watermark != source_watermark
+            || target.prefix_digest(source_watermark).await? != source_digest
+        {
             return Err(Error::Corruption("conversion changed logical view"));
         }
         target.checkpoint()?;
-        let evidence = serde_json::json!({"version":1,"watermark":self.state.watermark,"logical_sha256":digest_bytes(&canonical_bytes(&self.state)?),"source_backend":self.kind,"target_backend":kind});
+        let evidence = serde_json::json!({"version":1,"watermark":source_watermark,"logical_sha256":source_digest,"source_backend":self.kind,"target_backend":kind});
         immutable_file(
             &target.root.join("conversion.json"),
             &canonical_bytes(&evidence)?,
@@ -498,7 +578,7 @@ impl Store {
             if descriptor.state == vcp_domain::artifact::CaptureState::Purged {
                 continue;
             }
-            let source = self.spool.root().join(descriptor.spec.id.as_str());
+            let source = self.core.spool.root().join(descriptor.spec.id.as_str());
             let capture = OpenOptions::new()
                 .read(true)
                 .open(source.join("owner.lock"))?;
@@ -524,21 +604,20 @@ impl Store {
         Ok(())
     }
     /// Exact replay-base transform; canonical IDs and commitment digests remain.
-    pub fn retention_candidate(
+    pub async fn retention_candidate(
         &self,
         records: &BTreeSet<String>,
         events: &BTreeSet<EventId>,
         tasks: &BTreeSet<TaskId>,
     ) -> Result<State> {
-        let mut next = self.state.clone();
+        let source = self.archive_state().await?;
+        let mut next = source.clone();
         for key in records {
-            let row = self
-                .state
+            let row = source
                 .records
                 .get(key)
                 .ok_or(Error::Conflict("retention record missing"))?;
-            let workspace: vcp_domain::workspace::Workspace = self
-                .state
+            let workspace: vcp_domain::workspace::Workspace = source
                 .record(
                     Collection::Workspace,
                     row.workspace.as_str(),
@@ -547,13 +626,12 @@ impl Store {
                 .decode()?;
             next.records.insert(
                 key.clone(),
-                crate::redaction_contract::redact_record(&self.state, row, workspace.deletion)?,
+                crate::redaction_contract::redact_record(&source, row, workspace.deletion)?,
             );
         }
         for event in &mut next.events {
             if events.contains(&event.event.id) {
-                let workspace: vcp_domain::workspace::Workspace = self
-                    .state
+                let workspace: vcp_domain::workspace::Workspace = source
                     .record(
                         Collection::Workspace,
                         event.event.workspace.as_str(),
@@ -569,8 +647,7 @@ impl Store {
                 &receipt.result
             {
                 if tasks.contains(&task.scope.task) {
-                    let workspace: vcp_domain::workspace::Workspace = self
-                        .state
+                    let workspace: vcp_domain::workspace::Workspace = source
                         .record(
                             Collection::Workspace,
                             receipt.workspace.as_str(),
@@ -588,7 +665,7 @@ impl Store {
                 }
             }
         }
-        crate::redaction_contract::validate_rewrite(&self.state, &next)?;
+        crate::redaction_contract::validate_rewrite(&source, &next)?;
         Ok(next)
     }
     pub fn retention_protection(
@@ -596,15 +673,15 @@ impl Store {
         workspace: &WorkspaceId,
         task: Option<&TaskId>,
     ) -> Result<()> {
-        crate::redaction_contract::unprotected(&self.state, workspace, task)
+        crate::redaction_contract::unprotected(self.current(), workspace, task)
     }
     /// Remove only sealed-chain retired payloads under live reader/writer leases.
     /// The active canonical root and routing/lock records are never deleted.
     pub fn cleanup_rewrites(&self) -> Result<crate::rewrite::Cleanup> {
-        if self.poisoned {
+        if self.core.poisoned {
             return Err(Error::Unavailable("reopen before cleanup"));
         }
-        if self.state.records.values().any(snapshot_pin_active) {
+        if self.current().records.values().any(snapshot_pin_active) {
             let latest = crate::rewrite::receipts(&self.anchor)?.pop();
             return Ok(crate::rewrite::Cleanup {
                 pinned: latest.map(|r| r.pending_roots).unwrap_or_default(),
@@ -629,10 +706,11 @@ impl Store {
         baseline: State,
         forbidden: &[PathBuf],
     ) -> Result<crate::rewrite::RewriteReceipt> {
-        if self.poisoned {
+        if self.core.poisoned {
             return Err(Error::Unavailable("reopen before rewrite"));
         }
         let _snapshot = self.snapshot()?;
+        let source = self.archive_state().await?;
         let history = crate::rewrite::receipts(&self.anchor)?;
         if history.len() >= crate::rewrite::MAX_REWRITES {
             return Err(Error::Limit("rewrite activation count"));
@@ -647,15 +725,10 @@ impl Store {
         immutable_file(
             &destination.join("private-rewrite.json"),
             &canonical_bytes(
-                &serde_json::json!({"version":1,"root":id,"source":digest_bytes(&canonical_bytes(&self.state)?)}),
+                &serde_json::json!({"version":1,"root":id,"source":crate::legacy_state_stream::digest(&source)?}),
             )?,
         )?;
-        crate::replay_base::ReplayBase::write(
-            &destination,
-            &self.state,
-            &baseline,
-            &self.prefixes,
-        )?;
+        crate::replay_base::ReplayBase::write(&destination, &source, &baseline, &self.prefixes)?;
         immutable_file(
             &destination.join("format.json"),
             &canonical_bytes(&Format {
@@ -668,7 +741,7 @@ impl Store {
             &destination,
             self.kind,
             forbidden,
-            self.artifact_limit,
+            self.core.artifact_limit,
         )
         .await?;
         candidate.close().await?;
@@ -680,10 +753,10 @@ impl Store {
             &destination,
             self.kind,
             forbidden,
-            self.artifact_limit,
+            self.core.artifact_limit,
         )
         .await?;
-        if replacement.state != baseline {
+        if replacement.archive_state().await? != baseline {
             return Err(Error::Corruption("rewrite reopened state differs"));
         }
         let mut pending = history
@@ -705,8 +778,8 @@ impl Store {
             root: id,
             backend: self.kind,
             watermark: baseline.watermark,
-            source_digest: digest_bytes(&canonical_bytes(&self.state)?),
-            state_digest: digest_bytes(&canonical_bytes(&baseline)?),
+            source_digest: crate::legacy_state_stream::digest(&source)?,
+            state_digest: crate::legacy_state_stream::digest(&baseline)?,
             previous: history
                 .last()
                 .map(canonical_bytes)
@@ -719,7 +792,7 @@ impl Store {
         if let Some(observer) = &self.observer {
             observer(Barrier::BeforeActivation);
         }
-        self.poisoned = true;
+        self.core.poisoned = true;
         immutable_file(
             &self
                 .anchor
@@ -737,60 +810,91 @@ impl Store {
         }
         let previous = std::mem::replace(self, replacement);
         let Store {
-            backend,
-            _owner,
-            mut anchors,
-            ..
+            core, mut anchors, ..
         } = previous;
-        // Retain ownership across activation; opening the descriptor's original
-        // root cannot acquire a second writer while the new root is active.
         self.anchors.append(&mut anchors);
-        self.anchors.push(_owner);
-        backend.close().await?;
+        let (lock, closed) = core.close_retaining_lock().await;
+        self.anchors.push(lock);
+        closed?;
         Ok(receipt)
     }
 }
 impl CanonicalStore for Store {
-    fn state(&self) -> &State {
-        &self.state
+    fn current(&self) -> crate::CurrentStateView<'_> {
+        self.core.current()
+    }
+    async fn history_event_count(&self) -> Result<u64> {
+        self.core.history_event_count().await
+    }
+    async fn history_events(&self, after: Option<u64>, limit: usize) -> Result<Vec<EventEnvelope>> {
+        self.core.history_events(after, limit).await
+    }
+    async fn history_commands(
+        &self,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, CommandReceipt)>> {
+        self.core.history_commands(after, limit).await
+    }
+    async fn history_artifact_events(
+        &self,
+        workspace: &WorkspaceId,
+        artifact: &ArtifactId,
+        after: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, EventEnvelope)>> {
+        self.core
+            .history_artifact_events(workspace, artifact, after, limit)
+            .await
+    }
+    async fn history_event_at(&self, ordinal: u64) -> Result<Option<EventEnvelope>> {
+        self.core.history_event_at(ordinal).await
+    }
+    async fn history_event(&self, id: &EventId) -> Result<Option<EventEnvelope>> {
+        self.core.history_event(id).await
+    }
+    async fn command_receipt_by_id(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>> {
+        self.core.command_receipt_by_id(workspace, command).await
+    }
+    async fn command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        command: &CommandId,
+        digest: &str,
+    ) -> Result<Option<CommandReceipt>> {
+        self.core.command_receipt(workspace, command, digest).await
+    }
+    async fn scoped_command_receipt(
+        &self,
+        workspace: &WorkspaceId,
+        session: &SessionId,
+        command: &CommandId,
+    ) -> Result<Option<CommandReceipt>> {
+        self.core
+            .scoped_command_receipt(workspace, session, command)
+            .await
+    }
+    async fn transaction_receipt(&self, id: &TransactionId) -> Result<Option<Receipt>> {
+        self.core.transaction_receipt(id).await
+    }
+    async fn archive_state(&self) -> Result<State> {
+        self.core.archive_state().await
     }
     async fn transact(&mut self, transaction: Transaction) -> Result<Receipt> {
-        if self.poisoned {
-            return Err(Error::Unavailable(
-                "reopen to reconcile an indeterminate commit",
-            ));
-        }
-        let (next, commit) = self.state.prepare(&transaction)?;
-        if self.state.transactions.contains_key(&transaction.id) {
-            return Ok(commit.receipt);
-        }
-        for mutation in &transaction.mutations {
-            if let Mutation::Put { record, .. } = mutation {
-                if record.collection == Collection::Artifact {
-                    self.spool.verify(&record.decode()?)?;
-                }
-            }
-        }
         #[cfg(feature = "qualification")]
         let observer = self.observer.clone();
-        let observe = |barrier| {
+        let observe = move |barrier| {
             #[cfg(feature = "qualification")]
             if let Some(observer) = &observer {
                 observer(barrier);
             }
-            #[cfg(not(feature = "qualification"))]
             let _ = barrier;
         };
-        observe(Barrier::Prepared);
-        // Poison before awaiting: cancellation after a write may have committed.
-        // Reopening replays durable receipts and is the only way to clear it.
-        self.poisoned = true;
-        self.backend.append(&commit, &next, &observe).await?;
-        self.state = next;
-        self.commits.push(commit.clone());
-        self.poisoned = false;
-        observe(Barrier::BeforeReply);
-        Ok(commit.receipt)
+        self.core.transact(transaction, &observe).await
     }
 }
 
@@ -808,3 +912,7 @@ fn validate_private_location(path: &Path, forbidden: &[PathBuf]) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "store_original_append_tests.rs"]
+mod original_append_tests;

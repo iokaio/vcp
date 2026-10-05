@@ -35,10 +35,10 @@ fn request(config: &Config) -> methods::TurnStart {
         constraints: vec!["Preserve files".into()],
         acceptance: vec!["Use evidence".into()],
         budget: methods::Budget {
-            cap_micros: config.cap.micros.get().into(),
+            cap_micros: config.cap.micros.map(|amount| amount.get().into()),
             currency: methods::Currency::Usd,
             max_requests: 3,
-            deadline_seconds: 60,
+            deadline_seconds: 60.into(),
         },
     }
 }
@@ -162,7 +162,7 @@ async fn accepted_start_constructor_activates_once_and_binds_exact_caller_turn()
                 operating: "Do not submit in this admission test".into(),
                 affected_paths: vec!["source.txt".into()],
                 max_requests: 3,
-                deadline: Timestamp::new(now + 30_000),
+                deadline: Timestamp::new(now + 30_000).into(),
             },
         )
         .unwrap();
@@ -288,7 +288,7 @@ async fn expired_accepted_run_replays_but_cannot_construct_via_start_or_resume()
         let mut connection = host.public_connection(current.clone()).unwrap();
         connection.acquire(CommandId::new(), None).unwrap();
         let mut request = request(&config);
-        request.budget.deadline_seconds = 1;
+        request.budget.deadline_seconds = 1.into();
         let (receipt, mut ticket) = accept(&connection, request.clone(), &current);
         tokio::time::sleep(Duration::from_millis(1100)).await;
         assert!(
@@ -325,6 +325,174 @@ async fn expired_accepted_run_replays_but_cannot_construct_via_start_or_resume()
             .lifecycle()
             .authorize_startup(&workspace, None)
             .is_err());
+        connection
+            .disconnect()
+            .unwrap()
+            .wait()
+            .await
+            .unwrap()
+            .unwrap();
+        owner.close().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn accepted_start_preserves_explicit_unbounded_limits_but_rejects_finite_cap_widening() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for mode in ["unbounded", "larger-finite-profile", "unbounded-profile"] {
+            let temp = tempfile::tempdir().unwrap();
+            let workspace = temp.path().join("workspace");
+            std::fs::create_dir(&workspace).unwrap();
+            let workspace = workspace.canonicalize().unwrap();
+            let mut config = config(&temp.path().join("canonical"), &workspace, backend);
+            if mode != "larger-finite-profile" {
+                config.cap.micros = vcp_domain::Limit::Unbounded;
+            }
+            let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+            let current = access(&config);
+            let mut connection = host.public_connection(current.clone()).unwrap();
+            connection.acquire(CommandId::new(), None).unwrap();
+            let mut request = request(&config);
+            request.budget.deadline_seconds = vcp_domain::Limit::Unbounded;
+            if mode != "unbounded" {
+                request.budget.cap_micros = vcp_domain::Limit::Finite(1.into());
+            }
+            let (_, mut ticket) = accept(&connection, request, &current);
+            let before = host.snapshot().unwrap();
+            let startup = connection.authorize_start_startup(&mut ticket, &current);
+            assert_eq!(startup.is_ok(), mode == "unbounded", "{mode}");
+            drop(startup);
+            let after = host.snapshot().unwrap();
+            assert_eq!(before.watermark, after.watermark);
+            assert!(after.records.values().all(|row| {
+                !matches!(row.collection, Collection::Attempt | Collection::Effect)
+            }));
+            connection
+                .disconnect()
+                .unwrap()
+                .wait()
+                .await
+                .unwrap()
+                .unwrap();
+            owner.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_execution_revision_resumes_expired_finite_acceptance_without_rewriting_it() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let workspace = workspace.canonicalize().unwrap();
+        let mut config = config(&temp.path().join("canonical"), &workspace, backend);
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let current = access(&config);
+        let mut connection = host.public_connection(current.clone()).unwrap();
+        connection.acquire(CommandId::new(), None).unwrap();
+        let mut request = request(&config);
+        request.budget.deadline_seconds = 1.into();
+        let original_budget = serde_json::to_value(&request.budget).unwrap();
+        let (receipt, ticket) = accept(&connection, request.clone(), &current);
+        drop(ticket);
+        connection
+            .disconnect()
+            .unwrap()
+            .wait()
+            .await
+            .unwrap()
+            .unwrap();
+        owner.close().await.unwrap();
+        drop(host);
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        config.cap.micros = vcp_domain::Limit::Unbounded;
+        let (host, owner) = CanonicalHost::open(config.clone()).unwrap();
+        let mut connection = host.public_connection(current.clone()).unwrap();
+        let lease_id = vcp_store::contract::controller_lease_id(&config.workspace, &config.session).unwrap();
+        let lease: vcp_domain::controller::Lease = host.snapshot().unwrap().record(Collection::Access, &lease_id, &config.workspace).unwrap().decode().unwrap();
+        connection.acquire(CommandId::new(), Some(lease.revision)).unwrap();
+        let before = host.snapshot().unwrap();
+        assert!(
+            matches!(connection.prepare_start_rpc(request.clone(), &current).unwrap(), PublicStartAdmission::Replay(value) if value == receipt)
+        );
+        assert_eq!(
+            host.snapshot().unwrap().watermark,
+            before.watermark,
+            "replay itself does not adopt a policy or capture evidence"
+        );
+        let task = selected(&host, &config);
+        let resume = methods::SessionResume {
+            scope: request.scope.clone(),
+            mutation: methods::Mutation {
+                command_id: id("explicit-new-execution-revision"),
+                expected_revision: task.revision.get().into(),
+                steering_revision: task.steering.get().into(),
+            },
+            task: request.task.clone(),
+        };
+        let vcp_lifecycle::foundation::PublicResumeAdmission::Ready(mut ticket) =
+            connection.prepare_resume_rpc(resume, &current).unwrap()
+        else {
+            panic!("fresh resume");
+        };
+        host.configure_execution_constraints(vcp_domain::Limit::Unbounded)
+            .unwrap();
+        let after = host.snapshot().unwrap();
+        let ledger: vcp_domain::accounting::Ledger = after
+            .record(
+                Collection::Ledger,
+                config.root_task.as_str(),
+                &config.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert!(ledger.cap.is_unbounded());
+        let retained = vcp_engine::public_start::retained_start_budget(&after, &task.scope)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(retained.budget).unwrap(),
+            original_budget
+        );
+        let captures: Vec<vcp_domain::artifact::ArtifactDescriptor> = after
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .map(|row| row.decode().unwrap())
+            .filter(|artifact: &vcp_domain::artifact::ArtifactDescriptor| {
+                artifact.spec.schema == "execution-constraints/1"
+            })
+            .collect();
+        assert_eq!(captures.len(), 1);
+        let facts: serde_json::Value =
+            serde_json::from_slice(&host.read_artifact(captures[0].spec.id.clone()).unwrap())
+                .unwrap();
+        assert_eq!(facts["original_acceptance"]["budget"], original_budget);
+        assert_eq!(facts["effective"]["deadline"]["kind"], "unbounded");
+        assert_eq!(facts["effective"]["cap"]["micros"]["kind"], "unbounded");
+        assert_eq!(
+            facts["execution_revision"]["executable_sha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert!(after
+            .records
+            .values()
+            .all(|row| !matches!(row.collection, Collection::Attempt | Collection::Effect)));
+        assert!(connection
+            .authorize_resume_startup(&mut ticket, &current)
+            .is_ok());
+        assert!(
+            connection
+                .authorize_resume_startup(&mut ticket, &current)
+                .is_err(),
+            "startup ticket remains one-use"
+        );
+        assert_eq!(host.snapshot().unwrap().watermark, after.watermark);
         connection
             .disconnect()
             .unwrap()

@@ -33,6 +33,11 @@ fn profiles_reject_model_authority_environment_credentials_and_implicit_shells()
         )]),
         BTreeMap::from([("RUSTC_WRAPPER".into(), "synthetic-override.exe".into())]),
         BTreeMap::from([(
+            "NuGetPackageSourceCredentials_Private".into(),
+            "synthetic-denied".into(),
+        )]),
+        BTreeMap::from([("NUGET_PLUGIN_PATHS".into(), "synthetic-override.exe".into())]),
+        BTreeMap::from([(
             "DOTNET_STARTUP_HOOKS".into(),
             "synthetic-override.dll".into(),
         )]),
@@ -82,6 +87,50 @@ fn profiles_reject_model_authority_environment_credentials_and_implicit_shells()
         serde_json::to_value(&profile).unwrap()["environment"],
         serde_json::to_value(&environment).unwrap()
     );
+}
+#[test]
+fn dotnet_bootstrap_directories_are_explicit_public_profile_authority() {
+    let environment = BTreeMap::from([
+        ("PROGRAMFILES".into(), r"C:\Program Files".into()),
+        ("PROGRAMFILES(X86)".into(), r"C:\Program Files (x86)".into()),
+        ("APPDATA".into(), r"C:\scenario\roaming".into()),
+        ("LOCALAPPDATA".into(), r"C:\scenario\local".into()),
+        ("DOTNET_CLI_HOME".into(), r"C:\scenario\dotnet-home".into()),
+    ]);
+    let profile = |environment| {
+        Profile::new(
+            "dotnet".into(),
+            r"C:\Program Files\dotnet\dotnet.exe".into(),
+            Mode::Direct,
+            environment,
+            BTreeSet::new(),
+            true,
+        )
+    };
+    let original = profile(environment.clone()).unwrap();
+    for name in environment.keys() {
+        let mut changed = environment.clone();
+        changed.insert(name.clone(), r"C:\other-scenario".into());
+        assert_ne!(
+            original.digest().unwrap(),
+            profile(changed).unwrap().digest().unwrap()
+        );
+
+        let mut duplicate = environment.clone();
+        duplicate.insert(name.to_ascii_lowercase(), r"C:\other-scenario".into());
+        assert!(profile(duplicate).is_err());
+
+        for invalid in ["directory\0suffix".to_string(), "x".repeat(32 * 1024 + 1)] {
+            let mut changed = environment.clone();
+            changed.insert(name.clone(), invalid);
+            assert!(profile(changed).is_err());
+        }
+    }
+    // The model cannot add even a supported bootstrap setting to a request.
+    assert!(Request::from_arguments(
+        r#"{"profile":"dotnet","arguments":[],"directory":"","timeout_ms":1000,"output_bytes":100,"environment":{"APPDATA":"C:\\other-scenario"}}"#,
+    )
+    .is_err());
 }
 #[test]
 fn prepared_process_pins_executable_and_rejects_changed_script_or_directory() {

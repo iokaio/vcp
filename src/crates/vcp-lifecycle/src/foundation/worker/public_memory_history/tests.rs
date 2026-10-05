@@ -1,4 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
+struct OriginReference<'a>(&'a vcp_store::contract::State);
+impl vcp_store::contract::reference::ReferenceStore for OriginReference<'_> {
+    fn state(&self) -> &vcp_store::contract::State {
+        self.0
+    }
+    async fn transact(
+        &mut self,
+        _: vcp_store::contract::Transaction,
+    ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+        unreachable!("read-only fixture")
+    }
+}
 use super::inspect;
 use std::collections::BTreeMap;
 use vcp_domain::{
@@ -111,7 +123,9 @@ async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, A
     engine.handle(create, &access, &facts).await.unwrap();
     let origin = engine
         .store()
-        .state()
+        .archive_state()
+        .await
+        .unwrap()
         .events
         .iter()
         .find(|e| {
@@ -279,7 +293,9 @@ async fn large_history_pages_match_cli_window_and_freeze_boundary_without_writes
         }
         let access = engine_access("workspace");
         let mut query = request(&f);
-        let first = inspect(&f.store, &access, &query, &|| Ok(())).unwrap();
+        let first = inspect(&f.store, &access, &query, &|| Ok(()))
+            .await
+            .unwrap();
         assert!(!first.versions.is_empty() && first.versions.len() < 32);
         assert!(!first.complete);
         let (cli, at, _) = vcp_memory::history::window(
@@ -290,6 +306,7 @@ async fn large_history_pages_match_cli_window_and_freeze_boundary_without_writes
             MemorySeq::ZERO,
             32,
         )
+        .await
         .unwrap();
         for (public, cli) in first.versions.iter().zip(&cli.versions) {
             assert_eq!(public.finding.version.as_str(), cli.id.as_str());
@@ -307,7 +324,7 @@ async fn large_history_pages_match_cli_window_and_freeze_boundary_without_writes
             assert_eq!(public.origins[0].as_str(), f.proposal.origins[0].as_str());
         }
         append(&mut f, previous, 130).await;
-        let before = f.store.state().watermark;
+        let before = f.store.current().watermark;
         let mut seen = first
             .versions
             .iter()
@@ -315,7 +332,9 @@ async fn large_history_pages_match_cli_window_and_freeze_boundary_without_writes
             .collect::<Vec<_>>();
         query.cursor = first.next_cursor;
         while query.cursor.is_some() {
-            let page = inspect(&f.store, &access, &query, &|| Ok(())).unwrap();
+            let page = inspect(&f.store, &access, &query, &|| Ok(()))
+                .await
+                .unwrap();
             assert_eq!(page.at.as_str(), at.get().to_string());
             assert!(!page.versions.is_empty());
             assert!(serde_json::to_vec(&page).unwrap().len() < 65536);
@@ -330,7 +349,7 @@ async fn large_history_pages_match_cli_window_and_freeze_boundary_without_writes
             seen,
             ids.iter().map(ToString::to_string).collect::<Vec<_>>()
         );
-        assert_eq!(before, f.store.state().watermark);
+        assert_eq!(before, f.store.current().watermark);
         f.store.close().await.unwrap();
     }
 }
@@ -345,12 +364,17 @@ async fn continuation_rechecks_actor_scope_authority_retention_and_interruption(
         let mut query = request(&f);
         query.limit = 1;
         // Also hide taskless origins from other sessions, beyond governed task access.
-        let mut source_state = f.store.state().clone();
+        let mut source_state = f.store.archive_state().await.unwrap();
         let origin = &f.proposal.origins[0];
         assert_eq!(
-            super::visible_origins(&source_state, &access, std::slice::from_ref(origin))
-                .unwrap()
-                .len(),
+            super::visible_origins(
+                &OriginReference(&source_state),
+                &access,
+                std::slice::from_ref(origin)
+            )
+            .await
+            .unwrap()
+            .len(),
             1
         );
         let event = source_state
@@ -360,47 +384,67 @@ async fn continuation_rechecks_actor_scope_authority_retention_and_interruption(
             .unwrap();
         event.event.session = SessionId::parse("foreign-session").unwrap();
         event.event.task = None;
-        assert!(
-            super::visible_origins(&source_state, &access, std::slice::from_ref(origin))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(super::visible_origins(
+            &OriginReference(&source_state),
+            &access,
+            std::slice::from_ref(origin)
+        )
+        .await
+        .unwrap()
+        .is_empty());
         query.cursor = inspect(&f.store, &access, &query, &|| Ok(()))
+            .await
             .unwrap()
             .next_cursor;
         assert!(query.cursor.is_some());
         let mut foreign = access.clone();
         foreign.actor = ActorId::parse("other").unwrap();
-        assert!(inspect(&f.store, &foreign, &query, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &foreign, &query, &|| Ok(()))
+            .await
+            .is_err());
         foreign = access.clone();
         foreign.read = false;
-        assert!(inspect(&f.store, &foreign, &query, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &foreign, &query, &|| Ok(()))
+            .await
+            .is_err());
         foreign = access.clone();
         foreign.authority = AuthorityRevision::new(1);
-        assert!(inspect(&f.store, &foreign, &query, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &foreign, &query, &|| Ok(()))
+            .await
+            .is_err());
         let mut other = query.clone();
         other.scope.session = "other".to_owned().try_into().unwrap();
-        assert!(inspect(&f.store, &access, &other, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &other, &|| Ok(()))
+            .await
+            .is_err());
         other = query.clone();
         other.claim = "other".to_owned().try_into().unwrap();
-        assert!(inspect(&f.store, &access, &other, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &other, &|| Ok(()))
+            .await
+            .is_err());
         other.cursor = None;
-        assert!(inspect(&f.store, &access, &other, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &other, &|| Ok(()))
+            .await
+            .is_err());
         assert!(inspect(&f.store, &access, &query, &|| Err(
             vcp_memory::Error::Conflict("cancelled")
         ))
+        .await
         .is_err());
         let artifact = f.proposal.evidence[0].artifact.clone();
         let attached = f
             .store
-            .state()
+            .archive_state()
+            .await
+            .unwrap()
             .events
             .iter()
             .find(|e| e.event.artifacts.contains(&artifact))
+            .cloned()
             .unwrap();
         let mut workspace: vcp_domain::workspace::Workspace = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 f.access.workspace.as_str(),
@@ -425,7 +469,7 @@ async fn continuation_rechecks_actor_scope_authority_retention_and_interruption(
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(previous),
@@ -455,9 +499,13 @@ async fn continuation_rechecks_actor_scope_authority_retention_and_interruption(
             })
             .await
             .unwrap();
-        assert!(inspect(&f.store, &access, &query, &|| Ok(())).is_err());
+        assert!(inspect(&f.store, &access, &query, &|| Ok(()))
+            .await
+            .is_err());
         query.cursor = None;
-        let page = inspect(&f.store, &access, &query, &|| Ok(())).unwrap();
+        let page = inspect(&f.store, &access, &query, &|| Ok(()))
+            .await
+            .unwrap();
         assert_eq!(
             page.versions[0].finding.state.as_ref().unwrap().visibility,
             wire::Visibility::Pruned
@@ -468,7 +516,9 @@ async fn continuation_rechecks_actor_scope_authority_retention_and_interruption(
         f.store.close().await.unwrap();
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            inspect(&reopened, &access, &query, &|| Ok(())).unwrap(),
+            inspect(&reopened, &access, &query, &|| Ok(()))
+                .await
+                .unwrap(),
             page
         );
         reopened.close().await.unwrap();

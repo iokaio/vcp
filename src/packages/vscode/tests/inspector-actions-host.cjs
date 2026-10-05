@@ -29,7 +29,7 @@ exports.run=async()=>{
    throw Error(`unexpected pick ${options?.title}`);
   });
   replace(target.window,'showOpenDialog',async()=>[vscode.Uri.file(input.profile)]);
-  const answers={'Task objective':'Qualify optimizer inspector actions and exact cost','Configured task cost cap (USD)':'1','Configured maximum requests':'8','Configured task deadline (seconds)':'300','Provider credential':'synthetic-cli-qualification','Window start in Unix milliseconds; blank includes all retained history':'','New limit (nonnegative integer)':'4000','Historical policy revision to restore':'1'};
+  const answers={'Task objective':'Qualify optimizer inspector actions and exact cost','Configured maximum requests':'8','Provider credential':'synthetic-cli-qualification','Window start in Unix milliseconds; blank includes all retained history':'','New limit (nonnegative integer)':'4000','Historical policy revision to restore':'1'};
   replace(target.window,'showInputBox',async options=>{if(options.title==='Window end in Unix milliseconds')return Date.now().toString();assert(Object.hasOwn(answers,options.title),options.title);return answers[options.title]});
   replace(target.window,'showWarningMessage',async(_message,_options,...choices)=>choices.includes('Confirm')?'Confirm':choices.includes('Apply')?'Apply':undefined);
   replace(target.window,'showInformationMessage',async()=>undefined);replace(target.window,'showErrorMessage',async message=>errors.push(message));

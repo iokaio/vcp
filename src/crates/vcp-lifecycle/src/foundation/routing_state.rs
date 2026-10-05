@@ -9,6 +9,9 @@ pub mod fits;
 pub mod forecast_drift;
 pub mod forecast_reports;
 pub mod forecasts;
+#[cfg(test)]
+#[path = "routing_state/history_tests.rs"]
+mod history_tests;
 pub mod local_stall;
 pub mod observations;
 pub mod public_optimizer;
@@ -39,12 +42,58 @@ pub type Result<T> = std::result::Result<T, String>;
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
+/// Bounded canonical append-order scan pinned to the current owner cut.
+/// A short nonempty page is not EOF: native readers also enforce byte bounds.
+pub(super) struct HistoryPages {
+    cutoff: Watermark,
+    count: u64,
+    at: u64,
+}
+impl HistoryPages {
+    pub(super) async fn new(store: &impl CanonicalStore) -> Result<Self> {
+        let cutoff = store.current().watermark;
+        let count = store.history_event_count().await.map_err(err)?;
+        if store.current().watermark != cutoff {
+            return Err("routing history cut changed".into());
+        }
+        Ok(Self {
+            cutoff,
+            count,
+            at: 0,
+        })
+    }
+    pub(super) async fn next(
+        &mut self,
+        store: &impl CanonicalStore,
+    ) -> Result<Option<Vec<vcp_protocol::event::EventEnvelope>>> {
+        if store.current().watermark != self.cutoff {
+            return Err("routing history cut changed".into());
+        }
+        if self.at == self.count {
+            return Ok(None);
+        }
+        let limit = (self.count - self.at).min(256) as usize;
+        let page = store
+            .history_events(self.at.checked_sub(1), limit)
+            .await
+            .map_err(err)?;
+        if page.is_empty()
+            || page.len() > limit
+            || store.current().watermark != self.cutoff
+            || page.iter().any(|event| event.watermark > self.cutoff)
+        {
+            return Err("routing history cut changed or incomplete".into());
+        }
+        self.at += page.len() as u64;
+        Ok(Some(page))
+    }
+}
 fn authorize(store: &Store, access: &Access, write: bool) -> Result<()> {
     if !access.read || (write && !access.write) {
         return Err("routing access denied".into());
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -82,7 +131,7 @@ fn decision_name(attempt: &AttemptId) -> String {
 fn read<T: DeserializeOwned>(store: &Store, access: &Access, id: &str) -> Result<Option<T>> {
     authorize(store, access, false)?;
     store
-        .state()
+        .current()
         .records
         .get(&key(Collection::Projection, id))
         .map(|r| {
@@ -151,7 +200,7 @@ async fn commit(
 ) -> Result<()> {
     authorize(store, access, true)?;
     let session: Session = store
-        .state()
+        .current()
         .records
         .values()
         .find(|r| r.collection == Collection::Session && r.workspace == access.workspace)
@@ -177,7 +226,7 @@ async fn commit(
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations,
             events: vec![event],
             command: None,
@@ -209,7 +258,8 @@ pub struct Counts {
     pub supporting_attempts: u64,
     pub known_spend_micros: BTreeMap<String, u64>,
     pub uncertain_attempts: u64,
-    pub reserved_liability_micros: BTreeMap<String, u64>,
+    /// None means an aggregate contains unpriced estimates, never zero.
+    pub reserved_liability_micros: BTreeMap<String, Option<u64>>,
     pub pruned_tasks: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,10 +299,14 @@ pub struct ObservedMetrics {
 }
 /// Snapshot of the current canonical view, restricted to tasks with retained
 /// events in the window. It never fabricates historical state from current rows.
-pub fn report(store: &Store, access: &Access, window: HistoryWindow) -> Result<OptimizationReport> {
-    report_with_check(store, access, window, &|| Ok(()))
+pub async fn report(
+    store: &Store,
+    access: &Access,
+    window: HistoryWindow,
+) -> Result<OptimizationReport> {
+    report_with_check(store, access, window, &|| Ok(())).await
 }
-pub fn report_with_check(
+pub async fn report_with_check(
     store: &Store,
     access: &Access,
     window: HistoryWindow,
@@ -260,14 +314,15 @@ pub fn report_with_check(
 ) -> Result<OptimizationReport> {
     check()?;
     authorize(store, access, false)?;
-    if store.state().records.len() > 100_000 || store.state().events.len() > 100_000 {
+    let mut history = HistoryPages::new(store).await?;
+    if store.current().records.len() > 100_000 || history.count > 100_000 {
         return Err("optimization history scan exceeds 100000 canonical rows/events".into());
     }
     if window.from.is_some_and(|from| from >= window.until) {
         return Err("invalid history window".into());
     }
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -276,31 +331,35 @@ pub fn report_with_check(
         .map_err(err)?
         .decode()
         .map_err(err)?;
-    let mut events = Vec::new();
-    for e in &store.state().events {
+    let mut evidence = Vec::new();
+    let mut tasks = BTreeSet::new();
+    let mut counts = Counts::default();
+    let mut observed = ObservedMetrics::default();
+    while let Some(page) = history.next(store).await? {
         check()?;
-        if e.event.workspace == access.workspace
-            && e.event.timestamp < window.until
-            && window.from.is_none_or(|from| e.event.timestamp >= from)
-            && e.event.task.as_ref().is_some_and(|t| access.allows_task(t))
-        {
-            events.push(e);
+        for e in page {
+            check()?;
+            if e.event.workspace == access.workspace
+                && e.event.timestamp < window.until
+                && window.from.is_none_or(|from| e.event.timestamp >= from)
+                && e.event.task.as_ref().is_some_and(|t| access.allows_task(t))
+            {
+                if let Some(task) = e.event.task {
+                    tasks.insert(task);
+                }
+                if e.redaction.is_some() {
+                    observed.pruned_events += 1;
+                } else {
+                    evidence.push(e.event.id);
+                }
+            }
         }
     }
-    let tasks: BTreeSet<_> = events.iter().filter_map(|e| e.event.task.clone()).collect();
-    let mut counts = Counts::default();
-    let mut observed = ObservedMetrics {
-        pruned_events: events
-            .iter()
-            .filter(|event| event.redaction.is_some())
-            .count() as u64,
-        ..Default::default()
-    };
     let mut cohorts = BTreeMap::new();
     for task_id in &tasks {
         check()?;
         let task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, task_id.as_str(), &access.workspace)
             .map_err(err)?
             .decode()
@@ -316,7 +375,7 @@ pub fn report_with_check(
         }
     }
     for record in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Attempt)
@@ -346,7 +405,7 @@ pub fn report_with_check(
             .checked_add(attempt.charged.get())
             .ok_or("report spend overflow")?;
         let routing = store
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &decision_name(&attempt.id)))
             .filter(|r| r.workspace == access.workspace);
@@ -366,7 +425,7 @@ pub fn report_with_check(
         *cohorts.entry(cohort).or_insert(0) += 1;
     }
     for record in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Reservation)
@@ -377,37 +436,48 @@ pub fn report_with_check(
             let amount = counts
                 .reserved_liability_micros
                 .entry(reservation.amount.currency.code().to_owned())
-                .or_default();
-            *amount = amount
-                .checked_add(reservation.liability.get())
-                .ok_or("report liability overflow")?;
+                .or_insert(Some(0));
+            *amount = match (*amount, reservation.liability.known()) {
+                (Some(total), Some(liability)) => Some(
+                    total
+                        .checked_add(liability.get())
+                        .ok_or("report liability overflow")?,
+                ),
+                _ => None,
+            };
         }
     }
     let mut submitted = BTreeMap::<String, Timestamp>::new();
     let mut finished = BTreeMap::<String, Timestamp>::new();
-    for event in store.state().events.iter().filter(|e| {
-        e.event.workspace == access.workspace
-            && e.redaction.is_none()
-            && e.event.task.as_ref().is_some_and(|t| tasks.contains(t))
-    }) {
+    history.at = 0;
+    while let Some(page) = history.next(store).await? {
         check()?;
-        if event.event.kind == EventKind::ObjectiveChanged {
-            observed.objective_change_events += 1;
-        }
-        let Some(id) = event.event.data["attempt"]["id"].as_str() else {
-            continue;
-        };
-        if event.event.kind == EventKind::AttemptSubmitted {
-            submitted
-                .entry(id.to_owned())
-                .or_insert(event.event.timestamp);
-        }
-        if event.event.kind == EventKind::UsageReconciled
-            && event.event.data["attempt"]["phase"] == "settled"
-        {
-            finished
-                .entry(id.to_owned())
-                .or_insert(event.event.timestamp);
+        for event in page {
+            check()?;
+            if event.event.workspace != access.workspace
+                || event.redaction.is_some()
+                || !event.event.task.as_ref().is_some_and(|t| tasks.contains(t))
+            {
+                continue;
+            }
+            if event.event.kind == EventKind::ObjectiveChanged {
+                observed.objective_change_events += 1;
+            }
+            let Some(id) = event.event.data["attempt"]["id"].as_str() else {
+                continue;
+            };
+            if event.event.kind == EventKind::AttemptSubmitted {
+                submitted
+                    .entry(id.to_owned())
+                    .or_insert(event.event.timestamp);
+            }
+            if event.event.kind == EventKind::UsageReconciled
+                && event.event.data["attempt"]["phase"] == "settled"
+            {
+                finished
+                    .entry(id.to_owned())
+                    .or_insert(event.event.timestamp);
+            }
         }
     }
     for (id, from) in submitted {
@@ -423,7 +493,7 @@ pub fn report_with_check(
         .attempts
         .saturating_sub(observed.submission_to_final_usage_ms.len() as u64);
     for record in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Verification)
@@ -455,7 +525,7 @@ pub fn report_with_check(
     if counts.tasks < 10 {
         uncertainty.push("Small sample: fewer than ten tasks.".into());
     }
-    if counts.pruned_tasks > 0 || events.iter().any(|e| e.redaction.is_some()) {
+    if counts.pruned_tasks > 0 || observed.pruned_events > 0 {
         uncertainty.push("Pruned evidence reduces coverage.".into());
     }
     if counts.uncertain_attempts > 0 {
@@ -469,17 +539,13 @@ pub fn report_with_check(
         workspace: access.workspace.clone(),
         authority: access.authority,
         deletion: workspace.deletion,
-        cutoff: store.state().watermark,
+        cutoff: store.current().watermark,
         window,
         counts,
         cohorts,
         cohort_denominator: "attempts, including support and unsuccessful attempts".into(),
         tasks,
-        evidence: events
-            .iter()
-            .filter(|e| e.redaction.is_none())
-            .map(|e| e.event.id.clone())
-            .collect(),
+        evidence,
         uncertainty,
         source_tasks: access.tasks.clone(),
         observed,
@@ -492,13 +558,13 @@ pub async fn save_report(
     window: HistoryWindow,
     now: Timestamp,
 ) -> Result<OptimizationReport> {
-    let value = report(store, access, window)?;
+    let value = report(store, access, window).await?;
     forecast_reports::save(store, access, value, now).await
 }
-pub fn load_report(store: &Store, access: &Access, id: &str) -> Result<OptimizationReport> {
-    load_report_with_check(store, access, id, &|| Ok(()))
+pub async fn load_report(store: &Store, access: &Access, id: &str) -> Result<OptimizationReport> {
+    load_report_with_check(store, access, id, &|| Ok(())).await
 }
-pub fn load_report_with_check(
+pub async fn load_report_with_check(
     store: &Store,
     access: &Access,
     id: &str,
@@ -507,7 +573,7 @@ pub fn load_report_with_check(
     check()?;
     let report: OptimizationReport = read(store, access, id)?.ok_or("report not found")?;
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -529,16 +595,21 @@ pub fn load_report_with_check(
     }
     for id in &report.evidence {
         check()?;
-        if !store.state().events.iter().any(|e| {
-            &e.event.id == id
-                && e.event.workspace == access.workspace
-                && e.redaction.is_none()
-                && e.event.task.as_ref().is_none_or(|t| access.allows_task(t))
-        }) {
+        if !store
+            .history_event(id)
+            .await
+            .map_err(err)?
+            .is_some_and(|e| {
+                &e.event.id == id
+                    && e.event.workspace == access.workspace
+                    && e.redaction.is_none()
+                    && e.event.task.as_ref().is_none_or(|t| access.allows_task(t))
+            })
+        {
             return Err("report evidence unavailable; refresh report".into());
         }
     }
-    forecast_reports::load_saved_with_check(store, access, &report, check)?;
+    forecast_reports::load_saved_with_check(store, access, &report, check).await?;
     check()?;
     Ok(report)
 }
@@ -626,14 +697,14 @@ fn comparison_cohorts(
 /// Read-only comparison. The sole allowed cohort dimension change is routing
 /// policy; every provider/model/catalog/class/size/role dimension remains visible.
 /// Evidence loss or unlike source bounds yields an explicit non-comparison.
-pub fn compare_reports(
+pub async fn compare_reports(
     store: &Store,
     access: &Access,
     baseline: &str,
     current: &str,
 ) -> Result<RegressionComparison> {
-    let baseline = load_report(store, access, baseline)?;
-    let current = load_report(store, access, current)?;
+    let baseline = load_report(store, access, baseline).await?;
+    let current = load_report(store, access, current).await?;
     let (before_cohorts, baseline_policy_revisions) = comparison_cohorts(&baseline)?;
     let (after_cohorts, current_policy_revisions) = comparison_cohorts(&current)?;
     let mut reasons = Vec::new();
@@ -790,7 +861,7 @@ pub fn current_registry(store: &Store, access: &Access) -> Result<Option<Publish
     let registry: Option<Published<Registry>> = current(store, access, "registry")?;
     if let Some(value) = &registry {
         let artifact: vcp_domain::artifact::ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 value.value.raw.as_str(),
@@ -881,7 +952,7 @@ pub async fn publish_registry(
 ) -> Result<Published<Registry>> {
     catalog.validate().map_err(err)?;
     let artifact: vcp_domain::artifact::ArtifactDescriptor = store
-        .state()
+        .current()
         .record(Collection::Artifact, raw.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -1069,16 +1140,16 @@ pub fn effective_policy(mut policy: Policy, ceilings: &Policy) -> Result<Policy>
     }
     policy.seal().map_err(err)
 }
-pub fn preview(
+pub async fn preview(
     store: &Store,
     access: &Access,
     report_id: &str,
     selected: Vec<Edit>,
     ceilings: &Policy,
 ) -> Result<Preview> {
-    preview_with_check(store, access, report_id, selected, ceilings, &|| Ok(()))
+    preview_with_check(store, access, report_id, selected, ceilings, &|| Ok(())).await
 }
-pub fn preview_with_check(
+pub async fn preview_with_check(
     store: &Store,
     access: &Access,
     report_id: &str,
@@ -1088,7 +1159,7 @@ pub fn preview_with_check(
 ) -> Result<Preview> {
     check()?;
     global_write(store, access)?;
-    let report = load_report_with_check(store, access, report_id, check)?;
+    let report = load_report_with_check(store, access, report_id, check).await?;
     let current = current_policy(store, access)?.ok_or("routing policy not configured")?;
     let mut policy = current.value.clone();
     let mut fields = BTreeSet::new();
@@ -1194,7 +1265,8 @@ pub async fn apply(
         &proposal.report,
         proposal.selected.clone(),
         ceilings,
-    )?;
+    )
+    .await?;
     if &checked != proposal {
         return Err("preview changed; refresh before applying".into());
     }
@@ -1389,7 +1461,7 @@ pub async fn record_decision(
         return Err("routing decision scope or request digest invalid".into());
     }
     let admitted: Attempt = store
-        .state()
+        .current()
         .record(Collection::Attempt, attempt.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -1458,7 +1530,7 @@ pub fn admitted_escalations(
         return Err("escalation scope denied".into());
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
@@ -1467,7 +1539,7 @@ pub fn admitted_escalations(
         return Err("escalation session differs".into());
     }
     let mut records = Vec::new();
-    for record in store.state().records.values().filter(|r| {
+    for record in store.current().records.values().filter(|r| {
         r.collection == Collection::Projection
             && r.workspace == access.workspace
             && r.value["document_type"] == "vcp_escalation_admission_v1"
@@ -1524,13 +1596,13 @@ pub async fn record_escalation(
         return Ok(existing);
     }
     let admitted: Attempt = store
-        .state()
+        .current()
         .record(Collection::Attempt, attempt.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
         .map_err(err)?;
     let previous: Attempt = store
-        .state()
+        .current()
         .record(
             Collection::Attempt,
             plan.previous_attempt.as_str(),
@@ -1540,7 +1612,7 @@ pub async fn record_escalation(
         .decode()
         .map_err(err)?;
     let ledger: Ledger = store
-        .state()
+        .current()
         .record(
             Collection::Ledger,
             admitted.root.as_str(),
@@ -1556,13 +1628,13 @@ pub async fn record_escalation(
         return Err("escalation ledger changed outside its exact admission reservation".into());
     }
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)
         .map_err(err)?
         .decode()
         .map_err(err)?;
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -1641,7 +1713,7 @@ pub async fn record_escalation(
         return Err("escalation counters exceed selected bounds".into());
     }
     let root_attempts = store
-        .state()
+        .current()
         .records
         .values()
         .filter(|r| r.workspace == access.workspace && r.collection == Collection::Attempt)
@@ -1696,7 +1768,7 @@ pub async fn record_escalation(
         .chain(&handoff.original_artifacts)
     {
         let descriptor: vcp_domain::artifact::ArtifactDescriptor = store
-            .state()
+            .current()
             .record(Collection::Artifact, artifact.as_str(), &access.workspace)
             .map_err(err)?
             .decode()

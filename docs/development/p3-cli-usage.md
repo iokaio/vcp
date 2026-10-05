@@ -94,6 +94,7 @@ vcp --workspace <directory> sessions fork <session-id> --through-turn <turn-id>
 vcp --workspace <directory> tasks status <task-id>
 vcp --workspace <directory> tasks pause <task-id>
 vcp --workspace <directory> tasks cancel <task-id>
+vcp --workspace <directory> tasks reconcile-cost <task-id>
 vcp --workspace <directory> inspect <id> --view verification
 ```
 
@@ -119,6 +120,19 @@ An unreachable owner is an explicit error and never creates another writer.
 `--control-stdin` additionally accepts newline-framed private `CommandEnvelope`
 values on an inherited input handle, with the same checks and bounded framing.
 Read-only commands use the live owner when the canonical store is locked.
+
+`tasks reconcile-cost` is MR-05 billing-only maintenance for a paused root task.
+It requires exclusive canonical ownership and the existing verified workspace
+binding. It uses the configured noninteractive OpenRouter credential source for
+bounded generation metadata GETs, without loading an execution profile, starting
+inference, resuming tools, or changing the original cap or deadline. Captured
+provider receipts settle the original attempts idempotently; missing identities,
+HTTP 404, conflicting attribution and unavailable final charges retain liability.
+The single scoped result has `kind: provider_cost_reconciliation`, the canonical
+ledger and observations, `metadata_only: true`, and `resumed: false`. Exit 0 means
+every root attempt is settled or released, with no active/unresolved ledger amount
+or overrun; exit 7 means accounting remains unresolved. Resume remains a separate
+explicit operation after any other required recovery.
 
 Inspect views are `chain`, `context`, `prompts`, `outputs`, `routing`, `policy`,
 `tools`, `costs`, `verification`, and `memory`. P3-03 returns an `InspectionPage`
@@ -177,6 +191,8 @@ Output loss closes the owner and durably pauses pending/running tasks; no final
 line can be promised to a disconnected consumer. Ctrl+C requests cancellation;
 console close uses the existing durable owner-loss pause policy. In interactive
 text mode Ctrl+C pauses and leaves the CLI open; `/cancel` explicitly cancels.
+
+For a new `run` or `fork`, the event stream begins at the selected session's current sequence before invocation setup and task acceptance. It includes subsequent authorized session events and the final receipt, without replaying older tasks; historical evidence remains available through inspection. `resume` retains its existing historical replay behavior. Event drainage keeps a finite captured end and may renew an expired snapshot only when scope, authority and retention remain unchanged. Missing history and changed authority remain explicit cursor gaps.
 
 Exit codes: 0 verified completion/command success; 1 internal or output failure;
 2 invalid configuration/control delivery; 3 failed verification or incomplete;

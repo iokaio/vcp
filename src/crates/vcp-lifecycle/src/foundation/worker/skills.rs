@@ -196,7 +196,7 @@ impl Context {
     )> {
         let (mut catalog, integrity, missing_sources) =
             crate::foundation::skills::discover_authorized(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config,
                 registry,
                 limits,
@@ -247,7 +247,7 @@ impl Context {
     }
     fn skill_source_access(&self, source: &SkillSource) -> Result<vcp_repository::Root> {
         crate::foundation::skills::check_source_read_access(
-            self.engine.store().state(),
+            self.engine.store().current(),
             &self.config,
             source,
         )
@@ -268,7 +268,7 @@ impl Context {
         let Some(row) = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &id))
         else {
@@ -315,7 +315,7 @@ impl Context {
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 binding.scope.task.as_str(),
@@ -335,7 +335,7 @@ impl Context {
         let workspace: Workspace = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 self.config.workspace.as_str(),
@@ -395,7 +395,7 @@ impl Context {
         let previous = self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .get(&key(Collection::Projection, &id))
             .map(|r| r.revision);
@@ -434,7 +434,7 @@ impl Context {
             data: serde_json::json!({"version":1,"skill_revision":state.revision,"qualified_id":qualified_id,"reason":reason}),
             metadata: None,
         };
-        let watermark = self.engine.store().state().watermark;
+        let watermark = self.engine.store().current().watermark;
         self.runtime
             .block_on(self.engine.store_mut().transact(Transaction {
                 id: TransactionId::new(),
@@ -669,12 +669,13 @@ impl Context {
             for captured in std::iter::once(&active.body).chain(active.resources.iter()) {
                 root.revalidate(&captured.file)?;
                 let mut bytes = Vec::new();
-                vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &captured.artifact,
-                    &mut bytes,
-                )?;
+                self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &captured.artifact,
+                        &mut bytes,
+                    ))?;
                 if digest_bytes(&bytes) != captured.file.sha256 {
                     return Err("active skill captured source changed".into());
                 }
@@ -698,12 +699,13 @@ impl Context {
             if previous.spec.schema == schema
                 && previous.spec.scope == binding.scope
                 && previous.sha256 == digest_bytes(bytes)
-                && vcp_audit::history::History::read_artifact(
-                    self.engine.store(),
-                    &self.history_access(),
-                    &previous.spec.id,
-                    std::io::sink(),
-                )
+                && self.runtime
+                    .block_on(vcp_audit::history::History::read_artifact(
+                        self.engine.store(),
+                        &self.history_access(),
+                        &previous.spec.id,
+                        std::io::sink(),
+                    ))
                 .is_ok()
             {
                 return Ok(previous.clone());
@@ -787,12 +789,13 @@ impl Context {
     /// Captured artifact bytes, rechecked against the activation digest.
     fn verified_resource(&self, captured: &Captured) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &captured.artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &captured.artifact,
+                &mut bytes,
+            ))?;
         if digest_bytes(&bytes) != captured.file.sha256 {
             return Err("active skill captured source changed".into());
         }
@@ -809,19 +812,20 @@ impl Context {
             let descriptor: ArtifactDescriptor = self
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(Collection::Artifact, id.as_str(), &binding.scope.workspace)?
                 .decode()?;
             if descriptor.spec.schema != "vcp-prepared-tool-v2" {
                 continue;
             }
             let mut bytes = Vec::new();
-            vcp_audit::history::History::read_artifact(
-                self.engine.store(),
-                &self.history_access(),
-                id,
-                &mut bytes,
-            )?;
+            self.runtime
+                .block_on(vcp_audit::history::History::read_artifact(
+                    self.engine.store(),
+                    &self.history_access(),
+                    id,
+                    &mut bytes,
+                ))?;
             let value: serde_json::Value = serde_json::from_slice(&bytes)?;
             let prepared: Revision = value
                 .get("skills_revision")
@@ -847,7 +851,7 @@ impl Context {
                 let descriptor: ArtifactDescriptor = self
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Artifact,
                         captured.artifact.as_str(),

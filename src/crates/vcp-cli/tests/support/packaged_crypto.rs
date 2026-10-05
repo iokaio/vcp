@@ -263,7 +263,7 @@ async fn restore_local(input: LocalRestore<'_>) -> Value {
     let store = Store::open(&selected.config.canonical_root, expected_backend, &[])
         .await
         .unwrap();
-    let state = store.state();
+    let state = &store.archive_state().await.unwrap();
     let bound: Workspace = state
         .record(Collection::Workspace, workspace, &selected.config.workspace)
         .unwrap()
@@ -371,7 +371,7 @@ async fn restore_local(input: LocalRestore<'_>) -> Value {
         .await
         .unwrap();
     assert!(
-        reopened.state() == &exact,
+        &reopened.archive_state().await.unwrap() == &exact,
         "exact local restore retry changed canonical state"
     );
     reopened.close().await.unwrap();

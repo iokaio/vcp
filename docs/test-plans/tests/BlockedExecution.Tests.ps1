@@ -48,6 +48,9 @@ function Assert-Blocked([scriptblock]$Action, [string]$Description) {
     $errorText = $null
     try { & $Action | Out-Null } catch { $errorText = $_.Exception.Message }
     Check ($errorText -like 'Scenario stopped before*') "$Description did not stop the scenario: $errorText"
+    if ($ctx.PaidExecutionBlock.task_reason) {
+        Check ($errorText.Contains($ctx.PaidExecutionBlock.task_reason)) "$Description hid the VCP task reason in its fatal message"
+    }
     Check ((Paid-Count) -eq $count) "$Description executed another paid command"
 }
 try {
@@ -59,12 +62,29 @@ try {
             param($Ctx, $Stage, $Label, $Config, [string[]]$Arguments, $TimeoutSeconds, [switch]$Live)
             $script:fixtureCalls.Add(($Arguments -join ' '))
             if ($Arguments[0] -in 'run', 'resume' -or ($Arguments[0] -eq 'sessions' -and $Arguments[1] -in 'resume', 'fork')) { return $script:fixtureRun }
+            if ($Arguments[0] -eq 'inspect-bundle') {
+                $scope = $script:fixtureRun.Scope
+                $views = @{}
+                foreach ($view in 'costs', 'verification', 'tools', 'routing', 'policy', 'outputs') {
+                    $views[$view] = @([pscustomobject]@{ view = $view; scope = $scope; source_watermark = 'fixture-watermark'; items = @(); next_cursor = $null })
+                }
+                $bundle = [pscustomobject]@{
+                    schema_version = 1; source_watermark = 'fixture-watermark'; views = $views
+                    task = [pscustomobject]@{ scope = $scope; reason = "HTTP 429: upstream provider shared pool is rate limited`nAccounting remains unresolved." }
+                    agents = @(); history = @()
+                }
+                return [pscustomobject]@{ ExitCode = 0; TimedOut = $false; InvalidLines = 0; Result = [pscustomobject]@{ data = $bundle } }
+            }
+            if (($Arguments[0..1] -join ' ') -eq 'tasks status') {
+                return [pscustomobject]@{ ExitCode = 0; Result = [pscustomobject]@{ data = [pscustomobject]@{ reason = "HTTP 429: upstream provider shared pool is rate limited`nAccounting remains unresolved." } } }
+            }
             return [pscustomobject]@{ ExitCode = 0; InvalidLines = 0; Result = [pscustomobject]@{ data = [pscustomobject]@{ items = @(); next_cursor = $null } } }
         }
         function script:Get-VcpTaskCost { param($Pages) [pscustomobject]@{ Usd = [decimal]0.2; Attempts = 1 } }
         function script:Get-VcpFinalMessage { param($Ctx, $Stage, $OutputPages, $Frames) '' }
     }
-    foreach ($case in @(
+    foreach ($inspectionBundle in @($false, $true)) {
+      foreach ($case in @(
         @{ conditions = @('required_input'); exit = 4; approval = $true },
         @{ conditions = @('unresolved_effect'); exit = 7 },
         @{ conditions = @('internal_failure'); exit = 1 },
@@ -77,12 +97,22 @@ try {
         @{ conditions = @('durably_paused', 'required_input'); exit = 4; approval = $true }
     )) {
         $ctx = New-Context
+        $ctx.SupportsInspectionBundle = $inspectionBundle
+        & $module { $script:fixtureCalls.Clear() }
         Set-FixtureRun @case
         $first = Invoke-VcpTask $ctx 'T1' 'Initial task' 'Use configured tools. Preserve tests.' 'fixture-profile' -AcceptExit @(0, 4)
         Check ($null -ne $first -and $null -ne $ctx.PaidExecutionBlock) 'Stopping command did not retain its stage and block'
         Check (Test-Path -LiteralPath (Join-Path $ctx.Logs 'T1/inspect-policy.json')) 'Policy evidence sweep did not finish'
         Check (Test-Path -LiteralPath (Join-Path $ctx.Logs 'T1/inspect-tools.json')) 'Tool evidence sweep did not finish'
+        $inspectionCalls = @(& $module { $script:fixtureCalls.ToArray() })
+        if ($inspectionBundle) {
+            Check ($inspectionCalls -contains 'inspect-bundle task-a' -and $inspectionCalls -notcontains 'tasks status task-a') 'Bundled inspection fell back to legacy task status'
+            Check (@($ctx.Gates | Where-Object { $_.id -like 'inspect-*' -and $_.outcome -ne 'pass' }).Count -eq 0) 'Bundled inspection fixture failed canonical completeness checks'
+        }
+        else { Check ($inspectionCalls -contains 'tasks status task-a' -and $inspectionCalls -notcontains 'inspect-bundle task-a') 'Legacy inspection did not exercise task-status result unwrapping' }
         $block = Get-Content -LiteralPath (Join-Path $ctx.Results 'paid-execution.json') -Raw | ConvertFrom-Json
+        Check ($block.task_reason -like 'HTTP 429:*Accounting remains unresolved.' -and $block.task_reason -notmatch '[\x00-\x1f\x7f]') 'Durable task diagnostic was hidden or contained terminal controls'
+        Check ($first.task_reason -eq $block.task_reason) 'Stage and stopping block disagree on the provider reason'
         Check ($block.task -eq 'task-a' -and -not $block.resume_same_task -and $block.commands -eq $ctx.CommandLog) 'Block lost task/command evidence or permits resume'
         if ($case.approval) { Check ($block.approval_ids -contains 'approval-fixture') 'Block lost approval ID' }
         [void](Add-GateResult $ctx 'T1' 'feature' 'Required feature' 'fail' 'fixture failure' $true)
@@ -94,6 +124,10 @@ try {
         Check ((Complete-VcpScenario $ctx) -eq 1) 'Blocked scenario reported success'
         $scorecard = Get-Content -LiteralPath (Join-Path $ctx.Results 'scorecard.json') -Raw | ConvertFrom-Json
         Check ($scorecard.paid_execution_block.task -eq 'task-a') 'Final scorecard lost stopping task'
+        Check ($scorecard.paid_execution_block.task_reason -eq $block.task_reason) 'Final scorecard lost the blocked provider reason'
+        $stoppingGate = $scorecard.gates | Where-Object { $_.stage -eq 'FINAL-execution' -and $_.id -eq 'paid-execution-stopped' }
+        Check ($stoppingGate.detail.Contains($block.task_reason)) 'Final stopping gate hid the VCP task reason'
+      }
     }
     # A normal durable deadline permits only continuation of its own task.
     foreach ($arguments in @(@('resume', 'task-a'), @('resume', '--last'), @('sessions', 'resume', 'session-task-a'))) {

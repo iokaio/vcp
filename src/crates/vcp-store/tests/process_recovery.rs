@@ -72,13 +72,16 @@ async fn independent_process_kills_recover_atomic_receipt_and_release_real_owner
                 assert_eq!(bytes.ends_with(b"VCPCMIT1"), committed);
             }
             let mut recovered = Store::open(&root, kind, &[]).await.unwrap();
-            assert_eq!(recovered.state().watermark.get(), u64::from(committed));
+            assert_eq!(recovered.current().watermark.get(), u64::from(committed));
             let first = recovered.transact(common::initial()).await.unwrap();
             let retry = recovered.transact(common::initial()).await.unwrap();
             assert_eq!(first, retry);
-            assert_eq!(recovered.state().watermark.get(), 1);
-            assert_eq!(recovered.state().events.len(), 1);
-            assert_eq!(recovered.state().commands.len(), 1);
+            assert_eq!(recovered.current().watermark.get(), 1);
+            assert_eq!((&recovered.archive_state().await.unwrap()).events.len(), 1);
+            assert_eq!(
+                (&recovered.archive_state().await.unwrap()).commands.len(),
+                1
+            );
         }
     }
 }
@@ -133,8 +136,18 @@ async fn migration_kills_leave_one_active_backend_and_an_unchanged_recovery_root
                     kind
                 }
             );
-            assert_eq!(active.store().state().watermark.get(), 1);
-            assert_eq!(active.store().state().commands.len(), 1);
+            assert_eq!(
+                (&active.store().archive_state().await.unwrap())
+                    .watermark
+                    .get(),
+                1
+            );
+            assert_eq!(
+                (&active.store().archive_state().await.unwrap())
+                    .commands
+                    .len(),
+                1
+            );
             let first: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(root.join("activation-00000000000000000000.json")).unwrap(),
             )
@@ -142,7 +155,10 @@ async fn migration_kills_leave_one_active_backend_and_an_unchanged_recovery_root
             let original = root.join("roots").join(first["root"].as_str().unwrap());
             if barrier == "after_activation" {
                 let source = Store::open(&original, kind, &[]).await.unwrap();
-                assert_eq!(source.state(), active.store().state());
+                assert_eq!(
+                    (&source.archive_state().await.unwrap()),
+                    (&active.store().archive_state().await.unwrap())
+                );
             }
             assert!(original.is_dir());
         }

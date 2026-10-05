@@ -151,6 +151,149 @@ fn prepare_at(root: &Root, request: Request) -> vcp_tools::Result<Prepared> {
     )
 }
 #[test]
+fn quoted_root_is_rejected_with_actionable_guidance_then_empty_root_prepares() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    fs::create_dir(&workspace).unwrap();
+    fs::write(workspace.join("source.txt"), "before\n").unwrap();
+    let root = root(&workspace);
+    let executable = temp.path().join("fixture.exe");
+    fs::write(&executable, b"synthetic identity, never executed").unwrap();
+    let profile = process::Profile::new(
+        "fixture".into(),
+        executable,
+        process::Mode::Direct,
+        Default::default(),
+        Default::default(),
+        true,
+    )
+    .unwrap();
+    assert!(process::Request::from_arguments(
+        r#"{"arguments":[],"directory":"","timeout_ms":1000,"output_bytes":4096,"input":null}"#,
+    )
+    .is_err());
+    for path in ["\"\"", "\\\"\\\"", ".", "/", "\\", ""] {
+        let listing = prepare_at(
+            &root,
+            Request::from_call(
+                "vcp_list",
+                &serde_json::json!({"path":path,"max_entries":100}).to_string(),
+            )
+            .unwrap(),
+        );
+        let execution = process::prepare(
+            root.clone(),
+            identity(),
+            profile.clone(),
+            process::Request::from_arguments(
+                &serde_json::json!({"profile":"fixture","arguments":[],"directory":path,"timeout_ms":1000,"output_bytes":4096,"input":null}).to_string(),
+            )
+            .unwrap(),
+        );
+        if path.is_empty() {
+            assert!(listing.is_ok());
+            assert!(execution.is_ok());
+        } else {
+            for error in [listing.err().unwrap(), execution.err().unwrap()] {
+                let message = error.to_string();
+                assert!(message.contains("zero characters"), "{message}");
+                assert!(message.contains("\"directory\":\"\""), "{message}");
+                assert!(message.contains("\"path\":\"\""), "{message}");
+            }
+        }
+    }
+    assert_eq!(fs::read(workspace.join("source.txt")).unwrap(), b"before\n");
+}
+
+#[test]
+fn unified_diff_header_fails_then_literal_patch_prepares_without_writing() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("source.txt"), "before\n").unwrap();
+    let root = root(temp.path());
+    for (header, valid) in [("@@ -1,1 +1,1 @@", false), ("@@", true)] {
+        let request = Request::from_call(
+            "vcp_patch",
+            &serde_json::json!({"patch":format!("*** Begin Patch\n*** Update File: source.txt\n{header}\n-before\n+after\n*** End Patch")}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(prepare_at(&root, request).is_ok(), valid, "{header}");
+    }
+    assert_eq!(
+        fs::read(temp.path().join("source.txt")).unwrap(),
+        b"before\n"
+    );
+}
+
+#[test]
+fn prefixed_patch_control_line_is_rejected_without_rewriting_literal_content() {
+    for ending in ["+*** End Patch", "+*** End Patch\n", "+*** End Patch\n+"] {
+        let malformed = format!("*** Begin Patch\n*** Add File: new.txt\n+content\n{ending}");
+        let error = patch::parse(&malformed).unwrap_err().to_string();
+        assert!(
+            error.contains("control lines must have no '+' prefix"),
+            "{error}"
+        );
+        assert!(error.contains("remove its leading '+'"), "{error}");
+        assert!(
+            error.contains("Do not change the added file's code"),
+            "{error}"
+        );
+    }
+    let corrected = "*** Begin Patch\n*** Add File: new.txt\n+content\n*** End Patch";
+    assert!(patch::parse(corrected).is_ok());
+    // A correctly delimited patch may add text that resembles a control line.
+    assert!(patch::parse(
+        "*** Begin Patch\n*** Add File: literal.txt\n+*** End Patch\n*** End Patch"
+    )
+    .is_ok());
+}
+
+#[test]
+fn nested_add_prepares_directory_authority_without_creating_anything() {
+    let temp = tempfile::tempdir().unwrap();
+    let r = root(temp.path());
+    fs::create_dir(temp.path().join("src")).unwrap();
+    let patch = "*** Begin Patch\n*** Add File: src/Data/Models/one.cs\n+one\n*** Add File: src/Data/Models/two.cs\n+two\n*** End Patch";
+    let p = prepare_at(
+        &r,
+        Request::Patch {
+            patch: patch.into(),
+        },
+    )
+    .unwrap();
+    assert!(!temp.path().join("src/Data").exists());
+    p.revalidate().unwrap();
+    let resources = &p.authority().operation().resources;
+    for path in [
+        "src/Data",
+        "src/Data/Models",
+        "src/Data/Models/one.cs",
+        "src/Data/Models/two.cs",
+    ] {
+        assert!(resources
+            .iter()
+            .any(|resource| resource.path == path && resource.write));
+    }
+    assert!(resources
+        .iter()
+        .any(|resource| resource.path == "src" && !resource.write));
+    fs::create_dir(temp.path().join("src/Data")).unwrap();
+    assert!(
+        p.revalidate().is_err(),
+        "a newly appeared directory requires fresh preparation"
+    );
+    let overlapping = "*** Begin Patch\n*** Add File: conflict\n+file\n*** Add File: conflict/child\n+child\n*** End Patch";
+    assert!(prepare_at(
+        &r,
+        Request::Patch {
+            patch: overlapping.into()
+        }
+    )
+    .is_err());
+    assert!(!temp.path().join("conflict").exists());
+}
+
+#[test]
 fn multi_file_preparation_preserves_crlf_and_utf16_without_effects() {
     let temp = tempfile::tempdir().unwrap();
     let r = root(temp.path());

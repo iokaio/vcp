@@ -189,13 +189,13 @@ impl CanonicalHost {
             if !context.engine.store().spool().unfinished()?.is_empty() {
                 return Err("capture recovery incomplete".into());
             }
-            Ok(search_record::inventory(
+            Ok(context.runtime.block_on(search_record::inventory(
                 context.engine.store(),
                 &context.memory_access(),
                 &sources,
                 &chunker,
                 search_record::Limits::default(),
-            )?)
+            ))?)
         }) {
             Ok(inventory) => inventory,
             Err(error) => return Ok(Outcome::early(Status::Deferred(error))),
@@ -265,7 +265,7 @@ impl CanonicalHost {
                         let workspace: Workspace = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Workspace,
                                 checked.scope.workspace.as_str(),
@@ -334,7 +334,7 @@ impl CanonicalHost {
                     let workspace: Workspace = context
                         .engine
                         .store()
-                        .state()
+                        .current()
                         .record(
                             Collection::Workspace,
                             captured.workspace.as_str(),
@@ -348,7 +348,7 @@ impl CanonicalHost {
                     }
                     // Any canonical source change during the bounded build requires
                     // replan; this conservative fence cannot publish stale coverage.
-                    if context.engine.store().state().watermark != captured.watermark {
+                    if context.engine.store().current().watermark != captured.watermark {
                         return Err("canonical source snapshot changed during vector build".into());
                     }
                     Ok(())

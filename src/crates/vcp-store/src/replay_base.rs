@@ -36,7 +36,16 @@ impl ReplayBase {
         if read_bounded(&seal, 64)? != digest_bytes(&bytes).as_bytes() {
             return Err(Error::Corruption("replay base seal"));
         }
-        let value: Self = serde_json::from_slice(&bytes)?;
+        Self::decode(&bytes).map(Some)
+    }
+    /// Shared semantic decoder for the exact retained legacy boundary. Archive
+    /// callers first authenticate and completely stage its bounded Blob bytes;
+    /// decoding grants no native ownership or destination execution authority.
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() > MAX_STATE_BYTES + 1024 * 1024 {
+            return Err(Error::Limit("serialized metadata"));
+        }
+        let value: Self = serde_json::from_slice(bytes)?;
         if canonical_bytes(&value)? != bytes {
             return Err(Error::Corruption("noncanonical replay base"));
         }
@@ -74,7 +83,7 @@ impl ReplayBase {
         }
         value.state.validate()?;
         validate_receipts(&value.state)?;
-        Ok(Some(value))
+        Ok(value)
     }
     pub fn write(
         root: &Path,
@@ -88,9 +97,10 @@ impl ReplayBase {
         // seam cannot change ordering, retry commitments or command outcomes.
         crate::redaction_contract::validate_rewrite(source, state)?;
         let mut prefixes = prefixes.to_vec();
+        let source_digest = crate::legacy_state_stream::digest(source)?;
         let source_prefix = PrefixCommitment {
             watermark: source.watermark,
-            digest: digest_bytes(&canonical_bytes(source)?),
+            digest: source_digest.clone(),
         };
         if !prefixes.contains(&source_prefix) {
             prefixes.push(source_prefix);
@@ -100,7 +110,7 @@ impl ReplayBase {
         }
         let value = Self {
             version: 1,
-            source_digest: digest_bytes(&canonical_bytes(source)?),
+            source_digest,
             state: state.clone(),
             prefixes,
         };

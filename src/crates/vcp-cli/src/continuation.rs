@@ -11,7 +11,10 @@ use vcp_domain::{
     task::{Task, TaskState},
 };
 use vcp_protocol::command::{Approval, ApprovalState};
-use vcp_store::contract::{Collection, State};
+use vcp_store::{
+    contract::{CanonicalStore, Collection, State},
+    CurrentStateView,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Child {
@@ -58,9 +61,69 @@ pub struct Discovery {
 
 pub fn discover(state: &State, workspace: &WorkspaceId) -> Result<Discovery, String> {
     let rows = candidates(state, workspace)?;
+    discovery(state.watermark, workspace, rows)
+}
+
+pub async fn discover_store(
+    store: &impl CanonicalStore,
+    workspace: &WorkspaceId,
+) -> Result<Discovery, String> {
+    let rows = candidates_store(store, workspace).await?;
+    discovery(store.current().watermark, workspace, rows)
+}
+
+#[cfg(windows)]
+pub fn discover_live(
+    host: &vcp_lifecycle::foundation::CanonicalHost,
+    workspace: &WorkspaceId,
+) -> Result<Discovery, String> {
+    let reader = host.history_reader()?;
+    let mut members = BTreeMap::<TaskId, Vec<usize>>::new();
+    let mut index = 0usize;
+    let mut rows = candidates_from(reader.current(), workspace, |tasks| {
+        for task in tasks {
+            members.entry(task.clone()).or_default().push(index);
+        }
+        index += 1;
+        None
+    })?;
+    let mut at = 0u64;
+    loop {
+        let page = reader.page(at.checked_sub(1), 256)?;
+        if page.events.is_empty() && at < page.count {
+            return Err("continuation history ended before its cut".into());
+        }
+        for event in page.events {
+            at += 1;
+            if &event.event.workspace != workspace {
+                continue;
+            }
+            if let Some(indices) = event.event.task.as_ref().and_then(|task| members.get(task)) {
+                for index in indices {
+                    rows[*index].last_activity =
+                        rows[*index].last_activity.max(Some(event.event.timestamp));
+                }
+            }
+        }
+        if at == page.count {
+            break;
+        }
+        if at > page.count {
+            return Err("continuation history exceeded its cut".into());
+        }
+    }
+    sort(&mut rows);
+    discovery(reader.current().watermark, workspace, rows)
+}
+
+fn discovery(
+    watermark: Watermark,
+    workspace: &WorkspaceId,
+    rows: Vec<Candidate>,
+) -> Result<Discovery, String> {
     let mut discovery = Discovery {
         workspace: workspace.clone(),
-        watermark: state.watermark,
+        watermark,
         truncated: rows.len() > 128,
         candidates: Vec::new(),
     };
@@ -130,6 +193,80 @@ fn truncate_text(text: &mut String, limit: usize) -> bool {
 /// Callers resolve/reconcile the workspace binding before offering continuation.
 /// Ordering is descending last activity, then ascending opaque task ID.
 pub fn candidates(state: &State, workspace: &WorkspaceId) -> Result<Vec<Candidate>, String> {
+    let mut result = candidates_from(state.into(), workspace, |members| {
+        state
+            .events
+            .iter()
+            .filter(|e| {
+                &e.event.workspace == workspace
+                    && e.event.task.as_ref().is_some_and(|t| members.contains(t))
+            })
+            .map(|e| e.event.timestamp)
+            .max()
+    })?;
+    sort(&mut result);
+    Ok(result)
+}
+
+/// Retains only one activity timestamp per current candidate while scanning
+/// authenticated global rows once. Missing or failed history is never rendered
+/// as an apparently inactive task.
+pub async fn candidates_store(
+    store: &impl CanonicalStore,
+    workspace: &WorkspaceId,
+) -> Result<Vec<Candidate>, String> {
+    let watermark = store.current().watermark;
+    let mut members = BTreeMap::<TaskId, Vec<usize>>::new();
+    let mut row = 0usize;
+    let mut result = candidates_from(store.current(), workspace, |tasks| {
+        for task in tasks {
+            members.entry(task.clone()).or_default().push(row);
+        }
+        row += 1;
+        None
+    })?;
+    let count = store
+        .history_event_count()
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut at = 0u64;
+    while at < count {
+        let limit = (count - at).min(256) as usize;
+        let events = store
+            .history_events(at.checked_sub(1), limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        if events.is_empty() || events.len() > limit || store.current().watermark != watermark {
+            return Err("workspace continuation history cut changed or incomplete".into());
+        }
+        for event in events {
+            if event.watermark > watermark {
+                return Err("workspace continuation event exceeds source cut".into());
+            }
+            at += 1;
+            if &event.event.workspace != workspace {
+                continue;
+            }
+            if let Some(rows) = event.event.task.as_ref().and_then(|task| members.get(task)) {
+                for row in rows {
+                    result[*row].last_activity =
+                        result[*row].last_activity.max(Some(event.event.timestamp));
+                }
+            }
+        }
+    }
+    if store.current().watermark != watermark {
+        return Err("workspace continuation source changed".into());
+    }
+    sort(&mut result);
+    Ok(result)
+}
+
+fn candidates_from(
+    state: CurrentStateView<'_>,
+    workspace: &WorkspaceId,
+    mut activity: impl FnMut(&BTreeSet<TaskId>) -> Option<Timestamp>,
+) -> Result<Vec<Candidate>, String> {
     let mut tasks = BTreeMap::<TaskId, Task>::new();
     let mut effects = Vec::<Effect>::new();
     let mut artifacts = Vec::<ArtifactDescriptor>::new();
@@ -196,15 +333,7 @@ pub fn candidates(state: &State, workspace: &WorkspaceId) -> Result<Vec<Candidat
                 paused_ancestors,
             });
         }
-        let last_activity = state
-            .events
-            .iter()
-            .filter(|e| {
-                &e.event.workspace == workspace
-                    && e.event.task.as_ref().is_some_and(|t| members.contains(t))
-            })
-            .map(|e| e.event.timestamp)
-            .max();
+        let last_activity = activity(&members);
         let observed_changes: BTreeSet<_> = effects
             .iter()
             .filter(|e| members.contains(&e.scope.task))
@@ -274,12 +403,15 @@ pub fn candidates(state: &State, workspace: &WorkspaceId) -> Result<Vec<Candidat
                 .collect(),
         });
     }
+    Ok(result)
+}
+
+fn sort(result: &mut [Candidate]) {
     result.sort_by(|a, b| {
         b.last_activity
             .cmp(&a.last_activity)
             .then_with(|| a.task.cmp(&b.task))
     });
-    Ok(result)
 }
 
 #[cfg(test)]
@@ -289,6 +421,121 @@ mod tests {
     use vcp_domain::{revision::*, task::Objective, verification::Fingerprint, workspace::Scope};
     use vcp_protocol::event::{EventEnvelope, EventInput, EventKind};
     use vcp_store::contract::Record;
+
+    struct Bounded<'a> {
+        current: CurrentStateView<'a>,
+        events: Vec<EventEnvelope>,
+        mode: u8,
+    }
+    impl vcp_store::contract::reference::ReferenceStore for Bounded<'_> {
+        fn state(&self) -> &State {
+            panic!("live continuation must not request archival State")
+        }
+        fn current(&self) -> CurrentStateView<'_> {
+            self.current
+        }
+        async fn history_event_count(&self) -> vcp_store::Result<u64> {
+            Ok(self.events.len() as u64)
+        }
+        async fn history_events(
+            &self,
+            after: Option<u64>,
+            limit: usize,
+        ) -> vcp_store::Result<Vec<EventEnvelope>> {
+            assert!((1..=256).contains(&limit));
+            let first = after.map_or(0, |n| n + 1) as usize;
+            if self.mode == 1 && first > 0 {
+                return Err(vcp_store::Error::Corruption("injected history failure"));
+            }
+            if self.mode == 2 {
+                return Ok(vec![]);
+            }
+            Ok(self.events.iter().skip(first).take(1).cloned().collect())
+        }
+        async fn transact(
+            &mut self,
+            _: vcp_store::contract::Transaction,
+        ) -> vcp_store::Result<vcp_store::contract::Receipt> {
+            panic!("read only")
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_continuation_and_agent_activity_match_archive_and_fail_closed() {
+        let mut state = State::default();
+        let workspace = WorkspaceId::new();
+        let a = add_task(&mut state, &workspace, "a", None, TaskState::Paused);
+        add_task(&mut state, &workspace, "b", None, TaskState::Paused);
+        let child = add_task(
+            &mut state,
+            &workspace,
+            "child",
+            Some("b"),
+            TaskState::Paused,
+        );
+        state.watermark = Watermark::new(1);
+        for (index, (task, timestamp)) in [
+            (child.scope.task.clone(), 9),
+            (a.scope.task.clone(), 5),
+            (child.scope.task.clone(), 3),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            state.events.push(EventEnvelope {
+                version: 1,
+                sequence: SessionSeq::new(index as u64 + 1),
+                watermark: state.watermark,
+                redaction: None,
+                event: EventInput {
+                    id: EventId::new(),
+                    workspace: workspace.clone(),
+                    session: child.scope.session.clone(),
+                    task: Some(task),
+                    actor: ActorId::new(),
+                    correlation: CommandId::new(),
+                    causation: None,
+                    timestamp: Timestamp::new(timestamp),
+                    kind: EventKind::Commentary,
+                    artifacts: vec![],
+                    data: json!({}),
+                    metadata: None,
+                },
+            });
+        }
+        let mut bounded = Bounded {
+            current: (&state).into(),
+            events: state.events.to_vec(),
+            mode: 0,
+        };
+        let expected = serde_json::to_value(candidates(&state, &workspace).unwrap()).unwrap();
+        let live =
+            serde_json::to_value(candidates_store(&bounded, &workspace).await.unwrap()).unwrap();
+        assert_eq!(live, expected);
+        assert_eq!(live[0]["task"], "b");
+        assert_eq!(live[0]["last_activity"], "9");
+        let root = Scope {
+            workspace: workspace.clone(),
+            session: child.scope.session.clone(),
+            task: child.root.clone(),
+        };
+        let expected = crate::agents_view::page(&state, &root, Timestamp::new(10), 0).unwrap();
+        let live = crate::agents_view::page_store(&bounded, &root, Timestamp::new(10), 0)
+            .await
+            .unwrap();
+        assert_eq!(live, expected);
+        // Agent activity uses last canonical ordinal, not maximum timestamp.
+        assert_eq!(live["items"][0]["last_activity"]["timestamp"], "3");
+        for mode in [1, 2] {
+            bounded.mode = mode;
+            assert!(candidates_store(&bounded, &workspace).await.is_err());
+            assert!(
+                crate::agents_view::page_store(&bounded, &root, Timestamp::new(10), 0)
+                    .await
+                    .is_err()
+            );
+        }
+    }
 
     fn add_task(
         state: &mut State,

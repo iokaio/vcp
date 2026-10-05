@@ -501,7 +501,7 @@ async fn public_task_controls_pause_or_cancel_active_descendants_without_closing
                 vcp_budget::ledger(&state, &after.scope)
                     .unwrap()
                     .unresolved
-                    .get()
+                    .known().unwrap().get()
                     > 0
             );
             let _ = release_root.send(());

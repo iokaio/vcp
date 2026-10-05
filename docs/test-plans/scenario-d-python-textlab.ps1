@@ -46,6 +46,9 @@ Import-Module (Join-Path $PSScriptRoot 'VcpScenarioHarness.psm1') -Force
 $ctx = Initialize-VcpScenario -Name 'd-python-textlab' -RunRoot $RunRoot -ProjectPath $ProjectPath -Vcp $Vcp -ProviderGeneration $ProviderGeneration `
     -TurnBudgetUsd $TurnBudgetUsd -MaxScenarioUsd $MaxScenarioUsd -MaxRepairTurns $MaxRepairTurns -OutputTokens $OutputTokens `
     -MaxRequests $MaxRequests -DeadlineSeconds $DeadlineSeconds -ShortDeadlineSeconds $ShortDeadlineSeconds -AllowProcessPublish:$AllowProcessPublish -SkipPaidStages:$SkipPaidStages
+# Finalize initialized runs even when toolchain discovery or fixture setup fails.
+$exitCode = 1
+try {
 $ws = $ctx.Workspace
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
@@ -608,8 +611,19 @@ function Test-Robustness([string]$Stage, [string]$Models) {
             $a = Invoke-Python $Stage 'predict-strict' @('-m', 'textlab', 'predict', '--model-dir', $Models, '--input', $holdoutPath, '--output', $strict, '--min-confidence', '0.999')
             $b = Invoke-Python $Stage 'predict-open' @('-m', 'textlab', 'predict', '--model-dir', $Models, '--input', $holdoutPath, '--output', $open, '--min-confidence', '0')
             Assert-That ($a.ExitCode -eq 0 -and $b.ExitCode -eq 0) "exits $($a.ExitCode)/$($b.ExitCode)"
-            $review = @(Import-Csv -LiteralPath $strict | Where-Object category -eq 'needs_review').Count
-            $none = @(Import-Csv -LiteralPath $open | Where-Object category -eq 'needs_review').Count
+            $strictRows = @(Import-Csv -LiteralPath $strict)
+            $openRows = @(Import-Csv -LiteralPath $open)
+            [void](Get-PredictionMetrics $openRows $holdoutRows $labels 'category')
+            Assert-That ($strictRows.Count -eq $holdoutRows.Count) 'strict batch output row count differs from input'
+            for ($i = 0; $i -lt $strictRows.Count; $i++) {
+                Assert-That ($strictRows[$i].id -ceq $holdoutRows[$i].id) "strict batch output id/order differs at row $i"
+                Assert-Probability $strictRows[$i].category_confidence "strict category confidence at row $i"
+                Assert-That ([double]$strictRows[$i].category_confidence -eq [double]$openRows[$i].category_confidence) "confidence changed with review threshold at row $i"
+                $expectedCategory = if ([double]$openRows[$i].category_confidence -lt 0.999) { 'needs_review' } else { $openRows[$i].category }
+                Assert-That ($strictRows[$i].category -ceq $expectedCategory) "review threshold misapplied at row $i"
+            }
+            $review = @($strictRows | Where-Object category -eq 'needs_review').Count
+            $none = @($openRows | Where-Object category -eq 'needs_review').Count
             Assert-That ($review -ge 1 -and $none -eq 0) "needs_review strict=$review open=$none"; $true })
 }
 
@@ -694,8 +708,6 @@ function Test-ProtectedUnchanged([string]$Stage, [hashtable]$Hashes) {
 
 $regressionNames = @('test_fullwidth_and_case_are_normalized', 'test_urls_are_masked', 'test_emails_are_masked', 'test_order_numbers_are_masked', 'test_whitespace_only_text_normalizes_to_empty')
 
-$exitCode = 1
-try {
     Invoke-CommonPreflight $ctx
 
     # --- B0 ---------------------------------------------------------------
@@ -735,6 +747,7 @@ try {
     $profileBounds = New-ScenarioProfile -Ctx $ctx -Name 'profile-bad-bounds' -AffectedPaths $affected -Processes @($pythonProcess) -Guardrail
     Write-Utf8File $profileBounds ([regex]::Replace([System.IO.File]::ReadAllText($profileBounds), '"max_requests":\s*\d+', '"max_requests": 0'))
     foreach ($pair in @(@('main', $profileMain), @('short', $profileShort), @('review', $profileReview))) { [void](Test-ProfileCheck $ctx $stage $pair[1] $pair[0]) }
+    [void](Test-ProcessEnvironment $ctx $stage $pythonProcess 'python-tests' @('-m', 'pytest', '-q'))
 
     # --- G0: zero-spend guardrail: resource bounds -------------------------
     $guardPrompt = Join-Path $ctx.Logs 'G0-guardrail\prompt.md'
@@ -825,6 +838,7 @@ try {
                         $diff = Compare-WorkspaceManifest $before (Get-WorkspaceManifest $ws -IncludeGenerated)
                         Assert-That ($diff.Changed -eq 0) ('changed: ' + (($diff.Added + $diff.Modified + $diff.Removed) -join ', ')); $true })
                 [void](Invoke-Gate -Ctx $ctx -Stage 'T7-fork' -Id 'review-consistency' -Description 'forked review cites an overlapping set of files (Jaccard >= 0.3)' -Advisory -Test {
+                        [void](Get-VcpStageFinalMessage -Ctx $ctx -StageRecord $fork)
                         $first = Join-Path $ctx.Logs 'T6-review\final-message.md'; $second = Join-Path $ctx.Logs 'T7-fork\final-message.md'
                         Assert-That ((Test-Path -LiteralPath $first) -and (Test-Path -LiteralPath $second)) 'final messages unavailable'
                         $pattern = '(?:src|tests|data)/[A-Za-z0-9_./-]+\.(?:py|csv|toml)'

@@ -69,7 +69,7 @@ async fn observer_retention_closure_scrubs_payload_and_keeps_absorbing_identity(
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: original.clone(),
                     expected: None,
@@ -97,22 +97,25 @@ async fn observer_retention_closure_scrubs_payload_and_keeps_absorbing_identity(
             Action::Purge,
             Timestamp::new(300),
         )
+        .await
         .unwrap();
         assert!(preview.selected.contains(&target) || preview.dependent.contains(&target));
         let receipt = retention::apply(&mut store, &access, &preview, Timestamp::new(301))
             .await
             .unwrap();
-        assert!(!retention::recall_allowed(store.state(), &access.workspace, &target).unwrap());
+        assert!(!retention::recall_allowed(store.current(), &access.workspace, &target).unwrap());
         retention::cleanup(&mut store, &access, &receipt.id, Timestamp::new(302))
             .await
             .unwrap();
-        let row = &store.state().records[&original.key()];
+        let row = &store.current().records[&original.key()];
         let tombstone: redaction::RedactedObserver = row.decode().unwrap();
         tombstone.validate().unwrap();
         assert_eq!(tombstone.id, original.id);
         assert!(row.value.get("state").is_none());
-        let retained =
-            String::from_utf8(vcp_protocol::canonical_bytes(store.state()).unwrap()).unwrap();
+        let retained = String::from_utf8(
+            vcp_protocol::canonical_bytes(&store.archive_state().await.unwrap()).unwrap(),
+        )
+        .unwrap();
         for marker in [
             "private-observer-copy",
             &vcp_protocol::digest_bytes(b"private-input-marker"),
@@ -126,7 +129,7 @@ async fn observer_retention_closure_scrubs_payload_and_keeps_absorbing_identity(
         assert!(store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: replacement,
                     expected: Some(Revision::ZERO)
@@ -138,9 +141,9 @@ async fn observer_retention_closure_scrubs_payload_and_keeps_absorbing_identity(
             .is_err());
         store.close().await.unwrap();
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
-        assert!(retention::purged(reopened.state(), &access.workspace, &target).unwrap());
+        assert!(retention::purged(reopened.current(), &access.workspace, &target).unwrap());
         assert_eq!(
-            reopened.state().records[&original.key()].value["document_type"],
+            reopened.current().records[&original.key()].value["document_type"],
             redaction::OBSERVER
         );
     }

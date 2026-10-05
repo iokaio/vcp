@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use vcp_cli::backup::{self, Backup, Keys};
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 fn native(path: &Path) -> String {
@@ -212,7 +213,7 @@ async fn installed_editor_publishes_encrypted_backup_and_reloads_only_as_observe
         assert_no_private_profile(&user.join("User"), &publisher_profile);
         let store = reopen(&entry.config.canonical_root, backend).await;
         let jobs: Vec<vcp_store::snapshot_jobs::Job> = store
-            .state()
+            .current()
             .records
             .values()
             .filter(|r| {
@@ -228,8 +229,7 @@ async fn installed_editor_publishes_encrypted_backup_and_reloads_only_as_observe
         assert!(!job.active);
         assert!(job.pins.is_empty());
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|receipt| receipt.command == job.id)
@@ -237,7 +237,7 @@ async fn installed_editor_publishes_encrypted_backup_and_reloads_only_as_observe
             1
         );
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Attempt));

@@ -54,13 +54,14 @@ jobs:
         timeout-minutes: 2
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/msvc-supervision-smoke | Out-Null
-          node --test src/tests/contracts/build-progress.test.cjs src/tests/contracts/build-progress-services.test.cjs src/tests/contracts/ci-native-boundaries.test.cjs src/tests/contracts/build-environment.test.cjs 2>&1 | Tee-Object -FilePath artifacts/msvc-supervision-smoke/contracts.log
+          node --test src/tests/contracts/build-progress.test.cjs src/tests/contracts/build-progress-services.test.cjs src/tests/contracts/ci-native-boundaries.test.cjs src/tests/contracts/build-environment.test.cjs src/tests/contracts/local-deploy.test.cjs 2>&1 | Tee-Object -FilePath artifacts/msvc-supervision-smoke/contracts.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile and link a real MSVC supervision probe
         timeout-minutes: 2
         run: ./scripts/release/msvc-supervision-smoke.ps1
       - name: Run offline CLI scenario regressions
-        timeout-minutes: 2
+        # The expanded 37-script batch takes about two minutes locally.
+        timeout-minutes: 4
         run: |
           New-Item -ItemType Directory -Force -Path artifacts/cli-scenario-regressions | Out-Null
           foreach ($test in Get-ChildItem docs/test-plans/tests -Filter '*.Tests.ps1' | Sort-Object Name) {
@@ -144,7 +145,7 @@ jobs:
           VCP_SKILL_PLAYWRIGHT: ${{ github.workspace }}/src/tests/skills/browser/node_modules/playwright
         run: node --test src/tests/contracts/ported-skill-authoring.test.cjs src/tests/contracts/ported-webapp.test.cjs
   skill-runtime:
-    name: Skill runtime (Rust)
+    name: Portable Rust contracts
     if: github.event_name != 'workflow_dispatch' || !inputs.native_boundaries_only
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -174,6 +175,14 @@ jobs:
       # (ADR-068), so the frozen fixture contract runs in the Windows job.
       - name: Test descriptor, discovery and catalog contracts
         run: cargo test --locked -p vcp-extensions
+      # EE-03a/b/c: synthetic inputs exercise the production codec and context
+      # selection without private campaign spools, credentials or native tools.
+      - name: Test context selection and working-set reconstruction
+        run: cargo test --locked -p vcp-context --lib --test assembly --test working_set
+      - name: Test adaptive allocation boundaries
+        run: cargo test --locked -p vcp-models --lib allocation::tests
+      - name: Test verbose history with the production provider codec
+        run: cargo test --locked -p vcp-models --test provider context_capacity
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.

@@ -8,6 +8,7 @@
       "cs2-developer",
       "cs3-webapp",
       "experiments",
+      "execution-analysis",
       "upstream-inventory",
       "upstream-source",
       "munarium-source",
@@ -46,6 +47,14 @@
     ]
   },
   "cases": {
+    "execution-analysis": {
+      "task_ids": ["EE-00c"],
+      "args": ["--test", "src/tests/contracts/execution-analysis.test.cjs", "src/tests/contracts/execution-archive-export.test.cjs", "src/tests/contracts/invocation-stream.test.cjs"],
+      "backends": ["none"],
+      "requires": [],
+      "timeout_ms": 30000,
+      "max_output_bytes": 2097152
+    },
     "cs3-webapp": {
       "task_ids": ["CS-3"],
       "args": ["--test", "src/tests/contracts/webapp-candidate.test.cjs", "src/tests/contracts/webapp-server.test.cjs", "src/tests/contracts/webapp-fixtures.test.cjs"],
@@ -104,7 +113,7 @@
     },
     "beta-orchestration": {
       "task_ids": ["P8-01", "P8-04"],
-      "args": ["--test", "--test-reporter=tap", "src/tests/contracts/candidate-state.test.cjs", "src/tests/contracts/build-progress.test.cjs", "src/tests/contracts/candidate-stages.test.cjs", "src/tests/contracts/build-environment.test.cjs", "src/tests/contracts/candidate-download-cache.test.cjs"],
+      "args": ["--test", "--test-reporter=tap", "src/tests/contracts/candidate-state.test.cjs", "src/tests/contracts/build-progress.test.cjs", "src/tests/contracts/candidate-stages.test.cjs", "src/tests/contracts/build-environment.test.cjs", "src/tests/contracts/local-deploy.test.cjs", "src/tests/contracts/candidate-download-cache.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 120000,
@@ -152,7 +161,7 @@
     },
     "p6-live-runner": {
       "task_ids": ["P6-04"],
-      "args": ["--test", "src/tests/contracts/p6-live-runner.test.cjs"],
+      "args": ["--test", "src/tests/contracts/p6-live-runner.test.cjs", "src/tests/contracts/model-rotation-live-runner.test.cjs"],
       "backends": ["none"],
       "requires": [],
       "timeout_ms": 30000,

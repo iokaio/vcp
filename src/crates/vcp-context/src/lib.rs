@@ -5,3 +5,4 @@ pub mod compaction;
 pub mod handoff;
 pub mod manifest;
 pub mod selection;
+pub mod working_set;

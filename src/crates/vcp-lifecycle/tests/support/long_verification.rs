@@ -155,7 +155,7 @@ async fn run(backend: BackendKind, exec: bool) {
             operating: "Run the configured long verification".into(),
             affected_paths: vec!["long.test.cjs".into()],
             max_requests: 1,
-            deadline: Timestamp::new(now + 600_000),
+            deadline: Timestamp::new(now + 600_000).into(),
         },
     )
     .unwrap();

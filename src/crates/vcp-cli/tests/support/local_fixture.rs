@@ -16,6 +16,7 @@ use vcp_domain::{
 };
 use vcp_lifecycle::foundation::{CanonicalHost, Config};
 use vcp_protocol::command::Command;
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 pub(crate) struct Fixture {
@@ -51,7 +52,8 @@ impl Fixture {
             cap: Money {
                 currency: currency.clone(),
                 micros: Micros::ZERO,
-            },
+            }
+            .into(),
             protected: Micros::ZERO,
             price: PriceSnapshot {
                 id: "a".repeat(64),
@@ -378,7 +380,7 @@ pub(crate) fn accepted(response: &Value) -> &Value {
 }
 pub(crate) fn assert_offline_paused(store: &Store, config: &Config) {
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             config.root_task.as_str(),
@@ -389,7 +391,7 @@ pub(crate) fn assert_offline_paused(store: &Store, config: &Config) {
         .unwrap();
     assert_eq!(task.state, TaskState::Paused);
     assert!(!store
-        .state()
+        .current()
         .records
         .values()
         .any(|row| matches!(row.collection, Collection::Attempt | Collection::Effect)));

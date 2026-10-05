@@ -25,7 +25,7 @@ use vcp_models::{
     stream::{ResultBody, Status},
 };
 use vcp_protocol::{canonical_bytes, command::Command, digest_bytes};
-use vcp_store::{contract::Collection, BackendKind};
+use vcp_store::{contract::{CanonicalStore, Collection}, BackendKind};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub mod connection;
 pub mod metadata;
@@ -103,7 +103,7 @@ fn setup(
         cap: Money {
             currency: "USD".to_owned().try_into()?,
             micros: crate::args::parse_usd(&spec.cap_usd)?,
-        },
+        }.into(),
         protected: Micros::ZERO,
         price: candidate.price.clone(),
         input_ceiling: candidate.max_input,
@@ -386,7 +386,7 @@ async fn execute(
         Ok(vec![first, second])
     }
     .await;
-    let state = host.snapshot()?;
+    let state = host.current_state()?;
     let records: Vec<_> = state
         .records
         .values()

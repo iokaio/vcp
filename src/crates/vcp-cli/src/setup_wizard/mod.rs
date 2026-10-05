@@ -199,12 +199,33 @@ fn role_label(role: &str) -> &str {
     }
 }
 
-fn choose_set(prompt: &mut impl Prompter, mut set: ModelSet) -> Result<ModelSet, String> {
+fn choose_set(
+    prompt: &mut impl Prompter,
+    mut set: ModelSet,
+    choices: &mut std::collections::BTreeMap<String, Vec<model_preferences::ChoicePreferences>>,
+) -> Result<ModelSet, String> {
     loop {
         display_set(prompt, &set);
+        for (role, sets) in choices.iter() {
+            for (index, choice) in sets.iter().enumerate() {
+                prompt.say(&format!(
+                    "  {} choice {}: rotate {}; reference ceiling: {}",
+                    role_label(role),
+                    index + 1,
+                    choice.models.join(", "),
+                    choice
+                        .max_reference_request_cost_usd
+                        .as_deref()
+                        .unwrap_or("2x reference cost")
+                ));
+                for (model, endpoints) in &choice.endpoints {
+                    prompt.say(&format!("    {model} endpoints: {}", endpoints.join(", ")));
+                }
+            }
+        }
         match answer(
             prompt,
-            "Use this set [Enter], choose another set [choose], or customize [customize]: ",
+            "Use these selections [Enter], choose a set [choose], customize fallback [customize], or edit choice sets [rotate]: ",
             "use",
         )?
         .as_str()
@@ -214,6 +235,7 @@ fn choose_set(prompt: &mut impl Prompter, mut set: ModelSet) -> Result<ModelSet,
                     version: 1,
                     set: set.clone(),
                     budget_usd: "1".into(),
+                    choice_sets: choices.clone(),
                 })
                 .validate()
                 {
@@ -280,6 +302,7 @@ fn choose_set(prompt: &mut impl Prompter, mut set: ModelSet) -> Result<ModelSet,
                         });
                     if let Some(chosen) = chosen {
                         set = chosen.clone();
+                        choices.clear();
                         break;
                     }
                     prompt.say("Choose a displayed set number or ID, or cancel to stop.");
@@ -309,16 +332,43 @@ fn choose_set(prompt: &mut impl Prompter, mut set: ModelSet) -> Result<ModelSet,
                     version: 1,
                     set: customized.clone(),
                     budget_usd: "1".into(),
+                    choice_sets: Default::default(),
                 })
                 .validate()
                 {
-                    Ok(()) => set = customized,
+                    Ok(()) => {set = customized; choices.clear();},
                     Err(error) => prompt.say(&format!(
                         "{error}. Previous selections were kept; choose customize to try again."
                     )),
                 }
             }
-            _ => prompt.say("Choose use, choose, or customize; type cancel to stop."),
+            "rotate" => {
+                let role = answer(prompt,"Role to rotate [main]: ","main")?;
+                let mut preferences = Preferences {set:set.clone(),choice_sets:choices.clone(),..Preferences::default()};
+                preferences.choice_sets.remove(&role);
+                let mut valid = true;
+                for choice in 1..=3 {
+                    let existing = choices.get(&role).and_then(|sets| sets.get(usize::from(choice-1))).map(|set| set.models.join(","));
+                    let default = existing.as_deref().unwrap_or(if choice == 1 {set.roles.get(&role).and_then(|models| models.first()).map(String::as_str).unwrap_or("")} else {""});
+                    let models = answer(prompt,&format!("Choice {choice} model IDs, comma separated [{default}]; empty ends choices: "),default)?;
+                    if models.is_empty() {break;}
+                    let default_ceiling = choices.get(&role).and_then(|sets| sets.get(usize::from(choice-1))).and_then(|set| set.max_reference_request_cost_usd.as_deref()).unwrap_or("");
+                    let ceiling = answer(prompt, if choice==3 {"Third choice reference-request ceiling in USD (required): "} else {"Reference-request ceiling in USD [Enter uses 2x reference cost]: "},default_ceiling)?;
+                    if let Err(error) = model_preferences::set_choice(&mut preferences,&role,choice,models.split(',').map(|model| model.trim().to_owned()).collect(),if ceiling.is_empty(){None}else{Some(ceiling)}) {
+                        prompt.say(&format!("{error}. Previous choices were kept.")); valid=false;break;
+                    }
+                    if let Some(previous) = choices.get(&role).and_then(|sets| sets.get(usize::from(choice-1))) {
+                        let selected = &mut preferences.choice_sets.get_mut(&role).ok_or("rotation role unavailable")?[usize::from(choice-1)];
+                        selected.endpoints = previous.endpoints.iter().filter(|(model,_)| selected.models.contains(model)).map(|(model,endpoints)|(model.clone(),endpoints.clone())).collect();
+                    }
+                }
+                if valid && preferences.choice_sets.contains_key(&role) {
+                    *choices=preferences.choice_sets;
+                    set=preferences.set;
+                    prompt.say("Selections are owner preferences. Exact endpoints and price ceilings are validated before new tasks; no model calls were made.");
+                }
+            }
+            _ => prompt.say("Choose use, choose, customize, or rotate; type cancel to stop."),
         }
     }
 }
@@ -429,7 +479,7 @@ fn models_interview(
     } else {
         model_preferences::read(root)?.unwrap_or_default()
     };
-    prefs.set = choose_set(prompt, prefs.set)?;
+    prefs.set = choose_set(prompt, prefs.set, &mut prefs.choice_sets)?;
     prefs.validate()?;
     if !yes(
         prompt,
@@ -455,7 +505,11 @@ async fn interview(prompt: &mut impl Prompter, backend: &mut impl Backend) -> Re
         .as_ref()
         .map(|prefs| prefs.set.clone())
         .unwrap_or_else(|| model_preferences::builtin_sets().remove(0));
-    let set = choose_set(prompt, initial)?;
+    let mut choice_sets = previous
+        .as_ref()
+        .map(|prefs| prefs.choice_sets.clone())
+        .unwrap_or_default();
+    let set = choose_set(prompt, initial, &mut choice_sets)?;
     let default_budget = previous
         .as_ref()
         .map_or("10.00", |prefs| prefs.budget_usd.as_str());
@@ -500,6 +554,7 @@ async fn interview(prompt: &mut impl Prompter, backend: &mut impl Backend) -> Re
         version: 1,
         set,
         budget_usd: budget,
+        choice_sets,
     };
     prefs.validate()?;
     let affected_path = if project.is_some() {
@@ -612,16 +667,13 @@ impl Backend for Native {
     async fn prepare(&mut self, preferences: &Preferences) -> Result<(String, u64), String> {
         let key = credential::require(true)?;
         let mut refreshed = model_preferences::refresh_set(preferences, key.expose()).await?;
-        let selected = preferences
-            .set
-            .roles
-            .get("main")
-            .ok_or("main model required")?
+        let configuration = model_preferences::routing_configuration(preferences, &refreshed)?;
+        let main = model_preferences::preferred_main(&configuration)?;
+        let selected = refreshed
             .iter()
-            .find_map(|model| {
-                refreshed
-                    .iter()
-                    .position(|(snapshot, _)| &snapshot.compatibility.model == model)
+            .position(|(snapshot, _)| {
+                snapshot.compatibility.model == main.model
+                    && snapshot.compatibility.endpoint == main.endpoint
             })
             .ok_or("main role has no eligible model in the selected set")?;
         let (snapshot, catalog) = refreshed.remove(selected);

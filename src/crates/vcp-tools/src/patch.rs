@@ -1,6 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::*;
 use vcp_repository::FileVersion;
+
+/// Keep the literal parser authoritative while making rejected control lines actionable.
+pub fn parse(text: &str) -> Result<codex_apply_patch::ApplyPatchArgs> {
+    codex_apply_patch::parse_patch(text).map_err(|error| {
+        let closing_hint = if text
+            .trim_end()
+            .lines()
+            .rev()
+            .take(2)
+            .any(|line| line == "+*** End Patch")
+        {
+            " Your patch ends with '+*** End Patch', which is a file-content line, not the closing marker. If this is your closing marker, resend the patch with that line changed to exactly '*** End Patch': remove its leading '+', and put nothing after the closing marker. Do not change the added file's code to repair this delimiter."
+        } else {
+            ""
+        };
+        Error::Patch(format!(
+            "{error}.{closing_hint} Begin/End/File/@@ control lines must have no '+' prefix; only added file/content lines start with '+'"
+        ))
+    })
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct Change {
     pub path: String,
@@ -9,18 +29,11 @@ pub struct Change {
     pub after: Option<Vec<u8>>,
     pub rename_to: Option<String>,
     pub probes: Vec<Probe>,
+    pub parents: Vec<vcp_repository::path::ParentDirectory>,
 }
 fn destination(root: &Root, path: &str) -> Result<Probe> {
     checked_path(path, false)?;
-    let parent = Path::new(path).parent().unwrap();
-    root.hold(
-        if parent.as_os_str().is_empty() {
-            None
-        } else {
-            Some(parent)
-        },
-        true,
-    )?;
+    root.prepare_parents(path)?;
     match root.hold(Some(Path::new(path)), false) {
         Err(vcp_repository::Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
             Ok(probe(root, path, None))
@@ -91,7 +104,7 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
     {
         return Err(Error::Invalid("bounded literal patch required"));
     }
-    let parsed = codex_apply_patch::parse_patch(text).map_err(|e| Error::Patch(e.to_string()))?;
+    let parsed = parse(text)?;
     if parsed.hunks.is_empty() || parsed.hunks.len() > 64 {
         return Err(Error::Invalid("patch file count"));
     }
@@ -155,6 +168,13 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
                     .transpose()?;
                 if let Some(target) = &target {
                     checked_path(target, false)?;
+                    if root
+                        .prepare_parents(target)?
+                        .iter()
+                        .any(|p| p.native_identity.is_none())
+                    {
+                        return Err(Error::Invalid("rename destination parent must exist"));
+                    }
                     if target.eq_ignore_ascii_case(&path) {
                         if target == &path {
                             return Err(Error::Invalid("rename must change the path"));
@@ -192,6 +212,7 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
         if bytes > 4 * 1024 * 1024 {
             return Err(Error::Invalid("patch total bytes"));
         }
+        let parents = root.prepare_parents(&path)?;
         changes.push(Change {
             path,
             before,
@@ -199,7 +220,20 @@ pub(crate) fn prepare(root: &Root, text: &str) -> Result<Vec<Change>> {
             after,
             rename_to,
             probes,
+            parents,
         });
+    }
+    // A file cannot also be a directory required by another change.
+    for change in &changes {
+        if change
+            .parents
+            .iter()
+            .any(|parent| seen.contains(&parent.path.to_lowercase()))
+        {
+            return Err(Error::Invalid(
+                "overlapping file and parent directory paths",
+            ));
+        }
     }
     Ok(changes)
 }

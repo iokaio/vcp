@@ -108,7 +108,9 @@ fn snapshot(value: &Snapshot, identity: &ModelEndpoint, observed_at: Timestamp) 
             .price
             .rates
             .get(&category)
-            .is_none_or(|rate| rate.per_units == Units::ZERO)
+            .map_or(value.tariff_normalization != Some(3), |rate| {
+                rate.per_units == Units::ZERO
+            })
         {
             return Err(Error::Protocol("routing snapshot incomplete price units"));
         }
@@ -321,8 +323,20 @@ impl RoutingInput {
             || self.excluded.len() > 128
             || self.estimates.len() > 1024
             || self.output_tokens == Units::ZERO
+            || self.candidate_requests.len() > 1024
         {
             return Err(Error::Protocol("routing input bounds"));
+        }
+        let mut request_candidates = BTreeSet::new();
+        for request in &self.candidate_requests {
+            request.candidate.validate()?;
+            if request.output_tokens == Units::ZERO
+                || request.input_tokens > self.input_tokens
+                || request.output_tokens > self.output_tokens
+                || !request_candidates.insert(&request.candidate)
+            {
+                return Err(Error::Protocol("candidate request bounds or duplicate"));
+            }
         }
         for capability in &self.required_capabilities {
             text(capability, 128)?;
@@ -357,13 +371,13 @@ impl RoutingDecision {
         catalog: &CatalogRevision,
         policy: &Policy,
         now: Timestamp,
-        available: Money,
+        available: impl Into<vcp_domain::accounting::MonetaryLimit>,
         protected: Micros,
     ) -> Result<()> {
         self.validate()?;
         let mut input = self.input.clone();
         input.now = now;
-        input.available = available;
+        input.available = available.into();
         input.protected_verification = protected;
         let refreshed = super::select(catalog, policy, &input)?;
         if refreshed.candidates.iter().any(|candidate| {
@@ -379,8 +393,14 @@ impl RoutingDecision {
     pub fn digest(&self) -> Result<String> {
         let mut copy = self.clone();
         copy.id.clear();
+        let mut value = serde_json::to_value(&copy)?;
+        // Preserve the semantic identity of decisions recorded before limits
+        // acquired explicit tagged representations.
+        if let Some(finite) = self.input.available.micros.finite() {
+            value["input"]["available"]["micros"] = serde_json::to_value(finite)?;
+        }
         Ok(vcp_protocol::digest_bytes(&vcp_protocol::canonical_bytes(
-            &copy,
+            &value,
         )?))
     }
     pub fn validate(&self) -> Result<()> {

@@ -29,6 +29,7 @@ try {
                 New-Item -ItemType Directory -Path $output | Out-Null
                 Write-Utf8File (Join-Path $output 'endpoints.json') '{}'
                 $endpoint = if ($script:prepMode -eq 'wrong-endpoint') { 'wrong/endpoint' } else { 'fixture/endpoint' }
+                if ($script:prepMode -eq 'wrong-endpoint-case') { $endpoint = 'fixture/ENDPOINT' }
                 Write-JsonFile (Join-Path $output 'snapshot.json') @{
                     valid_until = [DateTimeOffset]::UtcNow.AddHours(12).ToUnixTimeMilliseconds()
                     raw_sha256 = (Get-FileHash (Join-Path $output 'endpoints.json')).Hash
@@ -62,7 +63,14 @@ try {
     Check ($second -ne $fresh -and (Test-Path $fresh)) 'Another stage replaced retained profile evidence'
     $same = & $module { param($c, $p) Get-FreshScenarioProfile $c 'T4' $p } $ctx $fresh
     Check ($same -eq $fresh) 'Current profile unnecessarily replaced'
-    foreach ($mode in 'wrong-endpoint', 'check-fails') {
+    $cached = $ctx.SnapshotText | ConvertFrom-Json -AsHashtable
+    $cached.compatibility.endpoint = 'fixture/ENDPOINT'
+    $ctx.SnapshotText = $cached | ConvertTo-Json -Depth 100
+    $caseSafe = & $module { param($c, $p) Get-FreshScenarioProfile $c 'T5' $p } $ctx $profile
+    $calls = & $module { @($script:prepCalls) }
+    Check (@($calls | Where-Object label -eq 'provider-refresh').Count -eq 2) 'Different-case cached endpoint silently changed the task selection'
+    Check ((Get-Content $caseSafe -Raw | ConvertFrom-Json).provider.compatibility.endpoint -ceq 'fixture/endpoint') 'Profile adopted a different endpoint identity'
+    foreach ($mode in 'wrong-endpoint', 'wrong-endpoint-case', 'check-fails') {
         $ctx.SnapshotText = $null
         & $module { param($mode) $script:prepMode = $mode } $mode
         $rejected = $false

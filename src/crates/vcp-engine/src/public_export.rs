@@ -92,7 +92,7 @@ fn view(
 }
 impl Engine<Store> {
     #[allow(clippy::too_many_arguments)]
-    pub fn prepare_public_export(
+    pub async fn prepare_public_export(
         &self,
         request: methods::SessionExport,
         access: &Access,
@@ -113,7 +113,7 @@ impl Engine<Store> {
         {
             return Err(PublicError::Access);
         }
-        let policy = crate::policy::optional(self.store().state(), &access.workspace)
+        let policy = crate::policy::optional(self.store().current(), &access.workspace)
             .map_err(unavailable)?
             .map_or(PolicyRevision::ZERO, |p| p.revision);
         if policy != disclosure.policy {
@@ -121,21 +121,25 @@ impl Engine<Store> {
         }
         let command = CommandId::parse(request.mutation.command_id.as_str()).map_err(invalid)?;
         let digest = call.digest(access.actor.as_str()).map_err(invalid)?;
-        let state = self.store().state();
-        if let Some(receipt) = state
-            .commands
-            .get(&command_key(&access.workspace, &command))
+        let state = self.store().current();
+        if let Some(receipt) = self
+            .store()
+            .command_receipt_by_id(&access.workspace, &command)
+            .await
+            .map_err(unavailable)?
         {
             if receipt.digest != digest {
                 return Err(PublicError::CommandConflict);
             }
             let mut proof = None;
-            for event in state.events.iter().filter(|e| {
-                e.watermark == receipt.watermark
-                    && e.event.correlation == command
-                    && e.event.workspace == access.workspace
-                    && e.event.session == access.session
-            }) {
+            crate::public::visit_history(self.store(), |event| {
+                if event.watermark != receipt.watermark
+                    || event.event.correlation != command
+                    || event.event.workspace != access.workspace
+                    || event.event.session != access.session
+                {
+                    return Ok(());
+                }
                 if let Some(value) = event.event.data.get("session_export") {
                     if proof.is_some() {
                         return Err(PublicError::Unavailable);
@@ -144,7 +148,9 @@ impl Engine<Store> {
                         serde_json::from_value::<Acceptance>(value.clone()).map_err(unavailable)?,
                     );
                 }
-            }
+                Ok(())
+            })
+            .await?;
             let accepted = proof.ok_or(PublicError::Unavailable)?;
             if accepted.capture != request.capture
                 || accepted.sources.task().map(TaskId::as_str)
@@ -152,8 +158,14 @@ impl Engine<Store> {
             {
                 return Err(PublicError::Unavailable);
             }
-            export_contract::validate_read(state, access.authority, None, &accepted.artifact)
-                .map_err(unavailable)?;
+            export_contract::validate_read_store(
+                self.store(),
+                access.authority,
+                None,
+                &accepted.artifact,
+            )
+            .await
+            .map_err(unavailable)?;
             return Ok(PublicExportAdmission::Replay(PublicExportOutcome {
                 receipt: receipt.clone(),
                 view: view(&request, &accepted)?,
@@ -209,8 +221,9 @@ impl Engine<Store> {
                 return Err(PublicError::StaleState);
             }
         }
-        let sources =
-            Sources::capture(state, scope, selected, access.authority).map_err(unavailable)?;
+        let sources = Sources::capture_store(self.store(), scope, selected, access.authority)
+            .await
+            .map_err(unavailable)?;
         Ok(PublicExportAdmission::Ready(PreparedPublicExport {
             request,
             actor: access.actor.clone(),
@@ -234,14 +247,17 @@ impl Engine<Store> {
         if prepared.actor != access.actor {
             return Err(PublicError::Access.into());
         }
-        let ready = match self.prepare_public_export(
-            prepared.request.clone(),
-            access,
-            &prepared.connection,
-            &prepared.token,
-            disclosure,
-            &prepared.sources.scope().task,
-        )? {
+        let ready = match self
+            .prepare_public_export(
+                prepared.request.clone(),
+                access,
+                &prepared.connection,
+                &prepared.token,
+                disclosure,
+                &prepared.sources.scope().task,
+            )
+            .await?
+        {
             PublicExportAdmission::Replay(value) => return Ok(value),
             PublicExportAdmission::Ready(value) => value,
         };

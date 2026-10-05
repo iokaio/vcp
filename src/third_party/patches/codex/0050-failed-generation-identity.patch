@@ -1,0 +1,43 @@
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 2201d3a5..2a0dcb07 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1787,6 +1787,23 @@ impl ModelClientSession {
+                 }
+             }
+ 
++            if let Err(ApiError::Transport(codex_client::TransportError::Http {
++                headers: Some(headers),
++                ..
++            })) = &stream_result
++            {
++                if let (Some(permit), Some(identity)) = (
++                    host_permit.as_mut(),
++                    headers
++                        .get("x-generation-id")
++                        .and_then(|value| value.to_str().ok()),
++                ) {
++                    permit
++                        .response_generation_identity(identity)
++                        .map_err(|error| CodexErr::Io(std::io::Error::other(error)))?;
++                }
++            }
++
+             if let (Err(error), Some(permit)) = (&stream_result, host_permit.as_mut()) {
+                 use codex_extension_api::HostModelFailure;
+                 let (failure, retry_after_ms) = match error {
+diff --git a/codex-rs/ext/extension-api/src/work_admission.rs b/codex-rs/ext/extension-api/src/work_admission.rs
+index f6aa573d..ed9ce667 100644
+--- a/codex-rs/ext/extension-api/src/work_admission.rs
++++ b/codex-rs/ext/extension-api/src/work_admission.rs
+@@ -77,6 +77,10 @@ pub trait HostWorkPermit: Send {
+     fn response_error_capture(&self) -> Option<HostResponseCapture> {
+         self.response_capture()
+     }
++    /// VCP: allowlisted generation identity only; authentication headers remain private.
++    fn response_generation_identity(&mut self, _identity: &str) -> Result<(), String> {
++        Ok(())
++    }
+     fn complete(&mut self) -> Result<(), String>;
+     /// VCP: retain provider usage with the same durable dispatch receipt.
+     fn complete_model(

@@ -5,6 +5,8 @@
 mod final_import_refusals;
 #[path = "support/import_execution.rs"]
 mod import_execution;
+#[path = "support/model_rotation_execution.rs"]
+mod model_rotation_execution;
 #[path = "support/local_fixture.rs"]
 mod wire;
 use serde_json::{json, Value};
@@ -65,7 +67,7 @@ struct TaskSemantics {
 #[derive(Debug, PartialEq, Eq)]
 struct LedgerSemantics {
     currency: String,
-    cap: vcp_domain::Micros,
+    cap: vcp_domain::Limit<vcp_domain::Micros>,
     protected: vcp_domain::Micros,
     settled: vcp_domain::Micros,
     active: vcp_domain::Micros,
@@ -106,7 +108,7 @@ async fn outcome(
         "one patch, one verification, one final response"
     );
     let store = reopen(entry).await;
-    let state = store.state();
+    let state = &store.archive_state().await.unwrap();
     let task: Task = state
         .record(Collection::Task, task_id.as_str(), &entry.config.workspace)
         .unwrap()
@@ -156,8 +158,8 @@ async fn outcome(
                     cap: value.cap,
                     protected: value.protected,
                     settled: value.settled,
-                    active: value.active,
-                    unresolved: value.unresolved,
+                    active: value.active.known().unwrap(),
+                    unresolved: value.unresolved.known().unwrap(),
                     overrun: value.overrun,
                 });
             }
@@ -308,7 +310,11 @@ async fn same_coding_scenario_has_cli_api_state_effect_and_accounting_parity() {
                     if view["state"] == "completed" {
                         break;
                     }
-                    assert_eq!(view["state"], "running", "API coding completion: {view}");
+                    if view["state"] != "running" {
+                        let (_, diagnostics) = client.finish().await;
+                        assert!(!diagnostics.contains(SECRET));
+                        panic!("API coding completion: {view}; provider requests: {}; diagnostics: {diagnostics}", count.load(Ordering::SeqCst));
+                    }
                     assert!(Instant::now() < until, "API coding completion deadline");
                     tokio::time::sleep(Duration::from_millis(25)).await;
                 }
@@ -460,11 +466,96 @@ impl Fixture {
         }
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn production_cli_compacts_large_tool_history_and_preserves_verified_completion() {
+    for backend in [BackendKind::Files, BackendKind::Sqlite] {
+        let server = MockServer::start().await;
+        let count = Arc::new(AtomicUsize::new(0));
+        let compacted = Arc::new(AtomicUsize::new(0));
+        let calls = count.clone();
+        let previews = compacted.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(move |request: &wiremock::Request| {
+                let index = calls.fetch_add(1, Ordering::SeqCst);
+                let body = String::from_utf8_lossy(&request.body);
+                if body.contains("bounded-tool-pair-previews/1") {
+                    previews.fetch_add(1, Ordering::SeqCst);
+                    assert!(body.contains(OBJECTIVE));
+                    assert!(body.contains("canonical"));
+                }
+                let events = if index < 10 {
+                    let item = json!({"type":"function_call","id":format!("large-item-{index}"),
+                        "call_id":format!("large-call-{index}"),"name":"vcp_read",
+                        "arguments":json!({"path":"large.txt","max_bytes":16384,"start_line":null,"end_line":null}).to_string(),
+                        "status":"completed"});
+                    [json!({"type":"response.output_item.done","output_index":0,"item":item}),
+                        json!({"type":"response.completed","response":{"id":format!("large-response-{index}"),
+                            "status":"completed","output":[item],"usage":{"input_tokens":10,"output_tokens":4,
+                                "total_tokens":14,"cost":0.0001}}})]
+                        .into_iter().map(|event|format!("data: {event}\n\n")).collect()
+                } else {
+                    response(index - 10)
+                };
+                ResponseTemplate::new(200).insert_header("content-type", "text/event-stream")
+                    .set_body_string(events)
+            })
+            .mount(&server).await;
+        let fixture = Fixture::new(&server.uri());
+        fs::write(
+            fixture.workspace.join("large.txt"),
+            "retained historical source; ".repeat(580),
+        )
+        .unwrap();
+        let mut profile: Value =
+            serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        profile["max_requests"] = json!(20);
+        fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let entry = fixture.seed(backend).await;
+        let mut command = fixture.command(&["run", OBJECTIVE, "--autonomy", "autonomous"]);
+        let output = tokio::time::timeout(
+            Duration::from_secs(120),
+            tokio::task::spawn_blocking(move || command.output().unwrap()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 13);
+        assert!(
+            compacted.load(Ordering::SeqCst) >= 3,
+            "actual CLI never compacted its long history"
+        );
+        assert_eq!(
+            fs::read(fixture.workspace.join("value.txt")).unwrap(),
+            b"42\n"
+        );
+        let store = reopen(&entry).await;
+        let state = &store.archive_state().await.unwrap();
+        assert!(state
+            .records
+            .values()
+            .any(|record| record.collection == Collection::Artifact
+                && record.value["spec"]["schema"] == "canonical-compaction-projection/1"));
+        assert!(state
+            .records
+            .values()
+            .any(|record| record.collection == Collection::Task
+                && record.value["state"] == "completed"));
+        store.close().await.unwrap();
+    }
+}
 fn scope(entry: &WorkspaceEntry) -> Value {
     json!({"workspace":entry.config.workspace,"session":entry.config.session})
 }
 fn start(entry: &WorkspaceEntry) -> Value {
-    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":entry.config.cap.micros.get().to_string(),"currency":"USD","max_requests":8,"deadline_seconds":300}})
+    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":entry.config.cap.micros.finite().expect("finite parity fixture").get().to_string(),"currency":"USD","max_requests":8,"deadline_seconds":300}})
 }
 fn acquire(client: &mut wire::Client, entry: &WorkspaceEntry, name: &str) {
     let lease = client.rpc(2, "controller/read", json!({"scope":scope(entry)}));

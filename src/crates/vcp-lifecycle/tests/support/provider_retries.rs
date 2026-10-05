@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::*;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Mutex,
+    atomic::{AtomicUsize, Ordering},
 };
 use wiremock::{
-    matchers::{method, path},
     Mock, ResponseTemplate,
+    matchers::{method, path},
 };
 
 #[cfg(windows)]
@@ -80,8 +80,8 @@ async fn provider_pacing_waits_before_reservation_and_submission_on_both_stores(
             let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
             assert_eq!(
                 (
-                    ledger.active.get(),
-                    ledger.unresolved.get(),
+                    ledger.active.known().unwrap().get(),
+                    ledger.unresolved.known().unwrap().get(),
                     ledger.settled.get()
                 ),
                 (0, 0, 0)
@@ -138,11 +138,81 @@ async fn provider_pacing_preserves_429_evidence_and_liability_without_qualified_
         assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
         assert_eq!(ledger.settled.get(), 0);
-        assert!(ledger.unresolved.get() > 0);
+        assert!(ledger.unresolved.known().unwrap().get() > 0);
         let shared: serde_json::Value =
             serde_json::from_slice(&std::fs::read(root.join("state.json")).unwrap()).unwrap();
         assert!(shared["not_before_ms"].as_u64().unwrap() >= before + 5000);
         assert!(shared["not_before_ms"].as_u64().unwrap() < before + 30_000);
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[cfg(all(windows, feature = "qualification"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_pacing_deadline_after_reservation_releases_before_send_on_both_stores() {
+    use codex_extension_api::{HostModelPurpose, HostWorkAdmission};
+    use vcp_lifecycle::foundation::model_dispatch_qualification::Point;
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) =
+            setup(&temp, backend, Duration::from_secs(10), 1000, false).await;
+        host.initialize_root_budget().unwrap();
+        // Start the short queue deadline only after the fixture is ready.
+        let pacing = temp.path().join("pacing");
+        std::fs::create_dir(&pacing).unwrap();
+        host.configure_provider_pacing(pacing, Duration::from_secs(2))
+            .unwrap();
+        let observed = Arc::new(AtomicUsize::new(0));
+        let checking = observed.clone();
+        host.qualification_observe_model_dispatch(move |point, attempt, state| {
+            if point == Point::BeforeSendIntent {
+                let pending: Attempt = state
+                    .records
+                    .values()
+                    .find(|row| row.collection == Collection::Attempt && row.id == attempt.as_str())
+                    .ok_or("reserved attempt missing at send-intent boundary")?
+                    .decode()
+                    .map_err(|error| error.to_string())?;
+                assert_eq!(pending.phase, ReservationState::Created);
+                checking.fetch_add(1, Ordering::SeqCst);
+                // Expire after canonical reservation, before durable Submit.
+                std::thread::sleep(Duration::from_secs(3));
+            }
+            Ok(())
+        })
+        .unwrap();
+        let mut body = serde_json::json!({"model":"gpt-5.1"});
+        let error = host
+            .admit_model_async(
+                test.codex.session_configured().thread_id,
+                &mut body,
+                HostModelPurpose::Turn,
+            )
+            .await
+            .err()
+            .expect("expired reserved request cannot submit");
+        assert!(error.contains("deadline"), "{error}");
+        assert_eq!(observed.load(Ordering::SeqCst), 1);
+        assert!(server.received_requests().await.unwrap().is_empty());
+        let state = host.snapshot().unwrap();
+        let attempts: Vec<Attempt> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Attempt)
+            .map(|row| row.decode().unwrap())
+            .collect();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].phase, ReservationState::Released);
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(
+            (
+                ledger.active.known().unwrap().get(),
+                ledger.unresolved.known().unwrap().get(),
+                ledger.settled.get()
+            ),
+            (0, 0, 0)
+        );
         owner.close().await.unwrap();
         test.codex.shutdown_and_wait().await.unwrap();
     }
@@ -212,7 +282,7 @@ async fn setup_with_bounds(
     std::fs::create_dir(&workspace).unwrap();
     let workspace = workspace.canonicalize().unwrap();
     let mut config = config(&temp.path().join("canonical"), &workspace, backend);
-    config.cap.micros = Micros::new(cap);
+    config.cap.micros = Micros::new(cap).into();
     config.max_transport_retries = retries;
     if let Some(output) = output_ceiling {
         config.output_ceiling = output;
@@ -309,7 +379,7 @@ async fn setup_with_bounds(
                     operating: "Keep current accounting and source evidence".into(),
                     affected_paths: vec!["evidence.txt".into()],
                     max_requests: 4,
-                    deadline: Timestamp::new(now + 60_000),
+                    deadline: Timestamp::new(now + 60_000).into(),
                 },
             )
             .unwrap();
@@ -466,9 +536,10 @@ async fn provider_response_timeout_defaults_and_explicit_bounds_are_retained() {
             Duration::from_secs(360) + Duration::from_nanos(1),
         ] {
             let before = host.snapshot().unwrap();
-            assert!(host
-                .configure_provider_with_timeout(snapshot.clone(), raw.clone(), timeout)
-                .is_err());
+            assert!(
+                host.configure_provider_with_timeout(snapshot.clone(), raw.clone(), timeout)
+                    .is_err()
+            );
             assert_eq!(
                 host.snapshot().unwrap(),
                 before,
@@ -592,7 +663,7 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                 if mode == "deadline" {
                     Duration::from_millis(500)
                 } else if mode == "retry_deadline" {
-                    Duration::from_secs(4)
+                    Duration::from_secs(8)
                 } else {
                     Duration::from_secs(10)
                 },
@@ -653,10 +724,10 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                     let response = ResponseTemplate::new(200).insert_header("content-type", "text/event-stream")
                         .set_body_string(sse(vec![ev_assistant_message("retry-msg", "Retried with separate admission."),
                             serde_json::json!({"type":"response.completed","response":{"id":"retried-response","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001}}})]));
-                    return if mode == "retry_deadline" { response.set_delay(Duration::from_secs(8)) } else { response };
+                    return if mode == "retry_deadline" { response.set_delay(Duration::from_secs(12)) } else { response };
                 }
                 ResponseTemplate::new(if mode == "authentication" { 401 } else if mode == "exhausted" { 503 } else { 429 })
-                    .insert_header("retry-after", if mode == "retry_after" { "6" } else if mode == "unqualified_delay" { "Fri, 01 Jan 2100 00:00:00 GMT" } else if mode == "deadline" { "1" } else { "0" })
+                    .insert_header("retry-after", if mode == "retry_after" { "61" } else if mode == "unqualified_delay" { "Fri, 01 Jan 2100 00:00:00 GMT" } else if mode == "deadline" { "1" } else { "0" })
                     .set_body_json(serde_json::json!({"error":{"message":"scripted bounded failure"}}))
             }).mount(&server).await;
             let started = std::time::Instant::now();
@@ -681,8 +752,14 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
             .unwrap();
             if mode == "retry_deadline" {
                 assert!(
-                    started.elapsed() < Duration::from_secs(7),
+                    started.elapsed() < Duration::from_secs(11),
                     "retry must retain the original absolute deadline"
+                );
+            }
+            if mode == "success" {
+                assert!(
+                    started.elapsed() >= Duration::from_secs(5),
+                    "429 must cool down before retry"
                 );
             }
             let expected = if matches!(mode, "success" | "retry_deadline") {
@@ -705,7 +782,7 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                 if mode == "success" { 100 } else { 0 }
             );
             assert_eq!(
-                ledger.unresolved.get(),
+                ledger.unresolved.known().unwrap().get(),
                 (expected as u64 - u64::from(mode == "success")) * 100
             );
             assert_eq!(
@@ -716,6 +793,224 @@ async fn provider_retry_reserves_distinct_attempts_and_obeys_bounds_on_both_stor
                     .count(),
                 expected
             );
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_retry_exhaustion_exposes_shared_pool_failure_and_retains_unknown_charge() {
+    // Sanitized shape of the A/B scenario failure; no account ID or live call.
+    let body = serde_json::json!({"error":{"message":"Provider returned error","code":429,
+        "metadata":{"raw":"qwen/qwen3-coder is temporarily rate-limited upstream.",
+            "provider_name":"Google", "is_byok":false,
+            "limit_source":"upstream_provider_shared_pool",
+            "remedy_hint":"Untrusted provider prose must not enter the task status."}},
+        "user_id":"private-account-fixture"});
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        let temp = tempfile::tempdir().unwrap();
+        let (host, owner, binding, test, server) = setup_with_retries(
+            &temp,
+            backend,
+            Duration::from_secs(30),
+            1000,
+            false,
+            1,
+            None,
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(&body))
+            .mount(&server)
+            .await;
+        let started = std::time::Instant::now();
+        turn(&test).await;
+        assert!(started.elapsed() >= Duration::from_secs(5));
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            2,
+            "a bounded retry cannot become repeated hidden paid calls"
+        );
+        let state = host.snapshot().unwrap();
+        let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+        assert_eq!(ledger.settled.get(), 0);
+        assert_eq!(ledger.unresolved.known().unwrap().get(), 200);
+        assert_eq!(ledger.active.known().unwrap().get(), 0);
+        let task: vcp_domain::task::Task = state
+            .record(
+                Collection::Task,
+                binding.scope.task.as_str(),
+                &binding.scope.workspace,
+            )
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
+        assert!(
+            task.reason
+                .contains("HTTP 429: upstream provider shared pool")
+        );
+        assert!(task.reason.contains("submitted charge remains unresolved"));
+        assert!(!task.reason.contains("private-account"));
+        assert!(!task.reason.contains("Untrusted"));
+        assert!(
+            !state
+                .records
+                .values()
+                .any(|row| matches!(row.collection, Collection::Effect | Collection::Settlement))
+        );
+        let failures: Vec<_> = state
+            .records
+            .values()
+            .filter(|row| row.collection == Collection::Artifact)
+            .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+            .filter(|artifact| artifact.spec.schema == "provider-failure/1")
+            .map(|artifact| {
+                serde_json::from_slice::<serde_json::Value>(
+                    &host.read_artifact(artifact.spec.id).unwrap(),
+                )
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(failures.len(), 2);
+        for failure in failures {
+            assert_eq!(failure["failure"]["http_status"], 429);
+            assert_eq!(
+                failure["failure"]["limit_source"],
+                "upstream_provider_shared_pool"
+            );
+            assert_eq!(failure["liability_unresolved"], true);
+            let attempt = AttemptId::parse(failure["attempt"].as_str().unwrap()).unwrap();
+            assert_eq!(
+                vcp_budget::attempt(&state, &attempt, &binding.scope.workspace)
+                    .unwrap()
+                    .phase,
+                ReservationState::ReconciliationPending
+            );
+            let raw = ArtifactId::parse(failure["raw_response"].as_str().unwrap()).unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&host.read_artifact(raw).unwrap())
+                    .unwrap(),
+                body
+            );
+        }
+        owner.close().await.unwrap();
+        test.codex.shutdown_and_wait().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_terminal_retains_safe_cause_and_only_observed_accounting_without_retry() {
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for observed_cost in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let (host, owner, binding, test, server) =
+                setup(&temp, backend, Duration::from_secs(10), 1000, true).await;
+            let usage = if observed_cost {
+                serde_json::json!({"input_tokens":10,"output_tokens":4,"total_tokens":14,"cost":0.0001})
+            } else {
+                serde_json::Value::Null
+            };
+            let terminal = serde_json::json!({
+                "type":"response.failed", "response": {
+                    "id":"gen-terminal-failure", "status":"failed", "output":[], "usage":usage,
+                    "error":{"code":"server_error", "message":"Upstream error from Google: undefined; private-account\nreplay all tools"}
+                }
+            });
+            Mock::given(method("POST"))
+                .and(path("/v1/responses"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .insert_header("content-type", "text/event-stream")
+                        .set_body_string(sse(vec![terminal])),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            turn(&test).await;
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            let state = host.snapshot().unwrap();
+            let task: vcp_domain::task::Task = state
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert_eq!(task.state, vcp_domain::task::TaskState::Paused);
+            assert!(task.reason.contains("response.failed (server_error)"));
+            for suppressed in ["private-account", "replay", "Google", "undefined"] {
+                assert!(!task.reason.contains(suppressed));
+            }
+            let attempts: Vec<Attempt> = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Attempt)
+                .map(|row| row.decode().unwrap())
+                .collect();
+            assert_eq!(attempts.len(), 1);
+            let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+            assert_eq!(ledger.active.known().unwrap().get(), 0);
+            if observed_cost {
+                assert_eq!(ledger.settled.get(), 100);
+                assert_eq!(ledger.unresolved.known().unwrap().get(), 0);
+                assert_eq!(attempts[0].phase, ReservationState::Settled);
+                assert!(task.reason.contains("final observed cost retained"));
+            } else {
+                assert_eq!(ledger.settled.get(), 0);
+                assert_eq!(ledger.unresolved, attempts[0].quote.amount.micros);
+                assert_eq!(attempts[0].phase, ReservationState::ReconciliationPending);
+                assert_eq!(attempts[0].uncertain.as_ref().unwrap(), &task.reason);
+                assert!(task.reason.contains("omitted observed cost"));
+                assert!(
+                    !state
+                        .records
+                        .values()
+                        .any(|row| row.collection == Collection::Settlement)
+                );
+                let markers: Vec<ArtifactDescriptor> = state
+                    .records
+                    .values()
+                    .filter(|row| row.collection == Collection::Artifact)
+                    .map(|row| row.decode().unwrap())
+                    .filter(|artifact: &ArtifactDescriptor| {
+                        artifact.spec.schema == "failed-provider-request/1"
+                    })
+                    .collect();
+                assert_eq!(markers.len(), 1);
+                let marker: serde_json::Value = serde_json::from_slice(
+                    &host.read_artifact(markers[0].spec.id.clone()).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(marker["request_id"], "gen-terminal-failure");
+                assert_eq!(marker["attempt"], attempts[0].id.as_str());
+                let pending = host.pending_provider_charges().unwrap();
+                assert_eq!(pending.len(), 1);
+                assert_eq!(pending[0].expected.request_id, "gen-terminal-failure");
+            }
+            assert!(
+                !state
+                    .records
+                    .values()
+                    .any(|row| row.collection == Collection::Effect)
+            );
+            let artifact = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+                .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                .find(|artifact| artifact.spec.schema == "openrouter-normalized-response/1")
+                .unwrap();
+            let normalized: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap()).unwrap();
+            assert_eq!(normalized["terminal_diagnostic"]["code"], "server_error");
+            assert_eq!(normalized["terminal_diagnostic"]["termination"], "failed");
+            assert!(normalized["calls"].as_array().unwrap().is_empty());
+            assert!(!normalized.to_string().contains("private-account"));
             owner.close().await.unwrap();
             test.codex.shutdown_and_wait().await.unwrap();
         }
@@ -827,7 +1122,7 @@ async fn provider_retry_timer_is_cancelled_by_pause_owner_loss_or_steering() {
                 vcp_budget::ledger(&state, &binding.scope)
                     .unwrap()
                     .unresolved
-                    .get(),
+                    .known().unwrap().get(),
                 100
             );
             assert_eq!(
@@ -838,6 +1133,67 @@ async fn provider_retry_timer_is_cancelled_by_pause_owner_loss_or_steering() {
                     .count(),
                 1
             );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn provider_retry_diagnostics_never_parse_individual_raw_capture_chunks() {
+    let metadata = r#"{"error":{"metadata":{"limit_source":"upstream_provider_shared_pool"}}}"#;
+    let prefix = format!("{}{metadata}", " ".repeat(vcp_store::artifact::CHUNK_BYTES));
+    let suffix = format!(
+        "{metadata}{}invalid suffix",
+        " ".repeat(vcp_store::artifact::CHUNK_BYTES - metadata.len())
+    );
+    for backend in [BackendKind::Sqlite, BackendKind::Files] {
+        for body in [&prefix, &suffix] {
+            let temp = tempfile::tempdir().unwrap();
+            let (host, owner, binding, test, server) = setup_with_retries(
+                &temp,
+                backend,
+                Duration::from_secs(30),
+                1000,
+                false,
+                0,
+                None,
+            )
+            .await;
+            Mock::given(method("POST"))
+                .and(path("/v1/responses"))
+                .respond_with(ResponseTemplate::new(429).set_body_string(body.clone()))
+                .mount(&server)
+                .await;
+            turn(&test).await;
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+            let state = host.snapshot().unwrap();
+            let task: vcp_domain::task::Task = state
+                .record(
+                    Collection::Task,
+                    binding.scope.task.as_str(),
+                    &binding.scope.workspace,
+                )
+                .unwrap()
+                .decode()
+                .unwrap();
+            assert!(task.reason.contains("HTTP 429: provider rate limit"));
+            assert!(!task.reason.contains("shared pool"));
+            let artifact = state
+                .records
+                .values()
+                .filter(|row| row.collection == Collection::Artifact)
+                .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                .find(|artifact| artifact.spec.schema == "provider-failure/1")
+                .unwrap();
+            let failure: serde_json::Value =
+                serde_json::from_slice(&host.read_artifact(artifact.spec.id).unwrap()).unwrap();
+            assert!(failure["failure"]["limit_source"].is_null());
+            let raw = ArtifactId::parse(failure["raw_response"].as_str().unwrap()).unwrap();
+            assert_eq!(host.read_artifact(raw).unwrap(), body.as_bytes());
+            let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
+            assert_eq!(ledger.unresolved.known().unwrap().get(), 100);
+            assert_eq!(ledger.settled.get(), 0);
+            owner.close().await.unwrap();
+            test.codex.shutdown_and_wait().await.unwrap();
         }
     }
 }
@@ -923,7 +1279,7 @@ async fn provider_retry_reassembles_coding_continuity_with_current_liability() {
         );
         assert_eq!(turns[0].state, vcp_domain::task::TurnState::Verifying);
         let ledger = vcp_budget::ledger(&state, &binding.scope).unwrap();
-        assert_eq!(ledger.unresolved.get(), 100);
+        assert_eq!(ledger.unresolved.known().unwrap().get(), 100);
         assert_eq!(ledger.settled.get(), 100);
         let mut handoffs = state
             .records
@@ -1027,6 +1383,28 @@ async fn coding_budget_denial_is_durable_before_any_provider_send() {
 }
 
 #[cfg(windows)]
+struct ForbiddenAutomaticReceipts(AtomicUsize);
+#[cfg(windows)]
+impl vcp_lifecycle::foundation::reconciliation::ReceiptSource for ForbiddenAutomaticReceipts {
+    fn fetch<'a>(
+        &'a self,
+        _: &'a str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<vcp_lifecycle::foundation::reconciliation::ReceiptFetch, String>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err("billing transport must not run inside inference".into())
+        })
+    }
+}
+
+#[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_liability() {
     for backend in [BackendKind::Sqlite, BackendKind::Files] {
@@ -1041,6 +1419,8 @@ async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_l
             None,
         )
         .await;
+        let receipts = Arc::new(ForbiddenAutomaticReceipts(AtomicUsize::new(0)));
+        host.configure_receipt_source(receipts.clone()).unwrap();
         let root = temp.path().join("pacing");
         std::fs::create_dir(&root).unwrap();
         for index in 0..2 {
@@ -1072,6 +1452,7 @@ async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_l
                 if previous.len() == 1 {
                     ResponseTemplate::new(429)
                         .insert_header("retry-after", "0")
+                        .insert_header("x-generation-id", "gen-unsettled-paced")
                         .set_body_string("synthetic shared rate limit")
                 } else {
                     assert_eq!(previous.len(), 2, "only one bounded retry is allowed");
@@ -1091,6 +1472,16 @@ async fn shared_provider_pacing_retries_429_after_cooldown_and_preserves_prior_l
             .await;
         turn(&test).await;
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        assert_eq!(
+            receipts.0.load(Ordering::SeqCst),
+            0,
+            "normal retry/pacing cannot poll financial metadata"
+        );
+        assert_eq!(
+            host.pending_provider_charges().unwrap().len(),
+            1,
+            "unknown prior charge remains available for explicit maintenance"
+        );
         let observed = observed.lock().unwrap();
         assert_eq!(observed.len(), 2);
         assert!(

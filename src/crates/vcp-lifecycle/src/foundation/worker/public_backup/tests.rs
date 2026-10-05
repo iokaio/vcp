@@ -124,8 +124,8 @@ async fn accepted_backup_intent_survives_lost_reply_reopen_and_cancellation_befo
             .await
             .unwrap();
         assert!(snapshot_job(&store, &access, &operation).unwrap().is_none());
-        let event = store
-            .state()
+        let archived = store.archive_state().await.unwrap();
+        let event = archived
             .events
             .iter()
             .find(|e| e.watermark == accepted.watermark)
@@ -133,31 +133,37 @@ async fn accepted_backup_intent_survives_lost_reply_reopen_and_cancellation_befo
         assert_eq!(event.event.session, access.session);
         assert_eq!(event.event.actor, access.actor);
         assert_eq!(event.event.correlation, operation);
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert_eq!(
-            durable::replay(&store, &access, &create).unwrap().unwrap(),
+            durable::replay(&store, &access, &create)
+                .await
+                .unwrap()
+                .unwrap(),
             accepted
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(store.archive_state().await.unwrap(), before);
         let mut changed = create.clone();
         if let Call::BackupCreate(value) = &mut changed {
             value.expected_capability_generation = 8.into();
         }
-        assert!(durable::replay(&store, &access, &changed).is_err());
+        assert!(durable::replay(&store, &access, &changed).await.is_err());
         let mut foreign = access.clone();
         foreign.actor = ActorId::new();
         assert!(durable::read(&store, &foreign, &operation).is_err());
-        assert!(durable::replay(&store, &foreign, &create).is_err());
+        assert!(durable::replay(&store, &foreign, &create).await.is_err());
         foreign = access.clone();
         foreign.session = SessionId::parse("a-unrelated-session").unwrap();
         assert!(durable::read(&store, &foreign, &operation).is_err());
-        assert!(durable::replay(&store, &foreign, &create).is_err());
+        assert!(durable::replay(&store, &foreign, &create).await.is_err());
         // Simulate process loss after the durable intent, before a background
         // task has captured any sources. Reopen does not schedule native work.
         drop(store);
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            durable::replay(&store, &access, &create).unwrap().unwrap(),
+            durable::replay(&store, &access, &create)
+                .await
+                .unwrap()
+                .unwrap(),
             accepted
         );
         assert!(snapshot_job(&store, &access, &operation).unwrap().is_none());
@@ -179,7 +185,10 @@ async fn accepted_backup_intent_survives_lost_reply_reopen_and_cancellation_befo
             .await
             .unwrap();
         assert_eq!(
-            durable::replay(&store, &access, &cancel).unwrap().unwrap(),
+            durable::replay(&store, &access, &cancel)
+                .await
+                .unwrap()
+                .unwrap(),
             cancelled
         );
         assert!(
@@ -189,18 +198,24 @@ async fn accepted_backup_intent_survives_lost_reply_reopen_and_cancellation_befo
         );
         assert!(snapshot_job(&store, &access, &operation).unwrap().is_none());
         assert!(!store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.collection == Collection::Artifact));
         drop(store);
         let store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
-            durable::replay(&store, &access, &create).unwrap().unwrap(),
+            durable::replay(&store, &access, &create)
+                .await
+                .unwrap()
+                .unwrap(),
             accepted
         );
         assert_eq!(
-            durable::replay(&store, &access, &cancel).unwrap().unwrap(),
+            durable::replay(&store, &access, &cancel)
+                .await
+                .unwrap()
+                .unwrap(),
             cancelled
         );
         assert!(

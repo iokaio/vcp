@@ -3,12 +3,17 @@
 //! Freshness is not a grant: the engine still authorizes every decision.
 use vcp_domain::{effect::Effect, revision::Timestamp, task::Task, workspace::Workspace};
 use vcp_protocol::command::{Approval, ApprovalState, CommandEnvelope};
-use vcp_store::contract::{Collection, State};
+use vcp_store::{contract::Collection, CurrentStateView};
 
 /// Historical questions remain inspectable but must not block deliberate resume.
 /// Owner identity is not part of a snapshot; live callers additionally check
 /// `belongs_to_owner` against an envelope from their authenticated connection.
-pub fn actionable(state: &State, approval: &Approval, now: Timestamp) -> Result<bool, String> {
+pub fn actionable<'a>(
+    state: impl Into<CurrentStateView<'a>>,
+    approval: &Approval,
+    now: Timestamp,
+) -> Result<bool, String> {
+    let state = state.into();
     if approval.state != ApprovalState::Pending
         || approval.expires_at <= now
         || approval.controller.is_none()
@@ -64,7 +69,7 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
     use vcp_domain::{ids::*, revision::*};
-    use vcp_store::contract::{key, Record};
+    use vcp_store::contract::{key, Record, State};
 
     fn fixture() -> (State, Approval) {
         let workspace = WorkspaceId::new();
@@ -134,7 +139,18 @@ mod tests {
     fn expired_or_superseded_questions_do_not_block_resume() {
         let (state, approval) = fixture();
         assert!(actionable(&state, &approval, Timestamp::new(99)).unwrap());
-        assert!(!actionable(&state, &approval, Timestamp::new(100)).unwrap());
+        assert!(actionable(
+            CurrentStateView::from(&state),
+            &approval,
+            Timestamp::new(99)
+        )
+        .unwrap());
+        assert!(!actionable(
+            CurrentStateView::from(&state),
+            &approval,
+            Timestamp::new(100)
+        )
+        .unwrap());
         for (collection, id, field, value) in [
             (
                 Collection::Task,
@@ -167,11 +183,21 @@ mod tests {
                 .get_mut(&key(collection, &id))
                 .unwrap()
                 .value[field] = value;
-            assert!(!actionable(&changed, &approval, Timestamp::new(99)).unwrap());
+            assert!(!actionable(
+                CurrentStateView::from(&changed),
+                &approval,
+                Timestamp::new(99)
+            )
+            .unwrap());
         }
         let mut historical = approval.clone();
         historical.controller = None;
-        assert!(!actionable(&state, &historical, Timestamp::new(99)).unwrap());
+        assert!(!actionable(
+            CurrentStateView::from(&state),
+            &historical,
+            Timestamp::new(99)
+        )
+        .unwrap());
         let mut changed = state.clone();
         let value: &mut Value = &mut changed
             .records
@@ -179,7 +205,12 @@ mod tests {
             .unwrap()
             .value;
         value["data"]["policy"]["revision"] = json!(Revision::new(1));
-        assert!(!actionable(&changed, &approval, Timestamp::new(99)).unwrap());
+        assert!(!actionable(
+            CurrentStateView::from(&changed),
+            &approval,
+            Timestamp::new(99)
+        )
+        .unwrap());
     }
 
     #[test]

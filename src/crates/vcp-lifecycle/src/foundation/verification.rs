@@ -4,6 +4,57 @@ use super::*;
 use vcp_domain::verification::{CheckOutcome, Verification};
 use vcp_tools::verification::{Plan, Requirement};
 
+/// Scheduling information produced at the failing canonical boundary, never
+/// inferred from diagnostic text. Only explicit recoverable categories recheck.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletionRejection {
+    MissingVerification,
+    StaleVerification,
+    FailedChecks,
+    InstructionScopeRefresh,
+    RequiredApproval,
+    UnresolvedEffects,
+    Boundary,
+}
+
+#[derive(Clone, Debug)]
+pub struct CompletionFailure {
+    pub kind: CompletionRejection,
+    pub message: String,
+}
+
+impl CompletionFailure {
+    pub(crate) fn new(kind: CompletionRejection, message: &str) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+impl std::fmt::Display for CompletionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.message.fmt(f)
+    }
+}
+impl std::error::Error for CompletionFailure {}
+
+pub enum CompletionAttempt {
+    Completed(CommandReceipt),
+    Rejected(CompletionFailure),
+}
+
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum VerificationSelection {
+    #[default]
+    Completion,
+    Focused {
+        affected_paths: Vec<String>,
+        failed_checks: Vec<String>,
+    },
+}
+
 #[derive(Clone, serde::Serialize)]
 pub struct VerificationConfig {
     pub requirements: Vec<Requirement>,
@@ -27,6 +78,80 @@ pub(super) struct VerificationPresentation {
     pub diagnostics: Vec<serde_json::Value>,
 }
 impl CanonicalHost {
+    pub fn completion_repair_feedback(&self, thread: ThreadId) -> Result<Option<String>, String> {
+        let span = self.diagnostic_span(thread, super::execution_diagnostics::Phase::Repair)?;
+        let binding = self.binding(thread)?;
+        let result = self
+            .worker
+            .run(move |context| context.completion_repair_feedback(&binding));
+        span.finish(&result);
+        result
+    }
+    /// Current-owner completion checks, independent of a model reissuing
+    /// vcp_verify after instruction refresh. No tool-call identity is replayed.
+    pub async fn verify_for_completion(&self, thread: ThreadId) -> Result<Verification, String> {
+        self.owner_verification_ready(thread)?;
+        // Keep the same unsupported-hook boundary as the model-facing workflow.
+        if self.has_tool_hooks(thread)? {
+            return Err(
+                "vcp_verify is unavailable with configured before_tool_authorization hooks".into(),
+            );
+        }
+        let binding = self.binding(thread)?;
+        let citations = self
+            .worker
+            .run(move |context| context.prepare_completion_verification(&binding))?;
+        let observed = self.verify_before_publish(thread, citations, || {}).await?;
+        self.finish_owner_verification(thread, observed.verification)
+            .await
+    }
+    async fn finish_owner_verification(
+        &self,
+        thread: ThreadId,
+        report: Verification,
+    ) -> Result<Verification, String> {
+        let outcomes = self
+            .gate_event(
+                thread,
+                vcp_extensions::hooks::registry::HookEvent::AfterVerification,
+                format!("owner-verify-{}", report.id),
+                format!("owner-verify-{}", report.id),
+                0,
+                report
+                    .outputs
+                    .iter()
+                    .cloned()
+                    .chain(report.checks.iter().map(|check| check.output.clone()))
+                    .collect(),
+                serde_json::json!({"verification":report.id,"owner_scheduled":true}),
+            )
+            .await
+            .and_then(|outcomes| super::hooks::adapters::gate_decision(&outcomes).map(|_| ()));
+        if let Err(error) = outcomes {
+            self.worker
+                .run_cleanup(|context| context.pause_verification_hook())?;
+            return Err(error);
+        }
+        Ok(report)
+    }
+    pub(super) fn owner_verification_ready(&self, thread: ThreadId) -> Result<(), String> {
+        self.binding(thread)?;
+        let runtime = self.runtime.clone();
+        let scheduler = self.scheduler.clone();
+        self.worker.run(move |_| {
+            let state = runtime.0.state.lock().map_err(|_| "lifecycle poisoned")?;
+            if !state.attached
+                || state.sealing
+                || state.startups_in_flight != 0
+                || state.entries.values().any(|entry| entry.starts != 0)
+                || state.work.iter().any(|work| work.receipt.is_none())
+                || scheduler.busy()
+            {
+                return Err("owner verification requires quiescent retained work".into());
+            }
+            Ok(())
+        })
+    }
     /// Establish the original source baseline before effects. Reopen restores
     /// the baseline but never restores a completion capability or runner profile.
     pub fn configure_verification(
@@ -49,12 +174,43 @@ impl CanonicalHost {
             .verification)
     }
 
+    /// Owner-only diagnostic subset. Even full fallback remains diagnostic:
+    /// it cannot mint the capability required by final completion.
+    pub async fn verify_focused(
+        &self,
+        thread: ThreadId,
+        affected_paths: Vec<String>,
+        failed_checks: Vec<String>,
+    ) -> Result<Verification, String> {
+        self.owner_verification_ready(thread)?;
+        if self.has_tool_hooks(thread)? {
+            return Err(
+                "vcp_verify is unavailable with configured before_tool_authorization hooks".into(),
+            );
+        }
+        let report = self
+            .verify_selected(
+                thread,
+                vec![],
+                VerificationSelection::Focused {
+                    affected_paths,
+                    failed_checks,
+                },
+                || {},
+            )
+            .await?
+            .verification;
+        self.finish_owner_verification(thread, report).await
+    }
+
     pub(super) async fn verify_for_coding(
         &self,
         thread: ThreadId,
         citations: Vec<ArtifactId>,
+        selection: VerificationSelection,
     ) -> Result<VerificationPresentation, String> {
-        self.verify_before_publish(thread, citations, || {}).await
+        self.verify_selected(thread, citations, selection, || {})
+            .await
     }
 
     /// Qualification-only control injection after checks, before publication.
@@ -77,14 +233,58 @@ impl CanonicalHost {
         citations: Vec<ArtifactId>,
         before_publish: impl FnOnce(),
     ) -> Result<VerificationPresentation, String> {
+        self.verify_selected(
+            thread,
+            citations,
+            VerificationSelection::Completion,
+            before_publish,
+        )
+        .await
+    }
+
+    async fn verify_selected(
+        &self,
+        thread: ThreadId,
+        citations: Vec<ArtifactId>,
+        selection: VerificationSelection,
+        before_publish: impl FnOnce(),
+    ) -> Result<VerificationPresentation, String> {
+        let span =
+            self.diagnostic_span(thread, super::execution_diagnostics::Phase::Verification)?;
+        let result = self
+            .verify_selected_inner(thread, citations, selection, before_publish)
+            .await;
+        let passed = result.as_ref().is_ok_and(|report| {
+            report.verification.outstanding_issues.is_empty()
+                && report.verification.unresolved_effects.is_empty()
+                && report
+                    .verification
+                    .checks
+                    .iter()
+                    .all(|check| check.outcome == CheckOutcome::Passed)
+        });
+        if passed {
+            span.succeeded();
+        } else {
+            span.failed();
+        }
+        result
+    }
+    async fn verify_selected_inner(
+        &self,
+        thread: ThreadId,
+        citations: Vec<ArtifactId>,
+        selection: VerificationSelection,
+        before_publish: impl FnOnce(),
+    ) -> Result<VerificationPresentation, String> {
         if self.mcp_connections_present() {
             return Err("disconnect MCP processes before verification".into());
         }
         let binding = self.binding(thread)?;
         let scoped = binding.clone();
-        let run = self
-            .worker
-            .run(move |context| context.begin_verification(&scoped, citations))?;
+        let run = self.worker.run(move |context| {
+            context.begin_selected_verification(&scoped, citations, selection)
+        })?;
         let mut checks = Vec::new();
         let mut diagnostics = Vec::new();
         // At most 32 owner-configured checks. Divide an 8-KiB raw tail budget
@@ -161,7 +361,7 @@ impl CanonicalHost {
                     // broker reconciles it to OutcomeUnknown; absence of a
                     // returned process handle must not imply no execution.
                     let may_have_dispatched = check.effect.as_ref().is_some_and(|id| {
-                        self.snapshot()
+                        self.current_state()
                             .and_then(|state| {
                                 let effect: vcp_domain::effect::Effect = state
                                     .record(
@@ -216,6 +416,29 @@ impl CanonicalHost {
         thread: ThreadId,
         verification: Option<VerificationId>,
     ) -> Result<CommandReceipt, String> {
+        match self.try_complete_when_quiescent(thread, verification)? {
+            CompletionAttempt::Completed(receipt) => Ok(receipt),
+            CompletionAttempt::Rejected(failure) => Err(failure.to_string()),
+        }
+    }
+
+    pub fn try_complete_coding_turn(&self, thread: ThreadId) -> Result<CompletionAttempt, String> {
+        self.try_complete_when_quiescent(thread, None)
+    }
+
+    pub fn try_complete_verified(
+        &self,
+        thread: ThreadId,
+        verification: VerificationId,
+    ) -> Result<CompletionAttempt, String> {
+        self.try_complete_when_quiescent(thread, Some(verification))
+    }
+
+    fn try_complete_when_quiescent(
+        &self,
+        thread: ThreadId,
+        verification: Option<VerificationId>,
+    ) -> Result<CompletionAttempt, String> {
         if self.mcp_connections_present() {
             return Err("disconnect MCP processes before completion".into());
         }
@@ -235,11 +458,28 @@ impl CanonicalHost {
             }
             // Select final-response evidence under the same owner/admission
             // fence as completion. A new turn cannot clear it between lookups.
-            let verification = match verification {
-                Some(id) => id,
-                None => context.coding_completion(&binding)?,
-            };
-            context.complete_verified(&binding, &verification)
+            let result = (|| {
+                context.completion_approval_boundary(&binding)?;
+                let verification = match verification {
+                    Some(id) => id,
+                    None => context.coding_completion(&binding)?,
+                };
+                context.complete_verified(&binding, &verification)
+            })();
+            Ok(match result {
+                Ok(receipt) => CompletionAttempt::Completed(receipt),
+                Err(error) => CompletionAttempt::Rejected(
+                    error
+                        .downcast_ref::<CompletionFailure>()
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            CompletionFailure::new(
+                                CompletionRejection::Boundary,
+                                &error.to_string(),
+                            )
+                        }),
+                ),
+            })
         })
     }
 }

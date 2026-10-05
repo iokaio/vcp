@@ -14,7 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()?;
     let store = runtime.block_on(vcp_store::Store::open(&root, kind, &[]))?;
-    let view = vcp_audit::projection::rebuild(store.state(), &workspace, 2, watermark)?;
+    let archive = runtime.block_on(store.archive_state())?;
+    let view = vcp_audit::projection::rebuild(&archive, &workspace, 2, watermark)?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

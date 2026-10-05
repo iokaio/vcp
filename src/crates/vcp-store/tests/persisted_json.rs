@@ -161,17 +161,17 @@ async fn literal_record_and_event_replay_checkpoint_and_retry_preserve_exact_byt
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
         let transaction = transaction();
         let receipt = store.transact(transaction.clone()).await.unwrap();
-        let expected = canonical_bytes(store.state()).unwrap();
-        unchanged(store.state(), &expected);
+        let expected = canonical_bytes((&store.archive_state().await.unwrap())).unwrap();
+        unchanged((&store.archive_state().await.unwrap()), &expected);
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
-        unchanged(store.state(), &expected);
+        unchanged((&store.archive_state().await.unwrap()), &expected);
         assert_eq!(store.transact(transaction.clone()).await.unwrap(), receipt);
         // Files reads its serialized State checkpoint on the next open.
         store.checkpoint().unwrap();
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
-        unchanged(store.state(), &expected);
+        unchanged((&store.archive_state().await.unwrap()), &expected);
         assert_eq!(store.transact(transaction).await.unwrap(), receipt);
         store.close().await.unwrap();
     }
@@ -185,19 +185,19 @@ async fn literal_payloads_survive_replay_base_suffix_and_backend_conversion() {
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
         let transaction = transaction();
         let receipt = store.transact(transaction.clone()).await.unwrap();
-        let expected = canonical_bytes(store.state()).unwrap();
+        let expected = canonical_bytes((&store.archive_state().await.unwrap())).unwrap();
         store
-            .rewrite_base(store.state().clone(), &[])
+            .rewrite_base((&store.archive_state().await.unwrap()).clone(), &[])
             .await
             .unwrap();
-        unchanged(store.state(), &expected);
+        unchanged((&store.archive_state().await.unwrap()), &expected);
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
-        unchanged(store.state(), &expected);
+        unchanged((&store.archive_state().await.unwrap()), &expected);
         assert_eq!(store.transact(transaction).await.unwrap(), receipt);
         let mut suffix = initial();
         suffix.id = TransactionId::parse("literal-suffix").unwrap();
-        suffix.expected_watermark = store.state().watermark;
+        suffix.expected_watermark = store.current().watermark;
         suffix.command = None;
         suffix.events.clear();
         suffix.mutations = vec![Mutation::Put {
@@ -212,11 +212,11 @@ async fn literal_payloads_survive_replay_base_suffix_and_backend_conversion() {
             .unwrap(),
         }];
         let suffix_receipt = store.transact(suffix.clone()).await.unwrap();
-        let expected = canonical_bytes(store.state()).unwrap();
+        let expected = canonical_bytes((&store.archive_state().await.unwrap())).unwrap();
         store.checkpoint().unwrap();
         store.close().await.unwrap();
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
-        unchanged(store.state(), &expected);
+        unchanged((&store.archive_state().await.unwrap()), &expected);
         assert_eq!(store.transact(suffix).await.unwrap(), suffix_receipt);
         let other = if backend == BackendKind::Files {
             BackendKind::Sqlite
@@ -225,10 +225,10 @@ async fn literal_payloads_survive_replay_base_suffix_and_backend_conversion() {
         };
         let converted_root = temp.path().join("converted");
         let converted = store.convert(&converted_root, other, &[]).await.unwrap();
-        unchanged(converted.state(), &expected);
+        unchanged((&converted.archive_state().await.unwrap()), &expected);
         converted.close().await.unwrap();
         let converted = Store::open(&converted_root, other, &[]).await.unwrap();
-        unchanged(converted.state(), &expected);
+        unchanged((&converted.archive_state().await.unwrap()), &expected);
         converted.close().await.unwrap();
         store.close().await.unwrap();
     }
@@ -241,9 +241,11 @@ async fn portable_history_export_decode_and_import_preserve_literal_payloads() {
         let root = temp.path().join("canonical");
         let mut store = Store::open(&root, backend, &[]).await.unwrap();
         store.transact(transaction()).await.unwrap();
-        let expected = canonical_bytes(store.state()).unwrap();
+        let expected = canonical_bytes((&store.archive_state().await.unwrap())).unwrap();
         let snapshot = store.snapshot().unwrap();
-        let archive = Archive::capture(&store, &snapshot, &workspace().id, &|| false).unwrap();
+        let archive = Archive::capture(&store, &snapshot, &workspace().id, &|| false)
+            .await
+            .unwrap();
         let payloads = archive.payloads().unwrap();
         let digest = archive.inventory_digest().unwrap();
         let imported = Archive::decode(payloads.clone(), &digest).unwrap();

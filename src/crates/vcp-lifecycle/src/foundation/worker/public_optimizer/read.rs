@@ -39,6 +39,12 @@ struct Cohort {
     size: String,
     role: String,
 }
+fn currency(value: &str) -> RpcResult<()> {
+    if value.is_empty() || value.len() > 16 || !value.bytes().all(|c| c.is_ascii_uppercase()) {
+        return Err(unavailable());
+    }
+    Ok(())
+}
 fn money(values: &BTreeMap<String, u64>) -> RpcResult<Vec<wire::Money>> {
     if values.len() > 32 {
         return Err(unavailable());
@@ -46,12 +52,7 @@ fn money(values: &BTreeMap<String, u64>) -> RpcResult<Vec<wire::Money>> {
     values
         .iter()
         .map(|(currency, value)| {
-            if currency.is_empty()
-                || currency.len() > 16
-                || !currency.bytes().all(|c| c.is_ascii_uppercase())
-            {
-                return Err(unavailable());
-            }
+            self::currency(currency)?;
             Ok(wire::Money {
                 currency: currency.clone(),
                 micros: (*value).into(),
@@ -87,7 +88,15 @@ fn summary(report: &routing_state::OptimizationReport) -> RpcResult<wire::Report
             supporting_attempts: c.supporting_attempts.into(),
             known_spend: money(&c.known_spend_micros)?,
             uncertain_attempts: c.uncertain_attempts.into(),
-            reserved_liability: money(&c.reserved_liability_micros)?,
+            reserved_liability: {
+                // Validate the same bounded currency vocabulary before exposing
+                // nullable totals. Missing valuation terms are not zero money.
+                if c.reserved_liability_micros.len() > 32 { return Err(unavailable()); }
+                c.reserved_liability_micros.iter().map(|(name, value)| {
+                    currency(name)?;
+                    Ok(wire::LiabilityMoney { currency: name.clone(), micros: value.map(Into::into) })
+                }).collect::<RpcResult<Vec<_>>>()?
+            },
             pruned_tasks: c.pruned_tasks.into(),
         },
         observed: wire::Observed {
@@ -105,7 +114,7 @@ fn summary(report: &routing_state::OptimizationReport) -> RpcResult<wire::Report
         },
     })
 }
-pub(super) fn read(
+pub(super) async fn read(
     store: &Store,
     access: &Access,
     request: &wire::ReportRead,
@@ -125,7 +134,7 @@ pub(super) fn read(
         CommandId::parse(request.report.as_str()).map_err(|_| RpcError::invalid_params())?;
     let saved = service::read_report(store, &governed, &access.session, &capture, &|| {
         check().map_err(|_| service::Error::Cancelled)
-    })
+    }).await
     .map_err(|error| match error {
         service::Error::Access => failure(Code::PolicyDenied),
         service::Error::Invalid => RpcError::invalid_params(),
@@ -139,15 +148,11 @@ pub(super) fn read(
     }
     // Even legacy taskless evidence must belong to the authenticated session.
     if !global {
-        let mut events = BTreeMap::new();
-        for event in &store.state().events {
+        for id in &saved.report.evidence {
             check()?;
-            events.insert(&event.event.id, &event.event);
-        }
-        for event in &saved.report.evidence {
-            check()?;
-            let event = events.get(event).ok_or_else(unavailable)?;
-            if event.session != access.session {
+            let event = store.history_event(id).await.map_err(|_| unavailable())?.ok_or_else(unavailable)?;
+            if &event.event.id != id { return Err(unavailable()); }
+            if event.event.session != access.session {
                 return Err(failure(Code::PolicyDenied));
             }
         }
@@ -201,7 +206,7 @@ pub(super) fn read(
             until: report.window.until.get().into(),
         },
         cutoff: report.cutoff.get().into(),
-        watermark: store.state().watermark.get().into(),
+        watermark: store.current().watermark.get().into(),
         authority_revision: workspace.authority.get().into(),
         deletion_revision: workspace.deletion.get().into(),
         binding_revision: workspace.binding.revision.get().into(),

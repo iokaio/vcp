@@ -27,13 +27,16 @@ pub struct Observation {
     pub complete: bool,
     pub error: Option<String>,
     pub staging_path: Option<String>,
+    #[serde(default)]
+    pub created_directories: Vec<crate::path::ParentDirectory>,
 }
 pub struct Target {
     root: Root,
     path: String,
     expected: Option<FileVersion>,
     file: Option<File>,
-    _parent: HeldPath,
+    parents: Vec<crate::path::ParentDirectory>,
+    _parents: Vec<HeldPath>,
 }
 fn parent(root: &Root, path: &str) -> Result<HeldPath> {
     let p = Path::new(path)
@@ -131,11 +134,38 @@ impl Root {
     /// Acquires a deny-write/delete native handle and compares full identity and
     /// bytes. Acquiring this guard has no file mutation effect.
     pub fn mutation_target(&self, probe: &Probe) -> Result<Target> {
+        let parents = self.prepare_parents(&probe.path)?;
+        // Existing callers have not authorized directory creation.
+        if parents.iter().any(|p| p.native_identity.is_none()) {
+            return Err(Error::Scope("file parent does not exist".into()));
+        }
+        self.mutation_target_with_parents(probe, &parents, &Default::default())
+    }
+
+    pub fn mutation_target_with_parents(
+        &self,
+        probe: &Probe,
+        parents: &[crate::path::ParentDirectory],
+        created: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Target> {
         validate(&probe.path)?;
         if probe.root != self.identity.root || probe.binding != self.identity.binding {
             return Err(Error::Stale);
         }
-        let parent = parent(self, &probe.path)?;
+        let held = self.hold_planned_parents(&probe.path, parents, created)?;
+        let parents: Vec<_> = parents
+            .iter()
+            .map(|p| crate::path::ParentDirectory {
+                path: p.path.clone(),
+                native_identity: p
+                    .native_identity
+                    .clone()
+                    .or_else(|| created.get(&p.path.to_lowercase()).cloned()),
+            })
+            .collect();
+        if probe.observed.is_some() && parents.iter().any(|p| p.native_identity.is_none()) {
+            return Err(Error::Stale);
+        }
         let file = if let Some(expected) = &probe.observed {
             let mut f = OpenOptions::new()
                 .access_mode(FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE)
@@ -154,10 +184,12 @@ impl Root {
             }
             Some(f)
         } else {
-            match std::fs::symlink_metadata(self.path.join(&probe.path)) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-                Err(e) => return Err(e.into()),
-                Ok(_) => return Err(Error::Stale),
+            if parents.iter().all(|p| p.native_identity.is_some()) {
+                match std::fs::symlink_metadata(self.path.join(&probe.path)) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(e.into()),
+                    Ok(_) => return Err(Error::Stale),
+                }
             }
             None
         };
@@ -166,7 +198,8 @@ impl Root {
             path: probe.path.clone(),
             expected: probe.observed.clone(),
             file,
-            _parent: parent,
+            parents,
+            _parents: held,
         })
     }
 }
@@ -185,10 +218,35 @@ impl Target {
             complete: false,
             error: None,
             staging_path: None,
+            created_directories: vec![],
         };
         let result = (|| -> Result<()> {
             if after.is_some_and(|b| b.len() > 1024 * 1024) {
                 return Err(Error::Limit("candidate bytes"));
+            }
+            let mut created_handles: Vec<File> = vec![];
+            for directory in &self.parents {
+                if directory.native_identity.is_some() {
+                    continue;
+                }
+                if after.is_none() || destination.is_some() {
+                    return Err(Error::Scope("only new files may create parents".into()));
+                }
+                // Ancestors are pinned. Create exactly one prepared component;
+                // an intervening entry is a conflict, never a path to follow.
+                let parent = created_handles
+                    .last()
+                    .or_else(|| self._parents.last().map(|p| &p.file))
+                    .ok_or(Error::Stale)?;
+                let name = directory.path.rsplit('/').next().ok_or(Error::Stale)?;
+                let handle = native::create_directory(parent, name)?;
+                observation.changed = true;
+                observation.created_directories.push(directory.clone());
+                let identity = native::identity(&handle)?;
+                if let Some(created) = observation.created_directories.last_mut() {
+                    created.native_identity = Some(identity);
+                }
+                created_handles.push(handle);
             }
             let _destination_parent = destination
                 .map(|p| {
@@ -268,7 +326,10 @@ impl Target {
                     }
                     let path = destination.unwrap_or(&self.path);
                     let actual = native::final_path(self.file.as_ref().unwrap())?;
-                    if actual != self.root.path.join(path) {
+                    if !actual
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&self.root.path.join(path).to_string_lossy())
+                    {
                         return Err(Error::Scope(format!(
                             "native target path differs after mutation: {}",
                             actual.display()

@@ -135,7 +135,11 @@ async fn seed(root: &Path, backend: BackendKind) -> (Store, Corpus) {
     initial.events[0].data =
         serde_json::json!({"facts":[{"collection":"task","id":first.scope.task,"value":first}]});
     store.transact(initial).await.unwrap();
-    let origin = store.state().events.last().unwrap().clone();
+    let origin = (&store.archive_state().await.unwrap())
+        .events
+        .last()
+        .unwrap()
+        .clone();
     let access = Access {
         workspace: first.scope.workspace.clone(),
         actor: ActorId::parse("human").unwrap(),
@@ -170,7 +174,7 @@ async fn seed(root: &Path, backend: BackendKind) -> (Store, Corpus) {
     store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: store.state().watermark,
+            expected_watermark: store.current().watermark,
             mutations: vec![Mutation::Put {
                 expected: None,
                 record: Record::typed(
@@ -187,7 +191,11 @@ async fn seed(root: &Path, backend: BackendKind) -> (Store, Corpus) {
         })
         .await
         .unwrap();
-    let origin = store.state().events.last().unwrap().clone();
+    let origin = (&store.archive_state().await.unwrap())
+        .events
+        .last()
+        .unwrap()
+        .clone();
     let proposal = vcp_memory::preferences::materialize(&mut store, &access, &origin)
         .await
         .unwrap()
@@ -218,8 +226,8 @@ fn selector(corpus: &Corpus, slot: usize) -> Selector {
     }
 }
 
-fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
-    let before = store.state().clone();
+async fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
+    let before = store.archive_state().await.unwrap();
     for allowed in [
         None,
         Some(BTreeSet::from([corpus.tasks[0].clone()])),
@@ -237,6 +245,7 @@ fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
             &ChunkerSpec::default(),
             search_record::Limits::default(),
         )
+        .await
         .unwrap();
         let wanted: BTreeSet<_> = (0..2)
             .filter(|slot| {
@@ -299,11 +308,11 @@ fn check(store: &Store, corpus: &Corpus, expected: &[Visibility; 2]) {
         }
     }
     assert_eq!(
-        store.state(),
+        &store.archive_state().await.unwrap(),
         &before,
         "visibility inspection wrote canonical state"
     );
-    assert!(store.state().records.values().all(|record| !matches!(
+    assert!(store.current().records.values().all(|record| !matches!(
         record.collection,
         Collection::Attempt | Collection::Reservation | Collection::Ledger
     )));
@@ -323,9 +332,11 @@ async fn restore(
         vault_crypto::{Limits, Manifest, Object, PrivateStaging, FORMAT},
         vault_publish::{Checkpoint, LocalTrust},
     };
-    let original = source.state().clone();
+    let original = source.archive_state().await.unwrap();
     let snapshot = source.snapshot().unwrap();
-    let archive = Archive::capture(source, &snapshot, &corpus.access.workspace, &|| false).unwrap();
+    let archive = Archive::capture(source, &snapshot, &corpus.access.workspace, &|| false)
+        .await
+        .unwrap();
     let payloads = archive.payloads().unwrap();
     drop(snapshot);
     let [stage, recovery, vault, acquisition, roots] =
@@ -340,7 +351,7 @@ async fn restore(
         .unwrap();
     let keys = keys.verify_recovery(&copy).unwrap();
     let workspace: Workspace = source
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             corpus.access.workspace.as_str(),
@@ -410,6 +421,7 @@ async fn restore(
     let mut restore = Restore::open(&acquisition, &forbidden).unwrap();
     let proof = restore
         .authenticate(&trust, &copy, Limits::default(), &|| false)
+        .await
         .unwrap();
     let imported = restore
         .import(
@@ -427,7 +439,7 @@ async fn restore(
     assert!(!restore.status().search_ready);
     let restored = imported.reopen_verified().await.unwrap();
     let target: Workspace = restored
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             corpus.access.workspace.as_str(),
@@ -446,6 +458,7 @@ async fn restore(
             &ChunkerSpec::default(),
             search_record::Limits::default()
         )
+        .await
         .is_err(),
         "old authority survived restore"
     );
@@ -457,18 +470,30 @@ async fn restore(
         tasks: corpus.tasks.clone(),
         versions: corpus.versions.clone(),
     };
-    check(&restored, &target_corpus, expected);
+    check(&restored, &target_corpus, expected).await;
     for (id, receipt) in &original.transactions {
-        assert_eq!(restored.state().transactions.get(id), Some(receipt));
+        assert_eq!(
+            (&restored.archive_state().await.unwrap())
+                .transactions
+                .get(id),
+            Some(receipt)
+        );
     }
     for (id, receipt) in &original.commands {
-        assert_eq!(restored.state().commands.get(id), Some(receipt));
+        assert_eq!(
+            (&restored.archive_state().await.unwrap()).commands.get(id),
+            Some(receipt)
+        );
     }
     assert_eq!(
-        &restored.state().events[..original.events.len()],
+        &(&restored.archive_state().await.unwrap()).events[..original.events.len()],
         original.events.as_slice()
     );
-    assert_eq!(source.state(), &original, "restore mutated source");
+    assert_eq!(
+        &source.archive_state().await.unwrap(),
+        &original,
+        "restore mutated source"
+    );
     restored.close().await.unwrap();
 }
 
@@ -490,7 +515,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
             let operations = trace(*seed_value);
             // Replay overrides are debugging aids, not the full qualification campaign.
             let mut coverage = [0usize; 5]; // accepted, refused, stale, scope, reopen
-            check(&store, &corpus, &expected);
+            check(&store, &corpus, &expected).await;
             for (index, operation) in operations.iter().take(count).enumerate() {
                 eprintln!(
                     "retention seed={seed_value:#x} backend={backend:?} prefix={:?}",
@@ -500,10 +525,14 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                 match *operation {
                     Op::Reopen => {
                         coverage[4] += 1;
-                        let state = store.state().clone();
+                        let state = store.archive_state().await.unwrap();
                         store.close().await.unwrap();
                         store = Store::open(&root, backend, &[]).await.unwrap();
-                        assert_eq!(store.state(), &state, "reopen changed acknowledged state");
+                        assert_eq!(
+                            &store.archive_state().await.unwrap(),
+                            &state,
+                            "reopen changed acknowledged state"
+                        );
                     }
                     Op::Stale(slot) => {
                         coverage[2] += 1;
@@ -514,9 +543,10 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             Action::Exclude,
                             now,
                         )
+                        .await
                         .unwrap();
                         let revision = store
-                            .state()
+                            .current()
                             .records
                             .values()
                             .find(|record| {
@@ -533,7 +563,7 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                         )
                         .await
                         .unwrap();
-                        let before = store.state().clone();
+                        let before = store.archive_state().await.unwrap();
                         let error = retention::apply(&mut store, &corpus.access, &preview, now)
                             .await
                             .unwrap_err();
@@ -541,7 +571,11 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             error.to_string().contains("stale preview"),
                             "wrong stale diagnosis: {error}"
                         );
-                        assert_eq!(store.state(), &before, "stale preview wrote state");
+                        assert_eq!(
+                            &store.archive_state().await.unwrap(),
+                            &before,
+                            "stale preview wrote state"
+                        );
                     }
                     Op::WrongScope(slot) => {
                         coverage[3] += 1;
@@ -552,8 +586,9 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             Action::Exclude,
                             now,
                         )
+                        .await
                         .unwrap();
-                        let before = store.state().clone();
+                        let before = store.archive_state().await.unwrap();
                         let denied = Access {
                             workspace: WorkspaceId::parse("foreign-workspace").unwrap(),
                             ..copy_access(&corpus.access)
@@ -568,7 +603,11 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                         assert!(retention::apply(&mut store, &narrowed, &preview, now)
                             .await
                             .is_err());
-                        assert_eq!(store.state(), &before, "scope-denied operation wrote state");
+                        assert_eq!(
+                            &store.archive_state().await.unwrap(),
+                            &before,
+                            "scope-denied operation wrote state"
+                        );
                     }
                     op => {
                         let (slot, action) = match op {
@@ -585,8 +624,9 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             action,
                             now,
                         )
+                        .await
                         .unwrap();
-                        let before = store.state().clone();
+                        let before = store.archive_state().await.unwrap();
                         let wanted = next(expected[slot], op);
                         let result =
                             retention::apply(&mut store, &corpus.access, &preview, now).await;
@@ -595,25 +635,29 @@ async fn seeded_retention_reopen_and_authenticated_restore_preserve_oracle() {
                             let receipt = result.unwrap();
                             expected[slot] = value;
                             // Retrying exactly the acknowledged preview is idempotent.
-                            let after = store.state().clone();
+                            let after = store.archive_state().await.unwrap();
                             let replay =
                                 retention::apply(&mut store, &corpus.access, &preview, now)
                                     .await
                                     .unwrap();
                             assert_eq!(replay, receipt, "duplicate returned a different receipt");
                             assert_eq!(
-                                store.state(),
+                                &store.archive_state().await.unwrap(),
                                 &after,
                                 "duplicate retention apply wrote state"
                             );
                         } else {
                             coverage[1] += 1;
                             assert!(result.is_err(), "post-purge mutation accepted");
-                            assert_eq!(store.state(), &before, "post-purge refusal wrote state");
+                            assert_eq!(
+                                &store.archive_state().await.unwrap(),
+                                &before,
+                                "post-purge refusal wrote state"
+                            );
                         }
                     }
                 }
-                check(&store, &corpus, &expected);
+                check(&store, &corpus, &expected).await;
             }
             eprintln!("retention seed={seed_value:#x} backend={backend:?} authenticated restore after prefix={:?}",&operations[..count]);
             let to = if backend == BackendKind::Files {

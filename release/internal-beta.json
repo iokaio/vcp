@@ -1,9 +1,9 @@
 {
   "schema": "vcp-beta-channel/1",
   "channel": "internal-beta",
-  "native_version": "0.2.11",
-  "sdk_version": "0.2.11",
-  "vsix_version": "0.2.11",
+  "native_version": "0.2.32",
+  "sdk_version": "0.2.32",
+  "vsix_version": "0.2.32",
   "target": "x86_64-pc-windows-msvc",
   "vsix_target": "win32-x64",
   "vscode_version": "1.138.0",

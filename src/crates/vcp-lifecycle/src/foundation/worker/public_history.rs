@@ -75,13 +75,18 @@ impl PublicConnection {
                             Ok(())
                         }
                     };
-                    inspect(context.engine.store(), &access, &request, &check)
+                    context.runtime.block_on(inspect(
+                        context.engine.store(),
+                        &access,
+                        &request,
+                        &check,
+                    ))
                 })())
             })
             .map_err(|_| unavailable())?
     }
 }
-fn inspect(
+async fn inspect(
     store: &Store,
     access: &Access,
     request: &wire::Query,
@@ -96,7 +101,7 @@ fn inspect(
         return Err(failure(Code::PolicyDenied));
     }
     let session: vcp_domain::workspace::Session = store
-        .state()
+        .current()
         .record(
             Collection::Session,
             access.session.as_str(),
@@ -110,7 +115,7 @@ fn inspect(
     }
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.collection == Collection::Task && row.workspace == access.workspace)
@@ -183,8 +188,8 @@ fn inspect(
             .transpose()?,
         expand_compacted: request.expand_compacted,
     };
-    let page = vcp_audit::history_query::query_session(
-        store.state(),
+    let page = vcp_audit::history_query::query_store_session_with_check(
+        store,
         &vcp_audit::history::Access {
             workspace: access.workspace.clone(),
             authority: access.authority,
@@ -193,7 +198,9 @@ fn inspect(
         },
         &query,
         &access.session,
+        &|| check().map_err(|_| vcp_audit::Error::Restart("history query interrupted")),
     )
+    .await
     .map_err(audit_error)?;
     check()?;
     let origins = page
@@ -201,14 +208,17 @@ fn inspect(
         .iter()
         .map(|row| row.event.event.id.clone())
         .collect();
-    let (links, truncated) =
-        vcp_memory::history::origin_links_with_check(store, &memory_access, &origins, &|| {
-            check().map_err(|_| vcp_memory::Error::Conflict("history query interrupted"))
-        })
-        .map_err(|error| match error {
-            vcp_memory::Error::Access => failure(Code::PolicyDenied),
-            _ => unavailable(),
-        })?;
+    let (links, truncated) = vcp_memory::history::origin_links_store_with_check(
+        store,
+        &memory_access,
+        &origins,
+        &|| check().map_err(|_| vcp_memory::Error::Conflict("history query interrupted")),
+    )
+    .await
+    .map_err(|error| match error {
+        vcp_memory::Error::Access => failure(Code::PolicyDenied),
+        _ => unavailable(),
+    })?;
     check()?;
     let next_cursor = page
         .next_cursor
@@ -303,7 +313,7 @@ fn inspect(
         scope: request.scope.clone(),
         task: request.task.clone(),
         source_watermark: page.source_watermark.get().into(),
-        observed_watermark: store.state().watermark.get().into(),
+        observed_watermark: store.current().watermark.get().into(),
         newer_events: page.newer_events.into(),
         search_scope: page.search_scope,
         rows,

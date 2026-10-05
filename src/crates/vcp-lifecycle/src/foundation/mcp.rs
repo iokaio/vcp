@@ -436,7 +436,7 @@ impl CanonicalHost {
         let request_id = outbound.request_id().map(str::to_owned);
         let identity = ticket.operation.receipt_identity();
         self.worker.run(move|context| {
-            let current:Effect=context.engine.store().state().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
+            let current:Effect=context.engine.store().current().record(Collection::Effect,effect.as_str(),&binding.scope.workspace)?.decode()?;
             if current.state!=EffectState::Validated || current.execution.is_some(){return Err("MCP call has already been admitted".into());}
             context.tool_advance(&binding,&effect,EffectState::Authorized,None,vec![plan.clone()],"current MCP call authority admitted")?;
             let intent=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"effect":effect,"execution":exec,"identity":identity,"request_id":request_id,"request_digest":request_digest,"delivery":"not yet observed; never replay to determine status"}))?,"vcp-mcp-call-intent-v1")?;
@@ -499,7 +499,7 @@ impl CanonicalHost {
                         let current: Effect = context
                             .engine
                             .store()
-                            .state()
+                            .current()
                             .record(
                                 Collection::Effect,
                                 effect.as_str(),
@@ -581,7 +581,7 @@ impl CanonicalHost {
             let current: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),
@@ -1129,7 +1129,7 @@ impl CallGuard {
             let current: Effect = context
                 .engine
                 .store()
-                .state()
+                .current()
                 .record(
                     Collection::Effect,
                     effect.as_str(),

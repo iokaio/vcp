@@ -128,8 +128,8 @@ struct Builder {
 /// Map each attempt once to an exact augmented cohort visit and its terminal
 /// charge reward. A point estimate exists only when every visit in the cohort
 /// has a complete exact terminal charge.
-pub fn map(store: &Store, access: &Access, window: HistoryWindow) -> Result<Artifact> {
-    let source = observations::observe(store, access, window)?;
+pub async fn map(store: &Store, access: &Access, window: HistoryWindow) -> Result<Artifact> {
+    let source = observations::observe(store, access, window).await?;
     let source_digest = source
         .id
         .strip_prefix("action-evidence-")

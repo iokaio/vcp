@@ -32,17 +32,19 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
         let mut conflict = transaction.clone();
         conflict.events[0].data = serde_json::json!({"different":true});
         assert!(store.transact(conflict).await.is_err());
-        assert_eq!(store.state(), snapshot.state());
+        assert_eq!(
+            (&store.archive_state().await.unwrap()),
+            (&snapshot.archive_state().await.unwrap())
+        );
         let mut stale = transaction.clone();
         stale.id = TransactionId::new();
         assert!(store.transact(stale).await.is_err());
         let foreign = WorkspaceId::new();
         assert!(store
-            .state()
+            .current()
             .record(Collection::Task, "task", &foreign)
             .is_err());
-        assert!(store
-            .state()
+        assert!((&store.archive_state().await.unwrap())
             .command(
                 &workspace().id,
                 &CommandId::parse("create").unwrap(),
@@ -51,7 +53,7 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
             .is_err());
         let mut missing = initial();
         missing.id = TransactionId::new();
-        missing.expected_watermark = store.state().watermark;
+        missing.expected_watermark = store.current().watermark;
         missing.command = None;
         missing.events.clear();
         missing.mutations = vec![Mutation::Put {
@@ -73,14 +75,20 @@ async fn backends_share_atomicity_receipts_scope_and_revision_contract() {
             .unwrap(),
         }];
         assert!(store.transact(missing).await.is_err());
-        assert_eq!(store.state(), snapshot.state());
+        assert_eq!(
+            (&store.archive_state().await.unwrap()),
+            (&snapshot.archive_state().await.unwrap())
+        );
         store.checkpoint().unwrap();
         store.close().await.unwrap();
         let mut reopened = Store::open(&root, backend, &[]).await.unwrap();
-        assert_eq!(reopened.state(), snapshot.state());
+        assert_eq!(
+            (&reopened.archive_state().await.unwrap()),
+            (&snapshot.archive_state().await.unwrap())
+        );
         assert_eq!(
             reopened
-                .state()
+                .current()
                 .record(Collection::Access, "legacy-access", &workspace().id)
                 .unwrap()
                 .value,
@@ -116,7 +124,11 @@ async fn durable_artifacts_precede_references_and_snapshots_pin_orphans() {
         writer.write_chunk(b"binary\0\xff").unwrap();
         let pending = store.spool().inspect(&spec.id).unwrap();
         store
-            .transact(attach(store.state(), pending.clone(), None))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                pending.clone(),
+                None,
+            ))
             .await
             .unwrap();
         let snapshot = store.snapshot().unwrap();
@@ -124,11 +136,15 @@ async fn durable_artifacts_precede_references_and_snapshots_pin_orphans() {
         let complete = writer.finalize().unwrap();
         drop(writer);
         store
-            .transact(attach(store.state(), complete, Some(Revision::ZERO)))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                complete,
+                Some(Revision::ZERO),
+            ))
             .await
             .unwrap();
         let old: ArtifactDescriptor = snapshot
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 spec.id.as_str(),
@@ -140,22 +156,26 @@ async fn durable_artifacts_precede_references_and_snapshots_pin_orphans() {
         let mut oldbytes = Vec::new();
         store.spool().read(&old, &mut oldbytes).unwrap();
         assert_eq!(oldbytes, b"binary\0\xff");
-        assert!(!store.collect_orphan(&spec.id).unwrap());
+        assert!(!store.collect_orphan(&spec.id).await.unwrap());
         let orphan = common::spec();
         let mut writer = store.spool().create(orphan.clone()).unwrap();
         writer.write_chunk(b"safe orphan").unwrap();
-        assert!(!store.collect_orphan(&orphan.id).unwrap());
+        assert!(!store.collect_orphan(&orphan.id).await.unwrap());
         writer.finalize().unwrap();
         drop(writer);
         let pin = store.spool().pin(&orphan.id).unwrap();
-        assert!(!store.collect_orphan(&orphan.id).unwrap());
+        assert!(!store.collect_orphan(&orphan.id).await.unwrap());
         drop(pin);
-        assert!(store.collect_orphan(&orphan.id).unwrap());
+        assert!(store.collect_orphan(&orphan.id).await.unwrap());
         assert!(!store.spool().root().join(orphan.id.as_str()).exists());
         let mut forged = pending;
         forged.spec.id = ArtifactId::new();
         assert!(store
-            .transact(attach(store.state(), forged, None))
+            .transact(attach(
+                (&store.archive_state().await.unwrap()),
+                forged,
+                None
+            ))
             .await
             .is_err());
     }
@@ -177,7 +197,7 @@ async fn conversion_preserves_history_receipts_artifacts_and_source_in_both_dire
         writer.write_chunk(b"prefix").unwrap();
         store
             .transact(attach(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 store.spool().inspect(&spec.id).unwrap(),
                 None,
             ))
@@ -188,21 +208,24 @@ async fn conversion_preserves_history_receipts_artifacts_and_source_in_both_dire
         drop(writer);
         store
             .transact(attach(
-                store.state(),
+                (&store.archive_state().await.unwrap()),
                 descriptor.clone(),
                 Some(Revision::ZERO),
             ))
             .await
             .unwrap();
         let converted = store.convert(&target, to, &[]).await.unwrap();
-        assert_eq!(converted.state(), store.state());
-        let expected = store.state().clone();
+        assert_eq!(
+            (&converted.archive_state().await.unwrap()),
+            (&store.archive_state().await.unwrap())
+        );
+        let expected = (&store.archive_state().await.unwrap()).clone();
         drop(converted);
         drop(store);
         let source = Store::open(&root, from, &[]).await.unwrap();
         let converted = Store::open(&target, to, &[]).await.unwrap();
-        assert_eq!(source.state(), &expected);
-        assert_eq!(converted.state(), &expected);
+        assert_eq!((&source.archive_state().await.unwrap()), &expected);
+        assert_eq!((&converted.archive_state().await.unwrap()), &expected);
         let mut bytes = Vec::new();
         converted.spool().read(&descriptor, &mut bytes).unwrap();
         assert_eq!(bytes, b"prefix tail");
@@ -216,7 +239,7 @@ async fn committed_corruption_fails_closed_and_only_partial_tail_is_quarantined(
     let root = temporary.path().join("files");
     let mut store = Store::open(&root, BackendKind::Files, &[]).await.unwrap();
     store.transact(initial()).await.unwrap();
-    let state = store.state().clone();
+    let state = (&store.archive_state().await.unwrap()).clone();
     drop(store);
     let journal = root.join("canonical.frames");
     let before = std::fs::metadata(&journal).unwrap().len();
@@ -228,7 +251,7 @@ async fn committed_corruption_fails_closed_and_only_partial_tail_is_quarantined(
     file.sync_all().unwrap();
     drop(file);
     let store = Store::open(&root, BackendKind::Files, &[]).await.unwrap();
-    assert_eq!(store.state(), &state);
+    assert_eq!((&store.archive_state().await.unwrap()), &state);
     drop(store);
     assert_eq!(std::fs::metadata(&journal).unwrap().len(), before);
     assert_eq!(
@@ -270,13 +293,13 @@ async fn sqlite_busy_is_bounded_and_cannot_acknowledge_or_reuse_uncertain_connec
     ));
     assert!(started.elapsed() < std::time::Duration::from_secs(2));
     assert!(!store.healthy());
-    assert_eq!(store.state().watermark.get(), 0);
+    assert_eq!(store.current().watermark.get(), 0);
     assert!(store.transact(initial()).await.is_err());
     sqlx::query("ROLLBACK").execute(&mut blocker).await.unwrap();
     blocker.close().await.unwrap();
     drop(store);
     let mut reopened = Store::open(&root, BackendKind::Sqlite, &[]).await.unwrap();
-    assert_eq!(reopened.state().watermark.get(), 0);
+    assert_eq!(reopened.current().watermark.get(), 0);
     assert!(reopened.transact(initial()).await.is_ok());
 }
 

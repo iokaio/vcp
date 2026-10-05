@@ -17,7 +17,7 @@ fn needed(tree: &Tree) -> bool {
         _ => false,
     }
 }
-pub(super) fn metadata(
+pub(super) async fn metadata(
     store: &Store,
     access: &Access,
     tree: &Tree,
@@ -29,7 +29,7 @@ pub(super) fn metadata(
     let mut total = 0u64;
     let mut manifests = 0usize;
     let mut associations = 0usize;
-    for row in store.state().records.values() {
+    for row in store.current().records.values() {
         if row.workspace != access.workspace || row.collection != Collection::Artifact {
             continue;
         }
@@ -62,6 +62,7 @@ pub(super) fn metadata(
             &manifest.spec.id,
             &mut bytes,
         )
+        .await
         .is_err()
         {
             continue;
@@ -108,7 +109,7 @@ pub(super) fn metadata(
                 continue;
             };
             let Some(source) = store
-                .state()
+                .current()
                 .records
                 .get(&key(Collection::Artifact, id.as_str()))
             else {

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Both canonical adapters must retain the same governed-write invariants.
+#[path = "governed/origin_history.rs"]
+mod origin_history;
 use std::collections::BTreeMap;
 use vcp_domain::{
     artifact::{ArtifactDescriptor, ArtifactSpec, Channel},
@@ -18,7 +20,7 @@ use vcp_protocol::{
 };
 use vcp_store::{
     artifact::ArtifactWriter,
-    contract::{Collection, State},
+    contract::{CanonicalStore, Collection, State},
     BackendKind, Store,
 };
 
@@ -147,9 +149,7 @@ async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, A
         },
     );
     engine.handle(create, &access, &facts).await.unwrap();
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| {
@@ -225,7 +225,7 @@ async fn date_selector_uses_record_provenance_not_its_old_task_creation() {
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: record.clone(),
                     expected: None,
@@ -264,6 +264,7 @@ async fn date_selector_uses_record_provenance_not_its_old_task_creation() {
             Action::Exclude,
             Timestamp::new(3000),
         )
+        .await
         .unwrap();
         assert!(preview.selected.contains(&Target::Record(key(
             Collection::Task,
@@ -311,6 +312,7 @@ async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appen
             MemorySeq::ZERO,
             2,
         )
+        .await
         .unwrap();
         assert!(more);
         assert!(first.versions.iter().all(|row| !row.current));
@@ -332,6 +334,7 @@ async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appen
             first.versions[1].memory_seq,
             2,
         )
+        .await
         .unwrap();
         assert_eq!(same_at, at);
         assert!(more);
@@ -343,6 +346,7 @@ async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appen
             second.versions[1].memory_seq,
             2,
         )
+        .await
         .unwrap();
         assert!(!more);
         assert!(last.versions[0].current);
@@ -355,7 +359,9 @@ async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appen
             .collect();
         assert_eq!(actual, ids);
         let origins = f.proposal.origins.iter().cloned().collect();
-        let (links, truncated) = history::origin_links(&f.store, &f.access, &origins).unwrap();
+        let (links, truncated) =
+            history::origin_links(&f.store.archive_state().await.unwrap(), &f.access, &origins)
+                .unwrap();
         assert_eq!(links.len(), 6);
         assert!(!truncated);
         let denied = Access {
@@ -366,10 +372,12 @@ async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appen
             write: false,
             tasks: Some(Default::default()),
         };
-        assert!(history::origin_links(&f.store, &denied, &origins)
-            .unwrap()
-            .0
-            .is_empty());
+        assert!(
+            history::origin_links(&f.store.archive_state().await.unwrap(), &denied, &origins)
+                .unwrap()
+                .0
+                .is_empty()
+        );
         assert!(history::window(
             &f.store,
             &denied,
@@ -378,6 +386,7 @@ async fn bounded_claim_windows_keep_head_and_frozen_sequence_while_history_appen
             MemorySeq::ZERO,
             2
         )
+        .await
         .is_err());
         f.store.close().await.unwrap();
     }
@@ -462,8 +471,12 @@ fn different_output(proposal: &Proposal, key: &str) -> Proposal {
     result.output_key = key.into();
     result
 }
-fn versions(state: &State, workspace: &WorkspaceId) -> Vec<Version> {
+fn versions<'a>(
+    state: impl Into<vcp_store::CurrentStateView<'a>>,
+    workspace: &WorkspaceId,
+) -> Vec<Version> {
     state
+        .into()
         .records
         .values()
         .filter(|r| {
@@ -476,7 +489,7 @@ fn versions(state: &State, workspace: &WorkspaceId) -> Vec<Version> {
 }
 fn head(store: &Store, proposal: &Proposal) -> Head {
     store
-        .state()
+        .current()
         .record(
             Collection::Projection,
             proposal.claim.as_str(),
@@ -492,7 +505,7 @@ async fn lost_ack_reopen_returns_identical_receipt_and_pending_intent_without_du
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let mut f = fixture(temp.path(), backend).await;
-        let before_events = f.store.state().events.len();
+        let before_events = (&f.store.archive_state().await.unwrap()).events.len();
         let first = propose(
             &mut f.store,
             &f.access,
@@ -507,9 +520,12 @@ async fn lost_ack_reopen_returns_identical_receipt_and_pending_intent_without_du
             EvidenceStatus::Inferred
         );
         assert_eq!(first.indexing, Some(IndexStatus::Pending));
-        assert_eq!(f.store.state().events.len(), before_events + 1);
-        let watermark = f.store.state().watermark;
-        let original_state = f.store.state().clone();
+        assert_eq!(
+            (&f.store.archive_state().await.unwrap()).events.len(),
+            before_events + 1
+        );
+        let watermark = f.store.current().watermark;
+        let original_state = f.store.archive_state().await.unwrap();
         drop(f.store);
         let mut reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         let retry = propose(
@@ -522,11 +538,11 @@ async fn lost_ack_reopen_returns_identical_receipt_and_pending_intent_without_du
         .unwrap();
         assert_eq!(retry.receipt, first.receipt);
         assert_eq!(retry.result, first.result);
-        assert_eq!(reopened.state().watermark, watermark);
-        assert_eq!(reopened.state(), &original_state);
-        assert_eq!(versions(reopened.state(), &f.access.workspace).len(), 1);
+        assert_eq!(reopened.current().watermark, watermark);
+        assert_eq!(&reopened.archive_state().await.unwrap(), &original_state);
+        assert_eq!(versions(reopened.current(), &f.access.workspace).len(), 1);
         let intent: IndexIntent = reopened
-            .state()
+            .current()
             .record(
                 Collection::IndexIntent,
                 first.result.intent.as_ref().unwrap().as_str(),
@@ -555,7 +571,7 @@ async fn payload_and_origin_output_identity_collisions_cannot_overwrite_a_receip
         )
         .await
         .unwrap();
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         let mut changed = f.proposal.clone();
         changed.statement = "Different payload under the same identity".into();
         assert!(
@@ -574,7 +590,7 @@ async fn payload_and_origin_output_identity_collisions_cannot_overwrite_a_receip
         )
         .await
         .is_err());
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
     }
 }
 
@@ -583,9 +599,7 @@ async fn missing_and_foreign_evidence_are_durable_rejections_without_foreign_ref
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let mut f = fixture(temp.path(), backend).await;
-        let raw_event_ids: Vec<_> = f
-            .store
-            .state()
+        let raw_event_ids: Vec<_> = (&f.store.archive_state().await.unwrap())
             .events
             .iter()
             .map(|e| e.event.id.clone())
@@ -616,7 +630,7 @@ async fn missing_and_foreign_evidence_are_durable_rejections_without_foreign_ref
             assert!(result.result.intent.is_none());
             let row = f
                 .store
-                .state()
+                .current()
                 .record(Collection::Claim, proposal.id.as_str(), &f.access.workspace)
                 .unwrap();
             let persisted: ProposalRecord = row.decode().unwrap();
@@ -630,18 +644,16 @@ async fn missing_and_foreign_evidence_are_durable_rejections_without_foreign_ref
                 )));
             rejected_ids.push(proposal.id);
         }
-        assert!(versions(f.store.state(), &f.access.workspace).is_empty());
-        assert!(raw_event_ids.iter().all(|id| f
-            .store
-            .state()
-            .events
+        assert!(versions(f.store.current(), &f.access.workspace).is_empty());
+        let retained = f.store.archive_state().await.unwrap();
+        assert!(raw_event_ids
             .iter()
-            .any(|e| &e.event.id == id)));
+            .all(|id| retained.events.iter().any(|e| &e.event.id == id)));
         drop(f.store);
         let reopened = Store::open(temp.path(), backend, &[]).await.unwrap();
         for id in rejected_ids {
             let record: ProposalRecord = reopened
-                .state()
+                .current()
                 .record(Collection::Claim, id.as_str(), &f.access.workspace)
                 .unwrap()
                 .decode()
@@ -693,7 +705,7 @@ async fn contradictory_inference_is_disputed_without_replacing_accepted_head() {
         let disputed_head = head(&f.store, &contrary);
         assert!(disputed_head.current.is_none());
         assert_eq!(disputed_head.disputed, vec![second.result.version.unwrap()]);
-        assert_eq!(versions(f.store.state(), &f.access.workspace).len(), 2);
+        assert_eq!(versions(f.store.current(), &f.access.workspace).len(), 2);
     }
 }
 
@@ -713,7 +725,7 @@ async fn correction_requires_current_predecessor_and_preserves_immutable_histori
         let old_id = first.result.version.clone().unwrap();
         let old_record = f
             .store
-            .state()
+            .current()
             .record(Collection::Claim, old_id.as_str(), &f.access.workspace)
             .unwrap()
             .clone();
@@ -743,7 +755,7 @@ async fn correction_requires_current_predecessor_and_preserves_immutable_histori
         assert_eq!(head(&f.store, &f.proposal).current, accepted.result.version);
         assert_eq!(
             f.store
-                .state()
+                .current()
                 .record(Collection::Claim, old_id.as_str(), &f.access.workspace)
                 .unwrap(),
             &old_record
@@ -755,6 +767,7 @@ async fn correction_requires_current_predecessor_and_preserves_immutable_histori
             Some(first.result.memory_seq),
             None,
         )
+        .await
         .unwrap();
         assert_eq!(historical.versions.len(), 1);
         assert_eq!(historical.versions[0].id, old_id);
@@ -791,6 +804,7 @@ async fn historical_reads_recheck_current_authority_and_source_applicability() {
             Some(accepted.result.memory_seq),
             Some(&current),
         )
+        .await
         .unwrap();
         assert!(same.versions[0].applicable);
         let changed = Fingerprint {
@@ -804,6 +818,7 @@ async fn historical_reads_recheck_current_authority_and_source_applicability() {
             Some(accepted.result.memory_seq),
             Some(&changed),
         )
+        .await
         .unwrap();
         assert!(!stale.versions[0].applicable);
         assert!(stale.versions[0].version.is_some());
@@ -828,6 +843,7 @@ async fn historical_reads_recheck_current_authority_and_source_applicability() {
             Some(accepted.result.memory_seq),
             None
         )
+        .await
         .is_err());
         let refreshed = Access {
             authority: AuthorityRevision::new(1),
@@ -840,6 +856,7 @@ async fn historical_reads_recheck_current_authority_and_source_applicability() {
             Some(accepted.result.memory_seq),
             None,
         )
+        .await
         .unwrap();
         assert_eq!(history.versions.len(), 1);
     }
@@ -869,7 +886,7 @@ async fn derived_heads_rebuild_from_immutable_records_without_reusing_rejected_s
         assert!(rejected.result.memory_seq > first.result.memory_seq);
         let sequence: MemoryHead = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Projection,
                 f.access.workspace.as_str(),
@@ -881,7 +898,7 @@ async fn derived_heads_rebuild_from_immutable_records_without_reusing_rejected_s
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![
                     Mutation::DropProjection {
                         id: original_head.id.to_string(),
@@ -897,18 +914,18 @@ async fn derived_heads_rebuild_from_immutable_records_without_reusing_rejected_s
             })
             .await
             .unwrap();
-        let before_rebuild = f.store.state().watermark;
+        let before_rebuild = f.store.current().watermark;
         assert!(
             vcp_memory::projections::rebuild(&mut f.store, &f.access, Timestamp::new(202))
                 .await
                 .unwrap()
                 .is_some()
         );
-        assert!(f.store.state().watermark > before_rebuild);
+        assert!(f.store.current().watermark > before_rebuild);
         assert_eq!(head(&f.store, &f.proposal).current, original_head.current);
         let rebuilt: MemoryHead = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Projection,
                 f.access.workspace.as_str(),
@@ -918,14 +935,14 @@ async fn derived_heads_rebuild_from_immutable_records_without_reusing_rejected_s
             .decode()
             .unwrap();
         assert_eq!(rebuilt.sequence, rejected.result.memory_seq);
-        let watermark = f.store.state().watermark;
+        let watermark = f.store.current().watermark;
         assert!(
             vcp_memory::projections::rebuild(&mut f.store, &f.access, Timestamp::new(203))
                 .await
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(f.store.state().watermark, watermark);
+        assert_eq!(f.store.current().watermark, watermark);
         let retried = propose(
             &mut f.store,
             &f.access,
@@ -943,6 +960,7 @@ async fn derived_heads_rebuild_from_immutable_records_without_reusing_rejected_s
             Some(first.result.memory_seq),
             None,
         )
+        .await
         .unwrap();
         assert_eq!(historical.versions.len(), 1);
         let mut correction = different_output(&f.proposal, "after-rebuild");
@@ -976,16 +994,15 @@ async fn retained_historical_sequence_cannot_restore_pruned_claim_payload() {
         .await
         .unwrap();
         let artifact = f.proposal.evidence[0].artifact.clone();
-        let attached = f
-            .store
-            .state()
+        let attached = (&f.store.archive_state().await.unwrap())
             .events
             .iter()
             .find(|e| e.event.artifacts.contains(&artifact))
-            .unwrap();
+            .unwrap()
+            .clone();
         let mut workspace: Workspace = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 f.access.workspace.as_str(),
@@ -1010,7 +1027,7 @@ async fn retained_historical_sequence_cannot_restore_pruned_claim_payload() {
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![
                     Mutation::Put {
                         expected: Some(previous),
@@ -1047,6 +1064,7 @@ async fn retained_historical_sequence_cannot_restore_pruned_claim_payload() {
             Some(accepted.result.memory_seq),
             None,
         )
+        .await
         .unwrap();
         assert_eq!(hidden.versions.len(), 1);
         assert_eq!(
@@ -1068,6 +1086,7 @@ async fn retained_historical_sequence_cannot_restore_pruned_claim_payload() {
             Some(accepted.result.memory_seq),
             None,
         )
+        .await
         .unwrap();
         assert!(hidden.versions[0].version.is_none());
         assert_eq!(hidden.versions[0].visibility, "pruned");
@@ -1272,7 +1291,7 @@ async fn all_six_classes_accept_scoped_evidence_and_verified_results_expire_with
                 verified_proposals.push(proposal);
             }
         }
-        assert_eq!(versions(f.store.state(), &f.access.workspace).len(), 6);
+        assert_eq!(versions(f.store.current(), &f.access.workspace).len(), 6);
         for verified in &verified_proposals {
             let mut unrelated = different_output(
                 verified,
@@ -1320,7 +1339,9 @@ async fn all_six_classes_accept_scoped_evidence_and_verified_results_expire_with
             .unwrap();
         f.store = engine.into_store();
         for prior in verified_proposals {
-            let historical = history::query(&f.store, &f.access, &prior.claim, None, None).unwrap();
+            let historical = history::query(&f.store, &f.access, &prior.claim, None, None)
+                .await
+                .unwrap();
             assert_eq!(historical.versions.len(), 1);
             assert!(!historical.versions[0].applicable);
             assert!(historical.versions[0].version.is_some());
@@ -1336,7 +1357,7 @@ async fn all_six_classes_accept_scoped_evidence_and_verified_results_expire_with
             assert_eq!(rejected.result.resolution.outcome, Outcome::Rejected);
             assert!(rejected.result.version.is_none());
         }
-        assert_eq!(versions(f.store.state(), &f.access.workspace).len(), 6);
+        assert_eq!(versions(f.store.current(), &f.access.workspace).len(), 6);
     }
 }
 
@@ -1377,9 +1398,7 @@ async fn historical_reads_and_exact_retry_recheck_origin_task_access() {
             )
             .await
             .unwrap();
-        let other_origin = engine
-            .store()
-            .state()
+        let other_origin = (&engine.store().archive_state().await.unwrap())
             .events
             .iter()
             .find(|e| {
@@ -1408,7 +1427,7 @@ async fn historical_reads_and_exact_retry_recheck_origin_task_access() {
                 .clone()])),
             ..f.access
         };
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         assert!(matches!(
             history::query(
                 &f.store,
@@ -1416,7 +1435,8 @@ async fn historical_reads_and_exact_retry_recheck_origin_task_access() {
                 &f.proposal.claim,
                 Some(accepted.result.memory_seq),
                 None
-            ),
+            )
+            .await,
             Err(vcp_memory::Error::Access)
         ));
         assert!(matches!(
@@ -1429,7 +1449,7 @@ async fn historical_reads_and_exact_retry_recheck_origin_task_access() {
             .await,
             Err(vcp_memory::Error::Access)
         ));
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
     }
 }
 
@@ -1462,7 +1482,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         assert_eq!(accepted.result.resolution.outcome, Outcome::Accepted);
         let mut task: Task = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 f.proposal.scope.task.as_str(),
@@ -1473,7 +1493,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
             .unwrap();
         let mut workspace: Workspace = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Workspace,
                 f.access.workspace.as_str(),
@@ -1491,7 +1511,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 events: vec![],
                 command: None,
                 mutations: vec![
@@ -1521,7 +1541,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
             })
             .await
             .unwrap();
-        let mut state = f.store.state().clone();
+        let mut state = f.store.archive_state().await.unwrap();
         for row in state
             .records
             .values_mut()
@@ -1566,7 +1586,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         let old_head = head(&f.store, &f.proposal);
         let sequence: MemoryHead = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Projection,
                 f.access.workspace.as_str(),
@@ -1578,7 +1598,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 events: vec![],
                 command: None,
                 mutations: vec![
@@ -1601,9 +1621,11 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
                 .is_some()
         );
         assert_eq!(head(&f.store, &f.proposal).current, accepted.result.version);
-        let bytes = vcp_protocol::canonical_bytes(f.store.state()).unwrap();
+        let bytes = vcp_protocol::canonical_bytes(&f.store.archive_state().await.unwrap()).unwrap();
         assert!(!bytes.windows(marker.len()).any(|v| v == marker.as_bytes()));
-        let view = history::query(&f.store, &f.access, &f.proposal.claim, None, None).unwrap();
+        let view = history::query(&f.store, &f.access, &f.proposal.claim, None, None)
+            .await
+            .unwrap();
         assert_eq!(view.versions.len(), 1);
         assert_eq!(view.versions[0].visibility, "purged");
         assert!(
@@ -1614,12 +1636,12 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         assert_eq!(view.versions[0].memory_seq, accepted.result.memory_seq);
         assert!(f
             .store
-            .state()
+            .current()
             .records
             .values()
             .any(|r| r.value["document_type"] == redaction::VERSION));
         f.proposal.epochs.deletion = workspace.deletion;
-        let before = f.store.state().watermark;
+        let before = f.store.current().watermark;
         assert!(propose(
             &mut f.store,
             &f.access,
@@ -1628,10 +1650,10 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         )
         .await
         .is_err());
-        assert_eq!(f.store.state().watermark, before);
+        assert_eq!(f.store.current().watermark, before);
         f.access.tasks = Some(Default::default());
         assert!(matches!(
-            history::query(&f.store, &f.access, &f.proposal.claim, None, None),
+            history::query(&f.store, &f.access, &f.proposal.claim, None, None).await,
             Err(vcp_memory::Error::Access)
         ));
         f.store.close().await.unwrap();
@@ -1639,6 +1661,7 @@ async fn purged_memory_preserves_authorized_lineage_and_cannot_resurrect_on_retr
         f.access.tasks = None;
         assert_eq!(
             history::query(&store, &f.access, &f.proposal.claim, None, None)
+                .await
                 .unwrap()
                 .versions[0]
                 .visibility,
@@ -1686,6 +1709,7 @@ async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct()
             Action::Purge,
             Timestamp::new(300),
         )
+        .await
         .unwrap();
         assert!(!protected.protected.is_empty());
         assert!(
@@ -1695,7 +1719,7 @@ async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct()
         );
         let mut task: Task = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Task,
                 f.proposal.scope.task.as_str(),
@@ -1710,7 +1734,7 @@ async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct()
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: Record::typed(
                         Collection::Task,
@@ -1739,6 +1763,7 @@ async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct()
             Action::Purge,
             Timestamp::new(303),
         )
+        .await
         .unwrap();
         assert!(preview.protected.is_empty());
         let held = f.store.snapshot().unwrap();
@@ -1747,21 +1772,25 @@ async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct()
             .unwrap();
         assert!(job.logical_unavailable);
         assert!(!job.local_cleanup_complete);
-        let denied = history::query(&f.store, &f.access, &f.proposal.claim, None, None).unwrap();
+        let denied = history::query(&f.store, &f.access, &f.proposal.claim, None, None)
+            .await
+            .unwrap();
         assert!(denied.versions.iter().all(|v| v.version.is_none()));
         let job = retention::cleanup(&mut f.store, &f.access, &job.id, Timestamp::new(305))
             .await
             .unwrap();
         assert!(job.rewrite_complete);
         assert!(!job.local_cleanup_complete);
+        assert!(!String::from_utf8(
+            canonical_bytes(&f.store.archive_state().await.unwrap()).unwrap()
+        )
+        .unwrap()
+        .contains(marker));
         assert!(
-            !String::from_utf8(canonical_bytes(f.store.state()).unwrap())
+            String::from_utf8(canonical_bytes(&held.archive_state().await.unwrap()).unwrap())
                 .unwrap()
                 .contains(marker)
         );
-        assert!(String::from_utf8(canonical_bytes(held.state()).unwrap())
-            .unwrap()
-            .contains(marker));
         drop(held);
         f.store.close().await.unwrap();
         let mut store = Store::open(temp.path(), backend, &[]).await.unwrap();
@@ -1782,6 +1811,7 @@ async fn retention_preview_tombstone_restart_and_physical_cleanup_are_distinct()
             &vcp_memory::search_record::ChunkerSpec::default(),
             vcp_memory::search_record::Limits::default(),
         )
+        .await
         .unwrap();
         assert!(inventory.records.is_empty());
         assert!(inventory.exclusions.iter().any(|e| e.reason == "purged"));
@@ -1867,7 +1897,7 @@ async fn saved_previews_and_independent_reversible_actions_preserve_raw_history(
             schema_version: 1,
             tree: Tree::Match(Criterion::Claim(ClaimKind::Architecture)),
         };
-        let original = f.store.state().records[&key(Collection::Claim, version.as_str())].clone();
+        let original = f.store.current().records[&key(Collection::Claim, version.as_str())].clone();
         for (n, action) in [Action::Exclude, Action::Compact, Action::RestoreRecall]
             .into_iter()
             .enumerate()
@@ -1879,6 +1909,7 @@ async fn saved_previews_and_independent_reversible_actions_preserve_raw_history(
                 action,
                 Timestamp::new(300 + n as u64),
             )
+            .await
             .unwrap();
             retention::save_preview(
                 &mut f.store,
@@ -1900,17 +1931,19 @@ async fn saved_previews_and_independent_reversible_actions_preserve_raw_history(
             .unwrap();
             assert!(receipt.local_cleanup_complete);
             assert!(!receipt.logical_unavailable);
-            let decision = retention::decision(f.store.state(), &f.access.workspace, &target)
+            let decision = retention::decision(f.store.current(), &f.access.workspace, &target)
                 .unwrap()
                 .unwrap();
             assert_eq!(decision.recall_excluded, action != Action::RestoreRecall);
             assert_eq!(decision.compacted, n >= 1);
             assert!(!decision.purged);
             assert_eq!(
-                f.store.state().records[&key(Collection::Claim, version.as_str())],
+                f.store.current().records[&key(Collection::Claim, version.as_str())],
                 original
             );
-            let raw = history::query(&f.store, &f.access, &f.proposal.claim, None, None).unwrap();
+            let raw = history::query(&f.store, &f.access, &f.proposal.claim, None, None)
+                .await
+                .unwrap();
             assert!(raw.versions.iter().all(|v| v.version.is_some()));
             assert!(raw
                 .versions
@@ -1949,7 +1982,7 @@ async fn copied_context_lineage_follows_source_ids_and_request_commitments_only(
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     record: Record::typed(
                         Collection::Artifact,
@@ -2006,6 +2039,7 @@ async fn copied_context_lineage_follows_source_ids_and_request_commitments_only(
             Action::Exclude,
             Timestamp::new(300),
         )
+        .await
         .unwrap();
         for artifact in [&captured, &request, &manifest] {
             assert!(preview.dependent.contains(&Target::Record(key(
@@ -2052,7 +2086,7 @@ async fn retention_process_child() {
     .unwrap();
     let mut task: Task = f
         .store
-        .state()
+        .current()
         .record(
             Collection::Task,
             f.proposal.scope.task.as_str(),
@@ -2067,7 +2101,7 @@ async fn retention_process_child() {
     f.store
         .transact(Transaction {
             id: TransactionId::new(),
-            expected_watermark: f.store.state().watermark,
+            expected_watermark: f.store.current().watermark,
             mutations: vec![Mutation::Put {
                 record: Record::typed(
                     Collection::Task,
@@ -2094,6 +2128,7 @@ async fn retention_process_child() {
         Action::Purge,
         Timestamp::new(300),
     )
+    .await
     .unwrap();
     if let Some(marker) = std::env::var_os("VCP_PRUNE_SUPERVISOR_MARKER") {
         let evidence = std::path::PathBuf::from(marker)
@@ -2102,7 +2137,7 @@ async fn retention_process_child() {
             .to_owned();
         std::fs::write(
             evidence.join("acknowledged.json"),
-            vcp_protocol::canonical_bytes(f.store.state()).unwrap(),
+            vcp_protocol::canonical_bytes(&f.store.archive_state().await.unwrap()).unwrap(),
         )
         .unwrap();
         std::fs::write(
@@ -2231,21 +2266,23 @@ async fn independently_observed_prune_kills_preserve_exclusion_and_exact_cleanup
             for (key, record) in &acknowledged.records {
                 if record.workspace != access.workspace {
                     assert!(
-                        store.state().records.get(key) == Some(record),
+                        store.current().records.get(key) == Some(record),
                         "unselected workspace record changed"
                     );
                 }
             }
             for (id, receipt) in &acknowledged.transactions {
                 assert!(
-                    store.state().transactions.get(id) == Some(receipt),
+                    (&store.archive_state().await.unwrap()).transactions.get(id) == Some(receipt),
                     "acknowledged transaction receipt lost"
                 );
             }
             let claim =
                 serde_json::from_slice(&std::fs::read(evidence.join("claim.json")).unwrap())
                     .unwrap();
-            let hidden = history::query(&store, &access, &claim, None, None).unwrap();
+            let hidden = history::query(&store, &access, &claim, None, None)
+                .await
+                .unwrap();
             assert!(!hidden.versions.is_empty());
             assert!(hidden
                 .versions
@@ -2255,7 +2292,7 @@ async fn independently_observed_prune_kills_preserve_exclusion_and_exact_cleanup
                     && v.evidence.is_empty()
                     && !v.applicable));
             let job: PruneReceipt = store
-                .state()
+                .current()
                 .records
                 .values()
                 .find(|r| r.value["document_type"] == "vcp_retention_job_v1")
@@ -2267,7 +2304,7 @@ async fn independently_observed_prune_kills_preserve_exclusion_and_exact_cleanup
                 .await
                 .unwrap();
             assert!(done.local_cleanup_complete);
-            let before_retry = store.state().clone();
+            let before_retry = store.archive_state().await.unwrap();
             let retry = retention::cleanup(&mut store, &access, &job.id, Timestamp::new(601))
                 .await
                 .unwrap();
@@ -2277,18 +2314,24 @@ async fn independently_observed_prune_kills_preserve_exclusion_and_exact_cleanup
             // but cannot change another record or repeat a redaction/rewrite.
             for (key, record) in &before_retry.records {
                 if record.id != job.id {
-                    assert!(store.state().records.get(key) == Some(record));
+                    assert!(store.current().records.get(key) == Some(record));
                 }
             }
-            assert!(store.state().events.starts_with(&before_retry.events));
+            assert!((&store.archive_state().await.unwrap())
+                .events
+                .starts_with(&before_retry.events));
             for (id, receipt) in &before_retry.transactions {
-                assert!(store.state().transactions.get(id) == Some(receipt));
+                assert!(
+                    (&store.archive_state().await.unwrap()).transactions.get(id) == Some(receipt)
+                );
             }
-            let state = store.state().clone();
+            let state = store.archive_state().await.unwrap();
             store.close().await.unwrap();
             let reopened = Store::open(&root, backend, &[]).await.unwrap();
-            assert_eq!(reopened.state(), &state);
-            let after_cleanup = history::query(&reopened, &access, &claim, None, None).unwrap();
+            assert_eq!(&reopened.archive_state().await.unwrap(), &state);
+            let after_cleanup = history::query(&reopened, &access, &claim, None, None)
+                .await
+                .unwrap();
             assert_eq!(after_cleanup.versions.len(), hidden.versions.len());
             assert!(after_cleanup
                 .versions
@@ -2300,14 +2343,17 @@ async fn independently_observed_prune_kills_preserve_exclusion_and_exact_cleanup
             for (key, record) in &acknowledged.records {
                 if record.workspace != access.workspace {
                     assert!(
-                        reopened.state().records.get(key) == Some(record),
+                        reopened.current().records.get(key) == Some(record),
                         "unselected workspace changed during cleanup"
                     );
                 }
             }
             for (id, receipt) in &acknowledged.transactions {
                 assert!(
-                    reopened.state().transactions.get(id) == Some(receipt),
+                    (&reopened.archive_state().await.unwrap())
+                        .transactions
+                        .get(id)
+                        == Some(receipt),
                     "cleanup lost acknowledged receipt"
                 );
             }
@@ -2374,7 +2420,7 @@ async fn process_death_after_tombstone_activation_and_partial_cleanup_resumes_ex
                 tasks: None,
             };
             let job: PruneReceipt = store
-                .state()
+                .current()
                 .records
                 .values()
                 .find(|r| r.value["document_type"] == "vcp_retention_job_v1")
@@ -2429,6 +2475,7 @@ async fn newly_matching_history_cannot_expand_a_saved_preview() {
             Action::Exclude,
             Timestamp::new(200),
         )
+        .await
         .unwrap();
         retention::save_preview(&mut f.store, &f.access, &preview, Timestamp::new(201))
             .await
@@ -2437,7 +2484,7 @@ async fn newly_matching_history_cannot_expand_a_saved_preview() {
         f.store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: f.store.state().watermark,
+                expected_watermark: f.store.current().watermark,
                 mutations: vec![],
                 command: None,
                 events: vec![EventInput {
@@ -2457,13 +2504,13 @@ async fn newly_matching_history_cannot_expand_a_saved_preview() {
             })
             .await
             .unwrap();
-        let before = f.store.state().clone();
+        let before = f.store.archive_state().await.unwrap();
         assert!(
             retention::apply(&mut f.store, &f.access, &preview, Timestamp::new(203))
                 .await
                 .is_err()
         );
-        assert_eq!(f.store.state(), &before);
+        assert_eq!(&f.store.archive_state().await.unwrap(), &before);
         let fresh = retention::preview(
             &f.store,
             &f.access,
@@ -2471,6 +2518,7 @@ async fn newly_matching_history_cannot_expand_a_saved_preview() {
             Action::Exclude,
             Timestamp::new(204),
         )
+        .await
         .unwrap();
         assert!(!preview.selected.contains(&Target::Event(newer.clone())));
         assert!(fresh.selected.contains(&Target::Event(newer)));
@@ -2486,7 +2534,7 @@ async fn retention_selects_historical_source_roots_and_paths_without_current_bin
         let f = fixture(dir.path(), backend).await;
         let descriptor: ArtifactDescriptor = f
             .store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 f.proposal.evidence[0].artifact.as_str(),
@@ -2540,6 +2588,7 @@ async fn retention_selects_historical_source_roots_and_paths_without_current_bin
             Action::Exclude,
             Timestamp::new(500),
         )
+        .await
         .unwrap();
         assert!(preview.selected.contains(&target));
         let foreign = retention::preview(
@@ -2552,6 +2601,7 @@ async fn retention_selects_historical_source_roots_and_paths_without_current_bin
             Action::Exclude,
             Timestamp::new(500),
         )
+        .await
         .unwrap();
         assert!(!foreign.selected.contains(&target));
         let wrong = retention::preview(
@@ -2564,6 +2614,7 @@ async fn retention_selects_historical_source_roots_and_paths_without_current_bin
             Action::Exclude,
             Timestamp::new(500),
         )
+        .await
         .unwrap();
         assert!(!wrong.selected.contains(&target));
     }

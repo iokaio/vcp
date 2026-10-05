@@ -316,7 +316,7 @@ impl CanonicalHost {
                 let row: vcp_domain::effect::Effect = context
                     .engine
                     .store()
-                    .state()
+                    .current()
                     .record(
                         Collection::Effect,
                         effect.as_str(),
@@ -352,6 +352,7 @@ impl CanonicalHost {
         }
         let mut receipts = vec![ticket.plan.clone()];
         let mut observations = vec![];
+        let mut created_directories = std::collections::BTreeMap::new();
         let mut failure = None;
         let mut unknown = false;
         let started = std::time::Instant::now();
@@ -378,6 +379,7 @@ impl CanonicalHost {
             let generation = ticket.generation;
             let effect = ticket.effect.clone();
             let execution = execution.clone();
+            let known_directories = created_directories.clone();
             #[cfg(feature = "qualification")]
             let observer = _observer.clone();
             let outcome=self.worker.run(move|context|{
@@ -387,7 +389,7 @@ impl CanonicalHost {
                 let _index = prepared.hold_index()?;
                 // All paths were validated before the first write. Repeat the
                 // current file's identity check under deny-write/delete sharing.
-                let target=prepared.root().mutation_target(&change.probes[0])?;
+                let target=prepared.root().mutation_target_with_parents(&change.probes[0], &change.parents, &known_directories)?;
                 let intent=context.capture(&binding.scope,Channel::Evidence,&vcp_protocol::canonical_bytes(&serde_json::json!({"schema_version":1,"kind":"file_dispatch","effect":effect,"execution":execution,"change":change}))?,"vcp-file-intent-v1")?;
                 let observation=target.apply(change.after.as_deref(),change.rename_to.as_deref());
                 drop(state);
@@ -398,6 +400,12 @@ impl CanonicalHost {
             });
             match outcome {
                 Ok((observation, intent, receipt)) => {
+                    for directory in &observation.created_directories {
+                        if let Some(identity) = &directory.native_identity {
+                            created_directories
+                                .insert(directory.path.to_lowercase(), identity.clone());
+                        }
+                    }
                     receipts.extend([intent, receipt]);
                     if !observation.complete {
                         unknown = observation.changed || observation.staging_path.is_some();

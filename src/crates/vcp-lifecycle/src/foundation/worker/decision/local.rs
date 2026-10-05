@@ -70,12 +70,12 @@ impl Context {
     ) -> Result<local_stall::Fit> {
         self.decision_setup_allowed()?;
         self.can_start(binding)?;
-        Ok(local_stall::fit(
+        Ok(self.runtime.block_on(local_stall::fit(
             self.engine.store(),
             &self.local_access(&binding.scope.task)?,
             window,
             minimum_samples,
-        )?)
+        ))?)
     }
 
     /// Explicit fitting/installation is the only boundary that rebuilds counts.
@@ -85,11 +85,11 @@ impl Context {
     ) -> Result<EvidencePin> {
         self.decision_setup_allowed()?;
         let access = self.local_access(&fit.task)?;
-        local_stall::validate_install(self.engine.store(), &access, &fit)?;
+        self.runtime.block_on(local_stall::validate_install(self.engine.store(), &access, &fit))?;
         let task: Task = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Task, fit.task.as_str(), &self.config.workspace)?
             .decode()?;
         let mut references = BTreeSet::from([key(Collection::Task, fit.task.as_str())]);
@@ -128,7 +128,7 @@ impl Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 pin.artifact.as_str(),
@@ -140,7 +140,7 @@ impl Context {
             || descriptor.length.get() > MAX_BYTES as u64
             || descriptor.state != vcp_domain::artifact::CaptureState::Complete
             || !recall_allowed(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config.workspace,
                 &Target::Record(key(Collection::Artifact, pin.artifact.as_str())),
             )?
@@ -148,12 +148,13 @@ impl Context {
             return Err("local fit artifact identity or retention changed".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            &pin.artifact,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                &pin.artifact,
+                &mut bytes,
+            ))?;
         if vcp_protocol::digest_bytes(&bytes) != pin.digest {
             return Err("local fit bytes changed".into());
         }
@@ -164,11 +165,11 @@ impl Context {
         {
             return Err("local fit is not the current owner's installed task artifact".into());
         }
-        local_stall::validate(
+        self.runtime.block_on(local_stall::validate(
             self.engine.store(),
             &self.local_access(&document.fit.task)?,
             &document.fit,
-        )?;
+        ))?;
         Ok(document.fit)
     }
 
@@ -178,7 +179,7 @@ impl Context {
         let fit = self.read_local_fit(&pin)?;
         // Retained artifacts are untrusted inputs. Explicit selection proves
         // their parameters again; ordinary trigger evaluation never refits.
-        local_stall::validate_install(self.engine.store(), &self.local_access(&fit.task)?, &fit)?;
+        self.runtime.block_on(local_stall::validate_install(self.engine.store(), &self.local_access(&fit.task)?, &fit))?;
         self.decisions.local = Some(Installed {
             pin,
             fit: Arc::new(fit),
@@ -211,7 +212,7 @@ impl Context {
         if self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::Artifact, id.as_str()))
         {
@@ -226,13 +227,13 @@ impl Context {
             from: Some(installed.fit.source_window.until),
             until: start,
         };
-        let prepared = local_stall::prepare_evaluation(
+        let prepared = self.runtime.block_on(local_stall::prepare_evaluation(
             self.engine.store(),
             &self.local_access(&binding.scope.task)?,
             &installed.fit,
             &binding.scope.task,
             window.clone(),
-        )?;
+        ))?;
         Ok(Some(Arc::new(Work {
             prepared,
             deadline: Timestamp::new(start.get().saturating_add(2000)),
@@ -277,13 +278,13 @@ impl Context {
         if self.read_local_fit(&work.pin)? != *work.fit {
             return Err("local selected fit changed".into());
         }
-        let current = match local_stall::prepare_evaluation(
+        let current = match self.runtime.block_on(local_stall::prepare_evaluation(
             self.engine.store(),
             &self.local_access(&work.fit.task)?,
             &work.fit,
             &work.fit.task,
             work.window.clone(),
-        ) {
+        )) {
             Ok(current) => current,
             Err(_) => {
                 return self.skip_local_shadow(
@@ -308,7 +309,7 @@ impl Context {
         if self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::Artifact, id.as_str()))
         {
@@ -370,7 +371,7 @@ impl Context {
         if self
             .engine
             .store()
-            .state()
+            .current()
             .records
             .contains_key(&key(Collection::Artifact, id.as_str()))
         {
@@ -448,7 +449,7 @@ impl Context {
         };
         let transaction = Transaction {
             id: TransactionId::new(),
-            expected_watermark: self.engine.store().state().watermark,
+            expected_watermark: self.engine.store().current().watermark,
             mutations: vec![Mutation::Put {
                 record,
                 expected: None,

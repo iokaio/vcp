@@ -1,5 +1,7 @@
 # Architecture decision records
 
+[ADR-085](085-existing-execution-refinements.md) approves direct refinements of the existing execution path, explicit suspended limits, diagnostic analysis and owner-scheduled verification/repair, with local phase commits only.
+
 The [architecture ADR register](../architecture/vcp-what.md#221-adr-register) retains the original 20 decision subjects and subsequent engineering decisions, now 61 records. Confirmed product directions remain binding; proposed engineering mechanisms, versions and operational defaults require the named qualification evidence. These records do not mark implementation tasks complete.
 
 ADR-013 records the committed-source repository convention and maintenance evidence. Other records distinguish confirmed scope, qualified P0 mechanisms and unresolved production gates. The [P0 handoff](../evaluations/p0-06-handoff.md) consolidates the bounded engineering evidence; it does not claim human sign-off or release qualification.
@@ -131,3 +133,5 @@ Return to the [documentation index](../README.md).
 [ADR-082](082-account-setup-and-model-selections.md) defines optional-project account setup, balanced model defaults and retained task selections.
 
 [ADR-083](083-shared-provider-request-pacing.md) coordinates concurrent CLI provider requests before billing admission while retaining unresolved submitted liabilities.
+
+[ADR-084](084-owner-model-rotation-and-scoped-recovery.md) adds explicit ordered model sets, shared request rotation, scoped recovery and failed-request reconciliation under the existing authority and budget boundaries.

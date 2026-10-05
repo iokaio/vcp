@@ -60,16 +60,21 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
             let descriptor = writer.finalize().unwrap();
             drop(writer);
             source
-                .transact(attach(source.state(), descriptor.clone(), None))
+                .transact(attach(
+                    (&source.archive_state().await.unwrap()),
+                    descriptor.clone(),
+                    None,
+                ))
                 .await
                 .unwrap();
-            let original = source.state().clone();
+            let original = (&source.archive_state().await.unwrap()).clone();
             let archive = Archive::capture(
                 &source,
                 &source.snapshot().unwrap(),
                 &workspace().id,
                 &|| false,
             )
+            .await
             .unwrap();
             let payloads = archive.payloads().unwrap();
             let manifest = Manifest {
@@ -115,6 +120,7 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
             restore.acquire(&acquired, &|| false).unwrap();
             let validated = restore
                 .authenticate(&trust, &copy, Limits::default(), &|| false)
+                .await
                 .unwrap();
             let fault_path = if surface == "replay_base" {
                 target.join("replay-base.json")
@@ -158,11 +164,11 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
             if surface == "artifact_chunk" {
                 assert_eq!(partial_bytes, &BYTES[..17]);
             }
-            assert_eq!(source.state(), &original);
+            assert_eq!((&source.archive_state().await.unwrap()), &original);
             source.close().await.unwrap();
             let mut source = Store::open(&source_root, from, &forbidden).await.unwrap();
             assert_eq!(source.transact(initial()).await.unwrap(), receipt);
-            assert_eq!(source.state(), &original);
+            assert_eq!((&source.archive_state().await.unwrap()), &original);
             let mut source_bytes = Vec::new();
             source.spool().read(&descriptor, &mut source_bytes).unwrap();
             assert_eq!(source_bytes, BYTES);
@@ -185,11 +191,11 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
             assert_eq!(restore.status().stage, Stage::Imported);
             let recovered = imported.reopen_verified().await.unwrap();
             assert_eq!(
-                recovered.state().watermark.get(),
+                recovered.current().watermark.get(),
                 original.watermark.get() + 1
             );
             let workspace: Workspace = recovered
-                .state()
+                .current()
                 .record(
                     Collection::Workspace,
                     workspace().id.as_str(),
@@ -206,7 +212,7 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
                 .read(&descriptor, &mut recovered_bytes)
                 .unwrap();
             assert_eq!(recovered_bytes, BYTES);
-            let exact = recovered.state().clone();
+            let exact = (&recovered.archive_state().await.unwrap()).clone();
             recovered.close().await.unwrap();
             drop(imported);
             let retried = restore
@@ -223,7 +229,7 @@ async fn restore_private_short_write_keeps_source_and_resumes_exact_import() {
                 .await
                 .unwrap();
             let reopened = retried.reopen_verified().await.unwrap();
-            assert_eq!(reopened.state(), &exact);
+            assert_eq!((&reopened.archive_state().await.unwrap()), &exact);
             reopened.close().await.unwrap();
             assert_eq!(std::fs::read(&partials[0]).unwrap(), partial_bytes);
             std::fs::write(

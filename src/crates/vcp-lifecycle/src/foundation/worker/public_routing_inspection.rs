@@ -191,20 +191,20 @@ impl PublicConnection {
                         }
                     };
                     let ceilings = context.routing_ceilings().map_err(|_| unavailable())?;
-                    inspect(
+                    context.runtime.block_on(inspect(
                         &context.engine,
                         &access,
                         &request,
                         ceilings.as_ref(),
                         now(),
                         &check,
-                    )
+                    ))
                 })())
             })
             .map_err(|_| unavailable())?
     }
 }
-fn source(
+async fn source(
     store: &Store,
     access: &Access,
     workspace: &Workspace,
@@ -213,7 +213,7 @@ fn source(
     check: &dyn Fn() -> RpcResult<()>,
 ) -> RpcResult<(methods::EvidenceReference, methods::Id)> {
     let artifact: ArtifactDescriptor = store
-        .state()
+        .current()
         .record(
             Collection::Artifact,
             registry.value.raw.as_str(),
@@ -232,15 +232,16 @@ fn source(
     {
         return Err(unavailable());
     }
-    vcp_store::export_contract::validate_read(
-        store.state(),
+    vcp_store::export_contract::validate_read_store(
+        store,
         access.authority,
         Some(tasks),
         &artifact,
     )
+    .await
     .map_err(|_| unavailable())?;
     for row in
-        store.state().records.values().filter(|row| {
+        store.current().records.values().filter(|row| {
             row.workspace == access.workspace && row.collection == Collection::Tombstone
         })
     {
@@ -264,7 +265,7 @@ fn source(
         id(artifact.spec.scope.task.as_str())?,
     ))
 }
-fn inspect(
+async fn inspect(
     engine: &vcp_engine::Engine<Store>,
     access: &Access,
     request: &wire::Request,
@@ -280,7 +281,7 @@ fn inspect(
         return Err(failure(Code::PolicyDenied));
     }
     let task = match engine
-        .query(
+        .query_current(
             access,
             &vcp_engine::query::Query::Task {
                 task: TaskId::parse(request.task.as_str())
@@ -297,7 +298,7 @@ fn inspect(
     }
     let store = engine.store();
     let workspace: Workspace = store
-        .state()
+        .current()
         .record(
             Collection::Workspace,
             access.workspace.as_str(),
@@ -308,7 +309,7 @@ fn inspect(
         .map_err(|_| unavailable())?;
     let mut tasks = BTreeSet::new();
     for row in store
-        .state()
+        .current()
         .records
         .values()
         .filter(|row| row.workspace == access.workspace && row.collection == Collection::Task)
@@ -346,7 +347,7 @@ fn inspect(
     check()?;
     let mut catalog = None;
     match current_registry {
-        Ok(Some(value)) => match source(store, access, &workspace, &tasks, &value, check) {
+        Ok(Some(value)) => match source(store, access, &workspace, &tasks, &value, check).await {
             Ok((source, source_task)) => {
                 registry = wire::Registry::Observed {
                     revision: value.revision.get().into(),
@@ -472,7 +473,7 @@ fn inspect(
     let mut result = wire::Page {
         scope: request.scope.clone(),
         task: request.task.clone(),
-        watermark: store.state().watermark.get().into(),
+        watermark: store.current().watermark.get().into(),
         observed_at_ms: observed_at.get().into(),
         authority_revision: workspace.authority.get().into(),
         deletion_revision: workspace.deletion.get().into(),

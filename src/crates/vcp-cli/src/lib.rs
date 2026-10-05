@@ -42,6 +42,8 @@ pub mod optimize;
 pub mod outcome;
 pub mod output;
 pub mod provider_setup;
+#[cfg(windows)]
+pub(crate) mod provider_reconciliation;
 pub mod questions;
 #[cfg(windows)]
 pub mod rebind;

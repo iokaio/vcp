@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use vcp_domain::{ids::*, retention_selector::Selector, revision::*, task::Task, workspace::Scope};
 use vcp_protocol::{canonical_bytes, digest_bytes};
 use vcp_store::{
-    contract::{command_key, Collection, Receipt, State},
+    contract::{CanonicalStore, Collection, Receipt},
     Store,
 };
 #[path = "retention_limits.rs"]
@@ -97,13 +97,13 @@ fn authorize(
     scope: &Scope,
     write: bool,
 ) -> Result<BTreeSet<TaskId>> {
-    access::authorize(store.state(), access, write)?;
+    access::authorize(store.current(), access, write)?;
     if scope.workspace != access.workspace || !access.allows_task(&scope.task) {
         return Err(Error::Access);
     }
     let tasks = access.tasks.as_ref().ok_or(Error::Access)?;
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &access.workspace)?
         .decode()?;
     if task.scope != *scope {
@@ -112,7 +112,7 @@ fn authorize(
     // Scope validation never converts Some(tasks) into workspace-wide authority.
     for id in tasks {
         let task: Task = store
-            .state()
+            .current()
             .record(Collection::Task, id.as_str(), &access.workspace)?
             .decode()?;
         if task.scope.session != scope.session {
@@ -121,20 +121,23 @@ fn authorize(
     }
     Ok(tasks.clone())
 }
-pub(crate) fn target_allowed(
-    state: &State,
+pub(crate) async fn target_allowed(
+    store: &Store,
     scope: &Scope,
     tasks: &BTreeSet<TaskId>,
     target: &Target,
 ) -> Result<bool> {
-    let own = retention::scope(state, target)?;
-    Ok(own.is_some_and(|own| {
+    let own = retention::scope(store, target).await?;
+    Ok(scope_allowed(own.as_ref(), scope, tasks))
+}
+pub(crate) fn scope_allowed(own: Option<&Scope>, scope: &Scope, tasks: &BTreeSet<TaskId>) -> bool {
+    own.is_some_and(|own| {
         own.workspace == scope.workspace
             && own.session == scope.session
             && tasks.contains(&own.task)
-    }))
+    })
 }
-pub(crate) fn authorize_targets(
+pub(crate) async fn authorize_targets(
     store: &Store,
     access: &Access,
     binding: &Binding,
@@ -144,13 +147,13 @@ pub(crate) fn authorize_targets(
     let current = authorize(store, access, &binding.scope, write)?;
     let allowed = current.intersection(&binding.tasks).cloned().collect();
     for target in preview.selected.union(&preview.dependent) {
-        if !target_allowed(store.state(), &binding.scope, &allowed, target)? {
+        if !target_allowed(store, &binding.scope, &allowed, target).await? {
             return Err(Error::Access);
         }
     }
     Ok(())
 }
-pub fn preview(
+pub async fn preview(
     store: &Store,
     access: &Access,
     scope: Scope,
@@ -159,8 +162,8 @@ pub fn preview(
     now: Timestamp,
 ) -> Result<Preview> {
     let tasks = authorize(store, access, &scope, false)?;
-    limits::check(store.state())?;
-    let value = retention::preview_scoped(store, access, &scope, selector, action, now)?;
+    limits::check_store(store).await?;
+    let value = retention::preview_scoped(store, access, &scope, selector, action, now).await?;
     Ok(Preview {
         scope,
         tasks,
@@ -169,14 +172,14 @@ pub fn preview(
 }
 /// Authorize a frozen page without rerunning its selector. Current deletion and
 /// authority must still match; neither a new task nor a wider role expands it.
-pub fn validate_preview(
+pub async fn validate_preview(
     store: &Store,
     access: &Access,
     scope: &Scope,
     preview: &Preview,
 ) -> Result<()> {
     let current = authorize(store, access, scope, false)?;
-    let workspace = access::authorize(store.state(), access, false)?;
+    let workspace = access::authorize(store.current(), access, false)?;
     if scope != &preview.scope
         || access.actor != preview.value.actor
         || workspace.authority != preview.value.authority
@@ -191,7 +194,7 @@ pub fn validate_preview(
         .union(&preview.value.dependent)
         .chain(preview.value.protected.iter().map(|p| &p.target))
     {
-        if !target_allowed(store.state(), scope, &allowed, target)? {
+        if !target_allowed(store, scope, &allowed, target).await? {
             return Err(Error::Access);
         }
     }
@@ -199,7 +202,7 @@ pub fn validate_preview(
 }
 /// Reconcile before looking up an expiring connection-local preview. Once the
 /// command is accepted, its exact selected IDs live in the durable job itself.
-pub fn replay(
+pub async fn replay(
     store: &Store,
     access: &Access,
     scope: &Scope,
@@ -208,27 +211,24 @@ pub fn replay(
 ) -> Result<Option<Commit>> {
     authorize(store, access, scope, true)?;
     let Some(command) = store
-        .state()
-        .commands
-        .get(&command_key(&scope.workspace, &request.command))
+        .command_receipt_by_id(&scope.workspace, &request.command)
+        .await?
     else {
         return Ok(None);
     };
     if command.digest != request.command_digest {
         return Err(Error::Conflict("retention command payload conflict"));
     }
-    let job = read_job(store, access, scope, &format!("prune-{preview_id}"))?;
+    let job = read_job(store, access, scope, &format!("prune-{preview_id}")).await?;
     let binding = job.public.as_ref().ok_or(Error::Access)?;
     if binding.command != request.command || binding.command_digest != request.command_digest {
         return Err(Error::Conflict("retention job command identity"));
     }
     let receipt = store
-        .state()
-        .transactions
-        .get(&command.transaction)
-        .ok_or(Error::Conflict("retention receipt unavailable"))?
-        .clone();
-    if receipt.command.as_ref() != Some(command) {
+        .transaction_receipt(&command.transaction)
+        .await?
+        .ok_or(Error::Conflict("retention receipt unavailable"))?;
+    if receipt.command.as_ref() != Some(&command) {
         return Err(Error::Conflict("retention receipt integrity"));
     }
     Ok(Some(Commit { receipt, job }))
@@ -241,15 +241,15 @@ pub async fn apply(
     request: &Apply,
     now: Timestamp,
 ) -> Result<Commit> {
-    if let Some(commit) = replay(store, access, &preview.scope, preview.id(), request)? {
+    if let Some(commit) = replay(store, access, &preview.scope, preview.id(), request).await? {
         return Ok(commit);
     }
-    limits::check(store.state())?;
+    limits::check_store(store).await?;
     if preview.digest()? != expected_digest {
         return Err(Error::Conflict("retention preview digest changed"));
     }
     let task: Task = store
-        .state()
+        .current()
         .record(
             Collection::Task,
             preview.scope.task.as_str(),
@@ -268,20 +268,25 @@ pub async fn apply(
         command: request.command.clone(),
         command_digest: request.command_digest.clone(),
     };
-    authorize_targets(store, access, &binding, &preview.value, true)?;
+    authorize_targets(store, access, &binding, &preview.value, true).await?;
     retention::apply_scoped(store, access, &preview.value, &binding, now).await
 }
-pub fn read_job(store: &Store, access: &Access, scope: &Scope, id: &str) -> Result<PruneReceipt> {
+pub async fn read_job(
+    store: &Store,
+    access: &Access,
+    scope: &Scope,
+    id: &str,
+) -> Result<PruneReceipt> {
     authorize(store, access, scope, false)?;
     let job: PruneReceipt = store
-        .state()
+        .current()
         .record(Collection::Projection, id, &access.workspace)?
         .decode()?;
     let binding = job.public.as_ref().ok_or(Error::Access)?;
     if binding.scope != *scope || job.workspace != access.workspace {
         return Err(Error::Access);
     }
-    authorize_targets(store, access, binding, &job.preview, false)?;
+    authorize_targets(store, access, binding, &job.preview, false).await?;
     Ok(job)
 }
 /// Continue only the already accepted job. Physical rewrite is limited to its
@@ -294,8 +299,8 @@ pub async fn cleanup(
     id: &str,
     now: Timestamp,
 ) -> Result<PruneReceipt> {
-    let job = read_job(store, access, scope, id)?;
+    let job = read_job(store, access, scope, id).await?;
     let binding = job.public.as_ref().ok_or(Error::Access)?;
-    authorize_targets(store, access, binding, &job.preview, true)?;
+    authorize_targets(store, access, binding, &job.preview, true).await?;
     retention::cleanup_scoped(store, access, scope, id, now).await
 }

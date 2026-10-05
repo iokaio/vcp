@@ -64,7 +64,7 @@ mod tests {
             binding: Revision::ZERO,
             grants: BTreeMap::new(),
             allocation: Micros::new(1),
-            deadline: Timestamp::new(10),
+            deadline: Timestamp::new(10).into(),
             snapshot: ArtifactId::new(),
             snapshot_digest: "x".repeat(64),
             registration: None,
@@ -88,6 +88,7 @@ mod tests {
             ready: BTreeMap::new(),
             results: BTreeMap::new(),
             cleanup: BTreeMap::new(),
+            execution_time: BTreeMap::new(),
         }
     }
 
@@ -243,7 +244,7 @@ impl worker::Context {
             .ok_or("child assignment missing")?;
         self.tool_identity(binding, "vcp_cleanup")?;
         let policy =
-            vcp_engine::policy::current(self.engine.store().state(), &binding.scope.workspace)?;
+            vcp_engine::policy::current(self.engine.store().current(), &binding.scope.workspace)?;
         let source_root = RootId::parse(binding.scope.workspace.as_str())?;
         let local_edit = policy.mode == vcp_domain::policy::Autonomy::Workspace
             || (policy.mode == vcp_domain::policy::Autonomy::Autonomous
@@ -282,7 +283,7 @@ impl worker::Context {
         if spec.parent != binding.scope.task {
             return Err("cleanup child belongs to another parent".into());
         }
-        let state = self.engine.store().state();
+        let state = self.engine.store().current();
         let task: Task = state
             .record(Collection::Task, child.as_str(), &binding.scope.workspace)?
             .decode()?;
@@ -314,7 +315,7 @@ impl worker::Context {
             if row.collection == Collection::Reservation {
                 let reservation: vcp_domain::accounting::Reservation = row.decode()?;
                 if reservation.root == task.root
-                    && (reservation.liability != Micros::ZERO
+                    && (!reservation.liability.is_zero()
                         || matches!(
                             reservation.phase,
                             vcp_domain::accounting::ReservationState::Created
@@ -355,7 +356,7 @@ impl worker::Context {
         let descriptor: ArtifactDescriptor = self
             .engine
             .store()
-            .state()
+            .current()
             .record(Collection::Artifact, id.as_str(), &scope.workspace)?
             .decode()?;
         if descriptor.spec.scope != *scope
@@ -365,12 +366,13 @@ impl worker::Context {
             return Err("cleanup evidence is unavailable, outside scope or exceeds bounds".into());
         }
         let mut bytes = Vec::new();
-        vcp_audit::history::History::read_artifact(
-            self.engine.store(),
-            &self.history_access(),
-            id,
-            &mut bytes,
-        )?;
+        self.runtime
+            .block_on(vcp_audit::history::History::read_artifact(
+                self.engine.store(),
+                &self.history_access(),
+                id,
+                &mut bytes,
+            ))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
     fn publish_cleanup(
@@ -383,7 +385,7 @@ impl worker::Context {
         let facts = vcp_engine::HostFacts {
             now: worker::now(),
             policy: vcp_engine::policy::current(
-                self.engine.store().state(),
+                self.engine.store().current(),
                 &self.config.workspace,
             )?
             .revision,

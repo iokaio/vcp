@@ -85,7 +85,7 @@ async fn fixture(
     let auth = engine_access("workspace");
     let task: Task = engine
         .store()
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .unwrap()
         .decode()
@@ -123,7 +123,7 @@ fn selection() -> Selector {
 }
 fn command_request(store: &Store, scope: &Scope) -> Apply {
     let task: Task = store
-        .state()
+        .current()
         .record(Collection::Task, scope.task.as_str(), &scope.workspace)
         .unwrap()
         .decode()
@@ -141,7 +141,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         let temp = tempfile::tempdir().unwrap();
         let (mut store, mut access, scope, artifact) = fixture(temp.path(), backend).await;
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         let preview = public::preview(
             &store,
             &access,
@@ -150,13 +150,16 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
             Action::Purge,
             Timestamp::new(200),
         )
+        .await
         .unwrap();
         assert_eq!(
-            store.state(),
+            &store.archive_state().await.unwrap(),
             &before,
             "preview must not write or widen access"
         );
-        public::validate_preview(&store, &access, &scope, &preview).unwrap();
+        public::validate_preview(&store, &access, &scope, &preview)
+            .await
+            .unwrap();
         let selection_bytes = serde_json::to_vec(preview.selection()).unwrap().len();
         assert!(
             preview.cache_bytes(selection_bytes).is_err(),
@@ -184,7 +187,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         )
         .await
         .is_err());
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
         let committed = public::apply(
             &mut store,
             &access,
@@ -200,11 +203,13 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
             request.command_digest
         );
         assert!(
-            public::validate_preview(&store, &access, &scope, &preview).is_err(),
+            public::validate_preview(&store, &access, &scope, &preview)
+                .await
+                .is_err(),
             "deletion invalidates cached target pages"
         );
         assert!(committed.job.logical_unavailable && !committed.job.rewrite_complete);
-        let after = store.state().clone();
+        let after = store.archive_state().await.unwrap();
         let replay = public::apply(
             &mut store,
             &access,
@@ -216,15 +221,25 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         .await
         .unwrap();
         assert_eq!(replay.receipt, committed.receipt);
-        assert_eq!(store.state(), &after);
+        assert_eq!(&store.archive_state().await.unwrap(), &after);
         access.write = false;
-        assert!(public::read_job(&store, &access, &scope, &committed.job.id).is_ok());
-        assert!(public::replay(&store, &access, &scope, preview.id(), &request).is_err());
+        assert!(public::read_job(&store, &access, &scope, &committed.job.id)
+            .await
+            .is_ok());
+        assert!(
+            public::replay(&store, &access, &scope, preview.id(), &request)
+                .await
+                .is_err()
+        );
         access.write = true;
         let mut altered = command_request(&store, &scope);
         altered.command = request.command.clone();
         altered.command_digest = "c".repeat(64);
-        assert!(public::replay(&store, &access, &scope, preview.id(), &altered).is_err());
+        assert!(
+            public::replay(&store, &access, &scope, preview.id(), &altered)
+                .await
+                .is_err()
+        );
         let snapshot = store.snapshot().unwrap();
         let held = public::cleanup(
             &mut store,
@@ -249,7 +264,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         .unwrap();
         assert!(cleaned.rewrite_complete && cleaned.local_cleanup_complete);
         let descriptor: ArtifactDescriptor = store
-            .state()
+            .current()
             .record(
                 Collection::Artifact,
                 artifact.spec.id.as_str(),
@@ -264,6 +279,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         store = Store::open(temp.path(), backend, &[]).await.unwrap();
         assert_eq!(
             public::replay(&store, &access, &scope, preview.id(), &request)
+                .await
                 .unwrap()
                 .unwrap()
                 .receipt,
@@ -271,6 +287,7 @@ async fn scoped_purge_receipt_replay_and_physical_cleanup_survive_reopen() {
         );
         assert!(
             public::read_job(&store, &access, &scope, &committed.job.id)
+                .await
                 .unwrap()
                 .local_cleanup_complete
         );
@@ -373,7 +390,7 @@ async fn out_of_scope_copied_context_dependency_denies_the_entire_preview() {
         store
             .transact(Transaction {
                 id: TransactionId::new(),
-                expected_watermark: store.state().watermark,
+                expected_watermark: store.current().watermark,
                 mutations: vec![Mutation::Put {
                     expected: None,
                     record: Record::typed(
@@ -390,7 +407,7 @@ async fn out_of_scope_copied_context_dependency_denies_the_entire_preview() {
             })
             .await
             .unwrap();
-        let before = store.state().clone();
+        let before = store.archive_state().await.unwrap();
         assert!(
             matches!(
                 public::preview(
@@ -400,12 +417,13 @@ async fn out_of_scope_copied_context_dependency_denies_the_entire_preview() {
                     selection(),
                     Action::Purge,
                     Timestamp::new(200)
-                ),
+                )
+                .await,
                 Err(vcp_memory::Error::Access)
             ),
             "foreign copied text cannot be silently excluded from purge closure"
         );
-        assert_eq!(store.state(), &before);
+        assert_eq!(&store.archive_state().await.unwrap(), &before);
     }
 }
 
@@ -437,8 +455,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 tasks: None,
             };
             for own in &scopes {
-                let origin = store
-                    .state()
+                let origin = (&store.archive_state().await.unwrap())
                     .events
                     .iter()
                     .find(|e| {
@@ -468,6 +485,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 &search_record::ChunkerSpec::default(),
                 search_record::Limits::default(),
             )
+            .await
             .unwrap();
             assert_eq!(inventory.records.len(), scopes.len());
             let publisher =
@@ -493,7 +511,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 .unwrap();
             let foreign_rows: Vec<_> = if mixed {
                 store
-                    .state()
+                    .current()
                     .records
                     .values()
                     .filter(|row| {
@@ -517,6 +535,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 Action::Purge,
                 Timestamp::new(202),
             )
+            .await
             .unwrap();
             assert!(preview.selection().protected.is_empty());
             let request = command_request(&store, &scope);
@@ -570,7 +589,7 @@ async fn scoped_generation_cleanup_proves_full_inventory_or_waits_for_authorized
                 .join(generation.as_str())
                 .exists());
             for row in foreign_rows {
-                assert_eq!(store.state().records.get(&row.key()), Some(&row), "scoped physical rewrite must preserve foreign canonical evidence byte-for-byte");
+                assert_eq!(store.current().records.get(&row.key()), Some(&row), "scoped physical rewrite must preserve foreign canonical evidence byte-for-byte");
             }
         }
     }
@@ -589,6 +608,7 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             Action::Exclude,
             Timestamp::new(200),
         )
+        .await
         .unwrap();
         let request = command_request(&store, &scope);
         let mut foreign = scope.clone();
@@ -601,8 +621,9 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             Action::Exclude,
             Timestamp::new(200)
         )
+        .await
         .is_err());
-        let current = store.state().watermark;
+        let current = store.current().watermark;
         store
             .transact(Transaction {
                 id: TransactionId::new(),
@@ -626,8 +647,10 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             })
             .await
             .unwrap();
-        let after = store.state().clone();
-        public::validate_preview(&store, &access, &scope, &preview).unwrap();
+        let after = store.archive_state().await.unwrap();
+        public::validate_preview(&store, &access, &scope, &preview)
+            .await
+            .unwrap();
         assert!(public::apply(
             &mut store,
             &access,
@@ -638,7 +661,7 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
         )
         .await
         .is_err());
-        assert_eq!(store.state(), &after);
+        assert_eq!(&store.archive_state().await.unwrap(), &after);
         access.tasks = Some(BTreeSet::new());
         assert!(public::preview(
             &store,
@@ -648,6 +671,7 @@ async fn scoped_preview_never_expands_after_new_source_or_wrong_scope() {
             Action::Exclude,
             Timestamp::new(202)
         )
+        .await
         .is_err());
     }
 }
@@ -690,9 +714,7 @@ async fn seed(engine: &mut Engine<Store>, workspace: &str) -> (Scope, EventId, A
         },
     );
     engine.handle(create, &access, &facts).await.unwrap();
-    let origin = engine
-        .store()
-        .state()
+    let origin = (&engine.store().archive_state().await.unwrap())
         .events
         .iter()
         .find(|e| {

@@ -23,7 +23,8 @@ foreach ($number in 1..4) {
     $stageName = @('data', 'api', 'razor', 'regressions')[$number - 1]
     Assert-That ($source.Contains("-Stage 'T$number-$stageName' -Config `$profiles['T$number'] -GateScript `$gatesT$number")) "T$number repair lost stage acceptance profile"
 }
-Assert-That ($source.Contains('-Prompt $promptT5 -Config $profileShort')) 'T5 lost bounded initial profile'
+Assert-That ($source.Contains("-Prompt `$promptT5 -Config `$profiles['T5'] -PauseAfterProgress")) 'T5 lost explicit pause and full acceptance profile'
+Assert-That ($source.Contains("New-ScenarioPauseCheckpoint `$ctx -Profile 'pause-checkpoint'")) 'T5 lost its recorded process checkpoint'
 Assert-That ($source.Contains("-Arguments @('resume', `$t5.task) -Config `$profiles['T5']")) 'T5 resume lost full acceptance profile'
 Assert-That ($source.Contains("-Stage 'T5-concurrency' -Config `$profiles['T5'] -GateScript `$gatesT5")) 'T5 repair lost full acceptance profile'
 function Get-Solution { Join-Path $ws "Inventory.$solutionExtension" }
@@ -36,7 +37,7 @@ try {
       foreach ($solutionExtension in @('sln', 'slnx')) {
         $ws = Join-Path $root ([string]$reuse)
         $ctx = @{
-            Workspace = $ws; Profiles = $ws; Temp = $ws; Results = $ws; RunId = 'fixture'
+            Workspace = $ws; Profiles = $ws; Temp = $ws; Env = (Join-Path $ws 'env'); Results = $ws; RunId = 'fixture'
             AllowProcessPublish = $true; ReuseProject = $reuse
             Catalog = (Join-Path $ws 'endpoints.json'); SnapshotText = '{}'
             TurnBudgetUsd = [decimal]3; OutputTokens = 8192; MaxRequests = 96
@@ -49,28 +50,32 @@ try {
         Write-Utf8File $baseline 'namespace Inventory.Tests; public class UnitTest1 { [Xunit.Fact] public void Test1() {} }'
         $baselineBefore = Get-Sha256 $baseline
         . $compose
-        foreach ($path in @($profiles.Values) + @($profileShort, $profileUntrusted)) {
+        foreach ($path in @($profiles.Values) + @($profileUntrusted)) {
             $profile = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -Depth 100
-            Assert-That ($profile.processes.Count -eq 1) 'Inventory lost its process'
+            $expectedProcesses = if ($path -eq $profiles['T5']) { 2 } else { 1 }
+            Assert-That ($profile.processes.Count -eq $expectedProcesses) 'Inventory process authorization changed outside T5'
+            if ($expectedProcesses -eq 2) {
+                Assert-That ($profile.processes[1].name -eq 'pause-checkpoint' -and $profile.processes[1].executable -eq $checkpointNode -and $profile.processes[1].max_timeout_ms -eq 300000) 'T5 checkpoint process differs from the authorized Node fixture'
+            }
             $process = $profile.processes[0]
             # Runtime public-environment contract; scenario-specific settings are not bootstrap values.
-            $allowed = @('SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TERM', 'CI', 'RUST_BACKTRACE', 'CARGO_TARGET_DIR', 'CARGO_HOME', 'LIB', 'INCLUDE', 'LIBPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramFiles(x86)')
+            $allowed = @('SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'TERM', 'CI', 'RUST_BACKTRACE', 'CARGO_TARGET_DIR', 'CARGO_HOME', 'LIB', 'INCLUDE', 'LIBPATH', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'APPDATA', 'LOCALAPPDATA', 'DOTNET_CLI_HOME')
             foreach ($key in $process.environment.PSObject.Properties.Name) {
                 Assert-That ($allowed -contains $key) "Unsupported process environment: $key"
             }
             Assert-That ($process.executable -eq $dotnet -and $process.max_timeout_ms -eq 1200000) 'Inventory process contract changed'
-            Assert-That ($process.environment.APPDATA -ceq (Join-Path $ctx.Temp 'dotnet-appdata')) 'Dotnet inherited ambient roaming profile'
-            Assert-That ($process.environment.LOCALAPPDATA -ceq (Join-Path $ctx.Temp 'dotnet-localappdata')) 'Dotnet inherited ambient local profile'
-            Assert-That ($process.environment.'ProgramFiles(x86)' -ceq [Environment]::GetFolderPath('ProgramFilesX86')) 'Dotnet lost installed public SDK directory'
-            Assert-That (Test-Path -LiteralPath $process.environment.APPDATA -PathType Container) 'Dotnet roaming directory missing'
-            Assert-That (Test-Path -LiteralPath $process.environment.LOCALAPPDATA -PathType Container) 'Dotnet local directory missing'
+            foreach ($key in 'APPDATA', 'LOCALAPPDATA', 'DOTNET_CLI_HOME') {
+                $path = $process.environment.$key
+                Assert-That ($path.StartsWith($ctx.Env + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) "$key inherited account state"
+                Assert-That (Test-Path -LiteralPath $path -PathType Container) "$key bootstrap directory was not created"
+            }
         }
         $review = Get-Content -LiteralPath $profileReview -Raw | ConvertFrom-Json -Depth 100
         Assert-That ($review.processes.Count -eq 0 -and ($review.automatic_effects -join ',') -eq 'read') 'Review gained execution permissions'
         Assert-That ($review.checks.Count -eq 0) 'Review gained native execution checks'
         $previous = @()
         $previousNames = @()
-        $expectedCounts = @(3, 11, 14, 18, 21)
+        $expectedCounts = @(5, 13, 16, 20, 23)
         foreach ($number in 1..5) {
             $profile = Get-Content -LiteralPath $profiles["T$number"] -Raw | ConvertFrom-Json -Depth 100
             Assert-That ($profile.checks.Count -eq 1) "T$number missing required native check"
@@ -87,10 +92,15 @@ try {
             $connection = 'Server=fixture;Database=fixture'
             . ([scriptblock]::Create($promptAssignment.Extent.Text))
             $prompt = Get-Variable -Name "promptT$number" -ValueOnly
-            Assert-That ($prompt.Contains('Run `vcp_verify`')) "T$number does not require current native verification"
+            Assert-That ($prompt.Contains('Then call `vcp_verify`') -and $prompt.Contains('an empty `verification.outstanding_issues` list')) "T$number does not require current native verification with no outstanding issues"
             if ($number -ne 4) {
                 foreach ($name in @($check.expected_tests | Where-Object { $previousNames -notcontains $_ })) {
-                    Assert-That ($prompt.Contains(($name -split '\.')[-1])) "T$number prompt/check name mismatch: $name"
+                    if ($name.StartsWith('Inventory.Tests.OwnerDomainContractTests.')) {
+                        $ownerSource = Get-Content -LiteralPath (Join-Path $scenarioRoot '../../scripts/evals/inventory-domain-probe/OwnerDomainContractTests.cs') -Raw
+                        Assert-That ($ownerSource.Contains('void ' + ($name -split '\.')[-1] + '()')) "Missing executable owner assertion: $name"
+                        Assert-That ($prompt.Contains('OwnerDomainContractTests.cs')) 'Prompt omitted protected owner acceptance'
+                    }
+                    else { Assert-That ($prompt.Contains(($name -split '\.')[-1])) "T$number prompt/check name mismatch: $name" }
                 }
             }
             else {
@@ -101,13 +111,11 @@ try {
             }
             $previousNames = @($check.expected_tests)
         }
-        $short = Get-Content -LiteralPath $profileShort -Raw | ConvertFrom-Json -Depth 100
-        Assert-That ($short.checks[0].timeout_ms -eq 150000 -and $short.deadline_seconds -eq 150) 'Short verification exceeds deadline'
-        Assert-That (($short.checks[0].expected_tests -join ',') -ceq ($previous -join ',')) 'Short run weakened T5 acceptance'
         $ctx.ShortDeadlineSeconds = 7
         . $compose
-        $short = Get-Content -LiteralPath $profileShort -Raw | ConvertFrom-Json -Depth 100
-        Assert-That ($short.checks[0].timeout_ms -eq 7000) 'Very short verification exceeds deadline'
+        $full = Get-Content -LiteralPath $profiles['T5'] -Raw | ConvertFrom-Json -Depth 100
+        Assert-That ($full.checks[0].timeout_ms -eq 300000) 'Legacy short-deadline input changed operational verification containment'
+        Assert-That (($full.checks[0].expected_tests -join ',') -ceq ($previous -join ',')) 'Pause qualification weakened T5 acceptance'
         foreach ($connection in @('Server=(localdb)\MSSQLLocalDB;Database=VcpInventory_current;Trusted_Connection=True', 'Server="host with spaces";Database=VcpInventory_current;Integrated Security=True')) {
             $prompt = New-Prompt 'Task body'
             $match = [regex]::Match($prompt, '(?s)`(\["tool".*?\])`')
@@ -124,7 +132,7 @@ try {
         Assert-That ((Get-Sha256 $baseline) -eq $baselineBefore) 'Profile preparation rewrote existing baseline tests'
       }
     }
-    Write-Host 'Inventory profile regressions passed: cumulative named dotnet checks, solution coverage, bounded deadlines, read-only review, fresh/reused projects, literal EF overrides, protected configuration preserved.'
+    Write-Host 'Inventory profile regressions passed: cumulative named dotnet checks, solution coverage, recorded T5 checkpoint, independent verification containment, read-only review, fresh/reused projects, literal EF overrides, protected configuration preserved.'
 }
 finally {
     $resolved = [IO.Path]::GetFullPath($root)

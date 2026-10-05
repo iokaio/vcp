@@ -10,6 +10,7 @@ use vcp_domain::{
     controller::{Lease, Reason},
     revision::Revision,
 };
+use vcp_store::contract::CanonicalStore;
 use vcp_store::{contract::Collection, BackendKind, Store};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -75,8 +76,7 @@ async fn compiled_controller_retries_preserve_identity_and_release_keeps_reads_o
         let store = fixture.reopen().await;
         assert_offline_paused(&store, &fixture.config);
         assert_eq!(
-            store
-                .state()
+            (&store.archive_state().await.unwrap())
                 .commands
                 .values()
                 .filter(|receipt| receipt.command.as_str() == "create-once")
@@ -115,8 +115,7 @@ async fn compiled_observer_reads_without_controller_authority_or_provider_config
         assert!(client.finish().await.0.success());
         let store = fixture.reopen().await;
         assert_offline_paused(&store, &fixture.config);
-        assert!(!store
-            .state()
+        assert!(!(&store.archive_state().await.unwrap())
             .commands
             .values()
             .any(|receipt| receipt.command.as_str().starts_with("observer-")));
@@ -152,7 +151,7 @@ async fn compiled_attachment_refuses_competing_writer_and_eof_releases_owner_pau
     let store = fixture.reopen().await;
     assert_offline_paused(&store, &fixture.config);
     let lease: Lease = store
-        .state()
+        .current()
         .records
         .values()
         .find(|row| {
@@ -221,7 +220,7 @@ async fn compiled_oversized_protocol_frame_closes_live_controller_and_releases_w
     let store = fixture.reopen().await;
     assert_offline_paused(&store, &fixture.config);
     let lease: Lease = store
-        .state()
+        .current()
         .records
         .values()
         .find(|row| {
@@ -235,8 +234,7 @@ async fn compiled_oversized_protocol_frame_closes_live_controller_and_releases_w
     assert_eq!(lease.reason, Reason::ConnectionLost);
     assert_eq!(lease.generation, Revision::new(1));
     assert_eq!(
-        store
-            .state()
+        (&store.archive_state().await.unwrap())
             .commands
             .values()
             .filter(|receipt| receipt.command.as_str() == "oversize-owner")
@@ -245,7 +243,7 @@ async fn compiled_oversized_protocol_frame_closes_live_controller_and_releases_w
     );
     assert_eq!(
         store
-            .state()
+            .current()
             .records
             .values()
             .filter(|row| row.collection == Collection::Session)

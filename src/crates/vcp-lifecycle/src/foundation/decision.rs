@@ -260,7 +260,7 @@ impl CanonicalHost {
             ),
         );
         let provider_slot = self
-            .acquire_provider_slot(thread, Some(std::time::Instant::now() + remaining))
+            .acquire_provider_slot(thread, None, Some(std::time::Instant::now() + remaining))
             .await?;
         let mut runtime = HostWorkAdmission::admit(
             &self.runtime,
