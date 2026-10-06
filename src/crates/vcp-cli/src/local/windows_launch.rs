@@ -217,9 +217,10 @@ fn launch_inner(
             .ok_or_else(|| io::Error::other("image directory unavailable"))?
             .as_os_str(),
     )?;
-    // Explicit allowlist: never inherit provider credentials or arbitrary user environment.
+    // The account directory is needed for shared provider pacing across CLI
+    // and local owners. Preserve that path, never credentials or arbitrary env.
     let mut environment = Vec::new();
-    for key in ["SystemRoot", "TEMP", "TMP"] {
+    for key in ["LOCALAPPDATA", "SystemRoot", "TEMP", "TMP"] {
         if let Some(value) = std::env::var_os(key) {
             let mut entry = std::ffi::OsString::from(key);
             entry.push("=");
@@ -304,6 +305,82 @@ mod tests {
     use super::*;
     use std::io::{BufRead, Write};
     use std::os::windows::io::AsHandle;
+
+    #[test]
+    fn native_launch_preserves_account_path_without_inheriting_credentials() {
+        let account = tempfile::tempdir().unwrap();
+        // Seed only this subprocess; concurrent tests keep their own environment.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "local::windows_launch::tests::account_environment_parent",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("LOCALAPPDATA", account.path())
+            .env("OPENROUTER_API_KEY", "synthetic-launch-secret")
+            .env("OPENAI_API_KEY", "synthetic-launch-secret")
+            .env("VCP_ARBITRARY_LAUNCH_ENV", "synthetic-launch-value")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    #[ignore = "isolated parent for native environment allowlist proof"]
+    fn account_environment_parent() {
+        for key in [
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "VCP_ARBITRARY_LAUNCH_ENV",
+        ] {
+            assert!(std::env::var_os(key).is_some());
+        }
+        let exe = Executable::open(&std::env::current_exe().unwrap()).unwrap();
+        let mut child = launch_inner(
+            &exe,
+            "--exact local::windows_launch::tests::account_environment_child --ignored --nocapture",
+            &[],
+        )
+        .unwrap();
+        writeln!(
+            child.stdin,
+            "{}",
+            serde_json::to_string(&std::env::var("LOCALAPPDATA").unwrap()).unwrap()
+        )
+        .unwrap();
+        child.stdin.flush().unwrap();
+        assert!(
+            child.guard.wait(10_000).unwrap(),
+            "environment child did not exit"
+        );
+        assert_eq!(child.guard.exit_code().unwrap(), 0);
+    }
+
+    #[test]
+    #[ignore = "native launched child for exact environment allowlist proof"]
+    fn account_environment_child() {
+        let mut expected = String::new();
+        std::io::stdin().read_line(&mut expected).unwrap();
+        let expected: String = serde_json::from_str(&expected).unwrap();
+        assert_eq!(std::env::var("LOCALAPPDATA").unwrap(), expected);
+        for key in [
+            "OPENROUTER_API_KEY",
+            "OPENAI_API_KEY",
+            "VCP_ARBITRARY_LAUNCH_ENV",
+            "PATH",
+        ] {
+            assert!(
+                std::env::var_os(key).is_none(),
+                "nonallowlisted environment inherited: {key}"
+            );
+        }
+    }
 
     #[test]
     #[ignore = "subprocess fixture for exact inherited kernel handles"]

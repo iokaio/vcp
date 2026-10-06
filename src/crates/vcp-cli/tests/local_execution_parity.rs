@@ -480,7 +480,29 @@ async fn production_cli_compacts_large_tool_history_and_preserves_verified_compl
             .respond_with(move |request: &wiremock::Request| {
                 let index = calls.fetch_add(1, Ordering::SeqCst);
                 let body = String::from_utf8_lossy(&request.body);
-                if body.contains("bounded-tool-pair-previews/1") {
+                if body.contains("bounded-tool-pair-previews/3") {
+                    let request: Value = serde_json::from_slice(&request.body).unwrap();
+                    let projection = request["input"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter_map(|item| item["content"][0]["text"].as_str())
+                        .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+                        .filter_map(|part| {
+                            serde_json::from_str::<Value>(part["text"].as_str()?).ok()
+                        })
+                        .find(|summary| summary["algorithm"] == "bounded-tool-pair-previews/3")
+                        .expect("the actual request contains a structured compaction preview");
+                    assert!(projection["pairs"].as_array().unwrap().iter().any(|pair| {
+                        pair["tool"] == "vcp_read"
+                            && pair["result"]["original_bytes"].as_u64().unwrap() > 32 * 1024
+                            && pair["result"]["omitted_bytes"].as_u64().unwrap() > 0
+                            && pair["result"]["artifact"].as_str().is_some()
+                            && pair["result"]["text"]
+                                .as_str()
+                                .unwrap()
+                                .contains("retained historical source;")
+                    }));
                     previews.fetch_add(1, Ordering::SeqCst);
                     assert!(body.contains(OBJECTIVE));
                     assert!(body.contains("canonical"));
@@ -488,7 +510,7 @@ async fn production_cli_compacts_large_tool_history_and_preserves_verified_compl
                 let events = if index < 10 {
                     let item = json!({"type":"function_call","id":format!("large-item-{index}"),
                         "call_id":format!("large-call-{index}"),"name":"vcp_read",
-                        "arguments":json!({"path":"large.txt","max_bytes":16384,"start_line":null,"end_line":null}).to_string(),
+                        "arguments":json!({"path":"large.txt","max_bytes":65536,"start_line":null,"end_line":null}).to_string(),
                         "status":"completed"});
                     [json!({"type":"response.output_item.done","output_index":0,"item":item}),
                         json!({"type":"response.completed","response":{"id":format!("large-response-{index}"),
@@ -505,7 +527,9 @@ async fn production_cli_compacts_large_tool_history_and_preserves_verified_compl
         let fixture = Fixture::new(&server.uri());
         fs::write(
             fixture.workspace.join("large.txt"),
-            "retained historical source; ".repeat(580),
+            // Exceed the current 32-KiB retained-pair ceiling even when the
+            // fixed-provider envelope can keep twelve recent ordinary pairs.
+            "retained historical source; ".repeat(1300),
         )
         .unwrap();
         let mut profile: Value =
@@ -514,19 +538,52 @@ async fn production_cli_compacts_large_tool_history_and_preserves_verified_compl
         fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
         let entry = fixture.seed(backend).await;
         let mut command = fixture.command(&["run", OBJECTIVE, "--autonomy", "autonomous"]);
-        let output = tokio::time::timeout(
-            Duration::from_secs(120),
-            tokio::task::spawn_blocking(move || command.output().unwrap()),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(
-            output.status.success(),
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+        // Retain the production pacing gate in a private account namespace so
+        // this synthetic campaign cannot contend with another test or live run.
+        let local = fixture._temp.path().join("compaction-local-app-data");
+        fs::create_dir(&local).unwrap();
+        command.env("LOCALAPPDATA", local);
+        let stdout = fixture._temp.path().join("compaction.stdout.jsonl");
+        let stderr = fixture._temp.path().join("compaction.stderr.log");
+        command
+            .stdout(fs::File::create(&stdout).unwrap())
+            .stderr(fs::File::create(&stderr).unwrap());
+        let mut child = tokio::process::Command::from(command)
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        // The retained debug run reached twelve requests and a passing native
+        // check at 360 seconds, with later rounds taking 40 seconds. Include
+        // the final response and completion proof without dropping any round.
+        let status = match tokio::time::timeout(Duration::from_secs(600), child.wait()).await {
+            Ok(status) => status.unwrap(),
+            Err(error) => {
+                child.kill().await.unwrap();
+                let retained = fixture._temp.keep();
+                panic!(
+                    "{backend:?} compaction process: {error}; requests={}, compacted={}; retained {}",
+                    count.load(Ordering::SeqCst),
+                    compacted.load(Ordering::SeqCst),
+                    retained.display()
+                );
+            }
+        };
+        let output = std::process::Output {
+            status,
+            stdout: fs::read(stdout).unwrap(),
+            stderr: fs::read(stderr).unwrap(),
+        };
+        if !output.status.success() {
+            let retained = fixture._temp.keep();
+            panic!(
+                "{backend:?} compaction status={}; requests={}, compacted={}; retained {}; stderr={}",
+                output.status,
+                count.load(Ordering::SeqCst),
+                compacted.load(Ordering::SeqCst),
+                retained.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         assert_eq!(count.load(Ordering::SeqCst), 13);
         assert!(
             compacted.load(Ordering::SeqCst) >= 3,
@@ -555,7 +612,13 @@ fn scope(entry: &WorkspaceEntry) -> Value {
     json!({"workspace":entry.config.workspace,"session":entry.config.session})
 }
 fn start(entry: &WorkspaceEntry) -> Value {
-    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":entry.config.cap.micros.finite().expect("finite parity fixture").get().to_string(),"currency":"USD","max_requests":8,"deadline_seconds":300}})
+    // Ordinary CLI owners use EE-01's suspended monetary cap. Preserve legacy
+    // finite request encoding when a fixture explicitly supplies a finite owner.
+    let cap = match entry.config.cap.micros {
+        vcp_domain::Limit::Finite(value) => json!(value.get().to_string()),
+        vcp_domain::Limit::Unbounded => json!({"version":1,"kind":"unbounded"}),
+    };
+    json!({"scope":scope(entry),"mutation":{"command_id":"compiled-start-once","expected_revision":"0","steering_revision":"0"},"task":ROOT,"turn":TURN,"objective":OBJECTIVE,"constraints":[],"acceptance":["changed source acceptance"],"budget":{"cap_micros":cap,"currency":"USD","max_requests":8,"deadline_seconds":300}})
 }
 fn acquire(client: &mut wire::Client, entry: &WorkspaceEntry, name: &str) {
     let lease = client.rpc(2, "controller/read", json!({"scope":scope(entry)}));

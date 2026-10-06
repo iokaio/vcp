@@ -381,7 +381,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    timeout-minutes: 45
+    timeout-minutes: 95
     defaults:
       run:
         shell: pwsh
@@ -428,7 +428,7 @@ jobs:
             } finally { Pop-Location }
           } *>&1 | Tee-Object -FilePath artifacts/native-boundaries/provision.log
       - name: Run exact source native boundary targets and package lifecycle fixture
-        timeout-minutes: 32
+        timeout-minutes: 78
         run: |
           $ErrorActionPreference='Stop'
           $repo=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
@@ -495,7 +495,7 @@ jobs:
             if (Test-Path -LiteralPath $target) { throw 'Fresh native qualification target required' }
             $common=@('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$env:CARGO_BUILD_JOBS")
             # One Cargo selection unifies dependency features across both packages.
-            Observe 'native' $cargo ($common+@('-p','vcp-lifecycle','-p','vcp-cli','--features','qualification','--test','duplex_process','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1')) $workspace 1800 -Msvc
+            Observe 'native' $cargo ($common+@('-p','vcp-lifecycle','-p','vcp-cli','--features','qualification','--test','duplex_process','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1')) $workspace 4500 -Msvc
             Observe 'package-install' $pwsh @('-NoProfile','-NonInteractive','-File',(Join-Path $repo 'scripts/package-install.test.ps1')) $repo 90
             $record.status='pass'
           } catch { $record.failure=$_.Exception.Message; throw }

@@ -42,7 +42,13 @@ This mode requires successful main Delivery checks and cannot be combined with
 nonignored CLI qualification targets and the package-install fixture on `vcpwin`,
 using 16 Cargo jobs and serial test execution. One Cargo selection combines the
 five native targets so shared dependency features are compiled together. The
-source-only run acquires no
+supervised native build and tests allow 75 minutes within a 78-minute execution
+step and a 95-minute job, leaving room for provisioning, package checks and
+evidence collection. Measured serial CLI/API, import, MCP and rotation tests,
+cold compilation and launcher groups total about 2,437 seconds before compaction.
+Both 600-second compaction allowances bring that to about 61 minutes before
+duplex checks and runtime variance. Individual test deadlines and acceptance
+checks remain separate from this outer infrastructure allowance. The source-only run acquires no
 editor, installer or model and performs no final-candidate installation. It
 retains source identities and bounded process logs independently of the full
 candidate. A pass establishes readiness to attempt the full build; it does not

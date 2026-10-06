@@ -1118,6 +1118,9 @@ impl Context {
         {
             self.record_empty_response_retry(&attempt)?;
         }
+        if let Some(status) = http_status {
+            self.record_retry_disposition(&attempt, Some(status))?;
+        }
         self.capture(
             &binding.scope,
             Channel::Evidence,
