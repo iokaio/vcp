@@ -185,6 +185,9 @@ jobs:
         run: cargo test --locked -p vcp-models --lib allocation::tests
       - name: Test verbose history with the production provider codec
         run: cargo test --locked -p vcp-models --test provider context_capacity
+      # EE-02b: compare accounting history reuse with full validation on every PR.
+      - name: Test accounting history validation and reuse
+        run: cargo test --locked -p vcp-store --lib accounting_
   windows:
     name: Native Windows qualification
     # Keep expensive qualification opt-in while routine CI runs only fast checks.
@@ -495,7 +498,7 @@ jobs:
             if (Test-Path -LiteralPath $target) { throw 'Fresh native qualification target required' }
             $common=@('+1.98.0','test','--locked','--offline','--target','x86_64-pc-windows-msvc','--target-dir',$target,'-j',"$env:CARGO_BUILD_JOBS")
             # One Cargo selection unifies dependency features across both packages.
-            Observe 'native' $cargo ($common+@('-p','vcp-lifecycle','-p','vcp-cli','--features','qualification','--test','duplex_process','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--test-threads=1')) $workspace 4500 -Msvc
+            Observe 'native' $cargo ($common+@('-p','vcp-lifecycle','-p','vcp-cli','--features','qualification','--test','duplex_process','--test','local_execution_parity','--test','installed_launcher','--test','beta_launcher_console','--test','beta_editor_candidate','--','--nocapture','--test-threads=1')) $workspace 4500 -Msvc
             Observe 'package-install' $pwsh @('-NoProfile','-NonInteractive','-File',(Join-Path $repo 'scripts/package-install.test.ps1')) $repo 90
             $record.status='pass'
           } catch { $record.failure=$_.Exception.Message; throw }

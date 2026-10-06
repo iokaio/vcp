@@ -48,7 +48,9 @@ evidence collection. Measured serial CLI/API, import, MCP and rotation tests,
 cold compilation and launcher groups total about 2,437 seconds before compaction.
 Both 600-second compaction allowances bring that to about 61 minutes before
 duplex checks and runtime variance. Individual test deadlines and acceptance
-checks remain separate from this outer infrastructure allowance. The source-only run acquires no
+checks remain separate from this outer infrastructure allowance. Native tests run
+with `--nocapture` so backend/case progress appears in the mirrored CI log while
+the test is running. The source-only run acquires no
 editor, installer or model and performs no final-candidate installation. It
 retains source identities and bounded process logs independently of the full
 candidate. A pass establishes readiness to attempt the full build; it does not

@@ -214,19 +214,37 @@ async fn imported_tools_and_deadline_apply_to_cli_public_start_and_resume_on_bot
                 assert_eq!(count.load(Ordering::SeqCst), 0);
                 assert!(!fixture.data.join("mcp-observed.txt").exists());
                 if mode == "cli" {
-                    let mut command = fixture.command(&[
+                    let command = fixture.command(&[
                         "run",
                         "Inspect configured MCP tools",
                         "--autonomy",
                         "autonomous",
                     ]);
-                    let output = tokio::time::timeout(
-                        Duration::from_secs(90),
-                        tokio::task::spawn_blocking(move || command.output().unwrap()),
-                    )
-                    .await
-                    .unwrap()
-                    .unwrap();
+                    // The fixture permits a 300-second complete turn, including
+                    // provider and persistence work beyond the imported MCP
+                    // process lifetime. The former 90-second outer guard could
+                    // expire before that configured turn budget. Allow its
+                    // budget plus teardown without changing MCP limits.
+                    let profile: Value =
+                        serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+                    let timeout =
+                        Duration::from_secs(profile["deadline_seconds"].as_u64().unwrap() + 30);
+                    let mut command = tokio::process::Command::from(command);
+                    // Dropping spawn_blocking's handle leaves command.output()
+                    // running after timeout. Keep ownership of the child so a
+                    // failed fixture cannot leak a CLI process into later cases.
+                    command.kill_on_drop(true);
+                    let output = tokio::time::timeout(timeout, command.output())
+                        .await
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "{backend:?}/{delayed}/{mode}: CLI exceeded {timeout:?}; provider requests: {}; MCP methods: {}",
+                                count.load(Ordering::SeqCst),
+                                fs::read_to_string(fixture.data.join("mcp-observed.txt"))
+                                    .unwrap_or_else(|_| "peer not started".into())
+                            )
+                        })
+                        .unwrap();
                     assert!(
                         output.status.success(),
                         "{backend:?}/{delayed}/{mode}: {} {}",
