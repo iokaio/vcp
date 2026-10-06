@@ -25,6 +25,89 @@ pub fn http_failure(status: u16) -> Failure {
     }
 }
 
+/// A complete HTTP rejection, with no model response or executable output.
+/// This proves only response disposition, never whether the provider billed it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpRejection {
+    pub status: u16,
+}
+
+#[cfg(test)]
+mod http_rejection_tests {
+    use super::*;
+
+    #[test]
+    fn complete_retryable_http_rejections_are_normalized_without_billing_claims() {
+        for status in [429, 500, 502, 503] {
+            let bytes = format!(
+                r#"{{"error":{{"code":{status},"message":"retry later","metadata":{{"generation_id":"unsettled"}}}}}}"#
+            );
+            assert_eq!(
+                normalize_http_rejection(bytes.as_bytes(), status),
+                Some(HttpRejection { status })
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_partial_ambiguous_and_model_responses_are_not_rejections() {
+        for body in [
+            r#"{"error":{"code":429,"message":"retry"}"#,
+            r#"{"error":{"code":429,"code":429,"message":"retry"}}"#,
+            r#"{"error":{"code":500,"message":"retry"}}"#,
+            r#"{"error":{"code":429,"message":""}}"#,
+            r#"{"error":{"code":429,"message":"retry","output":[]}}"#,
+            r#"{"error":{"code":429,"message":"retry"},"output":[]}"#,
+            r#"{"error":{"code":429,"message":"retry"}} trailing"#,
+            r#"data: {"error":{"code":429,"message":"retry"}}"#,
+            r#"{"error":{"code":429,"message":"retry","metadata":[]}}"#,
+        ] {
+            assert_eq!(
+                normalize_http_rejection(body.as_bytes(), 429),
+                None,
+                "{body}"
+            );
+        }
+        for status in [200, 408, 504] {
+            let body = format!(r#"{{"error":{{"code":{status},"message":"uncertain"}}}}"#);
+            assert_eq!(normalize_http_rejection(body.as_bytes(), status), None);
+        }
+        assert_eq!(
+            normalize_http_rejection(&vec![b' '; HTTP_REJECTION_LIMIT as usize + 1], 429),
+            None
+        );
+    }
+}
+
+pub const HTTP_REJECTION_LIMIT: u64 = 64 * 1024;
+
+pub fn normalize_http_rejection(body: &[u8], status: u16) -> Option<HttpRejection> {
+    // Timeout responses retain outcome uncertainty. Only explicit retryable
+    // rejection envelopes qualify; HTML, SSE and partial model output do not.
+    if !matches!(status, 429 | 500 | 502 | 503) || body.len() as u64 > HTTP_REJECTION_LIMIT {
+        return None;
+    }
+    let value = crate::decision::unique_json::parse(body).ok()?;
+    let envelope = value.as_object()?;
+    if envelope.len() != 1 {
+        return None;
+    }
+    let error = envelope.get("error")?.as_object()?;
+    if error
+        .keys()
+        .any(|key| !matches!(key.as_str(), "code" | "message" | "metadata"))
+        || error.get("code")?.as_u64()? != u64::from(status)
+        || error.get("message")?.as_str()?.trim().is_empty()
+        || error
+            .get("metadata")
+            .is_some_and(|metadata| !metadata.is_object())
+    {
+        return None;
+    }
+    Some(HttpRejection { status })
+}
+
 /// Bounded, allowlisted metadata from an HTTP error body. Provider prose and
 /// account identifiers stay in the raw response artifact, never in status text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

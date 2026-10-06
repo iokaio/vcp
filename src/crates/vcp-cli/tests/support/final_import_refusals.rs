@@ -63,7 +63,29 @@ impl Fixture {
             .tempdir_in(root)
             .unwrap();
         temp.disable_cleanup(true);
-        Self::at(temp, binary.to_owned(), None, Some(node.to_owned()))
+        let fixture = Self::at(temp, binary.to_owned(), None, Some(node.to_owned()));
+        // EE-01 suspends task spending caps. Keep this offline refusal fixture
+        // fail-closed using an actual provider context ceiling instead: one
+        // input token cannot contain the mandatory request and tool contracts.
+        let mut profile: Value =
+            serde_json::from_slice(&fs::read(&fixture.profile).unwrap()).unwrap();
+        let snapshot: Snapshot = serde_json::from_value(profile["provider"].clone()).unwrap();
+        let catalog = fixture.data.join("catalog.json");
+        let mut raw: Value = serde_json::from_slice(&fs::read(&catalog).unwrap()).unwrap();
+        raw["data"]["endpoints"][0]["max_prompt_tokens"] = json!(1);
+        let bytes = serde_json::to_vec(&raw).unwrap();
+        let bounded = Snapshot::from_endpoints(
+            &bytes,
+            snapshot.observed_at,
+            snapshot.valid_until,
+            snapshot.compatibility,
+        )
+        .unwrap();
+        assert_eq!(bounded.max_input.get(), 1);
+        profile["provider"] = serde_json::to_value(bounded).unwrap();
+        fs::write(catalog, bytes).unwrap();
+        fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
+        fixture
     }
     pub(super) async fn final_capture(
         &self,
@@ -134,8 +156,8 @@ impl Fixture {
             .await;
         assert!(configured.status.success());
         // Ordinary production bootstrap writes a real trusted policy/descriptor.
-        // The closed stdout stops it before submission. Independently, the cap
-        // cannot fund even one request if that output boundary ever regresses.
+        // The closed stdout stops it before submission. Independently, the
+        // one-token provider input ceiling cannot admit a coding request.
         let seeded = self
             .final_capture(
                 &[
@@ -157,10 +179,7 @@ impl Fixture {
         let entry: WorkspaceEntry =
             serde_json::from_slice(&fs::read(directory.join("workspace.json")).unwrap()).unwrap();
         assert_eq!(entry.config.backend, backend);
-        assert_eq!(
-            entry.config.cap.micros,
-            vcp_domain::Limit::Finite(vcp_domain::Micros::new(1))
-        );
+        assert_eq!(entry.config.cap.micros, vcp_domain::Limit::Unbounded);
         let request = &entry.config.price.rates[&vcp_domain::accounting::ChargeCategory::Request];
         // Catalog rates use normalized units. Assert the exact one-request
         // cost, independently of that denominator, before testing admission.
@@ -220,10 +239,7 @@ fn no_dispatch(state: &State) -> Value {
         .filter(|row| row.collection == Collection::Ledger)
     {
         let ledger: Ledger = record.decode().unwrap();
-        assert_eq!(
-            ledger.cap,
-            vcp_domain::Limit::Finite(vcp_domain::Micros::new(1))
-        );
+        assert_eq!(ledger.cap, vcp_domain::Limit::Unbounded);
         assert_eq!(ledger.active.known().unwrap().get(), 0);
         assert_eq!(ledger.settled.get(), 0);
         assert_eq!(ledger.unresolved.known().unwrap().get(), 0);
@@ -321,7 +337,7 @@ async fn control(fixture: &Fixture, entry: &WorkspaceEntry, mode: &str) -> Value
             .final_capture(
                 &[
                     "run",
-                    "Observe the unaffordable request boundary",
+                    "Observe the insufficient context boundary",
                     "--autonomy",
                     "autonomous",
                 ],
@@ -330,7 +346,7 @@ async fn control(fixture: &Fixture, entry: &WorkspaceEntry, mode: &str) -> Value
             .await;
         assert_eq!(
             output.status.code(),
-            Some(5),
+            Some(8),
             "{}",
             String::from_utf8_lossy(&output.stdout)
         );
@@ -358,7 +374,7 @@ async fn control(fixture: &Fixture, entry: &WorkspaceEntry, mode: &str) -> Value
         } else {
             import_execution::resume(&mut client, entry)
         };
-        wire::accepted(&client.rpc(
+        let admission = client.rpc(
             4,
             if mode == "start" {
                 "turn/start"
@@ -366,7 +382,21 @@ async fn control(fixture: &Fixture, entry: &WorkspaceEntry, mode: &str) -> Value
                 "session/resume"
             },
             request,
-        ));
+        );
+        if admission.get("error").is_some() {
+            save(
+                &fixture._temp.path().join("control-admission.json"),
+                &admission,
+            );
+            let (_, diagnostics) = client.finish().await;
+            fs::write(
+                fixture._temp.path().join("control-client.stderr"),
+                &diagnostics,
+            )
+            .unwrap();
+            panic!("Unchanged {mode} control rejected: {admission}; {diagnostics}");
+        }
+        wire::accepted(&admission);
         let until = Instant::now() + Duration::from_secs(60);
         loop {
             let view = import_execution::selected_task(&mut client, entry, &selected);
@@ -376,11 +406,18 @@ async fn control(fixture: &Fixture, entry: &WorkspaceEntry, mode: &str) -> Value
             }
             assert!(
                 Instant::now() < until,
-                "Unchanged control must reach budget refusal"
+                "Unchanged control must reach pre-send context refusal"
             );
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        assert!(client.finish().await.0.success());
+        let (status, diagnostics) = client.finish().await;
+        assert!(status.success());
+        assert!(!diagnostics.contains(SECRET));
+        fs::write(
+            fixture._temp.path().join("control-client.stderr"),
+            diagnostics,
+        )
+        .unwrap();
     }
     let state = snapshot(fixture, entry, "control-after").await;
     no_dispatch(&state);
@@ -392,13 +429,38 @@ async fn control(fixture: &Fixture, entry: &WorkspaceEntry, mode: &str) -> Value
         .filter(|turn: &Turn| turn.scope.task.as_str() == selected)
         .collect();
     assert_eq!(turns.len(), 1, "Control needs one actual admitted turn");
-    assert_eq!(turns[0].state, TurnState::BudgetExhausted);
+    assert_eq!(turns[0].state, TurnState::Paused);
+    let task: Task = state
+        .record(Collection::Task, &selected, &entry.config.workspace)
+        .unwrap()
+        .decode()
+        .unwrap();
+    assert_eq!(task.state, TaskState::Paused);
+    // A generic startup pause is not a successful control. All three paths
+    // must reach actual coding context admission before the zero-send refusal.
+    assert!(
+        state.events.iter().any(|event| {
+            event.event.kind == EventKind::TaskTransition
+                && event.event.data["facts"].as_array().is_some_and(|facts| {
+                    facts.iter().any(|fact| {
+                        fact["collection"] == "task"
+                            && fact["id"] == selected
+                            && fact["value"]["state"] == "paused"
+                            && fact["value"]["reason"]
+                                .as_str()
+                                .is_some_and(|reason| reason.contains("context"))
+                    })
+                })
+        }),
+        "Unchanged {mode} control never reached the pre-send context boundary"
+    );
+    assert!(task.reason.contains("context"), "{}", task.reason);
     assert!(!fixture.data.join("mcp-observed.txt").exists());
     assert_eq!(
         fs::read(fixture.workspace.join("value.txt")).unwrap(),
         b"41\n"
     );
-    json!({"backend":backend_name(entry.config.backend),"mode":mode,"status":"pass","task":selected,"turn":turns[0].id,"budget_exhausted":true,"provider_attempts":0,"reservations":0,"send_intents":0,"mcp_dispatched":false,"fixture_root":fixture._temp.path(),"canonical_after_sha256":hash(&fixture._temp.path().join("control-after.json"))})
+    json!({"backend":backend_name(entry.config.backend),"mode":mode,"status":"pass","task":selected,"turn":turns[0].id,"pre_send_refused":true,"max_prompt_tokens":1,"pause_reason":task.reason,"detailed_context_reason_exposed":true,"effective_cap":{"version":1,"kind":"unbounded"},"provider_attempts":0,"reservations":0,"send_intents":0,"mcp_dispatched":false,"fixture_root":fixture._temp.path(),"canonical_after_sha256":hash(&fixture._temp.path().join("control-after.json"))})
 }
 async fn refusal(fixture: &Fixture, entry: &WorkspaceEntry, change: &str, mode: &str) -> Value {
     let before = snapshot(fixture, entry, "canonical-before").await;
@@ -618,7 +680,7 @@ async fn final_installed_configuration_changes_refuse_start_and_resume_on_both_s
     let powershell_hash = hash(&powershell);
     let mut report = Report {
         path: root.join("result.json"),
-        value: json!({"schema":"vcp-final-import-refusals/1","status":"running","engine":binary,"engine_sha256":engine_hash,"qualification_executable_sha256":hash(&std::env::current_exe().unwrap()),"node_sha256":node_hash,"powershell_sha256":powershell_hash,"controls":[],"cases":[],"current":null,"minimum_request_micros":100,"cap_micros":1,"limitations":["Canonical admission and state observations; no independent network capture or OS network-denial claim.","Synthetic unaffordable requests never qualify successful provider/MCP execution, tool allowlist enforcement or execution deadlines.","Final source/payload provenance and complete process-tree supervision belong to the enclosing package-bound runner.","Controller lease changes are intentional; rejected task/accounting/policy records and acknowledged history must remain preserved."]}),
+        value: json!({"schema":"vcp-final-import-refusals/1","status":"running","engine":binary,"engine_sha256":engine_hash,"qualification_executable_sha256":hash(&std::env::current_exe().unwrap()),"node_sha256":node_hash,"powershell_sha256":powershell_hash,"controls":[],"cases":[],"current":null,"minimum_request_micros":100,"effective_cap":{"version":1,"kind":"unbounded"},"max_prompt_tokens":1,"limitations":["Canonical admission and state observations; no independent network capture or OS network-denial claim.","Synthetic context-refused requests never qualify successful provider/MCP execution, tool allowlist enforcement or execution deadlines.","Final source/payload provenance and complete process-tree supervision belong to the enclosing package-bound runner.","Controller lease changes are intentional; rejected task/accounting/policy records and acknowledged history must remain preserved."]}),
     };
     report.save();
     observations(&root, &binary, &copied_node, &mut report, None).await;

@@ -9,7 +9,8 @@ use vcp_models::reconciliation::{self, Expected};
 const FAILED_SCHEMA: &str = "failed-provider-request/1";
 const RECEIPT_SCHEMA: &str = "provider-generation-charge/1";
 /// Three uncertain availability submissions already equal the normal model-step
-/// attempt ceiling. Keep this root-wide bound across successful intervening steps.
+/// attempt ceiling. Keep this root-wide bound across unrelated successful steps;
+/// an unbounded ledger may exclude strictly proven recovered retry chains.
 const MAX_UNRESOLVED_AVAILABILITY: usize = 3;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -29,10 +30,17 @@ mod tests {
         temp: &tempfile::TempDir,
         backend: vcp_store::BackendKind,
     ) -> (Context, ThreadBinding) {
+        setup_with_cap(temp, backend, false)
+    }
+    fn setup_with_cap(
+        temp: &tempfile::TempDir,
+        backend: vcp_store::BackendKind,
+        unbounded: bool,
+    ) -> (Context, ThreadBinding) {
         let workspace = temp.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
         let currency: Currency = "USD".to_owned().try_into().unwrap();
-        let config = Config {
+        let mut config = Config {
             canonical_root: temp.path().join("canonical"),
             backend,
             workspace: WorkspaceId::new(),
@@ -49,7 +57,8 @@ mod tests {
             cap: Money {
                 currency: currency.clone(),
                 micros: Micros::new(2000),
-            }.into(),
+            }
+            .into(),
             protected: Micros::new(200),
             price: PriceSnapshot {
                 id: "a".repeat(64),
@@ -88,6 +97,9 @@ mod tests {
             max_transport_retries: 2,
             host_tool_denials: vec![],
         };
+        if unbounded {
+            config.cap.micros = vcp_domain::limit::Limit::Unbounded;
+        }
         let mut context = Context::open(config).unwrap();
         let binding = ThreadBinding {
             scope: Scope {
@@ -186,6 +198,388 @@ mod tests {
             ))
             .unwrap();
         attempt
+    }
+
+    fn submitted_retry_fixture(
+        context: &mut Context,
+        binding: &ThreadBinding,
+        previous: Option<AttemptId>,
+    ) -> AttemptId {
+        let request = context
+            .capture(
+                &binding.scope,
+                Channel::RequestBody,
+                br#"{"model":"fixture/model","input":[],"tools":[]}"#,
+                "fixture-request/1",
+            )
+            .unwrap();
+        let ledger = vcp_budget::ledger(context.engine.store().current(), &binding.scope).unwrap();
+        let actor = context.actor();
+        let admission = vcp_budget::Admission {
+            transaction: TransactionId::new(),
+            attempt: AttemptId::new(),
+            reservation: ReservationId::new(),
+            scope: binding.scope.clone(),
+            agent: binding.agent.clone(),
+            role: binding.role,
+            request: request.spec.id,
+            request_digest: request.sha256,
+            quote: vcp_budget::arithmetic::quote(
+                context.config.price.clone(),
+                Usage {
+                    requests: Units::new(1),
+                    ..Default::default()
+                },
+                actor.now,
+            )
+            .unwrap(),
+            previous,
+            expected_ledger: ledger.revision,
+            policy: ledger.policy,
+            steering: SteeringRevision::ZERO,
+            draw_protected: false,
+            now: actor.now,
+        };
+        let attempt = context
+            .runtime
+            .block_on(vcp_budget::reserve(
+                context.engine.store_mut(),
+                admission,
+                &actor,
+            ))
+            .unwrap();
+        context
+            .runtime
+            .block_on(vcp_budget::submit(
+                context.engine.store_mut(),
+                &attempt.id,
+                &binding.scope,
+                attempt.revision,
+                &actor,
+            ))
+            .unwrap();
+        attempt.id
+    }
+
+    fn retry_response_fixture(
+        context: &mut Context,
+        binding: &ThreadBinding,
+        id: &AttemptId,
+        bytes: &[u8],
+        complete: bool,
+    ) -> ArtifactDescriptor {
+        let mut spec = context.spec(
+            &binding.scope,
+            Channel::Response,
+            "responses-sse-observed-through-terminal/1",
+        );
+        spec.source = capture_recovery::source(id);
+        let mut writer = context.engine.store().spool().create(spec).unwrap();
+        if !bytes.is_empty() {
+            writer.write_chunk(bytes).unwrap();
+        }
+        let raw = if complete {
+            writer.finalize().unwrap()
+        } else {
+            writer.abort().unwrap()
+        };
+        drop(writer);
+        context
+            .command(
+                Command::AttachArtifact {
+                    descriptor: raw.clone(),
+                },
+                Some(binding.scope.task.clone()),
+                Revision::ZERO,
+            )
+            .unwrap();
+        raw
+    }
+
+    #[test]
+    fn recovered_retry_guard_requires_unbounded_current_turn_and_complete_unique_lineage() {
+        for backend in [
+            vcp_store::BackendKind::Files,
+            vcp_store::BackendKind::Sqlite,
+        ] {
+            for case in [
+                "http",
+                "empty",
+                "finite",
+                "partial",
+                "no-success",
+                "duplicate-empty",
+                "duplicate-disposition",
+                "new-turn",
+            ] {
+                let temp = tempfile::tempdir().unwrap();
+                let (mut context, binding) = setup_with_cap(&temp, backend, case != "finite");
+                context.initialize_root_budget().unwrap();
+                let task: Task = context
+                    .engine
+                    .store()
+                    .current()
+                    .record(
+                        Collection::Task,
+                        binding.scope.task.as_str(),
+                        &binding.scope.workspace,
+                    )
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                let trigger = context
+                    .capture(
+                        &binding.scope,
+                        Channel::Evidence,
+                        b"retry guard fixture",
+                        "coding-turn-input/1",
+                    )
+                    .unwrap();
+                let turn_id = TurnId::new();
+                context
+                    .command(
+                        Command::StartTurn {
+                            id: turn_id.clone(),
+                            trigger: trigger.spec.id,
+                        },
+                        Some(binding.scope.task.clone()),
+                        task.revision,
+                    )
+                    .unwrap();
+                for next in [
+                    TurnState::AssemblingContext,
+                    TurnState::ReservingBudget,
+                    TurnState::RequestingModel,
+                ] {
+                    let turn: Turn = context
+                        .engine
+                        .store()
+                        .current()
+                        .record(Collection::Turn, turn_id.as_str(), &binding.scope.workspace)
+                        .unwrap()
+                        .decode()
+                        .unwrap();
+                    context
+                        .command(
+                            Command::AdvanceTurn {
+                                id: turn_id.clone(),
+                                next,
+                                reason: "fixture".into(),
+                            },
+                            Some(binding.scope.task.clone()),
+                            turn.revision,
+                        )
+                        .unwrap();
+                }
+                let mut failures = Vec::new();
+                for index in 0..3 {
+                    let id = submitted_retry_fixture(&mut context, &binding, None);
+                    let empty = matches!(case, "empty" | "duplicate-empty");
+                    let bytes: &[u8] = if empty {
+                        b""
+                    } else if case == "partial" {
+                        br#"{"error":{"code":429,"message":"busy"},"output":["partial"]}"#
+                    } else {
+                        br#"{"error":{"code":429,"message":"busy"}}"#
+                    };
+                    let raw = retry_response_fixture(&mut context, &binding, &id, bytes, false);
+                    context
+                        .record_failed_charge(
+                            &id,
+                            &raw,
+                            Some(&vcp_models::retry::ProviderFailure {
+                                failure: vcp_models::retry::Failure::RateLimit,
+                                http_status: Some(429),
+                                limit_source: Some(
+                                    vcp_models::retry::LimitSource::UpstreamProviderSharedPool,
+                                ),
+                                retry_after_ms: None,
+                            }),
+                            None,
+                        )
+                        .unwrap();
+                    let actor = context.actor();
+                    context
+                        .runtime
+                        .block_on(vcp_budget::hold_uncertain(
+                            context.engine.store_mut(),
+                            &id,
+                            &binding.scope,
+                            &actor,
+                            "fixture unknown charge",
+                        ))
+                        .unwrap();
+                    if empty {
+                        context.record_empty_response_retry(&id).unwrap();
+                    } else {
+                        context.record_retry_disposition(&id, Some(429)).unwrap();
+                    }
+                    if case != "no-success" {
+                        let successor =
+                            submitted_retry_fixture(&mut context, &binding, Some(id.clone()));
+                        let response_id = format!("gen-recovered-{index}");
+                        let bytes = format!("data: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"{response_id}\",\"status\":\"completed\",\"output\":[]}}}}\n\n");
+                        let raw = retry_response_fixture(
+                            &mut context,
+                            &binding,
+                            &successor,
+                            bytes.as_bytes(),
+                            true,
+                        );
+                        context
+                            .observe_usage(UsageObservation {
+                                id: ObservationId::new(),
+                                scope: binding.scope.clone(),
+                                attempt: successor,
+                                provider_request: response_id,
+                                mode: UsageMode::Cumulative {
+                                    version: Units::new(1),
+                                },
+                                amount: Money {
+                                    currency: context.config.cap.currency.clone(),
+                                    micros: Micros::new(10),
+                                },
+                                final_usage: true,
+                                raw: raw.spec.id,
+                                correction: None,
+                            })
+                            .unwrap();
+                    }
+                    failures.push(id);
+                }
+                if matches!(case, "duplicate-empty" | "duplicate-disposition") {
+                    let schema = if case == "duplicate-empty" {
+                        "provider-empty-response-retry/1"
+                    } else {
+                        "provider-retry-disposition/1"
+                    };
+                    let markers: Vec<ArtifactDescriptor> = context
+                        .engine
+                        .store()
+                        .current()
+                        .records
+                        .values()
+                        .filter(|row| row.collection == Collection::Artifact)
+                        .map(|row| row.decode::<ArtifactDescriptor>().unwrap())
+                        .filter(|raw| raw.spec.schema == schema)
+                        .collect();
+                    assert_eq!(markers.len(), 3);
+                    for raw in markers {
+                        let bytes = context.reconciliation_artifact(&raw.spec.id, 8192).unwrap();
+                        context
+                            .capture(&binding.scope, Channel::Evidence, &bytes, &raw.spec.schema)
+                            .unwrap();
+                    }
+                }
+                if case == "new-turn" {
+                    // The same attempts cannot authorize a later accepted turn.
+                    let turn: Turn = context
+                        .engine
+                        .store()
+                        .current()
+                        .record(Collection::Turn, turn_id.as_str(), &binding.scope.workspace)
+                        .unwrap()
+                        .decode()
+                        .unwrap();
+                    context
+                        .command(
+                            Command::AdvanceTurn {
+                                id: turn_id,
+                                next: TurnState::Paused,
+                                reason: "fixture prior turn finished".into(),
+                            },
+                            Some(binding.scope.task.clone()),
+                            turn.revision,
+                        )
+                        .unwrap();
+                    let task: Task = context
+                        .engine
+                        .store()
+                        .current()
+                        .record(
+                            Collection::Task,
+                            binding.scope.task.as_str(),
+                            &binding.scope.workspace,
+                        )
+                        .unwrap()
+                        .decode()
+                        .unwrap();
+                    let trigger = context
+                        .capture(
+                            &binding.scope,
+                            Channel::Evidence,
+                            b"later turn",
+                            "coding-turn-input/1",
+                        )
+                        .unwrap();
+                    let later = TurnId::new();
+                    context
+                        .command(
+                            Command::StartTurn {
+                                id: later.clone(),
+                                trigger: trigger.spec.id,
+                            },
+                            Some(binding.scope.task.clone()),
+                            task.revision,
+                        )
+                        .unwrap();
+                    context
+                        .command(
+                            Command::AdvanceTurn {
+                                id: later,
+                                next: TurnState::AssemblingContext,
+                                reason: "later turn".into(),
+                            },
+                            Some(binding.scope.task.clone()),
+                            Revision::ZERO,
+                        )
+                        .unwrap();
+                }
+                let recovered = matches!(case, "http" | "empty");
+                for id in &failures {
+                    let attempt = vcp_budget::attempt(
+                        context.engine.store().current(),
+                        id,
+                        &binding.scope.workspace,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        context.recovered_retry_while_running(&attempt).unwrap(),
+                        recovered,
+                        "{backend:?}/{case}"
+                    );
+                }
+                let ledger =
+                    vcp_budget::ledger(context.engine.store().current(), &binding.scope).unwrap();
+                assert_eq!(
+                    ledger.unresolved.known().unwrap().get(),
+                    300,
+                    "charges remain unknown"
+                );
+                assert_eq!(
+                    ledger.settled.get(),
+                    if case == "no-success" { 0 } else { 30 }
+                );
+                let result = context.admit(
+                    &binding,
+                    serde_json::json!({"model":"fixture/model","input":[],"tools":[]}),
+                );
+                if recovered {
+                    let (id, _, _, _) = result.unwrap();
+                    let mut writer = context.streams.remove(&id).unwrap();
+                    writer.abort().unwrap();
+                } else {
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .to_string()
+                            .contains("liability threshold"),
+                        "{backend:?}/{case}"
+                    );
+                }
+                context.close().unwrap();
+            }
+        }
     }
 
     #[test]
@@ -832,13 +1226,27 @@ impl Context {
         if binding.role == RequestRole::Verification {
             return Ok(());
         }
-        if self
+        let mut unresolved = 0;
+        for failed in self
             .failed_charges()?
             .iter()
             .filter(|failed| failed.availability)
-            .count()
-            >= MAX_UNRESOLVED_AVAILABILITY
         {
+            let attempt = vcp_budget::attempt(
+                self.engine.store().current(),
+                &failed.attempt,
+                &failed.scope.workspace,
+            )?;
+            // EE-01: a proven completed retry leaves financial liability, not
+            // unresolved execution. Missing/ambiguous proof still counts.
+            if !self
+                .recovered_retry_while_running(&attempt)
+                .unwrap_or(false)
+            {
+                unresolved += 1;
+            }
+        }
+        if unresolved >= MAX_UNRESOLVED_AVAILABILITY {
             self.pause_root("reconciliation required: three unresolved provider availability failures; protected verification balance retained")?;
             return Err("provider availability liability threshold reached; reconcile original requests before further inference".into());
         }

@@ -3,6 +3,13 @@
 use super::*;
 use std::sync::Mutex;
 
+// A duplex process's operational lifetime includes native startup, retained
+// registration and checked writes, not just peer response time. Keep the import
+// strictly narrower than the base and put the delayed response beyond it.
+const BASE_MCP_TIMEOUT_MS: u64 = 30_000;
+const IMPORTED_MCP_TIMEOUT_MS: u64 = 10_000;
+const DELAYED_MCP_RESPONSE_MS: u64 = 20_000;
+
 impl Fixture {
     pub(super) fn import_peer(&self, delayed: bool) {
         // The peer protocol is the subject here, not debug hashing throughput
@@ -34,7 +41,7 @@ while ($null -ne ($line=[Console]::ReadLine())) {{
                 .to_str()
                 .unwrap()
                 .replace('\'', "''"),
-            if delayed { 3000 } else { 0 }
+            if delayed { DELAYED_MCP_RESPONSE_MS } else { 0 }
         );
         fs::write(self.workspace.join("import-peer.ps1"), script).unwrap();
         let arguments = json!([
@@ -48,9 +55,9 @@ while ($null -ne ($line=[Console]::ReadLine())) {{
         profile["checks"] = json!([]);
         profile["processes"][0]["name"] = json!("mcp-peer");
         profile["processes"][0]["executable"] = json!(powershell);
-        profile["mcp"] = json!([{"name":"imported","process":{"profile":"mcp-peer","arguments":arguments,"directory":"","timeout_ms":10000,"output_bytes":65536,"input":null},"allowed_tools":["read","write"],"limits":{"frame_bytes":4096,"total_discovery_bytes":8192,"tools":8,"pages":2,"timeout_ms":10000,"stderr_bytes":4096}}]);
+        profile["mcp"] = json!([{"name":"imported","process":{"profile":"mcp-peer","arguments":arguments,"directory":"","timeout_ms":BASE_MCP_TIMEOUT_MS,"output_bytes":65536,"input":null},"allowed_tools":["read","write"],"limits":{"frame_bytes":4096,"total_discovery_bytes":8192,"tools":8,"pages":2,"timeout_ms":BASE_MCP_TIMEOUT_MS,"stderr_bytes":4096}}]);
         fs::write(&self.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
-        fs::write(self.data.join("import.json"), serde_json::to_vec(&json!({"mcpServers":{"imported":{"command":profile["processes"][0]["executable"],"args":arguments,"cwd":self.workspace,"includeTools":["read"],"timeout":1000}}})).unwrap()).unwrap();
+        fs::write(self.data.join("import.json"), serde_json::to_vec(&json!({"mcpServers":{"imported":{"command":profile["processes"][0]["executable"],"args":arguments,"cwd":self.workspace,"includeTools":["read"],"timeout":IMPORTED_MCP_TIMEOUT_MS}}})).unwrap()).unwrap();
     }
 
     pub(super) async fn import_restrictions(&self) {
@@ -198,8 +205,11 @@ async fn imported_tools_and_deadline_apply_to_cli_public_start_and_resume_on_bot
                 )
                 .unwrap();
                 assert_eq!(loaded.mcp[0].allowed_tools, BTreeSet::from(["read".into()]));
-                assert_eq!(loaded.mcp[0].limits.timeout_ms, 1000);
-                assert_eq!(loaded.mcp[0].process.timeout_ms, 1000);
+                assert_eq!(loaded.mcp[0].limits.timeout_ms, IMPORTED_MCP_TIMEOUT_MS);
+                assert_eq!(loaded.mcp[0].process.timeout_ms, IMPORTED_MCP_TIMEOUT_MS);
+                assert!(IMPORTED_MCP_TIMEOUT_MS < BASE_MCP_TIMEOUT_MS);
+                assert!(DELAYED_MCP_RESPONSE_MS > IMPORTED_MCP_TIMEOUT_MS);
+                assert!(DELAYED_MCP_RESPONSE_MS < BASE_MCP_TIMEOUT_MS);
                 let entry = fixture.seed(backend).await;
                 assert_eq!(count.load(Ordering::SeqCst), 0);
                 assert!(!fixture.data.join("mcp-observed.txt").exists());

@@ -79,31 +79,74 @@ fn configure_rotation(fixture: &Fixture, diverse_endpoints: bool) {
     fs::write(&fixture.profile, serde_json::to_vec(&profile).unwrap()).unwrap();
 }
 
-async fn run_rotation(fixture: &Fixture) -> (TaskId, Value) {
+async fn run_rotation(
+    fixture: &mut Fixture,
+    backend: BackendKind,
+    rejected: u64,
+) -> (TaskId, Value) {
+    // Five sequential provider attempts plus native verification exceed the
+    // old 90s whole-process guard on the debug Files backend. The independent
+    // rejection-to-replacement check below still forbids a 60s cooldown wait.
+    const PROCESS_DEADLINE: Duration = Duration::from_secs(180);
+    fixture._temp.disable_cleanup(true);
+    let root = fixture._temp.path().to_owned();
     let local = fixture._temp.path().join("rotation-local-app-data");
     fs::create_dir(&local).unwrap();
     let mut command = fixture.command(&["run", OBJECTIVE, "--autonomy", "autonomous"]);
     // This process still installs the production shared-account gate. A private
     // account namespace isolates this bounded fixture from parallel tests.
     command.env("LOCALAPPDATA", local);
-    let output = tokio::time::timeout(
-        Duration::from_secs(90),
-        tokio::task::spawn_blocking(move || command.output().unwrap()),
+    let stdout_path = root.join("rotation-stdout.jsonl");
+    let stderr_path = root.join("rotation-stderr.log");
+    fs::write(
+        root.join("rotation-command.json"),
+        serde_json::to_vec_pretty(&json!({
+            "backend":format!("{backend:?}"), "rejected":rejected, "expected_attempts":3+rejected,
+            "executable":fixture.binary, "profile":fixture.profile,
+            "deadline_seconds":PROCESS_DEADLINE.as_secs(), "replacement_deadline_seconds":60,
+        }))
+        .unwrap(),
     )
-    .await
-    .unwrap()
     .unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
+    let mut command = tokio::process::Command::from(command);
+    command
+        .kill_on_drop(true)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(fs::File::create(&stdout_path).unwrap()))
+        .stderr(Stdio::from(fs::File::create(&stderr_path).unwrap()));
+    let mut child = command.spawn().unwrap();
+    eprintln!(
+        "rotation {backend:?}/rejected={rejected}: {} attempts, child {:?}, captures {}",
+        3 + rejected,
+        child.id(),
+        root.display()
+    );
+    let began = Instant::now();
+    let status = match tokio::time::timeout(PROCESS_DEADLINE, child.wait()).await {
+        Ok(status) => status.unwrap(),
+        Err(_) => {
+            let stopped = child.start_kill();
+            let reaped = tokio::time::timeout(Duration::from_secs(10), child.wait()).await;
+            panic!("rotation {backend:?}/rejected={rejected} exceeded {PROCESS_DEADLINE:?}; owned child stop {stopped:?}, reap {reaped:?}; captures {}", root.display());
+        }
+    };
+    eprintln!(
+        "rotation {backend:?}/rejected={rejected}: exited {status} after {:?}",
+        began.elapsed()
+    );
+    let stdout = String::from_utf8(fs::read(stdout_path).unwrap()).unwrap();
+    let stderr = fs::read(stderr_path).unwrap();
     assert!(!stdout.contains(SECRET));
     let result: Value = stdout
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .find(|frame| frame["type"] == "result")
-        .unwrap();
+        .unwrap_or_else(|| panic!("rotation {backend:?}/rejected={rejected}: missing result, status {status}; captures {}", root.display()));
     assert!(
-        output.status.success(),
-        "rotation CLI: {result}; {}",
-        String::from_utf8_lossy(&output.stderr)
+        status.success(),
+        "rotation {backend:?}/rejected={rejected}: {result}; {}; captures {}",
+        String::from_utf8_lossy(&stderr),
+        root.display()
     );
     (
         serde_json::from_value(result["scope"]["task"].clone()).unwrap(),
@@ -115,15 +158,20 @@ async fn run_rotation(fixture: &Fixture) -> (TaskId, Value) {
 async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generations() {
     for backend in [BackendKind::Files, BackendKind::Sqlite] {
         // 0 proves request rotation and model-before-endpoint weighting. 1
-        // proves a healthy peer bypasses the failed endpoint's 60s cooldown.
-        // 2 exhausts the preferred choice and admits the approved second set.
+        // proves a healthy peer replaces rejection within 60s despite the
+        // failed endpoint's 300s cooldown (longer than the whole case guard).
+        // 2 combines a model 429 and transient 503, exhausts the preferred
+        // choice and admits the approved second set without settling either.
         for rejected in 0..=2 {
             let server = MockServer::start().await;
             let observed = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
             let calls = observed.clone();
+            let arrivals = Arc::new(Mutex::new(Vec::<(Instant, Option<u16>)>::new()));
+            let timing = arrivals.clone();
             let successes = Arc::new(AtomicUsize::new(0));
             let success = successes.clone();
             Mock::given(method("POST")).and(path("/v1/responses")).respond_with(move |request:&wiremock::Request| {
+                let arrived = Instant::now();
                 assert_eq!(request.headers["authorization"],format!("Bearer {SECRET}"));
                 let body:Value = serde_json::from_slice(&request.body).unwrap();
                 let model = body["model"].as_str().unwrap().to_owned();
@@ -139,9 +187,14 @@ async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generati
                 let failed = (rejected>=1 && model==FIRST) || (rejected==2 && model==PEER);
                 if failed {
                     let id = if model==FIRST {"gen-rotation-first-rejected"} else {"gen-rotation-peer-rejected"};
-                    ResponseTemplate::new(429).insert_header("retry-after","60").insert_header("x-request-id",id)
-                        .set_body_json(json!({"error":{"code":429,"message":"synthetic shared pool overload","metadata":{"limit_source":"upstream_provider_shared_pool","generation_id":id}}}))
+                    let status = if model==FIRST {429} else {503};
+                    timing.lock().unwrap().push((arrived, Some(status)));
+                    // Longer than the complete fixture window: a slow native
+                    // verification must not turn this case into a recovery probe.
+                    ResponseTemplate::new(status).insert_header("retry-after","300").insert_header("x-request-id",id)
+                        .set_body_json(json!({"error":{"code":status,"message":"synthetic shared pool overload","metadata":{"limit_source":"upstream_provider_shared_pool","generation_id":id}}}))
                 } else {
+                    timing.lock().unwrap().push((arrived, None));
                     let index = success.fetch_add(1,Ordering::SeqCst);
                     ResponseTemplate::new(200).insert_header("content-type","text/event-stream").set_body_string(response(index))
                 }
@@ -166,19 +219,30 @@ async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generati
                         json!({"data":{"id":id,"total_cost":0,"currency":"USD","cancelled":true}}),
                     )
                 })
-                .expect(rejected)
+                // EE-01: normal execution never fetches billing receipts.
+                .expect(0)
                 .mount(&server)
                 .await;
-            let fixture = Fixture::new(&server.uri());
+            let mut fixture = Fixture::new(&server.uri());
             configure_rotation(&fixture, rejected == 0);
             let entry = fixture.seed(backend).await;
             assert!(observed.lock().unwrap().is_empty());
-            let started = Instant::now();
-            let (task_id, _) = run_rotation(&fixture).await;
-            assert!(
-                started.elapsed() < Duration::from_secs(60),
-                "healthy alternatives waited for the failed endpoint cooldown"
-            );
+            let (task_id, _) = run_rotation(&mut fixture, backend, rejected).await;
+            // Measure only rejected-response to replacement admission. The
+            // successful patch/verification/final rounds can independently take
+            // longer than the failed endpoint's advertised cooldown.
+            let arrivals = arrivals.lock().unwrap().clone();
+            for (index, (rejected_at, status)) in arrivals.iter().enumerate() {
+                let Some(status) = status else {
+                    continue;
+                };
+                let (replacement_at, _) = arrivals
+                    .get(index + 1)
+                    .expect("rejection needs a replacement request");
+                let interval = replacement_at.duration_since(*rejected_at);
+                assert!(interval < Duration::from_secs(60),
+                    "{backend:?}/{rejected} rejections: HTTP {status} replacement waited {interval:?} for the failed endpoint cooldown");
+            }
             let routes = observed.lock().unwrap().clone();
             let expected: Vec<(&str, &str)> = match rejected {
                 0 => vec![
@@ -229,10 +293,26 @@ async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generati
                 .filter(|attempt| attempt.scope.task == task_id)
                 .collect::<Vec<_>>();
             assert_eq!(attempts.len(), 3 + rejected as usize);
-            assert!(attempts
-                .iter()
-                .all(|attempt| attempt.phase == ReservationState::Settled
-                    && attempt.uncertain.is_none()));
+            assert_eq!(
+                attempts
+                    .iter()
+                    .filter(|attempt| attempt.phase == ReservationState::Settled
+                        && attempt.uncertain.is_none()
+                        && attempt.charged == Micros::new(100))
+                    .count(),
+                3
+            );
+            assert_eq!(
+                attempts
+                    .iter()
+                    .filter(
+                        |attempt| attempt.phase == ReservationState::ReconciliationPending
+                            && attempt.uncertain.is_some()
+                            && attempt.charged == Micros::ZERO
+                    )
+                    .count(),
+                rejected as usize
+            );
             assert_eq!(
                 attempts
                     .iter()
@@ -259,9 +339,10 @@ async fn production_cli_rotates_then_fails_over_and_reconciles_rejected_generati
             let ledger = &ledgers[0];
             assert_eq!(ledger.settled.get(), 300);
             assert_eq!(ledger.active, Micros::ZERO);
-            assert_eq!(ledger.unresolved, Micros::ZERO);
+            assert_eq!(ledger.unresolved.known().unwrap().get(), 100 * rejected);
             assert!(!ledger.overrun);
             store.close().await.unwrap();
+            fixture._temp.disable_cleanup(false);
         }
     }
 }
