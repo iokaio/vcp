@@ -8,7 +8,7 @@
   "categories": ["AI"],
   "keywords": ["vcp", "local", "agent"],
   "icon": "media/marketplace.png",
-  "version": "0.2.36",
+  "version": "0.2.37",
   "private": true,
   "license": "Apache-2.0",
   "type": "commonjs",
