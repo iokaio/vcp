@@ -3,7 +3,7 @@
 This is an experimental Windows x64 beta. The native app, Windows installer,
 SDK and VSIX source versions are synchronized at `0.2.37`. Its channel requires timestamped
 Ioka LLC signatures on the native engine, launcher, setup and uninstaller.
-The source version bump does not publish a new candidate or complete qualification.
+Signed `0.2.37` is published; its installed-product and clean-host qualification stages were not run.
 Earlier published candidates retain their original versions and evidence.
 
 The execution-engine refinement beta is approved for limited testing with incomplete full-scenario acceptance. Candidate 0.2.31's B run stopped after a data-model repair still failed independent enum and negative-quantity checks; the next source adds protected executable acceptance tests to the ordinary B verifier. A passed its API acceptance and reached UI repair, but the full run is not qualified. Larger engagements remain unrun. Current-state/history separation, adaptive allowances and diagnostic collection have targeted and live-probe evidence, but repeated CLI history polling and cold reopen latency remain known limitations; the two-second reopen target has not passed.
