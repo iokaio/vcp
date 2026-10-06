@@ -118,22 +118,11 @@ function budgetPreflight(profile, allocation) {
   return { method: 'ceil_disjoint_bounds_v1', scope: 'first request only; later admission still depends on remaining budget and native checks', byte_ceiling_qualified: false, input_per_partition: input.toString(), output_tokens: output.toString(), charges_micros: charges, required_first_call_micros: required, allocated_arm_micros: allocation };
 }
 
-// Campaign runners revalidate the same source scopes before every row. Reuse a
-// file's digest only while its path and nanosecond stat stamp are unchanged, so
-// any edit, replacement or truncation still forces a fresh read and hash.
-// Assumes nanosecond-capable timestamps (NTFS, ext4, APFS); on coarse
-// filesystems a same-size edit within one tick relies on ctime/inode changes.
-const digestCache = new Map();
-function digest(file, stat) {
-  const stamp = [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
-  const cached = digestCache.get(file);
-  if (cached && cached.stamp === stamp) return cached.value;
+// Stat timestamps can remain unchanged across same-size writes, including on
+// NTFS. Re-read source bytes on every validation; metadata cannot prove identity.
+function digest(file) {
   const bytes = read(file, 16 * 1024 * 1024);
-  const value = { bytes: bytes.length, sha256: sha(bytes) };
-  if (BigInt(bytes.length) !== stat.size) return value;
-  if (digestCache.size >= 65536) digestCache.clear();
-  digestCache.set(file, { stamp, value });
-  return value;
+  return { bytes: bytes.length, sha256: sha(bytes) };
 }
 function identity(root, selected) {
   const files = [], directories = [];
@@ -145,7 +134,7 @@ function identity(root, selected) {
       directories.push(relative);
       for (const name of fs.readdirSync(file).sort()) visit(relative + '/' + name, depth + 1);
     } else {
-      const { bytes, sha256 } = digest(file, stat);
+      const { bytes, sha256 } = digest(file);
       if ((total += bytes) > 128 * 1024 * 1024) throw Error('Source byte bound exceeded');
       files.push({ path: relative, bytes, sha256 });
     }

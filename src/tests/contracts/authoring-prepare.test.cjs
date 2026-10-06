@@ -16,7 +16,7 @@ test('production checker guard rejects non-Windows hosts before reading inputs',
   assert.throws(() => unsupported.checkerRuntime({ checker: path.resolve('absent.exe'), build_receipt: path.resolve('absent.json') }, os.tmpdir(), {}), /Explicit absolute Windows/);
 });
 
-test('cached source identity still detects same-size edits, replacement and new files', () => {
+test('source identity detects same-size edits, replacement and new files', () => {
   const { identity } = authoringHost().prep;
   const temp = ownedRoot(os.tmpdir());
   try {
@@ -32,6 +32,24 @@ test('cached source identity still detects same-size edits, replacement and new 
     assert.equal(identity(temp.root, ['scope']).files[0].sha256, first.files[0].sha256, 'replacement rehashed');
     fs.writeFileSync(path.join(temp.root, 'scope/b.txt'), 'new\n');
     assert.equal(identity(temp.root, ['scope']).files.length, 2, 'new file observed');
+  } finally { temp.cleanup(); }
+});
+
+test('source identity detects changed bytes even when file metadata is unchanged', () => {
+  const temp = ownedRoot(os.tmpdir());
+  try {
+    const file = path.join(temp.root, 'a.txt');
+    fs.writeFileSync(file, 'alpha\n');
+    const stamp = fs.lstatSync(file, { bigint: true });
+    const { identity } = authoringHost('win32', { 'node:fs': {
+      ...fs,
+      lstatSync: (candidate, options) => path.resolve(candidate) === file ? stamp : fs.lstatSync(candidate, options),
+    } }).prep;
+    const first = identity(temp.root, ['a.txt']);
+    fs.writeFileSync(file, 'omega\n');
+    const edited = identity(temp.root, ['a.txt']);
+    assert.notEqual(edited.content_sha256, first.content_sha256);
+    assert.equal(edited.files[0].sha256, crypto.createHash('sha256').update('omega\n').digest('hex'));
   } finally { temp.cleanup(); }
 });
 
