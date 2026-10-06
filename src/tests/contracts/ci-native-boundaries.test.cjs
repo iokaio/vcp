@@ -82,7 +82,7 @@ $calls | ConvertTo-Json -Depth 6 -Compress
   const candidate = fs.readFileSync(path.join(repository, 'scripts/release/candidate.ps1'), 'utf8');
   const original = candidate.match(/^\s+Stage 'native-boundaries' (.+)$/m)[1];
   assert.deepEqual([...original.matchAll(/'--test','([^']+)'/g)].map(match => match[1]), selected(calls[0]).slice(1));
-  assert.deepEqual(calls[0].arguments.slice(-2), ['--', '--test-threads=1']);
+  assert.deepEqual(calls[0].arguments.slice(-3), ['--', '--nocapture', '--test-threads=1']);
 });
 
 test('actual reviewed-source gate refuses conflicting scopes and unreviewed or non-push selections before native work', { skip: process.platform !== 'win32' }, t => {

@@ -50,6 +50,22 @@ pub struct HistoryReadPhases {
     pub agents: HistoryReads,
 }
 
+/// Completed send-intent predicates, not physical reads. Lookups include only
+/// successfully checked attempts; failed/partial I/O remains in accounting's
+/// HistoryReads. Reuse comes only from one admitted immutable source cut.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccountingSendValidation {
+    pub prefix_reuses: u64,
+    pub lookups: u64,
+}
+impl AccountingSendValidation {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.prefix_reuses = self.prefix_reuses.saturating_add(other.prefix_reuses);
+        self.lookups = self.lookups.saturating_add(other.lookups);
+    }
+}
+
 /// Actual envelope work for events, redaction or ingestion, distinct from the
 /// size of the logical history input. Ingestion reuse proves all unchanged
 /// cursor/job predicates and examines no old or newly appended envelope.

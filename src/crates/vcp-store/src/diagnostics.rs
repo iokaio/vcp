@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::time::Instant;
 #[path = "diagnostics_history.rs"]
 mod history;
-pub use history::{EventValidationWork, HistoryReadPhases, HistoryReads};
+pub use history::{AccountingSendValidation, EventValidationWork, HistoryReadPhases, HistoryReads};
 
 /// A completed phase count and its cumulative monotonic duration. Timings may
 /// overlap: validation is included in preparation/replay, which are included in open.
@@ -79,6 +79,7 @@ pub struct StoreDiagnostics {
     pub event_validation_work: EventValidationWork,
     pub redaction_validation_work: EventValidationWork,
     pub ingestion_validation_work: EventValidationWork,
+    pub accounting_send_validation: AccountingSendValidation,
     pub append: StorePhase,
     pub checkpoint: StorePhase,
     pub replayed_commits: u64,
@@ -119,6 +120,7 @@ impl StoreDiagnostics {
             event_validation_work: EventValidationWork::default(),
             redaction_validation_work: EventValidationWork::default(),
             ingestion_validation_work: EventValidationWork::default(),
+            accounting_send_validation: AccountingSendValidation::default(),
             append: StorePhase::default(),
             checkpoint: StorePhase::default(),
             replayed_commits: 0,

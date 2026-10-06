@@ -28,6 +28,7 @@ pub(crate) struct HistoryWork {
     pub(crate) event_validation: crate::EventValidationWork,
     pub(crate) redaction_validation: crate::EventValidationWork,
     pub(crate) ingestion_validation: crate::EventValidationWork,
+    pub(crate) accounting_send: crate::AccountingSendValidation,
 }
 /// Construction is private to the full validator below. The source identity
 /// binds every catalog root and the current projection, not just its watermark.
@@ -240,17 +241,38 @@ async fn prepare_in_session(
                 .add(work.redaction_validation);
         }
         redaction_result?;
-        phase!(accounting, async {
+        let accounting_result = phase!(accounting, async {
             let validation = crate::accounting_contract::Validation::new(current)?;
             for attempt in validation.attempts() {
-                history
+                let reused = history
                     .run(pages, |history| {
-                        validation.attempt(attempt, &mut CandidateHistory::new(history, &proposed))
+                        let mut candidate = CandidateHistory::new(history, &proposed);
+                        if full_history {
+                            validation.attempt(attempt, &mut candidate).map(|()| false)
+                        } else {
+                            validation.attempt_admitted(
+                                attempt,
+                                &mut candidate,
+                                source,
+                                &proposed.events,
+                            )
+                        }
                     })
                     .await?;
+                if reused {
+                    work.accounting_send.prefix_reuses += 1;
+                } else if attempt.send_intent.is_some() {
+                    work.accounting_send.lookups += 1;
+                }
             }
             validation.finish()
-        })?;
+        });
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics
+                .accounting_send_validation
+                .add(work.accounting_send);
+        }
+        accounting_result?;
         let ingestion_result = phase!(ingestion, async {
             let inputs = ingestion_contract::Inputs::new(current)?;
             if inputs.needs_history() {

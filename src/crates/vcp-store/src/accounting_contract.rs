@@ -141,6 +141,28 @@ impl<'a> Validation<'a> {
         attempt: &Attempt,
         history: &mut impl crate::historical_facts::EventFacts,
     ) -> Result<()> {
+        self.check_attempt(attempt, history, None).map(|_| ())
+    }
+    /// Reuse only an unchanged attempt's admitted existential send-event
+    /// predicate. All current accounting predicates still execute in order.
+    pub(crate) fn attempt_admitted(
+        &self,
+        attempt: &Attempt,
+        history: &mut impl crate::historical_facts::EventFacts,
+        source: &crate::admitted_history::AdmittedCut,
+        appended: &[vcp_protocol::event::EventEnvelope],
+    ) -> Result<bool> {
+        self.check_attempt(attempt, history, Some((source, appended)))
+    }
+    fn check_attempt(
+        &self,
+        attempt: &Attempt,
+        history: &mut impl crate::historical_facts::EventFacts,
+        admitted: Option<(
+            &crate::admitted_history::AdmittedCut,
+            &[vcp_protocol::event::EventEnvelope],
+        )>,
+    ) -> Result<bool> {
         let state = self.state;
         let ledgers = &self.ledgers;
         let reservations = &self.reservations;
@@ -231,9 +253,22 @@ impl<'a> Validation<'a> {
             ));
         }
         if let Some(send) = &attempt.send_intent {
+            // The source cut proves this exact record and its existing send
+            // witness. Ordinary preparation only appends catalog events; a
+            // retention rewrite must admit a new cut before reaching here.
+            // Comparing records avoids speculative decoding/error reordering.
+            let key = key(Collection::Attempt, attempt.id.as_str());
+            if admitted.is_some_and(|(source, appended)| {
+                source.current().records.get(&key).is_some_and(|prior| {
+                    self.state.records.get(&key) == Some(prior)
+                        && !appended.iter().any(|row| &row.event.id == send)
+                })
+            }) {
+                return Ok(true);
+            }
             send_intent(history, send, &attempt.scope)?;
         }
-        Ok(())
+        Ok(false)
     }
     pub(crate) fn finish(&self) -> Result<()> {
         let state = self.state;
@@ -751,6 +786,10 @@ pub(crate) fn redacted_attempt_update<'a>(
     }
     Ok(true)
 }
+
+#[cfg(test)]
+#[path = "accounting_admitted_tests.rs"]
+mod admitted_tests;
 
 #[cfg(test)]
 mod history_tests {
