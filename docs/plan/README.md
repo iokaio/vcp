@@ -1,6 +1,6 @@
 # VCP implementation and testing plan
 
-Current owner-directed work (October 4, 2026): [execution engine refinements, EE-00–EE-07](25-execution-engine-refinements.md), on the existing feature branch with local phase commits only. Quality, diagnostics and active state/context improvements are governed by [the approved architecture plan](../architecture/execution-architecture-review.md).
+Development is paused as of October 6, 2026 while Ioka focuses on the [Munarium Governance Platform](https://github.com/iokaio/munarium-platform); see the [repository README](../../README.md). The last owner-directed work was the [execution engine refinements, EE-00–EE-07](25-execution-engine-refinements.md), merged in [PR #368](https://github.com/iokaio/vcp/pull/368) with follow-up fixes in PRs #370–#372 and published in signed beta 0.2.37. Quality, diagnostics and active state/context improvements are governed by [the approved architecture plan](../architecture/execution-architecture-review.md).
 
 Current progression (September 24): P8 is closed by
 [owner direction](../adr/042-owner-directed-p8-closure.md), with its recorded

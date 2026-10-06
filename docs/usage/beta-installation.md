@@ -1,6 +1,6 @@
 # Install the internal beta candidate
 
-These instructions target Windows x64 native, installer and SDK/VSIX `0.2.4`.
+These instructions target Windows x64 native, installer and SDK/VSIX `0.2.37`.
 This candidate remains an internal beta and requires Ioka LLC code signatures.
 Use the matching candidate handoff; a source version bump does not publish it. Check
 the accompanying scorecard before manual testing: building an installer does not
@@ -27,10 +27,10 @@ Obtain the setup EXE, portable ZIP, VSIX and release-pair/checksum records toget
 from the approved internal handoff. Compare each local SHA-256 to that record:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.4-windows-x64-signed-setup.exe'
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.4-windows-x64-signed.zip'
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.4-win32-x64.vsix'
-Get-AuthenticodeSignature -LiteralPath '.\vcp-0.2.4-windows-x64-signed-setup.exe' |
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.37-windows-x64-signed-setup.exe'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.37-windows-x64-signed.zip'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\vcp-0.2.37-win32-x64.vsix'
+Get-AuthenticodeSignature -LiteralPath '.\vcp-0.2.37-windows-x64-signed-setup.exe' |
   Select-Object Status, StatusMessage, SignerCertificate, TimeStamperCertificate
 ```
 
@@ -80,7 +80,7 @@ budget admission; installation performs no inference and acquires no model.
 ## Connect VS Code
 
 In VS Code 1.138.0 or a newer 1.x release, use **Extensions: Install from VSIX** and select the matching
-`vcp-0.2.4-win32-x64.vsix`. Open a local initialized VCP workspace. Follow the
+`vcp-0.2.37-win32-x64.vsix`. Open a local initialized VCP workspace. Follow the
 VSIX's included README for its connection and execution-profile dialogs.
 
 Set `vcp.engineExecutable` and `vcp.dataDirectory` explicitly in **User** settings.

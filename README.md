@@ -1,10 +1,25 @@
 # VCP — Vibe Code Pro
 
+> [!IMPORTANT]
+> **Development on VCP is paused.** Ioka has diverted its resources and attention to the [Munarium Governance Platform](https://github.com/iokaio/munarium-platform). Much progress has been made on VCP, but it has become too expensive for Ioka to pursue alone. The repository, documentation and published beta downloads remain available as they are. Issues and pull requests may not receive a response while development is paused.
+
 VCP is an open-source local coding agent that combines repository-aware coding, model selection through OpenRouter, persistent memory, and visible delegated work. It includes a native Windows CLI, a TypeScript SDK and a VS Code extension, licensed under Apache 2.0.
 
-**Status: signed beta downloads available for manual testing.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
+**Status: paused at a signed limited beta.** Download the Windows x64 installer, portable ZIP and matching VSIX from [GitHub Releases](https://github.com/iokaio/vcp/releases). Full qualification remains incomplete; this is not a stable-release or clean-host support claim. See the [publication record](docs/development/beta-publication.md), [release plan](docs/release-planning/00-release-plan.md) and [implementation status](docs/release-planning/02-implementation-status.md) for exact artifacts, actual checks and remaining gates.
 
-The published candidate uses **0.2.4** for the native app, Windows installer, SDK and VSIX, available at [downloads.ioka.io](https://downloads.ioka.io/). Native artifacts carry verified Ioka LLC code signatures through Azure Artifact Signing. The extension accepts **VS Code 1.138.0 and newer 1.x releases**, including **1.140.0**; exact packaged installation and activation passed on both versions. Public asset hashes and versions were verified. This remains an internal beta with incomplete native/clean-host qualification and owner acceptance. See [extension compatibility](src/packages/vscode/COMPATIBILITY.md) and the [Marketplace publication record](docs/development/marketplace-publication.md). Earlier releases retain their original identities.
+The latest release is **[0.2.37](https://github.com/iokaio/vcp/releases/tag/v0.2.37-c41a40909f0b)**, published October 6, 2026 (UTC) and available at [downloads.ioka.io](https://downloads.ioka.io/). The native app, Windows installer, SDK and VSIX all carry version 0.2.37, verified in the built artifacts. Native artifacts carry timestamped Ioka LLC code signatures through Azure Artifact Signing, and all public asset hashes matched the prepared release. The extension accepts **VS Code 1.138.0 and newer 1.x releases**. Installed-product, installed-editor and clean-host qualification stages were not run for 0.2.37, and full scenario acceptance has not passed. The Visual Studio Marketplace still serves the earlier `iokaio.vcp` **0.2.4** prerelease. See [extension compatibility](src/packages/vscode/COMPATIBILITY.md) and the [Marketplace publication record](docs/development/marketplace-publication.md). Earlier releases retain their original identities.
+
+## Recent work
+
+Between September 22 and October 6, 2026, VCP moved from a planning-stage build to a series of signed public betas:
+
+- **Signed Windows betas.** Code signing through Azure Artifact Signing, publication to GitHub Releases and downloads.ioka.io, and a Marketplace prerelease of `iokaio.vcp` 0.2.4. Signed releases in this period include 0.2.3, 0.2.4, 0.2.5, 0.2.32 and 0.2.37. The native app, installer, SDK and VSIX now share one version, incremented for every candidate ([publication record](docs/development/beta-publication.md)).
+- **Setup and onboarding.** `vcp setup` with readable results and a readiness check, per-workspace profiles, model sets with live cost estimates, current-user and all-users installer PATH modes, and recovery of provider metadata after updates ([balanced onboarding](docs/release-planning/06-balanced-onboarding.md)).
+- **Practical CLI scenarios.** Four long-running, multi-turn [scenario test plans](docs/test-plans/cli-test-plans.md) drive the CLI through real projects in Vue/Node, ASP.NET Core, Java/Maven and Python, with deterministic per-turn scorecards. No scenario is fully qualified yet: scenario C passed all five turns on 0.2.35 with its final review pending, scenario D was stopped after a failed turn-3 check, and A and B have partial runs.
+- **Execution engine refinements.** Current state separated from retained history, incremental validation, adaptive context and token allowances, focused verification, shared provider request pacing across CLI processes, recovery from empty provider responses and model fallback, and native .NET, Maven and Pytest completion checks ([EE-00–EE-07](docs/plan/25-execution-engine-refinements.md)). Task deadlines and spending caps are suspended in this beta; charges are still recorded ([known issues](docs/usage/beta-known-issues.md)).
+- **Skills.** On-demand skill references, validation and helper fixes, and a cross-stack toolchain-installation skill ([skills upgrade plan](docs/research/skills-upgrade-plan.md)).
+
+Open work at the pause includes full scenario acceptance, larger engagements, installed-product and clean-host qualification, cold-open performance, and Marketplace publication of current releases.
 
 ## What VCP does
 
@@ -96,7 +111,7 @@ With Git, PowerShell 7 and Node.js 24 or later, run `npm ci --prefix src/tests -
 4. Complete routing, optimization, skills, MCP, and visible delegation.
 5. Pass integrated owner acceptance and package a native Windows release with notices and provenance.
 
-The public API, TypeScript SDK, VS Code extension, governed executable hooks and foreign configuration import are implemented. The [internal beta plan](docs/release-planning/00-release-plan.md) owns current packaging and acceptance work. Non-Windows and remote workspaces remain outside the selected beta scope.
+The public API, TypeScript SDK, VS Code extension, governed executable hooks and foreign configuration import are implemented. The [internal beta plan](docs/release-planning/00-release-plan.md) records the packaging and acceptance work that remained when development paused; step 5 is incomplete. Non-Windows and remote workspaces remain outside the selected beta scope.
 
 ## Contributing and community
 
