@@ -40,8 +40,8 @@ test('native dispatch is explicit, separately serialized, and leaves ordinary de
   assert.match(native, /group: wingroup\r?\n      labels: vcpwin/);
   assert.match(native, /CARGO_BUILD_JOBS: '16'/);
   assert.match(native, /permissions:\r?\n      contents: read\r?\n      actions: read/);
-  assert.match(native, /^    timeout-minutes: 60$/m);
-  assert.match(native, /name: Run exact source native boundary targets and package lifecycle fixture\r?\n        timeout-minutes: 47/);
+  assert.match(native, /^    timeout-minutes: 95$/m);
+  assert.match(native, /name: Run exact source native boundary targets and package lifecycle fixture\r?\n        timeout-minutes: 78/);
   assert.match(workflow, /group: delivery-\$\{\{ github.workflow \}\}-\$\{\{ github.ref \}\}\$\{\{ inputs.native_boundaries_only && '-native-boundaries' \|\| '' \}\}/);
   for (const name of ['delivery', 'skill-helpers', 'skill-runtime']) {
     const job = workflow.split(new RegExp(`^  ${name}:\\r?\\n`, 'm'))[1].split(/^  [a-z-]+:\r?\n/m)[0];
@@ -73,7 +73,7 @@ function Observe([string]$Name,[string]$Program,[string[]]$Arguments,[string]$Di
 $calls | ConvertTo-Json -Depth 6 -Compress
 `, { ...files, 'commands.ps1': commandLines });
   const calls = JSON.parse(result.stdout);
-  assert.deepEqual(calls.map(row => [row.name, row.seconds, row.msvc]), [['native', 2700, true], ['package-install', 90, false]]);
+  assert.deepEqual(calls.map(row => [row.name, row.seconds, row.msvc]), [['native', 4500, true], ['package-install', 90, false]]);
   const common = ['+1.98.0', 'test', '--locked', '--offline', '--target', 'x86_64-pc-windows-msvc', '--target-dir', 'C:\\owned\\qualification-target', '-j', '16'];
   assert.deepEqual(calls[0].arguments.slice(0, common.length), common);
   const selected = row => row.arguments.flatMap((arg, i) => arg === '--test' ? [row.arguments[i + 1]] : []);
