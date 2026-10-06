@@ -10,7 +10,23 @@ historical dispositions without granting final-artifact or owner acceptance.
 
 ## Current work — signed candidate and qualification
 
-BETA-03C/P2-06/P3-03 and CLI test-plan maintenance: the October 3 owner authorized
+BETA-08/BETA-11: signed `0.2.37` is published from reviewed source
+`5afa6c60503777ce67a338600072022a6ec7a42c` after successful
+[main Delivery checks](https://github.com/iokaio/vcp/actions/runs/37415303596).
+[Candidate 37415683984/1](https://github.com/iokaio/vcp/actions/runs/37415683984/attempts/1)
+passed through `pair`; actual engine, launcher, installer, VSIX, extension and
+bundled SDK versions match `0.2.37`. Full packet admission, four timestamped
+signatures and offline help probes passed.
+[Publication 37419237010](https://github.com/iokaio/vcp/actions/runs/37419237010)
+passed Release and Pages for pair
+`c41a40909f0ba92fd74951f74ca6064fbb80852ed62d606114becd8ba6583ab1`.
+All five public assets and the HTTPS download site matched prepared release bytes.
+See [publication evidence](../development/beta-publication.md). Full A/B acceptance,
+larger engagements, installed-product and clean-host qualification remain incomplete;
+later native-boundaries, installed-native and installed-editor stages were unrun.
+This release does not establish Marketplace publication or completed cold-open work.
+
+Earlier BETA-03C/P2-06/P3-03 and CLI test-plan maintenance: the October 3 owner authorized
 the scenario A runtime fixes, complete test scripts/documentation and the next
 build/release. [PR #356](https://github.com/iokaio/vcp/pull/356) merged with all four
 ordinary CI jobs passing, including all 15 offline scenario regressions.
@@ -20,7 +36,7 @@ successful main Delivery checks. Actual engine, launcher, installer, VSIX and
 bundled SDK versions match synchronized `0.2.5`; all four signatures and full
 packet admission passed. New command help probes passed with literal command logs.
 [Publication 37143014091](https://github.com/iokaio/vcp/actions/runs/37143014091)
-passed Release and Pages; downloads now select signed `0.2.5` from pair
+passed Release and Pages; downloads then selected signed `0.2.5` from pair
 `26e08e9be854c0769159bb1cbc8c1fbef240bcbe9b10184c76b04d04b2c3ad78`.
 See [publication evidence](../development/beta-publication.md) and the
 [A failure investigation](../test-plans/run-review-20261003-092744.md).

@@ -1,7 +1,7 @@
 # Internal beta scope, known limitations and support
 
 This is an experimental Windows x64 beta. The native app, Windows installer,
-SDK and VSIX source versions are synchronized at `0.2.32`. Its channel requires timestamped
+SDK and VSIX source versions are synchronized at `0.2.37`. Its channel requires timestamped
 Ioka LLC signatures on the native engine, launcher, setup and uninstaller.
 The source version bump does not publish a new candidate or complete qualification.
 Earlier published candidates retain their original versions and evidence.

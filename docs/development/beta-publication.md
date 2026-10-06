@@ -2,6 +2,23 @@
 
 ## Current signed beta publication
 
+BETA-08/BETA-11: the owner authorized the next publication after merging [PR #372](https://github.com/iokaio/vcp/pull/372). This release includes toolchain provisioning and CLI execution recovery from [PR #370](https://github.com/iokaio/vcp/pull/370), provider recovery and Windows local execution fixes from [PR #371](https://github.com/iokaio/vcp/pull/371), and accounting reuse coverage and Windows validation fixes from PR #372. [PR #373](https://github.com/iokaio/vcp/pull/373) synchronized native, installer, SDK and VSIX versions to `0.2.37` before compilation and signing.
+
+[Main Delivery checks](https://github.com/iokaio/vcp/actions/runs/37415303596) passed for reviewed source `5afa6c60503777ce67a338600072022a6ec7a42c`. [Candidate 37415683984, attempt 1](https://github.com/iokaio/vcp/actions/runs/37415683984/attempts/1) then passed through the signed `pair` checkpoint.
+
+- Pair: `c41a40909f0ba92fd74951f74ca6064fbb80852ed62d606114becd8ba6583ab1`.
+- Full packet admission passed. Actual engine and launcher versions, installer ProductVersion, VSIX manifest, packaged extension and bundled SDK all verified as `0.2.37`; the VS Code range remains `^1.138.0`.
+- All four Ioka LLC Authenticode signatures passed, including the pinned identity EKU and timestamps.
+- Offline native `--help`, `setup --help` and `models --help` probes passed with inherited provider credentials cleared. No installation or provider call ran.
+
+Local evidence: `artifacts/local-candidate/signed-0.2.37-37415683984/local-verification/local-verification.json`. The original packet is retained at `artifacts/local-candidate/signed-0.2.37-37415683984/packet/`; admitted public assets are in `artifacts/local-candidate/signed-0.2.37-37415683984/local-verification/verified/assets/`.
+
+[Publication 37419237010](https://github.com/iokaio/vcp/actions/runs/37419237010) passed Release and Pages, publishing unchanged candidate bytes as [0.2.37](https://github.com/iokaio/vcp/releases/tag/v0.2.37-c41a40909f0b). [downloads.ioka.io](https://downloads.ioka.io/) served this release at verification over HTTPS with normal certificate validation. All five downloaded public assets matched the prepared SHA-256 hashes and sizes; `latest.json` matched the prepared release manifest and the homepage exactly matched the release renderer. Public evidence: `artifacts/beta-delivery/public-verification-37419237010/public-verification.json`. Earlier releases were retained.
+
+This remains a limited beta. Full A/B acceptance has not passed; larger engagements and installed-product qualification remain unrun for this pair. The native-boundaries, installed-native and installed-editor pipeline stages were explicitly unrun. Cold-open performance remains incomplete. Publication does not establish clean-host qualification or Marketplace publication. Existing task-deadline and spending-cap suspension remains in force; actual usage and unknown charges remain recorded.
+
+## Historical signed 0.2.32 publication
+
 The execution-engine refinements and protected inventory acceptance checks were merged in [PR #368](https://github.com/iokaio/vcp/pull/368) at `c02142be7e285fe085142bb434c4f5fe0406f977`. Native, installer, SDK and VSIX versions were synchronized to `0.2.32` before compilation. The final [PR checks](https://github.com/iokaio/vcp/actions/runs/37273876125) and [main Delivery checks](https://github.com/iokaio/vcp/actions/runs/37274199021) passed, followed by [candidate 37274507773, attempt 1](https://github.com/iokaio/vcp/actions/runs/37274507773/attempts/1) through the signed `pair` checkpoint.
 
 - Reviewed source: `c02142be7e285fe085142bb434c4f5fe0406f977`.
@@ -11,7 +28,7 @@ The execution-engine refinements and protected inventory acceptance checks were 
 
 Local evidence: `artifacts/local-candidate/signed-0.2.32-37274507773/local-verification/local-verification.json`. The original packet and admitted public assets are retained in sibling `packet/` and `verified/` directories. Isolated native `--help`, `setup --help` and `models --help` probes passed with inherited provider credentials cleared. No installation or provider call ran during these checks.
 
-[Publication 37277851800](https://github.com/iokaio/vcp/actions/runs/37277851800) passed Release and Pages, publishing the unchanged candidate bytes as [0.2.32](https://github.com/iokaio/vcp/releases/tag/v0.2.32-f6bdb13f4ae3). [downloads.ioka.io](https://downloads.ioka.io/) serves this release over HTTPS with normal certificate validation. All five public assets matched the prepared SHA-256 hashes and sizes; `latest.json` matched the published manifest and the homepage exactly matched the release renderer. Evidence: `artifacts/beta-delivery/public-verification-37277851800/verification.json` and `artifacts/beta-delivery/public-verification-37277851800/asset-verification.json`. Earlier release assets were retained.
+[Publication 37277851800](https://github.com/iokaio/vcp/actions/runs/37277851800) passed Release and Pages, publishing the unchanged candidate bytes as [0.2.32](https://github.com/iokaio/vcp/releases/tag/v0.2.32-f6bdb13f4ae3). [downloads.ioka.io](https://downloads.ioka.io/) served this release at publication over HTTPS with normal certificate validation. All five public assets matched the prepared SHA-256 hashes and sizes; `latest.json` matched the published manifest and the homepage exactly matched the release renderer. Evidence: `artifacts/beta-delivery/public-verification-37277851800/verification.json` and `artifacts/beta-delivery/public-verification-37277851800/asset-verification.json`. Earlier release assets were retained.
 
 This increment adds bounded current-state/history access, execution diagnostics, adaptive request allocation, completion repair and explicit focused verification. The inventory scenario checks domain requirements independently of generated tests and preserves protected acceptance checks during ordinary repair.
 
